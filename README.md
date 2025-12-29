@@ -1,5 +1,10 @@
 # Casino-V3 🎰⚡
 
+> [!IMPORTANT]
+> **Production Master**: This is a clean, hyper-stabilized repository following the Chaos Endurance protocol. All historical clutter and temporary state from V2 have been removed.
+
+---
+
 > **High-frequency algorithmic trading bot for cryptocurrency futures**
 > Built with Python, asyncio, and native exchange integrations
 
