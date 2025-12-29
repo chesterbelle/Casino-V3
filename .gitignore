@@ -1,0 +1,26 @@
+# Archivos y carpetas de caché de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Archivos de entorno
+.env
+
+# Logs (commented out to allow log viewing)
+# *.log
+# *.txt
+# *.json
+
+# Data
+*.csv
+
+# Archivos de entorno y logs
+.idea/
+
+# Testing temporales (commented out to allow log viewing)
+# testing_*.log
+# RESULTADOS_TEST_*.md
+# RELEASE_NOTES_*.md
+logs/*.log
+logs/*.json
+*.log

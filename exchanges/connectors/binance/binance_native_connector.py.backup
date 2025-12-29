@@ -1,0 +1,1199 @@
+"""
+Binance Native Connector.
+
+This module implements the BaseConnector interface using pure asyncio and websockets.
+It replaces the threaded SDK implementation to prevent Livelocks and GIL contention.
+"""
+
+import asyncio
+import json
+import logging
+import os
+import time
+from typing import Any, Dict, List, Optional
+
+import websockets
+from binance.um_futures import UMFutures
+
+from exchanges.connectors.connector_base import BaseConnector
+from exchanges.rate_limiter import BinanceRateLimiter
+
+
+class BinanceNativeConnector(BaseConnector):
+    """
+    Native connector for Binance Futures using pure asyncio.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        secret: Optional[str] = None,
+        mode: str = "demo",
+        enable_websocket: bool = True,
+    ):
+        """
+        Initialize the native connector.
+
+        Args:
+            api_key: Binance API Key
+            secret: Binance API Secret
+            mode: "demo" (Testnet) or "live" (Production)
+            enable_websocket: Whether to start WebSocket client
+        """
+        self.logger = logging.getLogger("BinanceNativeConnector")
+        self._mode = mode
+        self._enable_websocket = enable_websocket
+
+        # Determine Base URL
+        if self._mode == "demo":
+            self._base_url = "https://testnet.binancefuture.com"
+            self._ws_base_url = "wss://stream.binancefuture.com/ws"
+            self._api_key = api_key or os.getenv("BINANCE_TESTNET_API_KEY")
+            self._secret = secret or os.getenv("BINANCE_TESTNET_SECRET")
+        else:
+            self._base_url = "https://fapi.binance.com"
+            self._ws_base_url = "wss://fstream.binance.com/ws"
+            self._api_key = api_key or os.getenv("BINANCE_API_KEY")
+            self._secret = secret or os.getenv("BINANCE_API_SECRET")
+
+        self.loop = asyncio.get_running_loop()
+        self._restart_needed = False
+        self._health_check_callback = None
+        self._last_market_message_time = time.time()
+        self._last_user_message_time = time.time()
+
+        if not self._api_key or not self._secret:
+            self.logger.warning(f"⚠️ Missing API Keys for mode {self._mode}. Operations requiring auth will fail.")
+
+        # Initialize REST client
+        self.client = UMFutures(key=self._api_key, secret=self._secret, base_url=self._base_url)
+
+        # Initialize rate limiter
+        self.rate_limiter = BinanceRateLimiter()
+        self.logger.info("🕒 Rate limiter initialized for Binance")
+
+        self._connected = False
+        self._markets = {}
+        self._positions = []
+        self._orders = []
+        self._ticker_queues = {}  # symbol -> asyncio.Queue
+        self._trade_queues = {}  # symbol -> asyncio.Queue
+        self._time_offset = 0
+
+        # WebSocket State
+        self._market_data_ws: Optional[websockets.WebSocketClientProtocol] = None
+        self._market_data_task: Optional[asyncio.Task] = None
+        self._active_subscriptions = set()  # Track subscriptions for reconnection (channel)
+
+        # User Data Stream
+        self._listen_key: Optional[str] = None
+        self._user_data_ws: Optional[websockets.WebSocketClientProtocol] = None
+        self._user_data_task: Optional[asyncio.Task] = None
+        self._keepalive_task: Optional[asyncio.Task] = None
+        self._order_update_callback = None
+
+        # WS Throttle and Locks
+        self._ws_sub_semaphore = asyncio.Semaphore(5)  # Allow 5 subs/sec
+        self._last_ws_sub_time = 0.0
+        self._ws_lock = asyncio.Lock()  # Lock for socket write operations
+
+        # WS Health Tracking
+        self._last_market_message_time = 0.0
+        self._last_user_message_time = 0.0
+        self._consecutive_restart_failures = 0
+        self._max_simple_restarts = 3
+        self._hard_reset_lock = asyncio.Lock()
+        self._hard_reset_in_progress = False
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        """Normalize symbol for Binance API (e.g., 'BTC/USDT' -> 'BTCUSDT')."""
+        if not symbol:
+            return symbol
+        return symbol.replace("/", "").replace(":USDT", "")
+
+    def normalize_symbol(self, symbol: str) -> str:
+        """Public alias for _normalize_symbol."""
+        return self._normalize_symbol(symbol)
+
+    def denormalize_symbol(self, symbol: str) -> str:
+        """
+        Convert exchange specific symbol back to standard format.
+        For Binance Futures, native is BTCUSDT, standard is BTC/USDT.
+        But since we normalize internally to BTCUSDT for API calls,
+        and often use that as key, we might return native if unsure.
+        """
+        # Simple heuristic: insert / before last 4 chars if it ends in USDT
+        if symbol.endswith("USDT"):
+            return f"{symbol[:-4]}/USDT"
+        return symbol
+
+    def set_health_check_callback(self, callback):
+        self._health_check_callback = callback
+
+    @property
+    def exchange_name(self) -> str:
+        return "binance_native"
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    async def _run_blocking(self, func, *args, **kwargs):
+        """Run blocking synchronous function in executor."""
+        return await self.loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
+    async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Fetch OHLCV klines via REST."""
+        try:
+            native_symbol = self._normalize_symbol(symbol)
+            # Binance klines format: [time, open, high, low, close, vol, ...]
+            klines = await self._run_blocking(self.client.klines, symbol=native_symbol, interval=timeframe, limit=limit)
+
+            return [
+                {
+                    "timestamp": k[0],
+                    "open": float(k[1]),
+                    "high": float(k[2]),
+                    "low": float(k[3]),
+                    "close": float(k[4]),
+                    "volume": float(k[5]),
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                }
+                for k in klines
+            ]
+        except Exception as e:
+            self.logger.error(f"❌ fetch_ohlcv failed: {e}")
+            return []
+
+    async def connect(self) -> None:
+        """Connect explicitly."""
+        if self._connected:
+            return
+
+        try:
+            self.logger.info(f"🔌 Connecting to Binance Native ({self._mode})...")
+
+            # 1. Sync Time
+            response = await self._run_blocking(self.client.time)
+            server_time = response["serverTime"]
+            local_time = int(time.time() * 1000)
+            self._time_offset = server_time - local_time
+            self.logger.info(f"✅ Time Synced. Offset: {self._time_offset}ms")
+
+            # 2. Load Markets
+            exchange_info = await self._run_blocking(self.client.exchange_info)
+            self._process_markets(exchange_info)
+            self.logger.info(f"✅ Markets loaded: {len(self._markets)}")
+
+            # 3. Mode Check (One-Way)
+            try:
+                position_mode = await self._run_blocking(self.client.get_position_mode)
+                if position_mode["dualSidePosition"]:
+                    self.logger.info("⚠️ Switching to One-Way Mode...")
+                    await self._run_blocking(self.client.change_position_mode, dualSidePosition="false")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Position Mode check failed: {e}")
+
+            # 4. Start Market Data Stream
+            if self._enable_websocket:
+                await self._start_market_data_stream()
+
+            # 5. Start User Data Stream
+            if self._api_key and self._secret:
+                await self._start_user_data_stream()
+
+            self._connected = True
+
+        except Exception as e:
+            self.logger.error(f"❌ Connection failed: {e}")
+            raise
+
+    async def close(self) -> None:
+        """Close connections."""
+        self.logger.info("🔌 Closing Binance Connector...")
+
+        # Cancel tasks
+        tasks = [self._market_data_task, self._user_data_task, self._keepalive_task]
+        for t in tasks:
+            if t:
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+
+        # Close sockets
+        sockets = [self._market_data_ws, self._user_data_ws]
+        for ws in sockets:
+            if ws:
+                try:
+                    await asyncio.wait_for(ws.close(), timeout=2.0)
+                except Exception:
+                    pass
+
+        self._connected = False
+        self.logger.info("✅ Connection closed")
+
+    async def hard_reset(self) -> bool:
+        """Performed full reset on DNS/Network failure."""
+        if self._hard_reset_in_progress:
+            return False
+
+        async with self._hard_reset_lock:
+            self._hard_reset_in_progress = True
+            try:
+                self.logger.warning("🔄 HARD RESET: Rebuilding client...")
+                await self.close()
+                await asyncio.sleep(5)  # DNS propagation wait
+
+                # Rebuild REST
+                self.client = await self._run_blocking(
+                    UMFutures,
+                    key=self._api_key,
+                    secret=self._secret,
+                    base_url=self._base_url,
+                )
+                await self.connect()
+
+                # Active subscriptions will be restored by StreamManager calling watch_ticker/trade again
+                # or we can restore them if we track them deeply.
+                # Here we assume resilience logic upstream handles re-sub if queue died.
+                self._active_subscriptions.clear()
+
+                return True
+            except Exception as e:
+                self.logger.error(f"❌ HARD RESET failed: {e}")
+                return False
+            finally:
+                self._hard_reset_in_progress = False
+
+    # ========================
+    # MARKET DATA STREAM (ASYNC)
+    # ========================
+
+    async def _start_market_data_stream(self):
+        """Start the combined market data stream."""
+        try:
+            self.logger.info(f"🔌 Connecting to Market Stream: {self._ws_base_url}")
+
+            self._market_data_ws = await websockets.connect(
+                self._ws_base_url, open_timeout=10, close_timeout=5, ping_interval=20, ping_timeout=20
+            )
+            self._market_data_task = asyncio.create_task(self._listen_market_data())
+            self.logger.info("✅ Market Stream connected")
+
+            # Resubscribe if recovering
+            if self._active_subscriptions:
+                asyncio.create_task(self._resubscribe_all())
+
+        except Exception as e:
+            self.logger.error(f"❌ Market Stream connection failed: {e}")
+            raise
+
+    async def _listen_market_data(self):
+        """Listen loop for market data."""
+        try:
+            async for message in self._market_data_ws:
+                self._last_market_message_time = time.time()
+                try:
+                    data = json.loads(message)
+
+                    # Handle Subscription responses
+                    if "result" in data and "id" in data:
+                        # self.logger.debug(f"✅ WS Subscription Response: {data}")
+                        continue
+
+                    event_type = data.get("e")
+                    if event_type == "aggTrade":
+                        self._handle_trade_update(data)
+                    elif event_type == "24hrTicker" or event_type == "bookTicker":
+                        self._handle_ticker_update(data)
+
+                except Exception as e:
+                    self.logger.error(f"❌ Error processing market message: {e}")
+
+        except websockets.exceptions.ConnectionClosed:
+            self.logger.warning("⚠️ Market Stream disconnected")
+        except Exception as e:
+            self.logger.error(f"❌ Market Stream listener error: {e}")
+
+    async def _resubscribe_all(self):
+        """Resubscribe all active channels after reconnection."""
+        subs = list(self._active_subscriptions)
+        if not subs:
+            return
+
+        chunk_size = 50
+        for i in range(0, len(subs), chunk_size):
+            batch = subs[i : i + chunk_size]
+            payload = {"method": "SUBSCRIBE", "params": batch, "id": int(time.time())}
+            await self._send_ws_payload(payload)
+            await asyncio.sleep(0.1)
+
+    async def _send_ws_payload(self, payload: Dict):
+        """Send payload to market websocket safely."""
+        async with self._ws_lock:
+            if self._market_data_ws:
+                try:
+                    await self._market_data_ws.send(json.dumps(payload))
+                except Exception as e:
+                    self.logger.error(f"❌ WS Send Error: {e}")
+
+    async def watch_ticker(self, symbol: str) -> Dict[str, Any]:
+        """Subscribe and watch ticker."""
+        native_symbol = self._normalize_symbol(symbol).lower()
+        stream_name = f"{native_symbol}@ticker"  # 24hr ticker
+
+        if native_symbol not in self._ticker_queues:
+            self._ticker_queues[native_symbol] = asyncio.Queue(maxsize=100)
+
+            # Subscribe
+            if stream_name not in self._active_subscriptions:
+                async with self._ws_sub_semaphore:
+                    payload = {"method": "SUBSCRIBE", "params": [stream_name], "id": int(time.time())}
+                    await self._send_ws_payload(payload)
+                    self._active_subscriptions.add(stream_name)
+                    self.logger.info(f"📡 Subscribed to ticker: {symbol}")
+
+        return await self._ticker_queues[native_symbol].get()
+
+    async def watch_trades(self, symbol: str) -> Dict[str, Any]:
+        """Subscribe and watch trades."""
+        native_symbol = self._normalize_symbol(symbol).lower()
+        stream_name = f"{native_symbol}@aggTrade"
+
+        if native_symbol not in self._trade_queues:
+            self._trade_queues[native_symbol] = asyncio.Queue(maxsize=1000)
+
+            if stream_name not in self._active_subscriptions:
+                async with self._ws_sub_semaphore:
+                    payload = {"method": "SUBSCRIBE", "params": [stream_name], "id": int(time.time())}
+                    await self._send_ws_payload(payload)
+                    self._active_subscriptions.add(stream_name)
+                    self.logger.info(f"📡 Subscribed to trades: {symbol}")
+
+        return await self._trade_queues[native_symbol].get()
+
+    def _handle_ticker_update(self, msg):
+        """Process ticker message."""
+        raw_symbol = msg.get("s")  # "BTCUSDT"
+        if not raw_symbol:
+            return
+
+        symbol = raw_symbol.lower()
+        if symbol in self._ticker_queues:
+            ticker = {
+                "symbol": raw_symbol,  # keep original casing for user
+                "last": float(msg.get("c")),
+                "timestamp": int(msg.get("E")),
+                "volume": float(msg.get("v")),
+                "info": msg,
+            }
+            try:
+                self._ticker_queues[symbol].put_nowait(ticker)
+            except asyncio.QueueFull:
+                pass
+
+    def _handle_trade_update(self, msg):
+        """Process aggTrade message."""
+        raw_symbol = msg.get("s")
+        if not raw_symbol:
+            return
+
+        symbol = raw_symbol.lower()
+        if symbol in self._trade_queues:
+            trade = {
+                "symbol": raw_symbol,
+                "price": float(msg.get("p")),
+                "amount": float(msg.get("q")),
+                "side": "BID" if msg.get("m") else "ASK",
+                "timestamp": int(msg.get("T")),
+                "info": msg,
+            }
+            try:
+                self._trade_queues[symbol].put_nowait(trade)
+            except asyncio.QueueFull:
+                pass
+
+    # ========================
+    # USER DATA STREAM
+    # ========================
+
+    async def _create_listen_key(self) -> str:
+        res = await self._run_blocking(self.client.new_listen_key)
+        return res["listenKey"]
+
+    async def _start_user_data_stream(self):
+        try:
+            self._listen_key = await self._create_listen_key()
+            # Construct User Data Stream URL
+            # Note: For testnet, base is .../ws
+            # User Data stream URL is .../ws/<listenKey>
+            ws_url = f"{self._ws_base_url}/{self._listen_key}"
+
+            self.logger.info("🔌 Connecting to User Data Stream...")
+            self._user_data_ws = await websockets.connect(
+                ws_url, open_timeout=10, close_timeout=5, ping_interval=20, ping_timeout=20
+            )
+            self._user_data_task = asyncio.create_task(self._listen_user_data())
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+            self.logger.info("✅ User Data Stream connected")
+        except Exception as e:
+            self.logger.error(f"❌ User Stream failed: {e}")
+            raise
+
+    async def _listen_user_data(self):
+        try:
+            async for message in self._user_data_ws:
+                self._last_user_message_time = time.time()
+                try:
+                    data = json.loads(message)
+                    event = data.get("e")
+                    if event == "ORDER_TRADE_UPDATE":
+                        self._handle_order_update(data)
+                    elif event == "STRATEGY_UPDATE":
+                        self._handle_strategy_update(data)
+                    elif event == "listenKeyExpired":
+                        self.logger.warning("🔑 ListenKey Expired! Reconnecting...")
+                        await self._reconnect_user_data_stream()
+                except Exception as e:
+                    self.logger.error(f"❌ User msg error: {e}")
+        except Exception:
+            self.logger.warning("⚠️ User Data Stream disconnected")
+            # Logic to reconnect if not closed intentionally?
+            # Health check will handle restart.
+
+    async def _reconnect_user_data_stream(self):
+        if self._user_data_ws:
+            try:
+                await self._user_data_ws.close()
+            except Exception:
+                pass
+        if self._keepalive_task:
+            self._keepalive_task.cancel()
+        await self._start_user_data_stream()
+
+    async def _keepalive_loop(self):
+        """Refresh listen key every 30m."""
+        while True:
+            try:
+                await asyncio.sleep(1800)
+                if self._listen_key:
+                    await self._run_blocking(self.client.renew_listen_key, listenKey=self._listen_key)
+                    self.logger.debug("🔄 Listen key renewed")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ Keepalive error: {e}")
+                await asyncio.sleep(60)
+
+    def _handle_order_update(self, data):
+        if self._order_update_callback:
+            order_data = data.get("o", {})
+            # Prioritize numeric orderId ("i") to match REST response and OCO Manager expectation
+            order_id = str(order_data.get("i") or order_data.get("c"))
+
+            # DEBUG TRACE
+            self.logger.info(
+                f"🔍 WS Event: ID={order_id} i={order_data.get('i')} c={order_data.get('c')} X={order_data.get('X')}"
+            )
+
+            avg_price = float(order_data.get("ap", 0) or order_data.get("L", 0))
+            normalized = {
+                "id": order_id,
+                "order_id": order_id,  # OCO Manager checks this
+                "client_order_id": str(order_data.get("c", "")),
+                "symbol": order_data.get("s"),
+                "status": self._normalize_order_status(order_data.get("X")),
+                "filled": float(order_data.get("z", 0)),
+                "remaining": float(order_data.get("q", 0)) - float(order_data.get("z", 0)),
+                "amount": float(order_data.get("q", 0)),
+                "price": avg_price,
+                "average": avg_price,  # OCO Manager checks this for fill price
+                "timestamp": data.get("E"),
+            }
+            self._order_update_callback(normalized)
+
+    def _handle_strategy_update(self, data):
+        pass
+
+    def _normalize_order_status(self, status: str) -> str:
+        return {
+            "NEW": "open",
+            "PARTIALLY_FILLED": "open",
+            "FILLED": "closed",
+            "CANCELED": "canceled",
+            "EXPIRED": "expired",
+            "REJECTED": "rejected",
+        }.get(status, status.lower())
+
+    def set_order_update_callback(self, callback):
+        self._order_update_callback = callback
+
+    # ========================
+    # REST METHODS (WRAPPERS)
+    # ========================
+
+    async def fetch_ticker(self, symbol: str) -> Dict[str, Any]:
+        """Fetch REST ticker (snapshot)."""
+        native = self._normalize_symbol(symbol)
+        try:
+            res = await self._run_blocking(self.client.ticker_price, symbol=native)
+            price = res.get("price")
+            if price is None:
+                raise ValueError(f"Symbol {native} returned no price data (likely SETTLING/DELISTED)")
+            return {"symbol": symbol, "last": float(price), "timestamp": int(time.time() * 1000)}
+        except Exception as e:
+            self.logger.error(f"❌ fetch_ticker failed: {e}")
+            raise
+
+    async def fetch_balance(self) -> Dict[str, Any]:
+        acc = await self._run_blocking(self.client.account)
+        total = {}
+        free = {}
+        used = {}
+        for a in acc["assets"]:
+            t = float(a["walletBalance"])
+            f = float(a["availableBalance"])
+            total[a["asset"]] = t
+            free[a["asset"]] = f
+            used[a["asset"]] = t - f
+        return {"total": total, "free": free, "used": used, "timestamp": int(time.time() * 1000)}
+
+    async def fetch_positions(self, symbols: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        risk = await self._run_blocking(self.client.get_position_risk)
+        norm = []
+        target_syms = [self._normalize_symbol(s) for s in symbols] if symbols else None
+
+        for p in risk:
+            amt = float(p["positionAmt"])
+            if amt == 0:
+                continue
+            if target_syms and p["symbol"] not in target_syms:
+                continue
+
+            norm.append(
+                {
+                    "symbol": p["symbol"],
+                    "side": "LONG" if amt > 0 else "SHORT",
+                    "size": abs(amt),
+                    "entry_price": float(p["entryPrice"]),
+                    "mark_price": float(p["markPrice"]),
+                    "unrealized_pnl": float(p["unRealizedProfit"]),
+                    "leverage": float(p.get("leverage", 1)),
+                    "timestamp": int(p["updateTime"]),
+                }
+            )
+        return norm
+
+    async def fetch_active_symbols(self) -> List[str]:
+        """
+        Discover all symbols that have activity (Open Positions or Open Orders) on Binance.
+        Returns symbols in standard format (e.g., 'BTC/USDT').
+        """
+        active_symbols = set()
+
+        # 1. Check Positions (filter out zero-quantity entries)
+        try:
+            positions = await self.fetch_positions()
+            for pos in positions:
+                # Filter out empty positions
+                contracts = pos.get("contracts", 0) or pos.get("positionAmt", 0)
+                if float(contracts) != 0:
+                    # Normalize to standard format
+                    standard_sym = self.denormalize_symbol(pos["symbol"])
+                    active_symbols.add(standard_sym)
+        except Exception as e:
+            self.logger.error(f"❌ Failed to fetch positions in discovery: {e}")
+
+        # 2. Check Orders (Global)
+        try:
+            orders = await self.fetch_open_orders(None)
+            for o in orders:
+                # Normalize to standard format
+                standard_sym = self.denormalize_symbol(o["symbol"])
+                active_symbols.add(standard_sym)
+        except Exception as e:
+            self.logger.error(f"❌ Failed to fetch orders in discovery: {e}")
+
+        return list(active_symbols)
+
+    async def fetch_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+        """Fetch ALL open orders including regular and algo/conditional orders."""
+        all_orders = []
+
+        # 1. Regular orders
+        params = {}
+        if symbol:
+            params["symbol"] = self._normalize_symbol(symbol)
+        try:
+            orders = await self._run_blocking(self.client.get_orders, **params)
+            all_orders.extend([self._normalize_order_query(o) for o in orders])
+        except Exception as e:
+            self.logger.error(f"❌ Failed to fetch regular orders: {e}")
+
+        # 2. Algo/Conditional orders (Stop Market, Take Profit, etc.)
+        try:
+            algo_orders = await self._fetch_open_algo_orders(symbol)
+            all_orders.extend(algo_orders)
+        except Exception as e:
+            self.logger.error(f"❌ Failed to fetch algo orders: {e}")
+
+        return all_orders
+
+    async def _fetch_open_algo_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+        """Fetch open algo/conditional orders from Binance's Algo API."""
+        params = {}
+        if symbol:
+            params["symbol"] = self._normalize_symbol(symbol)
+
+        try:
+            algo_orders = await self._run_blocking(self.client.get_open_algo_orders, **params)
+            return [self._normalize_algo_order_from_list(o) for o in algo_orders.get("orders", [])]
+        except Exception as e:
+            self.logger.warning(f"⚠️ Algo orders fetch failed (may not be enabled): {e}")
+            return []
+
+    def _normalize_algo_order_from_list(self, order: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize an algo/conditional order from list query to standard format."""
+        return {
+            "id": order.get("clientAlgoId") or str(order.get("algoId", "")),
+            "order_id": order.get("clientAlgoId") or str(order.get("algoId", "")),
+            "algo_id": str(order.get("algoId", "")),
+            "symbol": order.get("symbol", ""),
+            "status": order.get("algoStatus", "").lower(),
+            "price": float(order.get("triggerPrice", 0) or 0),
+            "amount": float(order.get("quantity", 0) or 0),
+            "filled": 0.0,
+            "type": order.get("orderType", "").lower(),
+            "side": order.get("side", "").lower(),
+            "timestamp": order.get("createTime", 0),
+            "is_algo": True,
+            "info": order,
+        }
+
+    async def fetch_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
+        """Fetch a single order."""
+        try:
+            native_symbol = self._normalize_symbol(symbol)
+            params = {"symbol": native_symbol}
+            if order_id.isdigit():
+                params["orderId"] = int(order_id)
+            else:
+                params["origClientOrderId"] = order_id
+
+            order = await self._run_blocking(self.client.query_order, **params)
+            return self._normalize_order_query(order)
+        except Exception as e:
+            self.logger.error(f"❌ fetch_order failed: {e}")
+            raise
+
+    def _normalize_order_query(self, o):
+        avg_price = float(o.get("avgPrice", 0) or 0)
+        if avg_price == 0:
+            cum_quote = float(o.get("cumQuote", 0) or 0)
+            executed_qty = float(o.get("executedQty", 0) or 0)
+            if cum_quote > 0 and executed_qty > 0:
+                avg_price = cum_quote / executed_qty
+
+        return {
+            "id": str(o["orderId"]),  # Use orderId for consistency
+            "order_id": str(o["orderId"]),
+            "symbol": o["symbol"],
+            "status": self._normalize_order_status(o["status"]),
+            "price": float(o["price"]),
+            "average": avg_price,
+            "amount": float(o["origQty"]),
+            "filled": float(o["executedQty"]),
+            "side": o["side"].lower(),
+            "type": o["type"].lower(),
+            "info": o,
+        }
+
+    async def set_leverage(self, symbol: str, leverage: int):
+        """Set leverage for a symbol."""
+        try:
+            await self._run_blocking(
+                self.client.change_leverage, symbol=self._normalize_symbol(symbol), leverage=leverage
+            )
+            self.logger.info(f"🔧 Leverage set to {leverage}x for {symbol}")
+        except Exception as e:
+            # Ignore if already set or minor error
+            self.logger.warning(f"⚠️ Failed to set leverage for {symbol}: {e}")
+
+    async def set_margin_type(self, symbol: str, margin_type: str):
+        """Set margin type (ISOLATED or CROSSED)."""
+        try:
+            await self._run_blocking(
+                self.client.change_margin_type, symbol=self._normalize_symbol(symbol), marginType=margin_type.upper()
+            )
+            self.logger.info(f"🔧 Margin type set to {margin_type} for {symbol}")
+        except Exception as e:
+            # "No need to change margin type" is common error 4046
+            if "No need to change margin type" not in str(e):
+                self.logger.warning(f"⚠️ Failed to set margin type for {symbol}: {e}")
+
+    async def create_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        price: float = None,
+        order_type: str = "market",
+        params: Dict = None,
+    ):
+        params = params or {}
+        args = {
+            "symbol": self._normalize_symbol(symbol),
+            "side": side.upper(),
+            "type": order_type.upper(),
+            "quantity": amount,
+        }
+        if price:
+            args["price"] = price
+        if order_type.upper() == "LIMIT":
+            args["timeInForce"] = "GTC"
+
+        # Handle client order ID for race-condition prevention
+        if params.get("client_order_id"):
+            args["newClientOrderId"] = params["client_order_id"]
+        elif params.get("newClientOrderId"):
+            args["newClientOrderId"] = params["newClientOrderId"]
+
+        # Handle internal flags
+        if params.get("reduceOnly"):
+            args["reduceOnly"] = "true"
+        if params.get("closePosition"):
+            args["closePosition"] = "true"
+            args.pop("quantity", None)
+            args.pop("reduceOnly", None)
+
+        # BINANCE API CHANGE (Dec 9, 2025): STOP_MARKET, STOP, TAKE_PROFIT_MARKET
+        # must now use /fapi/v1/algoOrder endpoint
+        ALGO_ORDER_TYPES = {"STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TRAILING_STOP_MARKET"}
+
+        if order_type.upper() in ALGO_ORDER_TYPES:
+            # Add stopPrice from params if provided
+            if params.get("stopPrice"):
+                args["stopPrice"] = params["stopPrice"]
+            return await self._create_algo_order(args)
+
+        # Execute Main Order (MARKET, LIMIT, etc.)
+        res = await self._run_blocking(self.client.new_order, **args)
+
+        # CRITICAL: Handle TP/SL by placing SEPARATE orders if params exist
+        # Binance Futures often ignores params on MARKET orders. We must enforce them.
+        try:
+            # Extract params
+            tp_price = params.get("takeProfitPrice") or params.get("stopPrice")  # Some strategies map differently
+            sl_price = params.get("stopLossPrice")
+
+            # Also support 'stop_loss' key if used by ExecutionManager
+            if not sl_price and "stop_loss" in params:
+                sl_price = params["stop_loss"]
+            if not tp_price and "take_profit" in params:
+                tp_price = params["take_profit"]
+
+            if tp_price or sl_price:
+                self.logger.info(f"🛡️ Placing attached TP/SL for {symbol} (TP: {tp_price}, SL: {sl_price})")
+
+                # Determine close side
+                close_side = "SELL" if side.upper() == "BUY" else "BUY"
+
+                # Place Stop Loss
+                if sl_price:
+                    try:
+                        sl_args = {
+                            "symbol": self._normalize_symbol(symbol),
+                            "side": close_side,
+                            "type": "STOP_MARKET",
+                            "stopPrice": sl_price,
+                            "closePosition": "true",  # Safer to close full position than match qty perfectly
+                            "workingType": "MARK_PRICE",
+                            "timeInForce": "GTC",
+                        }
+                        await self._run_blocking(self.client.new_order, **sl_args)
+                        self.logger.info(f"✅ SL placed for {symbol} at {sl_price}")
+                    except Exception as e_sl:
+                        self.logger.error(f"❌ Failed to place SL for {symbol}: {e_sl}")
+
+                # Place Take Profit
+                if tp_price:
+                    try:
+                        tp_args = {
+                            "symbol": self._normalize_symbol(symbol),
+                            "side": close_side,
+                            "type": "TAKE_PROFIT_MARKET",
+                            "stopPrice": tp_price,
+                            "closePosition": "true",
+                            "workingType": "MARK_PRICE",
+                            "timeInForce": "GTC",
+                        }
+                        await self._run_blocking(self.client.new_order, **tp_args)
+                        self.logger.info(f"✅ TP placed for {symbol} at {tp_price}")
+                    except Exception as e_tp:
+                        self.logger.error(f"❌ Failed to place TP for {symbol}: {e_tp}")
+
+        except Exception as e_protection:
+            self.logger.error(f"❌ Error observing/placing protection for {symbol}: {e_protection}")
+
+        return self._normalize_order(res)
+
+    async def cancel_order(self, order_id: str, symbol: str):
+        """Cancel an order by orderId or clientOrderId. Handles both regular and algo orders."""
+        try:
+            # First, try to cancel as a regular order
+            if order_id.isdigit():
+                await self._run_blocking(
+                    self.client.cancel_order,
+                    symbol=self._normalize_symbol(symbol),
+                    orderId=int(order_id),
+                )
+            else:
+                # Could be a clientOrderId for regular order OR clientAlgoId for algo order
+                try:
+                    await self._run_blocking(
+                        self.client.cancel_order,
+                        symbol=self._normalize_symbol(symbol),
+                        origClientOrderId=order_id,
+                    )
+                except Exception:
+                    # If regular cancel fails, try as algo order
+                    await self._cancel_algo_order(order_id, symbol)
+        except Exception as e:
+            # If numeric ID fails, it might be an algoId
+            if order_id.isdigit():
+                try:
+                    await self._cancel_algo_order(order_id, symbol)
+                    return
+                except Exception:
+                    pass
+            self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
+            raise
+
+    async def _cancel_algo_order(self, algo_id: str, symbol: str):
+        """Cancel an algo/conditional order using raw HTTP DELETE."""
+        import aiohttp
+        import hmac
+        import hashlib
+
+        try:
+            # Build params
+            params = {
+                "symbol": self._normalize_symbol(symbol),
+                "timestamp": self._get_timestamp(),
+            }
+
+            # Add algoId or clientAlgoId
+            if algo_id.isdigit():
+                params["algoId"] = int(algo_id)
+            else:
+                params["clientAlgoId"] = algo_id
+
+            # Create signature
+            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+            signature = hmac.new(
+                self._secret.encode('utf-8'),
+                query_string.encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+            params["signature"] = signature
+
+            # Make DELETE request
+            url = f"{self._base_url}/fapi/v1/algoOrder"
+            headers = {"X-MBX-APIKEY": self._api_key}
+
+            async with aiohttp.ClientSession() as session:
+                async with session.delete(url, params=params, headers=headers) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        raise Exception(f"Algo cancel failed ({resp.status}): {text}")
+                    return await resp.json()
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to cancel algo order {algo_id}: {e}")
+            raise
+
+    def _process_markets(self, info):
+        for s in info["symbols"]:
+            # Extract filters safely
+            tick_size = 0.01
+            step_size = 0.001
+            for f in s.get("filters", []):
+                if f["filterType"] == "PRICE_FILTER":
+                    tick_size = float(f["tickSize"])
+                elif f["filterType"] == "LOT_SIZE":
+                    step_size = float(f["stepSize"])
+
+            self._markets[s["symbol"]] = {
+                "symbol": s["symbol"],
+                "tick_size": tick_size,
+                "step_size": step_size,
+                "base": s["baseAsset"],
+                "quote": s["quoteAsset"],
+            }
+
+    async def ensure_websocket(self):
+        """Health check + Reconnect."""
+        if not self._enable_websocket:
+            return
+
+        now = time.time()
+        market_stale = now - self._last_market_message_time > 30
+
+        market_closed = self._market_data_ws is None
+        # User Data is EVENT-DRIVEN (only fires on order updates).
+        # We can only check if connection is CLOSED, not staleness.
+        user_closed = self._user_data_ws is None and self._api_key is not None
+
+        if market_stale or market_closed or user_closed:
+            self.logger.warning(
+                f"⚠️ WS Health Check Failed | "
+                f"Market (Stale: {market_stale}, Closed: {market_closed}) | "
+                f"User (Closed: {user_closed}). Restarting..."
+            )
+            await self.close()
+            await asyncio.sleep(1)
+            await self.connect()
+
+    def price_to_precision(self, symbol: str, price: float) -> str:
+        """Format price to symbol precision using tick size."""
+        native_symbol = self._normalize_symbol(symbol)
+        if native_symbol not in self._markets:
+            return str(price)
+
+        tick_size = self._markets[native_symbol].get("tick_size", 0.01)
+        rounded = round(price / tick_size) * tick_size
+        tick_str = format(tick_size, "f").rstrip("0")
+        decimals = len(tick_str.split(".")[-1]) if "." in tick_str else 0
+        return f"{rounded:.{decimals}f}"
+
+    def amount_to_precision(self, symbol: str, amount: float) -> str:
+        """Format amount to symbol precision using step size."""
+        native_symbol = self._normalize_symbol(symbol)
+        if native_symbol not in self._markets:
+            step_size = 0.001
+        else:
+            step_size = self._markets[native_symbol].get("step_size", 0.001)
+
+        if step_size > amount and amount > 0:
+            step_size = 0.001
+
+        rounded = round(amount / step_size) * step_size
+        step_str = format(step_size, "f").rstrip("0")
+        decimals = len(step_str.split(".")[-1]) if "." in step_str else 0
+        return f"{rounded:.{decimals}f}"
+
+    # =========================================================
+    # TRADE HISTORY (Rebuilt from Legacy)
+    # =========================================================
+
+    async def fetch_my_trades(self, symbol: str = None, since: int = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Fetch user's trade history."""
+        try:
+            kwargs = {}
+            if symbol:
+                kwargs["symbol"] = self._normalize_symbol(symbol)
+            if since:
+                kwargs["startTime"] = since
+            if limit:
+                kwargs["limit"] = min(limit, 1000)
+
+            trades = await self._run_blocking(self.client.get_account_trades, **kwargs)
+            return [self._normalize_trade_response(t) for t in trades]
+        except Exception as e:
+            self.logger.error(f"❌ fetch_my_trades failed: {e}")
+            raise
+
+    def _normalize_trade_response(self, raw_trade: Dict) -> Dict:
+        """Normalize trade response to standard format."""
+        return {
+            "id": str(raw_trade["id"]),
+            "order": str(raw_trade["orderId"]),
+            "symbol": raw_trade["symbol"],
+            "side": raw_trade["side"].lower(),
+            "price": float(raw_trade["price"]),
+            "amount": float(raw_trade["qty"]),
+            "cost": float(raw_trade["quoteQty"]),
+            "fee": {"cost": float(raw_trade["commission"]), "currency": raw_trade["commissionAsset"]},
+            "timestamp": raw_trade["time"],
+            "realizedPnl": float(raw_trade.get("realizedPnl", 0)),
+            "info": raw_trade,
+        }
+
+    def normalize_trade(self, raw_trade: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize a trade to standard format and detect closes."""
+        info = raw_trade.get("info", {})
+        realized_pnl = float(info.get("realizedPnl", 0) or 0)
+
+        return {
+            **raw_trade,
+            "is_close": realized_pnl != 0,
+            "realized_pnl": realized_pnl,
+            "close_reason": "MANUAL" if realized_pnl != 0 else None,
+        }
+
+    # =========================================================
+    # ALGO ORDER SUPPORT (Rebuilt from Legacy)
+    # =========================================================
+
+    async def _create_algo_order(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Create an Algo Order using /fapi/v1/algoOrder endpoint."""
+        try:
+            algo_params = {
+                "algoType": "CONDITIONAL",
+                "symbol": args["symbol"],
+                "side": args["side"],
+                "type": args["type"],
+                "quantity": args.get("quantity"),
+            }
+
+            if "stopPrice" in args:
+                algo_params["triggerPrice"] = args["stopPrice"]
+
+            if "price" in args and args["type"] in ("STOP", "TAKE_PROFIT"):
+                algo_params["price"] = args["price"]
+                algo_params["timeInForce"] = args.get("timeInForce", "GTC")
+
+            if args.get("reduceOnly"):
+                algo_params["reduceOnly"] = "true"
+
+            algo_params = {k: v for k, v in algo_params.items() if v is not None}
+
+            self.logger.info(f"📋 Sending Algo Order: {algo_params}")
+            response = await self._run_blocking(self.client.sign_request, "POST", "/fapi/v1/algoOrder", algo_params)
+            return self._normalize_algo_order(response, args)
+
+        except Exception as e:
+            self.logger.error(f"❌ Algo Order Failed: {e}")
+            raise
+
+    def _normalize_algo_order(self, response: Dict, original_args: Dict) -> Dict:
+        """Normalize Algo Order response to match standard order format."""
+        order_id = (
+            str(response.get("algoOrderId", ""))
+            or str(response.get("orderId", ""))
+            or str(response.get("strategyId", ""))
+            or str(response.get("clientAlgoId", ""))
+            or f"ALGO_{int(time.time()*1000)}"
+        )
+        return {
+            "id": order_id,
+            "order_id": order_id,
+            "symbol": response.get("symbol", original_args.get("symbol")),
+            "status": self._normalize_order_status(response.get("status", "NEW")),
+            "price": float(response.get("triggerPrice", response.get("stopPrice", 0)) or 0),
+            "amount": float(response.get("origQty", response.get("quantity", original_args.get("quantity", 0))) or 0),
+            "filled": float(response.get("executedQty", 0) or 0),
+            "type": response.get("type", original_args.get("type", "")).lower(),
+            "side": response.get("side", original_args.get("side", "")).lower(),
+            "timestamp": response.get("updateTime", int(time.time() * 1000)),
+            "info": response,
+        }
+
+    async def _fetch_algo_order(self, client_algo_id: str, symbol: str) -> Dict[str, Any]:
+        """Fetch Algo Order via /fapi/v1/algoOrder."""
+        try:
+            native_symbol = self._normalize_symbol(symbol)
+            params = {
+                "symbol": native_symbol,
+                "clientAlgoId": client_algo_id,
+            }
+            response = await self._run_blocking(self.client.sign_request, "GET", "/fapi/v1/algoOrder", params)
+
+            if "code" in response and response["code"] != 200:
+                raise Exception(f"Algo order fetch failed: {response}")
+
+            return self._normalize_algo_order_query(response)
+        except Exception as e:
+            raise e
+
+    def _normalize_algo_order_query(self, o: Dict) -> Dict:
+        """Normalize Algo Order from Query response."""
+        order_id = str(o.get("clientAlgoId") or o.get("algoId"))
+        algo_status = o.get("algoStatus", "NEW")
+        status_map = {
+            "NEW": "open",
+            "CANCELLED": "canceled",
+            "EXECUTED": "closed",
+            "PROCESSED": "closed",
+            "REJECTED": "rejected",
+        }
+        status = status_map.get(algo_status, "open")
+
+        return {
+            "id": order_id,
+            "order_id": order_id,
+            "symbol": o.get("symbol"),
+            "status": status,
+            "price": float(o.get("triggerPrice", 0) or o.get("stopPrice", 0) or 0),
+            "amount": float(o.get("quantity", 0) or 0),
+            "filled": float(o.get("executedQty", 0) or 0),
+            "type": o.get("orderType", "").lower(),
+            "side": o.get("side", "").lower(),
+            "timestamp": o.get("updateTime", int(time.time() * 1000)),
+            "info": o,
+            "is_algo": True,
+        }
+
+    # =========================================================
+    # ADDITIONAL METHODS FOR FULL PARITY
+    # =========================================================
+
+    def _normalize_order(self, response: Dict) -> Dict:
+        """Normalize order response (comprehensive)."""
+        avg_price = float(response.get("avgPrice", 0) or 0)
+        limit_price = float(response.get("price", 0) or 0)
+        stop_price = float(response.get("stopPrice", 0) or 0)
+
+        status = self._normalize_order_status(response.get("status", ""))
+        final_price = avg_price
+
+        # Calculate fill price from cumQuote/executedQty if avgPrice is 0
+        if final_price == 0:
+            cum_quote = float(response.get("cumQuote", 0) or 0)
+            executed_qty = float(response.get("executedQty", 0) or 0)
+            if cum_quote > 0 and executed_qty > 0:
+                final_price = cum_quote / executed_qty
+
+        if final_price == 0 and limit_price > 0:
+            final_price = limit_price
+
+        return {
+            "id": str(response["orderId"]),
+            "order_id": str(response["orderId"]),
+            "symbol": response["symbol"],
+            "status": status,
+            "price": limit_price,
+            "average": final_price,
+            "stopPrice": stop_price,
+            "amount": float(response["origQty"]),
+            "filled": float(response["executedQty"]),
+            "type": response["type"].lower(),
+            "side": response["side"].lower(),
+            "timestamp": response["updateTime"],
+            "info": response,
+        }
+
+    async def create_market_order(self, symbol: str, side: str, amount: float, params: Dict = None) -> Dict[str, Any]:
+        """Create a market order (convenience wrapper)."""
+        return await self.create_order(symbol, side, amount, order_type="MARKET", params=params)
+
+    async def _fetch_open_algo_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        """Fetch open Algo Orders (Conditional) via /fapi/v1/openAlgoOrders."""
+        try:
+            native_symbol = self._normalize_symbol(symbol)
+            params = {"symbol": native_symbol}
+            response = await self._run_blocking(self.client.sign_request, "GET", "/fapi/v1/openAlgoOrders", params)
+            return [self._normalize_algo_order_query(o) for o in response]
+        except Exception as e:
+            raise e
+
+    def _get_timestamp(self) -> int:
+        """Get current timestamp in milliseconds for Binance API."""
+        return int(time.time() * 1000) + self._time_offset

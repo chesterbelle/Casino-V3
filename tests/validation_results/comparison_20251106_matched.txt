@@ -1,0 +1,46 @@
+
+================================================================================
+📊 COMPARACIÓN: Testing vs Backtesting
+================================================================================
+
+🔵 TESTING (Live Testnet):
+  Initial Balance: $4,597.09
+  Final Balance:   $1,842.16
+  Net PnL:         $-2,754.93
+  Total Trades:    0
+  Win Rate:        0.0%
+
+🟢 BACKTESTING (Historical Data):
+  Initial Balance: $4,597.09
+  Final Balance:   $4,596.93
+  Net PnL:         $-0.09
+  Total Trades:    1
+  Win Rate:        0.0%
+
+⚠️  DIFERENCIAS ENCONTRADAS:
+--------------------------------------------------------------------------------
+
+  Final Balance:
+    Testing:    1842.16
+    Backtesting: 4596.93
+    Diferencia: 149.540%
+    Tolerancia: 0.100%
+    Status:     WARNING
+
+  Total Trades:
+    Testing:    0
+    Backtesting: 1
+    Diferencia: 1
+    Status:     FAIL
+
+  Net PnL:
+    Testing:    -2754.93
+    Backtesting: -0.09
+    Diferencia: 99.997%
+    Tolerancia: 1.000%
+    Status:     WARNING
+
+================================================================================
+❌ VALIDACIÓN FALLIDA
+Se encontraron diferencias significativas entre testing y backtesting
+================================================================================

@@ -1,0 +1,126 @@
+# Multi-Timeframe Optimized Parameters
+# Generated automatically from optimization runs
+# Only includes sensors with positive expectancy
+
+SENSOR_PARAMS = {
+    "ADXFilter": {
+        "15m": {"tp_pct": 0.0760, "sl_pct": 0.0790},  # Exp: 0.348%
+    },
+    "BollingerSqueeze": {
+        "5m": {"tp_pct": 0.0230, "sl_pct": 0.0490},  # Exp: 0.193%
+        "15m": {"tp_pct": 0.1090, "sl_pct": 0.0400},  # Exp: 1.453%
+    },
+    "BollingerTouch": {
+        "1m": {"tp_pct": 0.0270, "sl_pct": 0.0140},  # Exp: 0.492%
+        "5m": {"tp_pct": 0.0770, "sl_pct": 0.0330},  # Exp: 0.372%
+        "15m": {"tp_pct": 0.0940, "sl_pct": 0.0160},  # Exp: 0.599%
+    },
+    "CCIReversion": {
+        "1m": {"tp_pct": 0.0070, "sl_pct": 0.0300},  # Exp: 0.303%
+        "5m": {"tp_pct": 0.0710, "sl_pct": 0.0470},  # Exp: 0.136%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0190},  # Exp: 0.142%
+    },
+    "DecelerationCandles": {
+        "1m": {"tp_pct": 0.0070, "sl_pct": 0.0200},  # Exp: 0.238%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0190},  # Exp: 0.185%
+    },
+    "DojiIndecision": {
+        "1m": {"tp_pct": 0.0310, "sl_pct": 0.0080},  # Exp: 0.205%
+        "5m": {"tp_pct": 0.0690, "sl_pct": 0.0350},  # Exp: 0.162%
+        "15m": {"tp_pct": 0.0760, "sl_pct": 0.0550},  # Exp: 0.251%
+    },
+    "EMA50Support": {
+        "1m": {"tp_pct": 0.0090, "sl_pct": 0.0180},  # Exp: 0.274%
+        "15m": {"tp_pct": 0.1120, "sl_pct": 0.0430},  # Exp: 0.248%
+    },
+    "EMACrossover": {
+        "1m": {"tp_pct": 0.0050, "sl_pct": 0.0290},  # Exp: 0.112%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0280},  # Exp: 0.473%
+    },
+    "EngulfingPattern": {
+        "1m": {"tp_pct": 0.0140, "sl_pct": 0.0220},  # Exp: 0.448%
+    },
+    "ExtremeCandleRatio": {
+        "1m": {"tp_pct": 0.0050, "sl_pct": 0.0280},  # Exp: 0.065%
+        "15m": {"tp_pct": 0.1120, "sl_pct": 0.0250},  # Exp: 0.322%
+    },
+    "FVGRetest": {
+        "1m": {"tp_pct": 0.0080, "sl_pct": 0.0190},  # Exp: 0.039%
+        "15m": {"tp_pct": 0.1000, "sl_pct": 0.0310},  # Exp: 0.339%
+    },
+    "InsideBarBreakout": {
+        "1m": {"tp_pct": 0.0060, "sl_pct": 0.0300},  # Exp: 0.034%
+        "5m": {"tp_pct": 0.0730, "sl_pct": 0.0350},  # Exp: 0.057%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0250},  # Exp: 0.176%
+    },
+    "KeltnerReversion": {
+        "1m": {"tp_pct": 0.0120, "sl_pct": 0.0270},  # Exp: 0.396%
+        "5m": {"tp_pct": 0.0790, "sl_pct": 0.0410},  # Exp: 0.152%
+        "15m": {"tp_pct": 0.1090, "sl_pct": 0.0100},  # Exp: 0.100%
+    },
+    "MACDCrossover": {
+        "1m": {"tp_pct": 0.0040, "sl_pct": 0.0270},  # Exp: 0.144%
+        "5m": {"tp_pct": 0.0690, "sl_pct": 0.0350},  # Exp: 0.019%
+        "15m": {"tp_pct": 0.1030, "sl_pct": 0.0340},  # Exp: 0.269%
+    },
+    "MarubozuMomentum": {
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0460},  # Exp: 0.279%
+    },
+    "MomentumBurst": {
+        "1m": {"tp_pct": 0.0050, "sl_pct": 0.0270},  # Exp: 0.278%
+        "15m": {"tp_pct": 0.1060, "sl_pct": 0.0250},  # Exp: 0.672%
+    },
+    "MorningStar": {
+        "5m": {"tp_pct": 0.0690, "sl_pct": 0.0370},  # Exp: 0.141%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0250},  # Exp: 1.505%
+    },
+    "PinBarReversal": {
+        "1m": {"tp_pct": 0.0050, "sl_pct": 0.0290},  # Exp: 0.122%
+        "5m": {"tp_pct": 0.0690, "sl_pct": 0.0290},  # Exp: 0.205%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0250},  # Exp: 0.326%
+    },
+    "RSIReversion": {
+        "1m": {"tp_pct": 0.0060, "sl_pct": 0.0300},  # Exp: 0.157%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0220},  # Exp: 0.104%
+    },
+    "RailsPattern": {
+        "1m": {"tp_pct": 0.0060, "sl_pct": 0.0290},  # Exp: 0.210%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0370},  # Exp: 0.577%
+    },
+    "StochasticReversion": {
+        "1m": {"tp_pct": 0.0080, "sl_pct": 0.0290},  # Exp: 0.286%
+        "5m": {"tp_pct": 0.0690, "sl_pct": 0.0490},  # Exp: 0.104%
+    },
+    "Supertrend": {
+        "1m": {"tp_pct": 0.0040, "sl_pct": 0.0180},  # Exp: 0.148%
+        "5m": {"tp_pct": 0.0610, "sl_pct": 0.0290},  # Exp: 0.154%
+        "15m": {"tp_pct": 0.1150, "sl_pct": 0.0400},  # Exp: 0.630%
+    },
+    "VCPPattern": {
+        "1m": {"tp_pct": 0.0080, "sl_pct": 0.0300},  # Exp: 0.078%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0250},  # Exp: 0.199%
+    },
+    "VWAPDeviation": {
+        "5m": {"tp_pct": 0.0370, "sl_pct": 0.0490},  # Exp: 0.159%
+        "15m": {"tp_pct": 0.0970, "sl_pct": 0.0520},  # Exp: 0.031%
+    },
+    "VolumeImbalance": {
+        "1m": {"tp_pct": 0.0050, "sl_pct": 0.0290},  # Exp: 0.107%
+        "15m": {"tp_pct": 0.1120, "sl_pct": 0.0490},  # Exp: 0.637%
+    },
+    "WilliamsRReversion": {
+        "1m": {"tp_pct": 0.0080, "sl_pct": 0.0300},  # Exp: 0.250%
+        "5m": {"tp_pct": 0.0690, "sl_pct": 0.0490},  # Exp: 0.084%
+        "15m": {"tp_pct": 0.1180, "sl_pct": 0.0190},  # Exp: 0.009%
+    },
+    "ZScoreReversion": {
+        "1m": {"tp_pct": 0.0270, "sl_pct": 0.0260},  # Exp: 0.356%
+        "5m": {"tp_pct": 0.0770, "sl_pct": 0.0330},  # Exp: 0.061%
+        "15m": {"tp_pct": 0.0940, "sl_pct": 0.0160},  # Exp: 0.317%
+    },
+}
+
+# Total sensors optimized: 27
+# 1m: 22 sensors
+# 5m: 14 sensors
+# 15m: 25 sensors

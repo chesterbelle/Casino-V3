@@ -1,0 +1,449 @@
+{
+  "generated_at": "2025-12-07T01:01:20.491640",
+  "min_trades": 30,
+  "fee_rate": 0.0007,
+  "mode": "single_timeframe",
+  "timeframe": "1m",
+  "sensors": {
+    "DoubleBottom": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.035,
+      "win_rate": 0.0652,
+      "expectancy": 0.01801,
+      "profit_factor": 1.0607,
+      "trades": 46
+    },
+    "DoubleTop": {
+      "tp_pct": 0.037,
+      "sl_pct": 0.045,
+      "win_rate": 0.0625,
+      "expectancy": 0.009306,
+      "profit_factor": 1.6444,
+      "trades": 32
+    },
+    "BollingerSqueeze": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.005,
+      "win_rate": 0.0492,
+      "expectancy": 0.005004,
+      "profit_factor": 1.2638,
+      "trades": 61
+    },
+    "VolumeSpike": {
+      "tp_pct": 0.069,
+      "sl_pct": 0.039,
+      "win_rate": 0.0541,
+      "expectancy": 0.004408,
+      "profit_factor": 1380.0,
+      "trades": 37
+    },
+    "ThreeWhiteSoldiers": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.023,
+      "win_rate": 0.0341,
+      "expectancy": 0.003102,
+      "profit_factor": 2.1522,
+      "trades": 88
+    },
+    "MarubozuMomentum": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.031,
+      "win_rate": 0.0237,
+      "expectancy": 0.002855,
+      "profit_factor": 0.7514,
+      "trades": 338
+    },
+    "LongTail": {
+      "tp_pct": 0.035,
+      "sl_pct": 0.013,
+      "win_rate": 0.1385,
+      "expectancy": 0.002789,
+      "profit_factor": 0.8654,
+      "trades": 65
+    },
+    "ThreeBlackCrows": {
+      "tp_pct": 0.037,
+      "sl_pct": 0.007,
+      "win_rate": 0.0476,
+      "expectancy": 0.000998,
+      "profit_factor": 0.5623,
+      "trades": 105
+    },
+    "DojiIndecision": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.031,
+      "win_rate": 0.0134,
+      "expectancy": 0.000641,
+      "profit_factor": 0.5081,
+      "trades": 521
+    },
+    "EngulfingPattern": {
+      "tp_pct": 0.059,
+      "sl_pct": 0.011,
+      "win_rate": 0.0403,
+      "expectancy": 0.000632,
+      "profit_factor": 0.5108,
+      "trades": 298
+    },
+    "VWAPMomentum": {
+      "tp_pct": 0.059,
+      "sl_pct": 0.045,
+      "win_rate": 0.0316,
+      "expectancy": 0.000528,
+      "profit_factor": 5.2444,
+      "trades": 3541
+    },
+    "SmartRange": {
+      "tp_pct": 0.019,
+      "sl_pct": 0.033,
+      "win_rate": 0.1143,
+      "expectancy": 0.000387,
+      "profit_factor": 760.0,
+      "trades": 35
+    },
+    "VolatilityWakeup": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.035,
+      "win_rate": 0.0054,
+      "expectancy": 0.000333,
+      "profit_factor": 0.427,
+      "trades": 2959
+    },
+    "AbsorptionBlock": {
+      "tp_pct": 0.023,
+      "sl_pct": 0.035,
+      "win_rate": 0.076,
+      "expectancy": 0.000318,
+      "profit_factor": 1.9117,
+      "trades": 421
+    },
+    "VWAPBreakout": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.041,
+      "win_rate": 0.0213,
+      "expectancy": 0.000275,
+      "profit_factor": 2.9687,
+      "trades": 5111
+    },
+    "TweezerPattern": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.049,
+      "win_rate": 0.0059,
+      "expectancy": 0.00027,
+      "profit_factor": 0.5051,
+      "trades": 1014
+    },
+    "WickRejection": {
+      "tp_pct": 0.019,
+      "sl_pct": 0.025,
+      "win_rate": 0.3576,
+      "expectancy": 0.00025,
+      "profit_factor": 1.0937,
+      "trades": 165
+    },
+    "BollingerTouch": {
+      "tp_pct": 0.069,
+      "sl_pct": 0.029,
+      "win_rate": 0.0065,
+      "expectancy": 2.7e-05,
+      "profit_factor": 0.2799,
+      "trades": 1529
+    },
+    "ZScoreReversion": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.023,
+      "win_rate": 0.0069,
+      "expectancy": -3.8e-05,
+      "profit_factor": 0.2077,
+      "trades": 5091
+    },
+    "SupportResistance": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.041,
+      "win_rate": 0.0098,
+      "expectancy": -8.7e-05,
+      "profit_factor": 0.4424,
+      "trades": 2441
+    },
+    "KeltnerReversion": {
+      "tp_pct": 0.063,
+      "sl_pct": 0.021,
+      "win_rate": 0.0056,
+      "expectancy": -0.000136,
+      "profit_factor": 0.1306,
+      "trades": 7176
+    },
+    "AdaptiveRSI": {
+      "tp_pct": 0.063,
+      "sl_pct": 0.019,
+      "win_rate": 0.006,
+      "expectancy": -0.000159,
+      "profit_factor": 0.136,
+      "trades": 9213
+    },
+    "MTFImpulse": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.033,
+      "win_rate": 0.0056,
+      "expectancy": -0.000186,
+      "profit_factor": 0.3338,
+      "trades": 13199
+    },
+    "MicroTrend": {
+      "tp_pct": 0.071,
+      "sl_pct": 0.033,
+      "win_rate": 0.0068,
+      "expectancy": -0.000227,
+      "profit_factor": 0.3659,
+      "trades": 3690
+    },
+    "HurstRegime": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.033,
+      "win_rate": 0.0087,
+      "expectancy": -0.000263,
+      "profit_factor": 0.4924,
+      "trades": 20556
+    },
+    "ADXFilter": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.035,
+      "win_rate": 0.0088,
+      "expectancy": -0.000287,
+      "profit_factor": 0.7009,
+      "trades": 30170
+    },
+    "ExtremeCandleRatio": {
+      "tp_pct": 0.059,
+      "sl_pct": 0.039,
+      "win_rate": 0.0158,
+      "expectancy": -0.000308,
+      "profit_factor": 1.2055,
+      "trades": 3225
+    },
+    "HigherTFTrend": {
+      "tp_pct": 0.071,
+      "sl_pct": 0.035,
+      "win_rate": 0.0068,
+      "expectancy": -0.000309,
+      "profit_factor": 0.6141,
+      "trades": 35704
+    },
+    "EMACrossover": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.033,
+      "win_rate": 0.0092,
+      "expectancy": -0.000309,
+      "profit_factor": 0.5969,
+      "trades": 1087
+    },
+    "NarrowRange7": {
+      "tp_pct": 0.075,
+      "sl_pct": 0.035,
+      "win_rate": 0.0047,
+      "expectancy": -0.000313,
+      "profit_factor": 0.4018,
+      "trades": 5714
+    },
+    "CCIReversion": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.023,
+      "win_rate": 0.0062,
+      "expectancy": -0.00034,
+      "profit_factor": 0.1897,
+      "trades": 17861
+    },
+    "PinBarReversal": {
+      "tp_pct": 0.017,
+      "sl_pct": 0.033,
+      "win_rate": 0.1578,
+      "expectancy": -0.000383,
+      "profit_factor": 2.5968,
+      "trades": 5463
+    },
+    "FVGRetest": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.033,
+      "win_rate": 0.012,
+      "expectancy": -0.000396,
+      "profit_factor": 0.4933,
+      "trades": 2170
+    },
+    "Supertrend": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.035,
+      "win_rate": 0.0081,
+      "expectancy": -0.000404,
+      "profit_factor": 0.7044,
+      "trades": 1351
+    },
+    "StochasticReversion": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.029,
+      "win_rate": 0.0063,
+      "expectancy": -0.000434,
+      "profit_factor": 0.2461,
+      "trades": 13170
+    },
+    "KeltnerBreakout": {
+      "tp_pct": 0.055,
+      "sl_pct": 0.005,
+      "win_rate": 0.0206,
+      "expectancy": -0.000447,
+      "profit_factor": 0.3487,
+      "trades": 5537
+    },
+    "MACDCrossover": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.025,
+      "win_rate": 0.0075,
+      "expectancy": -0.000453,
+      "profit_factor": 0.2966,
+      "trades": 3587
+    },
+    "RangeExpansion": {
+      "tp_pct": 0.061,
+      "sl_pct": 0.025,
+      "win_rate": 0.0191,
+      "expectancy": -0.000466,
+      "profit_factor": 0.6595,
+      "trades": 2089
+    },
+    "MomentumBurst": {
+      "tp_pct": 0.063,
+      "sl_pct": 0.023,
+      "win_rate": 0.0071,
+      "expectancy": -0.000471,
+      "profit_factor": 0.2403,
+      "trades": 704
+    },
+    "WilliamsRReversion": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.023,
+      "win_rate": 0.0065,
+      "expectancy": -0.000487,
+      "profit_factor": 0.1919,
+      "trades": 18715
+    },
+    "ConsecutiveCandles": {
+      "tp_pct": 0.017,
+      "sl_pct": 0.033,
+      "win_rate": 0.1756,
+      "expectancy": -0.000506,
+      "profit_factor": 2.0822,
+      "trades": 3845
+    },
+    "VolumeImbalance": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.025,
+      "win_rate": 0.0077,
+      "expectancy": -0.000574,
+      "profit_factor": 0.2795,
+      "trades": 7884
+    },
+    "WideRangeBar": {
+      "tp_pct": 0.063,
+      "sl_pct": 0.025,
+      "win_rate": 0.0117,
+      "expectancy": -0.000604,
+      "profit_factor": 0.43,
+      "trades": 6174
+    },
+    "WyckoffSpring": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.009,
+      "win_rate": 0.0045,
+      "expectancy": -0.000609,
+      "profit_factor": 0.0892,
+      "trades": 665
+    },
+    "VSAReversal": {
+      "tp_pct": 0.007,
+      "sl_pct": 0.013,
+      "win_rate": 0.4309,
+      "expectancy": -0.000611,
+      "profit_factor": 1.4269,
+      "trades": 123
+    },
+    "RailsPattern": {
+      "tp_pct": 0.019,
+      "sl_pct": 0.035,
+      "win_rate": 0.1117,
+      "expectancy": -0.000639,
+      "profit_factor": 2.3935,
+      "trades": 1737
+    },
+    "ThreeBar": {
+      "tp_pct": 0.063,
+      "sl_pct": 0.031,
+      "win_rate": 0.0053,
+      "expectancy": -0.000645,
+      "profit_factor": 0.254,
+      "trades": 3578
+    },
+    "RSIReversion": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.025,
+      "win_rate": 0.0059,
+      "expectancy": -0.000651,
+      "profit_factor": 0.2052,
+      "trades": 24693
+    },
+    "VCPPattern": {
+      "tp_pct": 0.015,
+      "sl_pct": 0.029,
+      "win_rate": 0.2,
+      "expectancy": -0.000706,
+      "profit_factor": 1.98,
+      "trades": 5455
+    },
+    "EMA50Support": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.041,
+      "win_rate": 0.006,
+      "expectancy": -0.000706,
+      "profit_factor": 0.7965,
+      "trades": 17497
+    },
+    "HigherHighsLowerLows": {
+      "tp_pct": 0.065,
+      "sl_pct": 0.005,
+      "win_rate": 0.0072,
+      "expectancy": -0.000709,
+      "profit_factor": 0.1421,
+      "trades": 6910
+    },
+    "InsideBarBreakout": {
+      "tp_pct": 0.067,
+      "sl_pct": 0.035,
+      "win_rate": 0.0061,
+      "expectancy": -0.000728,
+      "profit_factor": 0.4218,
+      "trades": 4297
+    },
+    "BollingerRejection": {
+      "tp_pct": 0.099,
+      "sl_pct": 0.005,
+      "win_rate": 0.0038,
+      "expectancy": -0.000767,
+      "profit_factor": 0.1037,
+      "trades": 783
+    },
+    "DecelerationCandles": {
+      "tp_pct": 0.027,
+      "sl_pct": 0.043,
+      "win_rate": 0.0573,
+      "expectancy": -0.000859,
+      "profit_factor": 1.8837,
+      "trades": 1467
+    },
+    "VWAPDeviation": {
+      "tp_pct": 0.051,
+      "sl_pct": 0.005,
+      "win_rate": 0.04,
+      "expectancy": -0.001614,
+      "profit_factor": 0.4484,
+      "trades": 100
+    }
+  }
+}
