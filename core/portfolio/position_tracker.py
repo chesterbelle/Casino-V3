@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from exchanges.adapters import ExchangeAdapter
 
 import config.trading
+from core.observability.historian import historian
 from utils.symbol_norm import normalize_symbol
 
 logger = logging.getLogger("PositionTracker")
@@ -535,11 +536,10 @@ class PositionTracker:
         # Add to history
         self.history.append(result)
 
-        logger.info(
-            f"✅ CONFIRMED CLOSE | {position.symbol} {position.side} | "
-            f"Exit: {exit_price:.2f} ({exit_reason}) | "
-            f"PnL REAL: {pnl:+.2f} | Fee: {fee:.2f} | Bars: {position.bars_held}"
-        )
+        logger.info(f"PnL REAL: {pnl:+.2f} | Fee: {fee:.2f} | Bars: {position.bars_held}")
+
+        # Record in persistent history
+        historian.record_trade(result)
 
         # Notificar a Gemini (o cualquier otro listener) sobre el resultado
         if self.on_close_callback:
@@ -658,11 +658,10 @@ class PositionTracker:
             self.blocked_capital -= position.margin_used
             self.total_trades_closed += 1
 
-            logger.info(
-                f"🔒 FORCE CLOSE | {position.symbol} {position.side} | "
-                f"Exit: {close_price:.2f} (FORCED) | "
-                f"P&L: {pnl_value:+.2f} ({pnl_pct:.2%}) | Bars: {position.bars_held}"
-            )
+            logger.info(f"P&L: {pnl_value:+.2f} ({pnl_pct:.2%}) | Bars: {position.bars_held}")
+
+            # Record force close in persistent history
+            historian.record_trade(result)
 
         self.open_positions.clear()
         self._trigger_state_change()

@@ -423,11 +423,23 @@ async def main():
     # Start components (connector already connected for balance fetch)
     # await connector.connect()  # Already connected above
 
-    # Store initial balance for PnL calc (use recovered or fresh)
+    # Store initial balance for PnL calc
+    # CRITICAL FIX (Phase 30): ALWAYS prioritize the fresh wallet balance fetched at startup
+    # over any recovered value from persistent state to avoid "stale balance" paradox.
+    fresh_balance = float(croupier.balance_manager.get_balance())
+
     state = state_manager.persistent_state.get_state()
-    if state:
-        initial_balance = state.initial_balance
-    logger.info(f"💰 Session Initial Balance: {initial_balance:.2f} USDT")
+    if state and state.initial_balance > 0:
+        if abs(state.initial_balance - fresh_balance) > 1.0:  # Significant difference
+            logger.warning(
+                f"⚠️ Recovered balance ({state.initial_balance}) differs from Wallet ({fresh_balance}). Prioritizing Wallet."
+            )
+
+    initial_balance = fresh_balance
+    logger.info(f"💰 Session Initial Balance: {initial_balance:.2f} USDT (GROUND TRUTH)")
+
+    # Sync Croupier with the definitive start balance
+    croupier.set_process_start_balance(initial_balance)
 
     # Update initial balance metrics
     update_balance(
@@ -627,34 +639,35 @@ async def main():
         except Exception as e:
             logger.error(f"⚠️ Error disconnecting connector: {e}")
 
-        # 0.8. Generate Session Report (PRIORITY - Before components stop)
+        # 0.8. Generate Session Report (PRIORITY - Precise Historian Data)
         logger.info("📊 Generating Session Report...")
         try:
-            tracker_stats = croupier.position_tracker.get_stats()
-            total_trades = tracker_stats.get("total_closed", 0)
-            wins = tracker_stats.get("total_wins", 0)
-            losses = tracker_stats.get("total_losses", 0)
+            # Pass final wallet balance to calculate leakage/adjustment
+            summary = croupier.get_session_summary(final_balance=final_balance_usdt)
+
+            total_trades = summary.get("count", 0)
+            wins = summary.get("wins", 0)
+            losses = summary.get("losses", 0)
             win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
 
-            # Calculate PnL
-            pnl_str = "N/A"
-            pnl_pct_str = "N/A"
-            try:
-                if final_balance_usdt != "N/A":
-                    fb = float(final_balance_usdt)
-                    pnl = fb - initial_balance
-                    pnl_pct = (pnl / initial_balance) * 100 if initial_balance > 0 else 0
-                    pnl_str = f"{pnl:+.2f} USDT"
-                    pnl_pct_str = f"{pnl_pct:+.2f}%"
-            except Exception:
-                pass
+            strategy_net_pnl = summary.get("total_net_pnl", 0.0)
+            adjustment = summary.get("leakage", 0.0)
+            account_delta = summary.get("account_delta", 0.0)
+            total_fees = summary.get("total_fees", 0.0)
+
+            start_bal = summary.get("start_balance", 0.0)
 
             logger.info("==========================================")
-            logger.info("🏁 SESSION SUMMARY")
+            logger.info("🏁 SESSION SUMMARY (Persistent Historian)")
             logger.info(f"   Reason: {exit_reason_str}")
-            logger.info(f"   Initial Balance: {initial_balance:.2f} USDT")
+            logger.info(f"   Start Balance: {start_bal:.2f} USDT")
             logger.info(f"   Final Balance: {final_balance_usdt} USDT")
-            logger.info(f"   PnL: {pnl_str} ({pnl_pct_str})")
+            logger.info("   --------------------------------------")
+            logger.info(f"   📈 Strategy PnL: {strategy_net_pnl:+.4f} USDT")
+            logger.info(f"   🧹 Audit Adjust: {adjustment:+.4f} USDT (Ghosts/Fees/Funding)")
+            logger.info(f"   💰 Account Delta: {account_delta:+.4f} USDT (ACTUAL)")
+            logger.info("   --------------------------------------")
+            logger.info(f"   Total Fees Paid: {total_fees:.4f} USDT")
             logger.info(f"   Total Trades: {total_trades}")
             logger.info(f"   Wins/Losses: {wins}/{losses} (WR: {win_rate:.2f}%)")
             logger.info("==========================================")

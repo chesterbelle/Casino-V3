@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 from config import trading as trading_config
 from core.error_handling import get_error_handler
+from core.observability.historian import historian
 from core.portfolio.balance_manager import BalanceManager
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
@@ -78,6 +79,11 @@ class Croupier:
         self.oco_manager = OCOManager(self.order_executor, self.position_tracker, exchange_adapter)
         self.reconciliation = ReconciliationService(exchange_adapter, self.position_tracker, self.oco_manager)
         self.exit_manager = ExitManager(self)
+        self.process_start_balance: float = 0.0
+
+        # Phase 27: Background Reconciliation & Stats
+        self._reconciliation_task: Optional[asyncio.Task] = None
+        self._start_background_tasks()
 
         self.logger.info(
             f"✅ Croupier initialized | Balance: {initial_balance} | " f"Max Positions: {max_concurrent_positions}"
@@ -342,6 +348,19 @@ class Croupier:
                 raise e
 
         fill_price = float(result.get("average", 0) or result.get("price", 0))
+
+        # FIX: Prevent 0.0 fill price from destroying PnL
+        if fill_price <= 0:
+            self.logger.warning(
+                f"⚠️ Order result missing fill price (Got {fill_price}). Fetching current price for PnL estimation..."
+            )
+            try:
+                fill_price = await self.adapter.get_current_price(position.symbol)
+                self.logger.info(f"✅ Fetched fallback price: {fill_price}")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to fetch current price for fallback: {e}")
+                # Fallback to entry price to avoid massive PnL spike (neutral exit)
+                fill_price = position.entry_price
 
         self.logger.info(f"✅ Position closed: {trade_id} | Fill: {fill_price}")
 
@@ -621,6 +640,102 @@ class Croupier:
         except Exception as e:
             self.logger.error(f"❌ Error reconciling/cleaning positions for {symbol}: {e}")
 
+    # =========================================================
+    # PHASE 27: PERSISTENT ACCOUNTING & RECONCILIATION
+    # =========================================================
+
+    def _start_background_tasks(self):
+        """Start background maintenance tasks."""
+        if self._reconciliation_task is None or self._reconciliation_task.done():
+            self._reconciliation_task = asyncio.create_task(self._reconciliation_loop())
+
+    async def _reconciliation_loop(self):
+        """Background loop to detect and correct balance drift every 5 mins."""
+        self.logger.info("⏱️ Starting Balance Reconciliation Loop (5m interval)")
+        while True:
+            try:
+                await asyncio.sleep(300)  # 5 minutes
+
+                # Fetch actual balance from exchange
+                exchange_balance = await self.adapter.fetch_balance()
+                actual_equity = exchange_balance.get("total", {}).get("USDT", 0.0)
+
+                if actual_equity == 0:
+                    continue  # Safety for transient API errors
+
+                # Calculate local estimated equity
+                local_equity = self.get_equity()
+                drift = actual_equity - local_equity
+
+                if abs(drift) > 0.1:  # Alert if drift > 0.1 USDT
+                    self.logger.warning(
+                        f"⚖️ BALANCE DRIFT DETECTED! | "
+                        f"Exchange: {actual_equity:.4f} | "
+                        f"Local: {local_equity:.4f} | "
+                        f"Drift: {drift:+.4f} USDT"
+                    )
+                    # Correct local balance manager if drift is significant
+                    # This ensures future sizing is correct even if some fees were missed
+                    self.balance_manager.set_balance(actual_equity)
+                    self.logger.info(f"🛠️ Corrected Local Balance to {actual_equity:.4f}")
+                else:
+                    self.logger.debug(f"⚖️ Balance OK | Drift: {drift:+.4f}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ Reconciliation loop error: {e}")
+
+    def set_process_start_balance(self, balance: float):
+        """Sets the exact balance at the start of this execution."""
+        self.process_start_balance = float(balance)
+        self.logger.info(f"💰 Croupier: Process Start Balance set to {self.process_start_balance:.2f} USDT")
+
+    def get_session_summary(self, final_balance: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Get precise trade stats from Historian (Net PnL) and Account Delta.
+
+        Args:
+            final_balance: Optional real wallet balance at end of session.
+                          If provided, calculates 'Leakage' (untracked pnl).
+        """
+        stats = historian.get_session_stats()
+
+        # Calculate Transparency Metrics (Phase 30)
+        strategy_net_pnl = stats.get("total_net_pnl", 0.0)
+
+        if final_balance is not None and self.process_start_balance > 0:
+            account_delta = float(final_balance) - self.process_start_balance
+            # Leakage = Actual change - Strategy PnL
+            # This accounts for ghosts, funding, and other untracked adjustments
+            leakage = account_delta - strategy_net_pnl
+        else:
+            account_delta = 0.0
+            leakage = 0.0
+
+        stats.update(
+            {
+                "account_delta": account_delta,
+                "leakage": leakage,
+                "start_balance": self.process_start_balance,
+                "final_balance": final_balance if final_balance is not None else 0.0,
+            }
+        )
+
+        return stats
+
+    def reset_strategy_history(self):
+        """Wipes persistent history - used when switching strategies."""
+        self.logger.warning("🗑️ Strategy Reset: Wiping all persistent trade history!")
+        historian.clear_history()
+        # Also reset tracker counters for visual feedback
+        self.position_tracker.total_trades_closed = 0
+        self.position_tracker.total_wins = 0
+        self.position_tracker.total_losses = 0
+        self.position_tracker.total_trades_opened = 0
+        self.position_tracker.new_longs = 0
+        self.position_tracker.new_shorts = 0
+
     async def sweep_orphaned_orders(self) -> None:
         """
         Startup Sweep: Detect and clean up orphaned orders and unknown positions.
@@ -694,6 +809,9 @@ class Croupier:
             "errors": [],
         }
 
+        # Phase 29: Enable Shutdown Mode to bypass circuit breakers for graceful exit
+        self.error_handler.set_shutdown_mode(True)
+
         if not self.adapter:
             self.logger.warning("⚠️ Exchange adapter not initialized in Croupier, skipping sweep")
             return report
@@ -705,7 +823,8 @@ class Croupier:
                 self.logger.info(f"🛡️ Gracefully closing {len(tracked_positions)} tracked positions (Parallel)...")
 
                 # Use Semaphore to avoid overwhelming the exchange API
-                semaphore = asyncio.Semaphore(5)
+                # Slightly increased for shutdown efficiency now that breakers are bypassed
+                semaphore = asyncio.Semaphore(10)
 
                 async def close_with_semaphore(pos):
                     async with semaphore:
@@ -845,5 +964,9 @@ class Croupier:
         except Exception as e:
             self.logger.error(f"❌ Emergency sweep failed: {e}")
             report["errors"].append(str(e))
+
+        finally:
+            # Always ensure shutdown mode is disabled after cleanup
+            self.error_handler.set_shutdown_mode(False)
 
         return report

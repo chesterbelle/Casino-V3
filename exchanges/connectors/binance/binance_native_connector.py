@@ -594,6 +594,31 @@ class BinanceNativeConnector(BaseConnector):
 
         return list(active_symbols)
 
+    async def fetch_my_trades(self, symbol: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetch user's trades (fills) for a specific symbol."""
+        native_symbol = self._normalize_symbol(symbol)
+        params = {"symbol": native_symbol, "limit": limit}
+
+        trades = await self._request("GET", "/fapi/v1/userTrades", params, signed=True, endpoint_type="account")
+
+        return [
+            {
+                "id": str(t["id"]),
+                "order_id": str(t["orderId"]),
+                "symbol": symbol,
+                "side": t["side"].lower(),
+                "price": float(t["price"]),
+                "amount": float(t["qty"]),
+                "cost": float(t["quoteQty"]),
+                "fee": {
+                    "cost": float(t.get("commission", 0)),
+                    "currency": t.get("commissionAsset", "USDT"),
+                },
+                "timestamp": t["time"],
+            }
+            for t in trades
+        ]
+
     # =========================================================
     # ORDERS - Regular
     # =========================================================
@@ -1206,6 +1231,10 @@ class BinanceNativeConnector(BaseConnector):
                 "filled": float(order_data.get("z", 0)),
                 "average": float(order_data.get("ap", 0)),
                 "timestamp": order_data.get("T", int(time.time() * 1000)),
+                "fee": {
+                    "cost": float(order_data.get("n", 0)),
+                    "currency": order_data.get("N", "USDT"),
+                },
             }
             asyncio.create_task(self._order_update_callback(normalized))
 

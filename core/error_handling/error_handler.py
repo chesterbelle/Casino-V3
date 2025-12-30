@@ -65,6 +65,7 @@ class ErrorHandler:
         self.classifier = ErrorClassifier()
         self._circuit_breakers: dict[str, CircuitBreaker] = {}
         self._error_counts: dict[str, int] = {}
+        self.shutdown_mode: bool = False
 
     def get_circuit_breaker(
         self,
@@ -93,6 +94,14 @@ class ErrorHandler:
                 name=name,
             )
         return self._circuit_breakers[name]
+
+    def set_shutdown_mode(self, enabled: bool):
+        """
+        Enable/disable shutdown mode.
+        When enabled, circuit breaker blocks are bypassed for critical cleanup.
+        """
+        self.shutdown_mode = enabled
+        self.logger.info(f"🛑 ErrorHandler shutdown mode: {'ENABLED' if enabled else 'DISABLED'}")
 
     async def execute(
         self,
@@ -214,8 +223,11 @@ class ErrorHandler:
 
         # Wrap function execution with MANUAL breaker management to filter errors
         async def wrapped():
-            # 1. Check if allowed
-            await breaker.check_availability()
+            # 1. Check if allowed (Bypass if in shutdown mode)
+            if self.shutdown_mode:
+                self.logger.debug(f"🛑 Shutdown Mode Active: Bypassing breaker check for {breaker_name}")
+            else:
+                await breaker.check_availability()
 
             try:
                 # 2. Execute

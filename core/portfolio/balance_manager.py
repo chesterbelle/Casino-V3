@@ -64,6 +64,14 @@ class BalanceManager:
         self.balance += delta
         self.equity = self.balance
 
+    def reserve_margin(self, amount: float):
+        """
+        Bloquea capital para una posición.
+        (En Casino-V3 el margin se resta del可用 balance local para sizing).
+        """
+        self.balance -= amount
+        self.equity = self.balance
+
     def get_state(self):
         """Snapshot actual del capital."""
         return {"balance": round(self.balance, 4), "equity": round(self.equity, 4), "trades": len(self.history)}
