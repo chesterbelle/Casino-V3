@@ -403,14 +403,7 @@ class PositionTracker:
                     exit_reason = "TP"
                     exit_price = position.tp_level
 
-            # Time-Based Exit Check (Optimization Alignment)
-            # If no TP/SL hit and max bars exceeded, close at market (current close)
-            if not exit_reason and position.bars_held >= config.trading.MAX_HOLD_BARS:
-                exit_reason = "TIME_EXIT"
-                exit_price = float(current_candle.get("close", 0))
-                logger.info(
-                    f"⏳ Time Limit Reached for {position.trade_id} ({position.bars_held} bars). Closing at {exit_price}"
-                )
+            # Time-Based Exit Check moved to ExitManager for Soft/Graceful logic
 
             if exit_reason:
                 # Calcular PnL teórico (para referencia)

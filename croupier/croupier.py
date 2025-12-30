@@ -80,6 +80,7 @@ class Croupier:
         self.reconciliation = ReconciliationService(exchange_adapter, self.position_tracker, self.oco_manager)
         self.exit_manager = ExitManager(self)
         self.process_start_balance: float = 0.0
+        self.is_drain_mode: bool = False
 
         # Phase 27: Background Reconciliation & Stats
         self._reconciliation_task: Optional[asyncio.Task] = None
@@ -88,6 +89,49 @@ class Croupier:
         self.logger.info(
             f"✅ Croupier initialized | Balance: {initial_balance} | " f"Max Positions: {max_concurrent_positions}"
         )
+
+    def set_drain_mode(self, enabled: bool):
+        """Enable or disable drain mode (no new entries, narrow exits)."""
+        self.is_drain_mode = enabled
+        if enabled:
+            self.logger.warning("🕒 Croupier entering DRAIN MODE. Narrowing TPs for all positions.")
+            # Trigger immediate soft exit check for all positions
+            asyncio.create_task(self.exit_manager.trigger_soft_exits())
+
+    async def modify_tp(
+        self,
+        trade_id: str,
+        new_tp_price: float,
+        symbol: str,
+        old_tp_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Modify Take Profit for a position."""
+        self.logger.info(f"🔄 Modifying TP for {trade_id} | New TP: {new_tp_price:.2f}")
+
+        position = next((p for p in self.position_tracker.open_positions if p.trade_id == trade_id), None)
+        if not position:
+            raise ValueError(f"Position not found: {trade_id}")
+
+        # tp_side = "sell" if position.side == "LONG" else "buy"
+        amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
+
+        # 1. Create new TP
+        result = await self.oco_manager.create_tp_order(
+            symbol=symbol, side=position.side, amount=amount, tp_price=new_tp_price, trade_id=trade_id
+        )
+
+        # 2. Cancel old TP
+        if old_tp_order_id:
+            try:
+                await self.oco_manager.cancel_order(old_tp_order_id, symbol)
+            except Exception as e:
+                self.logger.warning(f"⚠️ Failed to cancel old TP {old_tp_order_id}: {e}")
+
+        # Update local state
+        position.tp_level = new_tp_price
+        position.tp_order_id = result.get("order_id")
+
+        return {"status": "success", "new_tp_price": new_tp_price, "new_order_id": position.tp_order_id}
 
     async def execute_order(self, order: Dict[str, Any], wait_for_fill: bool = False) -> Dict[str, Any]:
         """
@@ -116,6 +160,11 @@ class Croupier:
         raw_symbol = order.get("symbol", "")
         symbol = normalize_symbol(raw_symbol)
         order["symbol"] = symbol
+
+        # DRAIN MODE CHECK
+        if self.is_drain_mode:
+            self.logger.warning(f"🚫 Drain Mode Active: Rejecting new entry for {symbol}")
+            return {"status": "error", "message": "Drain mode active"}
 
         # 1. Execute OCO bracket order
         self.logger.info(f"📥 Execute order request: {order['side']} {order['symbol']}")

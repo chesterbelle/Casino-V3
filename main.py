@@ -515,10 +515,23 @@ async def main():
             await asyncio.sleep(1)
 
             # Check timeout
-            if args.timeout and (time.time() - start_time) > (args.timeout * 60):
-                logger.info(f"⏰ Timeout reached ({args.timeout}m). Stopping...")
-                exit_reason_str = "TIMEOUT"
-                break
+            if args.timeout:
+                elapsed_min = (time.time() - start_time) / 60
+
+                # A. Drain Phase (Soft Timeout)
+                if elapsed_min >= (args.timeout - trading_config.DRAIN_PHASE_MINUTES):
+                    if not croupier.is_drain_mode:
+                        logger.warning(
+                            f"🕒 Entering DRAIN PHASE ({trading_config.DRAIN_PHASE_MINUTES}m remaining). "
+                            "Stopping new entries and narrowing TPs..."
+                        )
+                        croupier.set_drain_mode(True)
+
+                # B. Hard Timeout (Session Ends)
+                if elapsed_min >= args.timeout:
+                    logger.info(f"⏰ Timeout reached ({args.timeout}m). Stopping session.")
+                    exit_reason_str = "TIMEOUT"
+                    break
 
     except asyncio.CancelledError:
         logger.info("🛑 Main task cancelled")
@@ -624,10 +637,10 @@ async def main():
             bal = await asyncio.wait_for(croupier.adapter.fetch_balance(), timeout=10.0)
             final_balance_usdt = bal.get("total", {}).get("USDT", "N/A")
             # Update state with final balance
-            croupier.state_manager.current_state.current_balance = (
+            state_manager.persistent_state.current_state.current_balance = (
                 float(final_balance_usdt)
                 if final_balance_usdt != "N/A"
-                else croupier.state_manager.current_state.current_balance
+                else state_manager.persistent_state.current_state.current_balance
             )
         except Exception as e:
             logger.error(f"❌ Error fetching final balance: {e}")

@@ -531,6 +531,31 @@ class OCOManager:
 
         return tp_price, sl_price
 
+    async def cancel_order(self, order_id: str, symbol: str) -> None:
+        """Cancel a single order with retry logic."""
+        cancel_retry_config = RetryConfig(max_retries=3, backoff_base=0.3, backoff_factor=2.0, jitter=True)
+        await self.error_handler.execute_with_breaker(
+            "oco_cancel_single",
+            self.adapter.cancel_order,
+            order_id,
+            symbol,
+            retry_config=cancel_retry_config,
+            timeout=15.0,
+        )
+        self.logger.info(f"✅ Cancelled order: {order_id}")
+
+    async def create_tp_order(
+        self, symbol: str, side: str, amount: float, tp_price: float, trade_id: str = None
+    ) -> Dict[str, Any]:
+        """Create take profit limit order with retry logic and ReduceOnly handling."""
+        return await self._create_tp_order(symbol, side, amount, tp_price)
+
+    async def create_sl_order(
+        self, symbol: str, side: str, amount: float, sl_price: float, trade_id: str = None
+    ) -> Dict[str, Any]:
+        """Create stop loss order with retry logic and ReduceOnly handling."""
+        return await self._create_sl_order(symbol, side, amount, sl_price)
+
     async def _create_tp_order(self, symbol: str, side: str, amount: float, tp_price: float) -> Dict[str, Any]:
         """Create take profit limit order with retry logic and ReduceOnly handling."""
         # TP is opposite side of entry

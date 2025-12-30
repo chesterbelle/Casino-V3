@@ -115,20 +115,56 @@ class ExitManager:
             except Exception as e:
                 self.logger.error(f"❌ Failed to close position on reversal: {e}")
 
+    async def trigger_soft_exits(self):
+        """Immediately narrow TPs for all open positions (Session Drain)."""
+        for position in self.croupier.get_open_positions():
+            await self._execute_soft_exit(position, "Session Drain")
+
     async def _check_time_exit(self, position: OpenPosition, candle: CandleEvent):
         """
-        Close position if max hold time exceeded.
+        Apply soft exit (narrow TP) if max hold time reached.
         """
-        # Note: PositionTracker increments bars_held, but we can double check here or rely on it.
-        # PositionTracker's check_and_close_positions handles this logic usually,
-        # but if we want to enforce it here as well or instead:
-
         if position.bars_held >= config.MAX_HOLD_BARS:
-            self.logger.info(f"⏳ Max hold time reached for {position.trade_id} ({position.bars_held} bars)")
-            try:
-                await self.croupier.close_position(position.trade_id)
-            except Exception as e:
-                self.logger.error(f"❌ Failed to execute time exit: {e}")
+            if not hasattr(position, "soft_exit_triggered"):
+                await self._execute_soft_exit(position, "Max Time")
+
+            # HARD LIMIT: If it reaches 2x MAX_HOLD_BARS, then close at market for absolute safety
+            if position.bars_held >= config.MAX_HOLD_BARS * 2:
+                self.logger.critical(f"🚨 Double Max Hold Reached for {position.trade_id}. Force closing.")
+                try:
+                    await self.croupier.close_position(position.trade_id, exit_reason="HARD_TIME_EXIT")
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to execute hard time exit: {e}")
+
+    async def _execute_soft_exit(self, position: OpenPosition, reason: str):
+        """
+        Narrow the Take Profit to target a quick exit.
+        """
+        if hasattr(position, "soft_exit_triggered") and reason != "Session Drain":
+            return
+
+        self.logger.info(f"⏳ {reason} Soft Exit for {position.trade_id} | Narrowing TP")
+        position.soft_exit_triggered = True
+
+        try:
+            # Narrow TP by the multiplier (e.g., target 50% of original profit)
+            current_diff = abs(position.tp_level - position.entry_price)
+            narrowed_diff = current_diff * config.SOFT_EXIT_TP_MULT
+
+            if position.side == "LONG":
+                new_tp = position.entry_price + narrowed_diff
+            else:
+                new_tp = position.entry_price - narrowed_diff
+
+            await self.croupier.modify_tp(
+                trade_id=position.trade_id,
+                new_tp_price=new_tp,
+                symbol=position.symbol,
+                old_tp_order_id=position.tp_order_id,
+            )
+            self.logger.info(f"✅ Soft Exit applied: New TP @ {new_tp:.4f}")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to apply soft exit: {e}")
 
     async def _check_breakeven(self, position: OpenPosition, current_price: float):
         """
