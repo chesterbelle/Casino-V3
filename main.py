@@ -504,11 +504,14 @@ async def main():
     if args.timeout:
         logger.info(f"⏰ Timer set: Stopping in {args.timeout} minutes.")
 
+    # Mark startup as complete
+    startup_state["complete"] = True
+    logger.info("🏁 Startup complete - entering main loop")
+
     start_time = time.time()
     exit_reason_str = "SHUTDOWN"
 
     try:
-        # Keep running
         while engine.running and not stop_event.is_set():
             # Report main loop heartbeat
             watchdog.heartbeat("main_loop", "Active / Engine running")
@@ -533,12 +536,23 @@ async def main():
                     exit_reason_str = "TIMEOUT"
                     break
 
+        # Why did the loop exit?
+        if not engine.running:
+            logger.error("🚨 Loop exited: Engine.running is False!")
+            exit_reason_str = "ENGINE_LOST" if exit_reason_str == "SHUTDOWN" else exit_reason_str
+        elif stop_event.is_set():
+            logger.warning("🚨 Loop exited: stop_event is set!")
+            exit_reason_str = "SIGNAL_STOP" if exit_reason_str == "SHUTDOWN" else exit_reason_str
+
     except asyncio.CancelledError:
         logger.info("🛑 Main task cancelled")
-        exit_reason_str = "SHUTDOWN"
+        exit_reason_str = "CANCELLED"
     except KeyboardInterrupt:
         logger.info("🛑 Shutting down (KeyboardInterrupt)...")
         exit_reason_str = "MANUAL_STOP"
+    except Exception as e:
+        logger.critical(f"💥 FATAL CRASH in main loop: {e}", exc_info=True)
+        exit_reason_str = "CRASH"
     finally:
         logger.info("🧹 Cleaning up resources...")
 
@@ -637,11 +651,11 @@ async def main():
             bal = await asyncio.wait_for(croupier.adapter.fetch_balance(), timeout=10.0)
             final_balance_usdt = bal.get("total", {}).get("USDT", "N/A")
             # Update state with final balance
-            state_manager.persistent_state.current_state.current_balance = (
-                float(final_balance_usdt)
-                if final_balance_usdt != "N/A"
-                else state_manager.persistent_state.current_state.current_balance
-            )
+            state = state_manager.persistent_state.get_state()
+            if state:
+                state.current_balance = (
+                    float(final_balance_usdt) if final_balance_usdt != "N/A" else state.current_balance
+                )
         except Exception as e:
             logger.error(f"❌ Error fetching final balance: {e}")
 

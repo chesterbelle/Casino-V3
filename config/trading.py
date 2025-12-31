@@ -20,7 +20,11 @@ TAKE_PROFIT = 0.01  # 1.0% target
 STOP_LOSS = 0.01  # 1.0% stop
 
 # Time-Based Exit (Optimization Alignment)
-MAX_HOLD_BARS = 120  # Close trade after 120 candles (2 hours) if no TP/SL hit
+MAX_HOLD_BARS = 180  # Increase to 3h for more natural exits
+
+# --- Graceful Exit (Soft Timeout) ---
+DRAIN_PHASE_MINUTES = 30  # Stop new entries 30 min before timeout
+SOFT_EXIT_TP_MULT = 0.5  # Narrow TP by 50% for soft exit
 
 
 # =====================================================
