@@ -68,8 +68,10 @@ class OrderExecutor:
         client_id = f"C3_{prefix}_{uid}"
 
         order["params"]["clientOrderId"] = client_id
+        order["params"]["client_order_id"] = client_id
         # Also set top-level for some adapters/ccxt versions
         order["clientOrderId"] = client_id
+        order["client_order_id"] = client_id
 
     async def execute_market_order(
         self,

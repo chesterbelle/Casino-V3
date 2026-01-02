@@ -57,8 +57,10 @@ class OpenPosition:
     liquidation_level: Optional[float]
     order: Dict[str, Any]
     main_order_id: Optional[str] = None  # ID de la orden principal (MARKET/LIMIT)
-    tp_order_id: Optional[str] = None  # ID de la orden TP (TAKE_PROFIT_MARKET)
-    sl_order_id: Optional[str] = None  # ID de la orden SL (STOP_MARKET)
+    tp_order_id: Optional[str] = None  # ID de la orden TP (Client ID)
+    sl_order_id: Optional[str] = None  # ID de la orden SL (Client ID)
+    exchange_tp_id: Optional[str] = None  # ID numérico de Binance para TP
+    exchange_sl_id: Optional[str] = None  # ID numérico de Binance para SL
     bars_held: int = 0
     funding_accrued: float = 0.0
     contributors: List[str] = None  # Sensores que contribuyeron a la señal
@@ -223,6 +225,8 @@ class PositionTracker:
         main_order_id: Optional[str] = None,
         tp_order_id: Optional[str] = None,
         sl_order_id: Optional[str] = None,
+        exchange_tp_id: Optional[str] = None,
+        exchange_sl_id: Optional[str] = None,
     ) -> Optional[OpenPosition]:
         """
         Abre una nueva posición y la registra.
@@ -317,6 +321,8 @@ class PositionTracker:
                 main_order_id=main_order_id,
                 tp_order_id=tp_order_id,
                 sl_order_id=sl_order_id,
+                exchange_tp_id=exchange_tp_id,
+                exchange_sl_id=exchange_sl_id,
                 contributors=order.get("contributors", []),
             )
 
@@ -728,15 +734,15 @@ class PositionTracker:
         opposite_order_id = None
 
         for pos in self.open_positions:
-            if pos.tp_order_id == order_id:
+            if order_id in [pos.tp_order_id, pos.exchange_tp_id] and pos.tp_order_id:
                 position = pos
                 exit_reason = "TP"
-                opposite_order_id = pos.sl_order_id  # Cancel SL when TP fills
+                opposite_order_id = pos.sl_order_id or pos.exchange_sl_id
                 break
-            elif pos.sl_order_id == order_id:
+            elif order_id in [pos.sl_order_id, pos.exchange_sl_id] and pos.sl_order_id:
                 position = pos
                 exit_reason = "SL"
-                opposite_order_id = pos.tp_order_id  # Cancel TP when SL fills
+                opposite_order_id = pos.tp_order_id or pos.exchange_tp_id
                 break
 
         if not position:

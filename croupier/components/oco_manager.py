@@ -315,6 +315,8 @@ class OCOManager:
                 main_order_id=main_order.get("order_id") or main_order.get("id"),
                 tp_order_id=None,  # Pending
                 sl_order_id=None,  # Pending
+                exchange_tp_id=None,  # Pending
+                exchange_sl_id=None,  # Pending
                 contributors=contributors or [],
                 status="OPENING",  # CRITICAL: Signals "Construction in Progress"
             )
@@ -362,9 +364,11 @@ class OCOManager:
                     f"TP={tp_order_id}, SL={sl_order_id}"
                 )
 
-                # UPDATE POSITION STATE TO ACTIVE
-                position.tp_order_id = tp_order_id
-                position.sl_order_id = sl_order_id
+                # UPDATE POSITION STATE TO ACTIVE WITH DUAL IDs
+                position.tp_order_id = tp_order.get("client_order_id") or tp_order_id
+                position.exchange_tp_id = tp_order.get("order_id") or tp_order_id
+                position.sl_order_id = sl_order.get("client_order_id") or sl_order_id
+                position.exchange_sl_id = sl_order.get("order_id") or sl_order_id
                 position.status = "ACTIVE"
                 self.tracker._trigger_state_change()
                 self.logger.info(f"✅ Position transitioned to ACTIVE: {position.trade_id}")

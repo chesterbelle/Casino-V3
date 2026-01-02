@@ -1,0 +1,757 @@
+{
+  "session_id": "session_1767313018",
+  "start_time": 1767281653.6042004,
+  "last_update": 1767318487.7558138,
+  "initial_balance": 4689.84706972,
+  "current_balance": 4646.00753144,
+  "available_balance": 4646.00753144,
+  "allocated_balance": 0.0,
+  "open_positions": [
+    {
+      "trade_id": "175152364",
+      "symbol": "IOST/USDT",
+      "side": "SHORT",
+      "entry_price": 0.001819,
+      "entry_timestamp": 1767318362000,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.001792,
+      "sl_level": 0.001837,
+      "amount": 25551.0,
+      "main_order_id": "175152364",
+      "tp_order_id": "175152385",
+      "sl_order_id": "fFHgw78gCFGWkVqxQiAiXn",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318360922",
+          "symbol": "IOST/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 25551.0,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318360.9219592",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "1224943791",
+      "symbol": "BCH/USDT",
+      "side": "SHORT",
+      "entry_price": 588.34,
+      "entry_timestamp": 1767318362005,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 579.51,
+      "sl_level": 594.22,
+      "amount": 0.079,
+      "main_order_id": "1224943791",
+      "tp_order_id": "1224943873",
+      "sl_order_id": "Zs0KKWrxdVqxQ2fNQKVR4g",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361154",
+          "symbol": "BCH/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 0.079,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318361.1547468",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "138646312",
+      "symbol": "THETA/USDT",
+      "side": "LONG",
+      "entry_price": 0.2783,
+      "entry_timestamp": 1767318362005,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.2897,
+      "sl_level": 0.2569,
+      "amount": 167.0,
+      "main_order_id": "138646312",
+      "tp_order_id": "138646339",
+      "sl_order_id": "zBzvn3rOAt0KfebroWEFdF",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "WickRejection"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361581",
+          "symbol": "THETA/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 167.0,
+          "take_profit": 0.041,
+          "stop_loss": 0.077,
+          "timestamp": "1767318361.58152",
+          "ghost": false,
+          "contributors": [
+            "WickRejection"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "197815532",
+      "symbol": "IOTA/USDT",
+      "side": "SHORT",
+      "entry_price": 0.0849,
+      "entry_timestamp": 1767318362005,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.0814,
+      "sl_level": 0.0914,
+      "amount": 547.7,
+      "main_order_id": "197815532",
+      "tp_order_id": "197815559",
+      "sl_order_id": "xHasIVUWYFTYPLN0vbzMHd",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "WickRejection"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361319",
+          "symbol": "IOTA/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 547.7,
+          "take_profit": 0.041,
+          "stop_loss": 0.077,
+          "timestamp": "1767318361.3191776",
+          "ghost": false,
+          "contributors": [
+            "WickRejection"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "450289375",
+      "symbol": "COMP/USDT",
+      "side": "SHORT",
+      "entry_price": 25.22,
+      "entry_timestamp": 1767318362006,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 24.19,
+      "sl_level": 27.16,
+      "amount": 1.843,
+      "main_order_id": "450289375",
+      "tp_order_id": "450289399",
+      "sl_order_id": "ijamAii9tvooo8K7WKhHvn",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "WickRejection"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361577",
+          "symbol": "COMP/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 1.843,
+          "take_profit": 0.041,
+          "stop_loss": 0.077,
+          "timestamp": "1767318361.577572",
+          "ghost": false,
+          "contributors": [
+            "WickRejection"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "145380279",
+      "symbol": "QTUM/USDT",
+      "side": "LONG",
+      "entry_price": 1.323,
+      "entry_timestamp": 1767318362754,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 1.469,
+      "sl_level": 1.283,
+      "amount": 35.1,
+      "main_order_id": "145380279",
+      "tp_order_id": "145380297",
+      "sl_order_id": "6TuS1Wb6lHppMorJMosLjV",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "VWAPMomentum"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361594",
+          "symbol": "QTUM/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 35.1,
+          "take_profit": 0.11,
+          "stop_loss": 0.03,
+          "timestamp": "1767318361.5945394",
+          "ghost": false,
+          "contributors": [
+            "VWAPMomentum"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "142164777",
+      "symbol": "DOT/USDT",
+      "side": "LONG",
+      "entry_price": 1.998,
+      "entry_timestamp": 1767318362550,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 2.08,
+      "sl_level": 1.844,
+      "amount": 23.2,
+      "main_order_id": "142164777",
+      "tp_order_id": "142164806",
+      "sl_order_id": "JFpCQcvwkvcbzOCCsrYq3p",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "WickRejection"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361587",
+          "symbol": "DOT/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 23.2,
+          "take_profit": 0.041,
+          "stop_loss": 0.077,
+          "timestamp": "1767318361.586868",
+          "ghost": false,
+          "contributors": [
+            "WickRejection"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "904322821",
+      "symbol": "LTC/USDT",
+      "side": "LONG",
+      "entry_price": 79.18,
+      "entry_timestamp": 1767318362801,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 80.37,
+      "sl_level": 78.39,
+      "amount": 0.587,
+      "main_order_id": "904322821",
+      "tp_order_id": "904322888",
+      "sl_order_id": "J4DYJEBywf7jXPF3da7PDo",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361624",
+          "symbol": "LTC/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 0.587,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318361.6239328",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "7924543439",
+      "symbol": "ETH/USDT",
+      "side": "SHORT",
+      "entry_price": 2997.24,
+      "entry_timestamp": 1767318362947,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 2952.28,
+      "sl_level": 3027.21,
+      "amount": 0.015,
+      "main_order_id": "7924543439",
+      "tp_order_id": "7924543957",
+      "sl_order_id": "YoNHMc4DHLON0McNWVn8wr",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318361605",
+          "symbol": "ETH/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 0.015,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318361.6055238",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "212380102",
+      "symbol": "ATOM/USDT",
+      "side": "LONG",
+      "entry_price": 2.068,
+      "entry_timestamp": 1767318421554,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 2.099,
+      "sl_level": 2.047,
+      "amount": 22.48,
+      "main_order_id": "212380102",
+      "tp_order_id": "212380128",
+      "sl_order_id": "gppcNqbVSXE4XsyE7pYr60",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318420844",
+          "symbol": "ATOM/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 22.48,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318420.8439038",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "614140993",
+      "symbol": "TRX/USDT",
+      "side": "LONG",
+      "entry_price": 0.28629,
+      "entry_timestamp": 1767318421837,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.29058,
+      "sl_level": 0.28343,
+      "amount": 162.0,
+      "main_order_id": "614140993",
+      "tp_order_id": "614141017",
+      "sl_order_id": "7wPj1s9aMKmnbWcSEf8RCw",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318421268",
+          "symbol": "TRX/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 162.0,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318421.2685387",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "298596161",
+      "symbol": "XLM/USDT",
+      "side": "SHORT",
+      "entry_price": 0.20717,
+      "entry_timestamp": 1767318421950,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.19308,
+      "sl_level": 0.21815,
+      "amount": 224.0,
+      "main_order_id": "298596161",
+      "tp_order_id": "298596177",
+      "sl_order_id": "rCn9j1MeAWGKy2tcxOb0ty",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "MicroTrend"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318421309",
+          "symbol": "XLM/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 224.0,
+          "take_profit": 0.068,
+          "stop_loss": 0.053,
+          "timestamp": "1767318421.308875",
+          "ghost": false,
+          "contributors": [
+            "MicroTrend"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "195892051",
+      "symbol": "VET/USDT",
+      "side": "LONG",
+      "entry_price": 0.011009,
+      "entry_timestamp": 1767318421972,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.011174,
+      "sl_level": 0.010899,
+      "amount": 4224.0,
+      "main_order_id": "195892051",
+      "tp_order_id": "195892064",
+      "sl_order_id": "0BKf4dIvgQP7HJPFgLKVWQ",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318421083",
+          "symbol": "VET/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 4224.0,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318421.0837321",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "126506407",
+      "symbol": "CRV/USDT",
+      "side": "SHORT",
+      "entry_price": 0.393,
+      "entry_timestamp": 1767318421976,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.377,
+      "sl_level": 0.423,
+      "amount": 118.0,
+      "main_order_id": "126506407",
+      "tp_order_id": "126506422",
+      "sl_order_id": "bnEmJfwzHY4dPaTCBIixs7",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "WickRejection"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318421240",
+          "symbol": "CRV/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 118.0,
+          "take_profit": 0.041,
+          "stop_loss": 0.077,
+          "timestamp": "1767318421.2403402",
+          "ghost": false,
+          "contributors": [
+            "WickRejection"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "1115985819",
+      "symbol": "BNB/USDT",
+      "side": "SHORT",
+      "entry_price": 862.64,
+      "entry_timestamp": 1767318421997,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 849.7,
+      "sl_level": 871.27,
+      "amount": 0.05,
+      "main_order_id": "1115985819",
+      "tp_order_id": "1115985929",
+      "sl_order_id": "EeE8sRoqkVUpvTy0q0Eywd",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318421161",
+          "symbol": "BNB/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 0.05,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318421.1605916",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "230601887",
+      "symbol": "ONT/USDT",
+      "side": "SHORT",
+      "entry_price": 0.0633,
+      "entry_timestamp": 1767318421993,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.0624,
+      "sl_level": 0.0639,
+      "amount": 734.6,
+      "main_order_id": "230601887",
+      "tp_order_id": "230601900",
+      "sl_order_id": "KImr6kaAvNgs29XHKyECez",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318421088",
+          "symbol": "ONT/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 734.6,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318421.0882537",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "137800241",
+      "symbol": "SNX/USDT",
+      "side": "LONG",
+      "entry_price": 0.449,
+      "entry_timestamp": 1767318422152,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.467,
+      "sl_level": 0.414,
+      "amount": 104.2,
+      "main_order_id": "137800241",
+      "tp_order_id": "137800257",
+      "sl_order_id": "8SqE1LyNQl37DQv1LboZY5",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "WickRejection"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318421340",
+          "symbol": "SNX/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 104.2,
+          "take_profit": 0.041,
+          "stop_loss": 0.077,
+          "timestamp": "1767318421.3399496",
+          "ghost": false,
+          "contributors": [
+            "WickRejection"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "166502234",
+      "symbol": "XTZ/USDT",
+      "side": "SHORT",
+      "entry_price": 0.502,
+      "entry_timestamp": 1767318481905,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.494,
+      "sl_level": 0.507,
+      "amount": 92.3,
+      "main_order_id": "166502234",
+      "tp_order_id": "166502236",
+      "sl_order_id": "i2ApzIZbbt71hd7MjJrraJ",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318481239",
+          "symbol": "XTZ/USDT",
+          "side": "SHORT",
+          "size": 0.01,
+          "amount": 92.3,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318481.2388012",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "75356714",
+      "symbol": "EGLD/USDT",
+      "side": "LONG",
+      "entry_price": 5.8487,
+      "entry_timestamp": 1767318482267,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 5.936,
+      "sl_level": 5.79,
+      "amount": 7.9,
+      "main_order_id": "75356714",
+      "tp_order_id": "75356717",
+      "sl_order_id": "EiNMNZuVCYxvNlytjr9uT1",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318481663",
+          "symbol": "EGLD/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 7.9,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318481.6629198",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    },
+    {
+      "trade_id": "84159259",
+      "symbol": "STORJ/USDT",
+      "side": "LONG",
+      "entry_price": 0.1278,
+      "entry_timestamp": 1767318482181,
+      "margin_used": 0,
+      "notional": 0,
+      "leverage": 1,
+      "tp_level": 0.1297,
+      "sl_level": 0.1265,
+      "amount": 363.0,
+      "main_order_id": "84159259",
+      "tp_order_id": "84159275",
+      "sl_order_id": "x4m56WbaRQ4RNcD5cqjxi5",
+      "bars_held": 0,
+      "funding_accrued": 0.0,
+      "contributors": [
+        "FootprintVolumeExhaustion"
+      ],
+      "metadata": {
+        "order": {
+          "trade_id": "V3_1767318480752",
+          "symbol": "STORJ/USDT",
+          "side": "LONG",
+          "size": 0.01,
+          "amount": 363.0,
+          "take_profit": 0.015,
+          "stop_loss": 0.01,
+          "timestamp": "1767318480.7527213",
+          "ghost": false,
+          "contributors": [
+            "FootprintVolumeExhaustion"
+          ]
+        }
+      }
+    }
+  ],
+  "total_trades": 386,
+  "total_wins": 4,
+  "total_losses": 0,
+  "total_opened": 415,
+  "last_reconciliation": null,
+  "version": "2.0.0"
+}

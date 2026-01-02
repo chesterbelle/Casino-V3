@@ -328,8 +328,10 @@ class ReconciliationService:
                 liquidation_level=float(ex_pos.get("liquidationPrice", 0)),
                 order={"method": "adopted", "size": size, "amount": size},
                 main_order_id=None,  # Lost
-                tp_order_id=str(tp_order.get("id") or tp_order.get("order_id")),
-                sl_order_id=str(sl_order.get("id") or sl_order.get("order_id")),
+                tp_order_id=str(tp_order.get("client_order_id") or tp_order.get("id")),
+                sl_order_id=str(sl_order.get("client_order_id") or sl_order.get("id")),
+                exchange_tp_id=str(tp_order.get("algo_id") or tp_order.get("id")),
+                exchange_sl_id=str(sl_order.get("algo_id") or sl_order.get("id")),
                 bars_held=0,
                 status="ACTIVE",  # Assume active if on exchange
             )

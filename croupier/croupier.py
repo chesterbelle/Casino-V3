@@ -665,8 +665,10 @@ class Croupier:
             liquidation_level=liquidation_level,
             order=order,
             main_order_id=oco_result["main_order"]["order_id"],
-            tp_order_id=oco_result["tp_order"]["order_id"],
-            sl_order_id=oco_result["sl_order"]["order_id"],
+            tp_order_id=oco_result["tp_order"].get("client_order_id"),
+            sl_order_id=oco_result["sl_order"].get("client_order_id"),
+            exchange_tp_id=oco_result["tp_order"].get("order_id"),
+            exchange_sl_id=oco_result["sl_order"].get("order_id"),
         )
 
         # Add to tracker
