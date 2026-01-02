@@ -116,16 +116,86 @@ class ExitManager:
                 self.logger.error(f"❌ Failed to close position on reversal: {e}")
 
     async def trigger_soft_exits(self):
-        """Immediately narrow TPs for all open positions (Session Drain)."""
+        """Immediately narrow TPs for all open positions (Optimistic Stage)."""
         for position in self.croupier.get_open_positions():
-            await self._execute_soft_exit(position, "Session Drain")
+            await self._execute_soft_exit(position, "Session Drain (Optimistic)")
+
+    async def trigger_defensive_exits(self):
+        """Phase 2: Move TPs to Breakeven and tighten SLs."""
+        for position in self.croupier.get_open_positions():
+            await self._execute_defensive_exit(position)
+
+    async def trigger_aggressive_exits(self, fraction: float = 0.2):
+        """Phase 3: Force close weakest positions or tighten SL to market."""
+        positions = self.croupier.get_open_positions()
+        # Sort by PnL (worst first) to dump bags first
+        # Note: We need current price which isn't readily available in position obj without lookup.
+        # We'll use bars_held as a proxy for "stale" positions if PnL is unknown.
+        positions.sort(key=lambda p: p.bars_held, reverse=True)
+
+        target_count = max(1, int(len(positions) * fraction)) if positions else 0
+
+        self.logger.warning(f"🔥 Aggressive Drain: Targeting {target_count} stale/weak positions.")
+
+        for i, position in enumerate(positions):
+            if i < target_count:
+                # Force close
+                try:
+                    self.logger.info(f"💀 Force Closing {position.symbol} (Aggressive Drain)")
+                    await self.croupier.close_position(position.trade_id, exit_reason="DRAIN_AGGRESSIVE")
+                except Exception as e:
+                    self.logger.error(f"❌ Failed aggressive close for {position.symbol}: {e}")
+            else:
+                # For the rest, apply SUPER tight trailing logic or market SL?
+                # For now, just ensure defensive exit is applied
+                if not getattr(position, "defensive_exit_triggered", False):
+                    await self._execute_defensive_exit(position)
+
+    async def _execute_defensive_exit(self, position: OpenPosition):
+        """Move TP to Breakeven, SL to -0.5% (or 50% risk)."""
+        if getattr(position, "defensive_exit_triggered", False):
+            return
+
+        self.logger.info(f"🛡️ Defensive Exit for {position.trade_id} | Targeting Breakeven")
+        position.defensive_exit_triggered = True
+
+        try:
+            # 1. Move TP to Entry (Breakeven + Fees cover)
+            # 1.002 to cover fee + slight profit
+            if position.side == "LONG":
+                new_tp = position.entry_price * 1.002
+                new_sl = position.entry_price * 0.995  # -0.5% stop
+            else:
+                new_tp = position.entry_price * 0.998
+                new_sl = position.entry_price * 1.005  # -0.5% stop
+
+            # Update TP
+            await self.croupier.modify_tp(
+                trade_id=position.trade_id,
+                new_tp_price=new_tp,
+                symbol=position.symbol,
+                old_tp_order_id=position.tp_order_id,
+            )
+
+            # Update SL (Only if tighter than current)
+            update_sl = False
+            if position.side == "LONG" and new_sl > position.sl_level:
+                update_sl = True
+            elif position.side == "SHORT" and new_sl < position.sl_level:
+                update_sl = True
+
+            if update_sl:
+                await self._update_sl(position, new_sl, "Defensive Drain")
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to apply defensive exit: {e}")
 
     async def _check_time_exit(self, position: OpenPosition, candle: CandleEvent):
         """
         Apply soft exit (narrow TP) if max hold time reached.
         """
         if position.bars_held >= config.MAX_HOLD_BARS:
-            if not hasattr(position, "soft_exit_triggered"):
+            if not getattr(position, "soft_exit_triggered", False):
                 await self._execute_soft_exit(position, "Max Time")
 
             # HARD LIMIT: If it reaches 2x MAX_HOLD_BARS, then close at market for absolute safety
@@ -140,7 +210,7 @@ class ExitManager:
         """
         Narrow the Take Profit to target a quick exit.
         """
-        if hasattr(position, "soft_exit_triggered") and reason != "Session Drain":
+        if getattr(position, "soft_exit_triggered", False) and reason != "Session Drain (Optimistic)":
             return
 
         self.logger.info(f"⏳ {reason} Soft Exit for {position.trade_id} | Narrowing TP")

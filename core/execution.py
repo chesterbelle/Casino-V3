@@ -186,8 +186,15 @@ class OrderManager:
                 context=f"execute_order_{event.symbol}",
             )
 
+            # Check for success (support both simple orders and OCO bracket results)
+            is_success = False
             if result.get("status") == "filled":
-                logger.info(f"✅ Order Executed: {result.get('id')}")
+                is_success = True
+            elif result.get("position") or (result.get("fill_price") and result.get("fill_price") > 0):
+                is_success = True
+
+            if is_success:
+                logger.info(f"✅ Order Executed: {result.get('id') or result.get('main_order', {}).get('id')}")
                 # Record successful order
                 metrics.record_order_filled(
                     exchange=self.croupier.exchange_adapter.connector.__class__.__name__.replace("NativeConnector", ""),

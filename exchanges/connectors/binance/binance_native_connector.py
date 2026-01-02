@@ -557,7 +557,7 @@ class BinanceNativeConnector(BaseConnector):
 
         return [
             {
-                "symbol": p["symbol"],
+                "symbol": self.denormalize_symbol(p["symbol"]),
                 "side": "long" if float(p.get("positionAmt", 0)) > 0 else "short",
                 "contracts": float(p.get("positionAmt", 0)),
                 "entryPrice": float(p.get("entryPrice", 0)),
@@ -675,6 +675,7 @@ class BinanceNativeConnector(BaseConnector):
         price: float = None,
         order_type: str = "market",
         params: Dict = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Create an order with internal synchronization for reduceOnly requests."""
         params = params or {}
@@ -721,19 +722,21 @@ class BinanceNativeConnector(BaseConnector):
                 args["stopPrice"] = params["stopPrice"]
 
             try:
-                return await self._create_algo_order(args)
+                return await self._create_algo_order(args, timeout=timeout)
             except Exception as e:
                 # Intercept -4118, -2022, and -4164 for Algo orders too
                 error_msg = str(e)
                 if any(code in error_msg for code in ["-4118", "-2022", "-4164"]) and is_reduce_only:
                     self.logger.warning(f"⚠️ ReduceOnly Algo Sync Lag detected ({error_msg}) for {symbol}. Syncing...")
                     if await self._wait_for_position_sync(symbol):
-                        return await self._create_algo_order(args)
+                        return await self._create_algo_order(args, timeout=timeout)
                 raise
 
         # Regular order
         try:
-            response = await self._request("POST", "/fapi/v1/order", args, signed=True, endpoint_type="orders")
+            response = await self._request(
+                "POST", "/fapi/v1/order", args, signed=True, endpoint_type="orders", timeout=timeout
+            )
             return self._normalize_order(response)
         except Exception as e:
             # Handle the "Speed Paradox" errors (ReduceOnly Failed because position not propagated yet)
@@ -744,7 +747,9 @@ class BinanceNativeConnector(BaseConnector):
                 )
                 if await self._wait_for_position_sync(symbol):
                     self.logger.info(f"✅ Position synced for {symbol}. Retrying order...")
-                    response = await self._request("POST", "/fapi/v1/order", args, signed=True, endpoint_type="orders")
+                    response = await self._request(
+                        "POST", "/fapi/v1/order", args, signed=True, endpoint_type="orders", timeout=timeout
+                    )
                     return self._normalize_order(response)
             raise
 
@@ -767,6 +772,7 @@ class BinanceNativeConnector(BaseConnector):
         side: str,
         amount: float,
         params: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Create a simple market order.
@@ -778,6 +784,7 @@ class BinanceNativeConnector(BaseConnector):
             amount=amount,
             order_type="market",
             params=params,
+            timeout=timeout,
         )
 
     async def cancel_order(self, order_id: str, symbol: str) -> None:
@@ -865,7 +872,7 @@ class BinanceNativeConnector(BaseConnector):
         response = await self._request("GET", "/fapi/v1/algoOrder", params, signed=True, endpoint_type="orders")
         return self._normalize_algo_order(response)
 
-    async def _create_algo_order(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _create_algo_order(self, args: Dict[str, Any], timeout: Optional[float] = None) -> Dict[str, Any]:
         """Create an algo/conditional order."""
         symbol = args.get("symbol")  # Unified symbol if passed, but args usually has native from executor?
 
@@ -893,7 +900,14 @@ class BinanceNativeConnector(BaseConnector):
         algo_params = {k: v for k, v in algo_params.items() if v is not None}
 
         self.logger.info(f"📋 Creating Algo Order: {algo_params}")
-        response = await self._request("POST", "/fapi/v1/algoOrder", algo_params, signed=True, endpoint_type="orders")
+        response = await self._request(
+            "POST",
+            "/fapi/v1/algoOrder",
+            algo_params,
+            signed=True,
+            endpoint_type="orders",
+            timeout=timeout,
+        )
         return self._normalize_algo_order_response(response, args)
 
     async def _cancel_algo_order(self, algo_id: str, symbol: str) -> None:

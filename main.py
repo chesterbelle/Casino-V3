@@ -530,6 +530,12 @@ async def main():
                         )
                         croupier.set_drain_mode(True)
 
+                    # Progressive Exit Update
+                    remaining = args.timeout - elapsed_min
+                    # Fire and forget (it handles its own async logic or internal checks)
+                    # We use create_task to avoid blocking the main loop with exit logic
+                    asyncio.create_task(croupier.update_drain_status(remaining))
+
                 # B. Hard Timeout (Session Ends)
                 if elapsed_min >= args.timeout:
                     logger.info(f"⏰ Timeout reached ({args.timeout}m). Stopping session.")

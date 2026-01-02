@@ -95,8 +95,27 @@ class Croupier:
         self.is_drain_mode = enabled
         if enabled:
             self.logger.warning("🕒 Croupier entering DRAIN MODE. Narrowing TPs for all positions.")
-            # Trigger immediate soft exit check for all positions
+            # Trigger immediate soft exit check for all positions (Phase 1)
             asyncio.create_task(self.exit_manager.trigger_soft_exits())
+
+    async def update_drain_status(self, remaining_minutes: float):
+        """
+        Periodically called during drain phase to trigger progressive exits.
+
+        Phase 1 (T-30m): Optimistic (Narrow TP) - Handled by set_drain_mode
+        Phase 2 (T-15m): Defensive (Breakeven)
+        Phase 3 (T-5m): Aggressive (Force Close)
+        """
+        if not self.is_drain_mode:
+            return
+
+        if remaining_minutes <= 5.0:
+            # Phase 3: Aggressive
+            # Slowly ramp up aggressiveness? No, just trigger aggressive sweep.
+            await self.exit_manager.trigger_aggressive_exits(fraction=0.2)  # Close 20% of worst positions per tick
+        elif remaining_minutes <= 15.0:
+            # Phase 2: Defensive
+            await self.exit_manager.trigger_defensive_exits()
 
     async def modify_tp(
         self,

@@ -81,15 +81,18 @@ class ReconciliationService:
                 ex_pos_by_symbol[normalize_symbol(p["symbol"])].append(p)
 
             orders_by_symbol = defaultdict(list)
+            open_orders_symbols = set()
             for o in open_orders:
-                orders_by_symbol[normalize_symbol(o["symbol"])].append(o)
+                norm_sym = normalize_symbol(o["symbol"])
+                orders_by_symbol[norm_sym].append(o)
+                open_orders_symbols.add(norm_sym)
 
-            # Discover all symbols to check (Tracker + Exchange)
+            # Discover all symbols to check (Tracker + Exchange + Open Orders)
             local_symbols = {pos.symbol for pos in self.tracker.open_positions}
             exchange_symbols = {
                 normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
             }
-            all_symbols = local_symbols | exchange_symbols
+            all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
             for symbol in all_symbols:
                 # Reuse the individual symbol logic but with pre-fetched data
