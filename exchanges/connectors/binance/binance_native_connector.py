@@ -594,10 +594,12 @@ class BinanceNativeConnector(BaseConnector):
 
         return list(active_symbols)
 
-    async def fetch_my_trades(self, symbol: str, limit: int = 50) -> List[Dict[str, Any]]:
+    async def fetch_my_trades(self, symbol: str, since: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """Fetch user's trades (fills) for a specific symbol."""
         native_symbol = self._normalize_symbol(symbol)
         params = {"symbol": native_symbol, "limit": limit}
+        if since:
+            params["startTime"] = since
 
         trades = await self._request("GET", "/fapi/v1/userTrades", params, signed=True, endpoint_type="account")
 

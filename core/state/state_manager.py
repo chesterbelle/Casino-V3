@@ -67,7 +67,8 @@ class StateManager:
 
         self.persistent_state = PersistentState(state_dir=state_dir, save_interval=save_interval, session_id=session_id)
 
-        # Add ErrorHandler for resilient operations
+        # Propagate session_id to position_tracker for historian recording
+        self.position_tracker.session_id = self.persistent_state.session_id
         self.error_handler = get_error_handler()
 
         self.logger = logging.getLogger("StateManager")

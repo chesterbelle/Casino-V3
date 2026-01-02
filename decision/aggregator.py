@@ -141,7 +141,7 @@ class SignalAggregatorV3:
                 confidence=0.0,
                 total_signals=len(signals),
             )
-            await self.engine.dispatch(aggregated)
+            asyncio.create_task(self.engine.dispatch(aggregated))
             if candle_ts in self.signal_buffer:
                 del self.signal_buffer[candle_ts]
             return
@@ -186,7 +186,7 @@ class SignalAggregatorV3:
                 confidence=0.0,
                 total_signals=len(signals),
             )
-            await self.engine.dispatch(aggregated)
+            asyncio.create_task(self.engine.dispatch(aggregated))
             if candle_ts in self.signal_buffer:
                 del self.signal_buffer[candle_ts]
             return
@@ -249,7 +249,7 @@ class SignalAggregatorV3:
                 confidence=0.0,
                 total_signals=len(signals),
             )
-            await self.engine.dispatch(aggregated)
+            asyncio.create_task(self.engine.dispatch(aggregated))
             if candle_ts in self.signal_buffer:
                 del self.signal_buffer[candle_ts]
             return
@@ -289,7 +289,7 @@ class SignalAggregatorV3:
                 confidence=0.0,
                 total_signals=len(signals),
             )
-            await self.engine.dispatch(aggregated)
+            asyncio.create_task(self.engine.dispatch(aggregated))
             if candle_ts in self.signal_buffer:
                 del self.signal_buffer[candle_ts]
             return
@@ -311,7 +311,7 @@ class SignalAggregatorV3:
                 confidence=0.0,
                 total_signals=len(signals),
             )
-            await self.engine.dispatch(aggregated)
+            asyncio.create_task(self.engine.dispatch(aggregated))
             if candle_ts in self.signal_buffer:
                 del self.signal_buffer[candle_ts]
             return
@@ -343,7 +343,7 @@ class SignalAggregatorV3:
                     confidence=0.0,
                     total_signals=len(signals),
                 )
-                await self.engine.dispatch(aggregated)
+                asyncio.create_task(self.engine.dispatch(aggregated))
                 if candle_ts in self.signal_buffer:
                     del self.signal_buffer[candle_ts]
                 return
@@ -396,7 +396,7 @@ class SignalAggregatorV3:
             strategy_name=strategy_name,
         )
 
-        await self.engine.dispatch(aggregated)
+        asyncio.create_task(self.engine.dispatch(aggregated))
 
         # Clear processed signals
         if candle_ts in self.signal_buffer[symbol]:

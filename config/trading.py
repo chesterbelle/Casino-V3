@@ -25,6 +25,7 @@ MAX_HOLD_BARS = 180  # Increase to 3h for more natural exits
 # --- Graceful Exit (Soft Timeout) ---
 DRAIN_PHASE_MINUTES = 30  # Stop new entries 30 min before timeout
 SOFT_EXIT_TP_MULT = 0.5  # Narrow TP by 50% for soft exit
+GRACEFUL_TP_TIMEOUT = 5.0  # Seconds to wait for TP modification before skipping
 
 
 # =====================================================

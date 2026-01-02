@@ -24,7 +24,7 @@ from utils.symbol_norm import normalize_symbol
 
 # Timeout for price fetching during OCO (protects against REST breaker hangs)
 OCO_PRICE_FETCH_TIMEOUT = 10.0  # seconds
-OCO_OPERATION_TIMEOUT = 60.0  # max time for entire OCO operation
+OCO_OPERATION_TIMEOUT = 180.0  # Increased for high-volume Testnet (3 minutes)
 
 
 class OCOAtomicityError(Exception):
@@ -212,6 +212,9 @@ class OCOManager:
             self.pending_fills[client_order_id] = future
             # Step 1: Execute main market order
             main_order = await self._execute_main_order(order, client_order_id=client_order_id)
+            watchdog.heartbeat(
+                operation_id, f"Main order executed: {main_order.get('order_id') or main_order.get('id')}"
+            )
 
             # Log the response for debugging
             self.logger.debug(f"Main order response: {main_order}")
@@ -235,6 +238,7 @@ class OCOManager:
             # Step 2: Wait for fill confirmation or use immediate response
             if wait_for_fill:
                 fill_price = await self._wait_for_fill(order_id, symbol, timeout=fill_timeout, future=future)
+                watchdog.heartbeat(operation_id, f"Main order filled via event @ {fill_price}")
             else:
                 # For market orders, use response price immediately (faster)
                 # The connector is responsible for normalizing the price (including calculating from cumQuote if needed)
@@ -331,9 +335,11 @@ class OCOManager:
             try:
                 # Step 4: Create TP order
                 tp_order = await self._create_tp_order(symbol, side, main_order["amount"], tp_price)
+                watchdog.heartbeat(operation_id, f"TP order created: {tp_order.get('order_id') or tp_order.get('id')}")
 
                 # Step 5: Create SL order
                 sl_order = await self._create_sl_order(symbol, side, main_order["amount"], sl_price)
+                watchdog.heartbeat(operation_id, f"SL order created: {sl_order.get('order_id') or sl_order.get('id')}")
 
                 # Step 6: Validate OCO completeness
                 self._validate_oco_complete(main_order, tp_order, sl_order)
@@ -341,7 +347,15 @@ class OCOManager:
                 # Step 7: Register OCO pair
                 tp_order_id = tp_order.get("order_id") or tp_order.get("id")
                 sl_order_id = sl_order.get("order_id") or sl_order.get("id")
-                await self.adapter.register_oco_pair(symbol, tp_order_id, sl_order_id)
+                await self.error_handler.execute_with_breaker(
+                    f"oco_register_{symbol}",
+                    self.adapter.register_oco_pair,
+                    symbol,
+                    tp_order_id,
+                    sl_order_id,
+                    retry_config=RetryConfig(max_retries=3, backoff_base=0.5, backoff_factor=2.0),
+                )
+                watchdog.heartbeat(operation_id, "OCO pair registered")
 
                 self.logger.info(
                     f"✅ OCO bracket created: Main={main_order.get('order_id') or main_order.get('id')}, "
@@ -534,8 +548,9 @@ class OCOManager:
     async def cancel_order(self, order_id: str, symbol: str) -> None:
         """Cancel a single order with retry logic."""
         cancel_retry_config = RetryConfig(max_retries=3, backoff_base=0.3, backoff_factor=2.0, jitter=True)
+        # Use symbol-specific breaker to isolate network issues
         await self.error_handler.execute_with_breaker(
-            "oco_cancel_single",
+            f"oco_cancel_{symbol}",
             self.adapter.cancel_order,
             order_id,
             symbol,
@@ -545,18 +560,32 @@ class OCOManager:
         self.logger.info(f"✅ Cancelled order: {order_id}")
 
     async def create_tp_order(
-        self, symbol: str, side: str, amount: float, tp_price: float, trade_id: str = None
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        tp_price: float,
+        trade_id: str = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Create take profit limit order with retry logic and ReduceOnly handling."""
-        return await self._create_tp_order(symbol, side, amount, tp_price)
+        return await self._create_tp_order(symbol, side, amount, tp_price, timeout)
 
     async def create_sl_order(
-        self, symbol: str, side: str, amount: float, sl_price: float, trade_id: str = None
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        sl_price: float,
+        trade_id: str = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Create stop loss order with retry logic and ReduceOnly handling."""
-        return await self._create_sl_order(symbol, side, amount, sl_price)
+        return await self._create_sl_order(symbol, side, amount, sl_price, timeout)
 
-    async def _create_tp_order(self, symbol: str, side: str, amount: float, tp_price: float) -> Dict[str, Any]:
+    async def _create_tp_order(
+        self, symbol: str, side: str, amount: float, tp_price: float, timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
         """Create take profit limit order with retry logic and ReduceOnly handling."""
         # TP is opposite side of entry
         tp_side = "sell" if side == "LONG" else "buy"
@@ -653,14 +682,17 @@ class OCOManager:
                 # Re-raise strictly if not handled
                 raise e
 
-        # Use error handler with retry for TP order creation
+        # Use symbol-specific breaker for TP
         return await self.error_handler.execute_with_breaker(
-            "oco_tp_orders",
+            f"oco_tp_{symbol}",
             _smart_execute_tp,
             retry_config=self.tpsl_retry_config,
+            timeout=timeout,
         )
 
-    async def _create_sl_order(self, symbol: str, side: str, amount: float, sl_price: float) -> Dict[str, Any]:
+    async def _create_sl_order(
+        self, symbol: str, side: str, amount: float, sl_price: float, timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
         """Create stop loss order with retry logic and ReduceOnly handling."""
         # SL is opposite side of entry
         sl_side = "sell" if side == "LONG" else "buy"
@@ -750,9 +782,10 @@ class OCOManager:
                 # Re-raise original error
                 raise e
 
+        # Use symbol-specific breaker for SL
         try:
             return await self.error_handler.execute_with_breaker(
-                "oco_sl_orders",
+                f"oco_sl_{symbol}",
                 _smart_execute_sl,
                 retry_config=self.tpsl_retry_config,
             )
@@ -840,9 +873,15 @@ class OCOManager:
                 orders_to_cancel.append(("Main", main_order["order_id"]))
 
         # 1. Cancel open orders (TP/SL/Main)
+        # Use EMERGENCY BYPASS for cleanup to ensure we don't get blocked by breakers
+        connector = getattr(self.adapter, "connector", None) or getattr(self.adapter, "_connector", None)
+        if not connector:
+            connector = self.adapter
+
         for order_type, order_id in orders_to_cancel:
             try:
-                await self.adapter.cancel_order(order_id, symbol)
+                # Bypass ErrorHandler for emergency individual cancellation
+                await connector.cancel_order(order_id, symbol)
                 self.logger.info(f"✅ Cancelled {order_type} order: {order_id}")
             except Exception as e:
                 self.logger.error(f"❌ Failed to cancel {order_type} order {order_id}: {e}")
@@ -931,8 +970,9 @@ class OCOManager:
             if not order_id:
                 return
             try:
+                # Use symbol-specific breaker for OCO cancel
                 await self.error_handler.execute_with_breaker(
-                    "oco_cancel",
+                    f"oco_cancel_{symbol}",
                     self.adapter.cancel_order,
                     order_id,
                     symbol,

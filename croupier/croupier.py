@@ -115,10 +115,22 @@ class Croupier:
         # tp_side = "sell" if position.side == "LONG" else "buy"
         amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
 
-        # 1. Create new TP
-        result = await self.oco_manager.create_tp_order(
-            symbol=symbol, side=position.side, amount=amount, tp_price=new_tp_price, trade_id=trade_id
-        )
+        # 1. Create new TP with defensive timeout
+        try:
+            result = await self.oco_manager.create_tp_order(
+                symbol=symbol,
+                side=position.side,
+                amount=amount,
+                tp_price=new_tp_price,
+                trade_id=trade_id,
+                timeout=trading_config.GRACEFUL_TP_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            self.logger.error(
+                f"❌ Soft Exit Timeout (>{trading_config.GRACEFUL_TP_TIMEOUT}s) for {trade_id}. "
+                "Skipping to prevent loop freeze."
+            )
+            return {"status": "error", "reason": "timeout"}
 
         # 2. Cancel old TP
         if old_tp_order_id:
@@ -748,7 +760,7 @@ class Croupier:
             final_balance: Optional real wallet balance at end of session.
                           If provided, calculates 'Leakage' (untracked pnl).
         """
-        stats = historian.get_session_stats()
+        stats = historian.get_session_stats(session_id=self.position_tracker.session_id)
 
         # Calculate Transparency Metrics (Phase 30)
         strategy_net_pnl = stats.get("total_net_pnl", 0.0)

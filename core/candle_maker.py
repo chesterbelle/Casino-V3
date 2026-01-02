@@ -4,6 +4,7 @@ Aggregates ticks into candles and emits CandleEvents.
 Multi-Symbol Safe: Each symbol has its own candle state.
 """
 
+import asyncio
 import logging
 import time
 from typing import Dict
@@ -173,4 +174,6 @@ class CandleMaker:
         logger.info(
             f"🕯️ Candle Closed: {candle_data['symbol']} {event.close} | Vol: {event.volume} | Delta: {event.delta:.2f} | POC: {poc}"
         )
-        await self.engine.dispatch(event)
+        # Use create_task to prevent blocking the tick processing loop
+        # This is CRITICAL for multi-symbol performance to allow parallel OCO creation
+        asyncio.create_task(self.engine.dispatch(event))

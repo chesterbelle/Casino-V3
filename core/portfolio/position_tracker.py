@@ -122,12 +122,15 @@ class PositionTracker:
         max_concurrent_positions: int = 10,
         adapter: Optional["ExchangeAdapter"] = None,
         on_close_callback: Optional[callable] = None,
+        session_id: Optional[str] = None,
     ):
         """
         Args:
             max_concurrent_positions: Máximo número de posiciones simultáneas permitidas
             adapter: ExchangeAdapter para cancelar órdenes OCO (agnóstico del conector)
+            session_id: ID de la sesión actual (para Historian)
         """
+        self.session_id = session_id
         self.open_positions: List[OpenPosition] = []
         self.blocked_capital: float = 0.0
         self.max_concurrent_positions = max_concurrent_positions
@@ -502,6 +505,7 @@ class PositionTracker:
             "confirmed": True,  # ← FLAG CRÍTICO
             "state_source": "exchange_confirmed",
             "contributors": position.contributors,
+            "session_id": self.session_id,
         }
 
         # Remover de pending si estaba
@@ -645,6 +649,7 @@ class PositionTracker:
                 "side": position.side,
                 "action": "CLOSE",
                 "ghost": False,
+                "session_id": self.session_id,
             }
 
             closed_results.append(result)

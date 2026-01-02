@@ -6,6 +6,7 @@ A simple player that bets a fixed percentage of equity on every signal.
 Supports optional Kelly Criterion sizing based on sensor performance.
 """
 
+import asyncio
 import logging
 import time
 
@@ -147,7 +148,8 @@ class AdaptivePlayer:
         )
         decision.decision_id = decision_id  # Add unique ID
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")
-        await self.engine.dispatch(decision)
+        # Use create_task to prevent blocking signal processing loop
+        asyncio.create_task(self.engine.dispatch(decision))
 
     def handle_trade_outcome(self, trade_id: str, won: bool):
         """Handle trade outcome (stateless)."""

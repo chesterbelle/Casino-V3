@@ -101,12 +101,13 @@ class OrderExecutor:
         # Execute with retry
         retry_cfg = retry_config or RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
 
+        symbol = order["symbol"]
         self.logger.info(
-            f"📤 Executing market order: {order['side']} {order['amount']} {order['symbol']} | ID: {order.get('clientOrderId')}"
+            f"📤 Executing market order: {order['side']} {order['amount']} {symbol} | ID: {order.get('clientOrderId')}"
         )
 
         result = await self.error_handler.execute_with_breaker(
-            "exchange_orders",
+            f"exchange_orders_{symbol}",
             self.adapter.execute_order,
             order,
             retry_config=retry_cfg,
@@ -155,7 +156,7 @@ class OrderExecutor:
 
         try:
             result = await self.error_handler.execute_with_breaker(
-                "exchange_orders", self.adapter.execute_order, order, retry_config=retry_cfg
+                f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
             )
             self._log_execution(result, "Limit")
             return result
@@ -208,7 +209,7 @@ class OrderExecutor:
         )
 
         result = await self.error_handler.execute_with_breaker(
-            "exchange_orders", self.adapter.execute_order, order, retry_config=retry_cfg
+            f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
         )
 
         self.logger.info(f"✅ Stop order executed: {result.get('order_id')}")

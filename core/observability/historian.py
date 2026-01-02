@@ -2,7 +2,7 @@ import logging
 import os
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("TradeHistorian")
 
@@ -41,10 +41,17 @@ class TradeHistorian:
                     net_pnl REAL,
                     exit_reason TEXT,
                     timestamp TEXT,
-                    bars_held INTEGER
+                    bars_held INTEGER,
+                    session_id TEXT
                 )
             """
             )
+            # Schema Evolution: Add session_id if it doesn't exist
+            try:
+                conn.execute("ALTER TABLE trades ADD COLUMN session_id TEXT")
+            except sqlite3.OperationalError:
+                pass  # Already exists
+
             conn.commit()
 
     def record_trade(self, trade_data: Dict[str, Any]):
@@ -53,7 +60,7 @@ class TradeHistorian:
 
         Expected trade_data keys:
         - trade_id, symbol, side, entry_price, exit_price, notional,
-        - pnl (gross), fee, funding, exit_reason, bars_held
+        - pnl (gross), fee, funding, exit_reason, bars_held, session_id
         """
         try:
             # Calculate net pnl if not provided
@@ -67,12 +74,14 @@ class TradeHistorian:
             notional = trade_data.get("notional", 0.0)
             qty = notional / entry_price if entry_price > 0 else 0.0
 
+            session_id = trade_data.get("session_id")
+
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         trade_data.get("trade_id"),
@@ -88,31 +97,38 @@ class TradeHistorian:
                         trade_data.get("exit_reason"),
                         datetime.now().isoformat(),
                         trade_data.get("bars_held", 0),
+                        session_id,
                     ),
                 )
                 conn.commit()
-            logger.info(f"💾 Historian: Registered trade {trade_data.get('trade_id')} | Net PnL: {net_pnl:+.4f}")
+            logger.info(
+                f"💾 Historian: Registered trade {trade_data.get('trade_id')} | Net PnL: {net_pnl:+.4f} | Session: {session_id}"
+            )
         except Exception as e:
             logger.error(f"❌ Historian: Error recording trade: {e}")
 
-    def get_session_stats(self) -> Dict[str, Any]:
-        """Returns statistics for the current database state."""
+    def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Returns statistics for the current database state, optionally filtered by session."""
         try:
+            query = """
+                SELECT
+                    COUNT(*) as count,
+                    SUM(net_pnl) as total_net_pnl,
+                    SUM(gross_pnl) as total_gross_pnl,
+                    SUM(fee) as total_fees,
+                    SUM(funding) as total_funding,
+                    SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses
+                FROM trades
+            """
+            params = []
+            if session_id:
+                query += " WHERE session_id = ?"
+                params.append(session_id)
+
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    """
-                    SELECT
-                        COUNT(*) as count,
-                        SUM(net_pnl) as total_net_pnl,
-                        SUM(gross_pnl) as total_gross_pnl,
-                        SUM(fee) as total_fees,
-                        SUM(funding) as total_funding,
-                        SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
-                        SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses
-                    FROM trades
-                """
-                )
+                cursor = conn.execute(query, params)
                 row = cursor.fetchone()
                 return (
                     dict(row)
@@ -131,26 +147,30 @@ class TradeHistorian:
             logger.error(f"❌ Historian: Error getting stats: {e}")
             return {}
 
-    def get_detailed_report(self) -> List[Dict[str, Any]]:
-        """Returns a detailed report grouped by symbol."""
+    def get_detailed_report(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns a detailed report grouped by symbol, optionally filtered by session."""
         try:
+            query = """
+                SELECT
+                    symbol,
+                    COUNT(*) as trades,
+                    SUM(net_pnl) as net_pnl,
+                    SUM(fee) as fees,
+                    SUM(funding) as funding,
+                    AVG(bars_held) as avg_duration,
+                    SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
+                FROM trades
+            """
+            params = []
+            if session_id:
+                query += " WHERE session_id = ?"
+                params.append(session_id)
+
+            query += " GROUP BY symbol ORDER BY net_pnl DESC"
+
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    """
-                    SELECT
-                        symbol,
-                        COUNT(*) as trades,
-                        SUM(net_pnl) as net_pnl,
-                        SUM(fee) as fees,
-                        SUM(funding) as funding,
-                        AVG(bars_held) as avg_duration,
-                        SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
-                    FROM trades
-                    GROUP BY symbol
-                    ORDER BY net_pnl DESC
-                """
-                )
+                cursor = conn.execute(query, params)
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"❌ Historian: Error getting detailed report: {e}")
