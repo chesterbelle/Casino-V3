@@ -358,6 +358,23 @@ async def main():
 
         logger.info(f"🚀 Starting MULTI mode with: {active_symbols}")
         logger.info(f"📐 Precision Profile loaded: {len(precision_profile)} symbols")
+
+        # --- LIQUIDITY WATCHDOG (Flytest 3.0) ---
+        async def on_liquidity_fail_callback(symbol):
+            logger.warning(f"🚫 Watchdog Callback: Unsubscribing from {symbol}")
+            await data_feed.unsubscribe_all(symbol)
+
+        # Start the watchdog task (Fire and Forget but keep ref)
+        asyncio.create_task(
+            multi_manager.start_liquidity_watchdog(
+                active_list=active_symbols,
+                on_remove_callback=on_liquidity_fail_callback,
+                interval=300,  # 5 minutes
+                bet_size_pct=args.bet_size,
+            )
+        )
+        logger.info("🐶 Liquidity Watchdog background task launched.")
+        # ----------------------------------------
     else:
         # Single mode
         active_symbols = [args.symbol]

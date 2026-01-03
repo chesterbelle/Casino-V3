@@ -87,6 +87,13 @@ FLYTEST_MIN_24H_VOLUME_USDT = 250_000.0  # $250k min volume
 # Si el bid-ask es más ancho, se rechaza.
 FLYTEST_MAX_SPREAD_PCT = 0.008  # 0.8% max spread
 
+# Depth Check (Flytest 2.0)
+# Required liquidity multiplier relative to bet size (e.g., 3.0 = need 3x bet size in order book)
+FLYTEST_MIN_DEPTH_MULT = 3.0
+
+# Depth distance to check from mid-price (e.g., 0.01 = check liquidity within +/- 1%)
+FLYTEST_DEPTH_CHECK_PCT = 0.01
+
 # =====================================================
 # 🌍 MULTI-ASSET CONFIGURATION
 # =====================================================

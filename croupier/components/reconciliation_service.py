@@ -17,6 +17,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from core.error_handling import RetryConfig, get_error_handler
+from core.observability.historian import historian
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
@@ -579,10 +580,33 @@ class ReconciliationService:
 
                 try:
                     # Tier 0: Market Close (Standard)
-                    await self.adapter.create_market_order(
+                    res = await self.adapter.create_market_order(
                         symbol=target_symbol, side=close_side, amount=size, params={"reduceOnly": True}
                     )
                     self.logger.info(f"✅ Closed unknown position: {target_symbol} {size} (Market)")
+
+                    # PERFECT ACCOUNTING: Record this external closure
+                    try:
+                        fill_price = float(res.get("average") or res.get("price") or 0.0)
+                        if fill_price <= 0:
+                            fill_price = await self.adapter.get_current_price(target_symbol)
+
+                        raw_entry = float(
+                            position_dict.get("entryPrice") or position_dict.get("entry_price") or fill_price
+                        )
+
+                        historian.record_external_closure(
+                            symbol=target_symbol,
+                            side=side_raw.upper(),
+                            qty=size,
+                            entry_price=raw_entry,
+                            exit_price=fill_price,
+                            reason="RECON_FORCE",
+                            session_id=self.tracker.session_id,
+                        )
+                    except Exception as hist_err:
+                        self.logger.error(f"❌ Failed to record external closure in Recon: {hist_err}")
+
                 except Exception as e:
                     # SMART CLOSE FALLBACK LOGIC
                     err_str = str(e)

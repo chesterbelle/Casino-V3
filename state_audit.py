@@ -103,14 +103,24 @@ async def audit():
             status = "🧟 ZOMBIE (Orders without active Position)"
             zombies += count
 
+        entry_px = float(symbol_pos.get("entryPrice", 0)) if has_pos else 0
+
         logger.info(
-            f"{symbol:12} [{side:5}] | Pos: {pos_amt:8.2f} | Orders: {count} (TP={len(tps)}, SL={len(sls)}) -> {status}"
+            f"{symbol:12} [{side:5}] | Pos: {pos_amt:8.2f} @ {entry_px:.4f} | Orders: {count} (TP={len(tps)}, SL={len(sls)}) -> {status}"
         )
 
         for o in symbol_orders:
             is_algo = o.get("is_algo") or o["type"] in ["stop_market", "take_profit_market"]
             type_tag = "[ALGO]" if is_algo else "[REG ]"
-            logger.info(f"   - {type_tag} {o['side'].upper():5} | {o['type']:18} | ID: {o['id']}")
+
+            # Extract price info for verification
+            stop_px = o.get("stopPrice", 0)
+            px = o.get("price", 0)
+            avg_px = o.get("avgPrice", 0)
+
+            logger.info(
+                f"   - {type_tag} {o['side'].upper():5} | {o['type']:18} | ID: {o['id']} | Stop: {stop_px} | Price: {px} | Avg: {avg_px}"
+            )
 
         if others:
             for o in others:

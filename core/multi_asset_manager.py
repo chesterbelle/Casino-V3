@@ -5,7 +5,7 @@ Responsible for validating symbols before the bot starts in MULTI mode.
 
 import asyncio
 import logging
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ class MultiAssetManager:
     def __init__(self, exchange_adapter):
         self.adapter = exchange_adapter
         self.precision_profile: Dict[str, Dict] = {}
+        self._watchdog_task = None
 
     async def run_flytest(
         self,
@@ -198,6 +199,16 @@ class MultiAssetManager:
                         )
                         continue
 
+                    # C6. Depth Check (Flytest 2.0 - The "Pool" Rule)
+                    if hasattr(self.adapter, "fetch_order_book"):
+                        # Fetch L2 Order Book (Limit 50 is sufficient for 1% depth usually)
+                        order_book = await self.adapter.fetch_order_book(symbol, limit=50)
+
+                        is_deep_enough = self._check_depth_sufficiency(symbol, alloc_per_pos, order_book, price)
+
+                        if not is_deep_enough:
+                            continue  # Logged inside the method
+
                 except Exception as e:
                     logger.warning(f"❌ Rejected {symbol}: Failed to validate market depth/liquidity ({e})")
                     continue  # STRICT: No fallback, skip this symbol
@@ -275,3 +286,137 @@ class MultiAssetManager:
         except ImportError:
             # Fallback if config version mismatch
             return ["LTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "BTC/USDT:USDT"]
+
+    def _check_depth_sufficiency(self, symbol: str, bet_size: str, book: Dict[str, Any], current_price: float) -> bool:
+        """
+        Flytest 2.0: Check if "Pool" is deep enough.
+        Rule: Must have [FLYTEST_MIN_DEPTH_MULT]x bet size within [FLYTEST_DEPTH_CHECK_PCT]% range.
+
+        Returns: True if passed, False if rejected.
+        """
+        try:
+            from config import trading as trading_config
+
+            min_depth_mult = getattr(trading_config, "FLYTEST_MIN_DEPTH_MULT", 3.0)
+            check_pct = getattr(trading_config, "FLYTEST_DEPTH_CHECK_PCT", 0.01)
+
+            required_liquidity = bet_size * min_depth_mult
+
+            # 1. Check Bids (Support)
+            # Sum value of bids >= (price * (1 - pct))
+            bid_cutoff = current_price * (1 - check_pct)
+            total_bids_value = 0.0
+            for b_price, b_qty in book.get("bids", []):
+                if b_price < bid_cutoff:
+                    break  # Sorted descending
+                total_bids_value += b_price * b_qty
+
+            # 2. Check Asks (Resistance)
+            # Sum value of asks <= (price * (1 + pct))
+            ask_cutoff = current_price * (1 + check_pct)
+            total_asks_value = 0.0
+            for a_price, a_qty in book.get("asks", []):
+                if a_price > ask_cutoff:
+                    break  # Sorted ascending
+                total_asks_value += a_price * a_qty
+
+            # 3. Validate
+            if total_bids_value < required_liquidity:
+                logger.warning(
+                    f"❌ Rejected {symbol}: Shallow Bids. Found ${total_bids_value:.0f} < Required ${required_liquidity:.0f} (3x Bet) "
+                    f"within {check_pct:.1%}% range."
+                )
+                return False
+
+            if total_asks_value < required_liquidity:
+                logger.warning(
+                    f"❌ Rejected {symbol}: Shallow Asks. Found ${total_asks_value:.0f} < Required ${required_liquidity:.0f} (3x Bet) "
+                    f"within {check_pct:.1%}% range."
+                )
+                return False
+
+            logger.info(
+                f"💧 Depth OK {symbol}: Bids=${total_bids_value:.0f} Asks=${total_asks_value:.0f} "
+                f"(> ${required_liquidity:.0f})"
+            )
+            return True
+
+        except Exception as e:
+            logger.warning(f"⚠️ Depth check error for {symbol}: {e}")
+            return False
+
+    async def start_liquidity_watchdog(
+        self,
+        active_list: List[str],
+        on_remove_callback,
+        interval: int = 300,
+        bet_size_pct: float = 0.01,
+    ):
+        """
+        Start the continuous liquidity monitoring loop (Watchdog).
+        Re-checks depth every [interval] seconds.
+        """
+        logger.info(f"🐶 Liquidity Watchdog started (Interval: {interval}s)")
+
+        while True:
+            try:
+                await asyncio.sleep(interval)
+
+                if not active_list:
+                    logger.warning("🐶 Watchdog: No active symbols to monitor.")
+                    continue
+
+                logger.info("🐶 Watchdog: Checking liquidity for active symbols...")
+
+                # 1. Fetch current balance to calculate required depth
+                try:
+                    bal_data = await self.adapter.fetch_balance()
+                    total_balance = bal_data.get("total", {}).get("USDT", 0)
+                except Exception as e:
+                    logger.warning(f"🐶 Watchdog failed to fetch balance: {e}. Skipping cycle.")
+                    continue
+
+                alloc_per_pos = total_balance * bet_size_pct
+
+                # 2. Check each symbol
+                # Use a copy to iterate safely while modifying original list
+                for symbol in list(active_list):
+                    if not hasattr(self.adapter, "fetch_order_book"):
+                        continue
+
+                    try:
+                        # Fetch price first (needed for depth check)
+                        ticker = await self.adapter.fetch_ticker(symbol)
+                        price = float(ticker.get("last", 0))
+
+                        if price <= 0:
+                            continue
+
+                        # Fetch book
+                        book = await self.adapter.fetch_order_book(symbol, limit=50)
+
+                        # Reuse the core logic
+                        is_ok = self._check_depth_sufficiency(symbol, alloc_per_pos, book, price)
+
+                        if not is_ok:
+                            logger.warning(f"💀 Liquidity Watchdog: KILLING {symbol} (Insufficient Liquidity)")
+
+                            # Execute removal action
+                            if asyncio.iscoroutinefunction(on_remove_callback):
+                                await on_remove_callback(symbol)
+                            else:
+                                on_remove_callback(symbol)
+
+                            # Remove from list if not already removed by callback
+                            if symbol in active_list:
+                                active_list.remove(symbol)
+
+                    except Exception as e:
+                        logger.error(f"🐶 Watchdog error checking {symbol}: {e}")
+
+            except asyncio.CancelledError:
+                logger.info("🐶 Liquidity Watchdog stopped.")
+                break
+            except Exception as e:
+                logger.error(f"🐶 Watchdog main loop error: {e}")
+                await asyncio.sleep(60)  # Pause on error

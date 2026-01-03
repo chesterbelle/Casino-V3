@@ -81,6 +81,7 @@ class Croupier:
         self.exit_manager = ExitManager(self)
         self.process_start_balance: float = 0.0
         self.is_drain_mode: bool = False
+        self._drain_in_progress: bool = False  # Task guard for drain status updates
 
         # Phase 27: Background Reconciliation & Stats
         self._reconciliation_task: Optional[asyncio.Task] = None
@@ -106,16 +107,19 @@ class Croupier:
         Phase 2 (T-15m): Defensive (Breakeven)
         Phase 3 (T-5m): Aggressive (Force Close)
         """
-        if not self.is_drain_mode:
+        if not self.is_drain_mode or self._drain_in_progress:
             return
 
-        if remaining_minutes <= 5.0:
-            # Phase 3: Aggressive
-            # Slowly ramp up aggressiveness? No, just trigger aggressive sweep.
-            await self.exit_manager.trigger_aggressive_exits(fraction=0.2)  # Close 20% of worst positions per tick
-        elif remaining_minutes <= 15.0:
-            # Phase 2: Defensive
-            await self.exit_manager.trigger_defensive_exits()
+        try:
+            self._drain_in_progress = True
+            if remaining_minutes <= 5.0:
+                # Phase 3: Aggressive
+                await self.exit_manager.trigger_aggressive_exits(fraction=0.2)  # Close 20% of worst positions per tick
+            elif remaining_minutes <= 15.0:
+                # Phase 2: Defensive
+                await self.exit_manager.trigger_defensive_exits()
+        finally:
+            self._drain_in_progress = False
 
     async def modify_tp(
         self,
@@ -994,12 +998,40 @@ class Croupier:
                                     side = pos.get("side", "").lower()
                                     close_side = "sell" if side == "long" else "buy"
                                     try:
-                                        await self.adapter.create_market_order(
+                                        res = await self.adapter.create_market_order(
                                             symbol=sym, side=close_side, amount=size, params={"reduceOnly": True}
                                         )
                                         self.logger.info(
                                             f"✅ Closed remainder position: {sym} {side} {size} ({reason})"
                                         )
+
+                                        # PERFECT ACCOUNTING: Record this external closure
+                                        try:
+                                            # We might not know the exact entry price for a ghost,
+                                            # so we use 0.0 or the current price as a placeholder
+                                            # unless we find it in the tracker's history or exchange info.
+                                            fill_price = float(res.get("average") or res.get("price") or 0.0)
+                                            if fill_price <= 0:
+                                                fill_price = await self.adapter.get_current_price(sym)
+
+                                            # Try to find entry price from exchange info (some connectors provide it)
+                                            raw_entry = float(
+                                                pos.get("entryPrice") or pos.get("entry_price") or fill_price
+                                            )
+
+                                            historian.record_external_closure(
+                                                symbol=sym,
+                                                side=side.upper(),
+                                                qty=size,
+                                                entry_price=raw_entry,
+                                                exit_price=fill_price,
+                                                fee=0.0,  # Could be enriched if we add fetch_my_trades here, but it's slow during shutdown
+                                                reason=f"BRUTE_{reason}",
+                                                session_id=self.position_tracker.session_id,
+                                            )
+                                        except Exception as hist_e:
+                                            self.logger.error(f"❌ Failed to record external closure: {hist_e}")
+
                                         report["positions_closed"] += 1
                                     except Exception as e:
                                         self.logger.error(f"❌ Failed to close remainder {sym}: {e}")

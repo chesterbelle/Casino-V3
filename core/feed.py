@@ -120,6 +120,30 @@ class StreamManager:
         else:
             logger.info(f"📝 Queued trades subscription: {norm_symbol}")
 
+    async def unsubscribe_all(self, symbol: str):
+        """
+        Unsubscribe from all streams for a symbol.
+        Used by Liquidity Watchdog to quarantine symbols.
+        """
+        norm_symbol = normalize_symbol(symbol)
+        logger.info(f"🛑 Unsubscribing from all streams for {norm_symbol}...")
+
+        # Remove from set
+        self._subscribed_symbols.discard(norm_symbol)
+        self._disabled_symbols.add(norm_symbol)  # Mark as disabled/quarantined
+
+        # Cancel tasks
+        for prefix in ["ticker", "ob", "trades"]:
+            task_key = f"{prefix}_{norm_symbol}"
+            if task_key in self._tasks:
+                task = self._tasks.pop(task_key)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                logger.info(f"✅ Cancelled {task_key}")
+
     async def _watch_ticker_loop(self, symbol: str):
         """Continuous loop to watch ticker with error handling and auto-recovery."""
         logger.info(f"🔍 Starting ticker loop for {symbol}")

@@ -467,6 +467,53 @@ class BinanceNativeConnector(BaseConnector):
             self.logger.error(f"🚨 Fetch Book Tickers failed: {e}")
             raise
 
+    async def fetch_order_book(self, symbol: str, limit: int = 50) -> Dict[str, Any]:
+        """
+        Fetch L2 Order Book (Depth) for a specific symbol.
+        Used for Flytest 2.0 Depth Checks.
+
+        Args:
+            symbol: Unified symbol (e.g. "BTC/USDT:USDT")
+            limit: Depth limit (5, 10, 20, 50, 100, 500, 1000). Default 50.
+
+        Returns:
+            Dict: standard order book {
+                "symbol": symbol,
+                "bids": [[price, qty], ...],
+                "asks": [[price, qty], ...],
+                "timestamp": ms
+            }
+        """
+        native_symbol = self._normalize_symbol(symbol)
+
+        # Valid limits for Binance Futures: 5, 10, 20, 50, 100, 500, 1000
+        valid_limits = [5, 10, 20, 50, 100, 500, 1000]
+        if limit not in valid_limits:
+            # Snap to closest valid limit or default to 50
+            limit = min(valid_limits, key=lambda x: abs(x - limit))
+
+        try:
+            data = await self.error_handler.execute_with_breaker(
+                self._market_data_breaker_name,
+                self._request,
+                "GET",
+                "/fapi/v1/depth",
+                params={"symbol": native_symbol, "limit": limit},
+                endpoint_type="market_data",
+                timeout=10,
+            )
+
+            return {
+                "symbol": symbol,
+                "bids": [[float(b[0]), float(b[1])] for b in data.get("bids", [])],
+                "asks": [[float(a[0]), float(a[1])] for a in data.get("asks", [])],
+                "timestamp": data.get("T", int(time.time() * 1000)),
+                "nonce": data.get("lastUpdateId", 0),
+            }
+        except Exception as e:
+            self.logger.error(f"🚨 Fetch Order Book failed for {symbol}: {e}")
+            raise
+
     async def fetch_ticker(self, symbol: str) -> Dict[str, Any]:
         """
         Fetch 24hr ticker for a specific symbol.

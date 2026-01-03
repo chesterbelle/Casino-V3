@@ -13,6 +13,11 @@ __pycache__/
 
 # Data
 *.csv
+*.db
+binance_info.json
+
+# State
+state/
 
 # Archivos de entorno y logs
 .idea/

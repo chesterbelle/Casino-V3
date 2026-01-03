@@ -1,6 +1,7 @@
 import logging
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -15,44 +16,66 @@ class TradeHistorian:
 
     def __init__(self, db_path: str = "data/casino_v3.db"):
         self.db_path = db_path
+        self._conn = None
+        if self.db_path == ":memory:":
+            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
         self._ensure_data_dir()
         self._init_db()
 
     def _ensure_data_dir(self):
         """Ensures the directory for the database exists."""
+        if self.db_path == ":memory:":
+            return
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
     def _init_db(self):
         """Initializes the database schema."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trade_id TEXT UNIQUE,
-                    symbol TEXT,
-                    side TEXT,
-                    entry_price REAL,
-                    exit_price REAL,
-                    qty REAL,
-                    fee REAL DEFAULT 0.0,
-                    funding REAL DEFAULT 0.0,
-                    gross_pnl REAL,
-                    net_pnl REAL,
-                    exit_reason TEXT,
-                    timestamp TEXT,
-                    bars_held INTEGER,
-                    session_id TEXT
-                )
-            """
-            )
-            # Schema Evolution: Add session_id if it doesn't exist
-            try:
-                conn.execute("ALTER TABLE trades ADD COLUMN session_id TEXT")
-            except sqlite3.OperationalError:
-                pass  # Already exists
+        if self._conn:
+            conn = self._conn
+            self._apply_schema(conn)
+        else:
+            with sqlite3.connect(self.db_path) as conn:
+                self._apply_schema(conn)
 
-            conn.commit()
+    def _apply_schema(self, conn):
+        """Applies schema to a connection."""
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT UNIQUE,
+                symbol TEXT,
+                side TEXT,
+                entry_price REAL,
+                exit_price REAL,
+                qty REAL,
+                fee REAL DEFAULT 0.0,
+                funding REAL DEFAULT 0.0,
+                gross_pnl REAL,
+                net_pnl REAL,
+                exit_reason TEXT,
+                timestamp TEXT,
+                bars_held INTEGER,
+                session_id TEXT
+            )
+        """
+        )
+        # Schema Evolution: Add session_id if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN session_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Already exists
+
+        conn.commit()
+
+    @contextmanager
+    def _get_conn(self):
+        """Context manager for DB connection (handles :memory: persistence)."""
+        if self._conn:
+            yield self._conn
+        else:
+            with sqlite3.connect(self.db_path) as conn:
+                yield conn
 
     def record_trade(self, trade_data: Dict[str, Any]):
         """
@@ -76,7 +99,7 @@ class TradeHistorian:
 
             session_id = trade_data.get("session_id")
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_conn() as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
@@ -107,9 +130,52 @@ class TradeHistorian:
         except Exception as e:
             logger.error(f"❌ Historian: Error recording trade: {e}")
 
+    def record_external_closure(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        entry_price: float,
+        exit_price: float,
+        fee: float = 0.0,
+        funding: float = 0.0,
+        reason: str = "AUDIT_SWEEP",
+        session_id: Optional[str] = None,
+    ):
+        """
+        Records a closure that happened outside the normal OCO lifecycle (e.g. sweep).
+        """
+        try:
+            # PnL = (Exit - Entry) * Qty * Direction
+            direction = 1 if side.upper() in ["LONG", "BUY"] else -1
+            gross_pnl = (exit_price - entry_price) * qty * direction
+            net_pnl = gross_pnl - fee - funding
+
+            trade_id = f"EXT_{reason}_{datetime.now().strftime('%H%M%S%f')[:8]}"
+
+            trade_data = {
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "side": "LONG" if side.upper() in ["LONG", "BUY"] else "SHORT",
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pnl": gross_pnl,
+                "fee": fee,
+                "funding": funding,
+                "exit_reason": f"AUDIT_{reason}",
+                "session_id": session_id,
+                "notional": qty * entry_price,
+            }
+
+            self.record_trade(trade_data)
+            logger.warning(f"🔍 Historian: External closure recorded for {symbol} ({reason}) | PnL: {net_pnl:+.4f}")
+        except Exception as e:
+            logger.error(f"❌ Historian: Error recording external closure: {e}")
+
     def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Returns statistics for the current database state, optionally filtered by session."""
         try:
+            params = []
             query = """
                 SELECT
                     COUNT(*) as count,
@@ -121,18 +187,17 @@ class TradeHistorian:
                     SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses
                 FROM trades
             """
-            params = []
             if session_id:
                 query += " WHERE session_id = ?"
                 params.append(session_id)
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_conn() as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(query, params)
                 row = cursor.fetchone()
                 return (
                     dict(row)
-                    if row["count"] > 0
+                    if row and row["count"] > 0
                     else {
                         "count": 0,
                         "total_net_pnl": 0.0,
@@ -150,25 +215,25 @@ class TradeHistorian:
     def get_detailed_report(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns a detailed report grouped by symbol, optionally filtered by session."""
         try:
-            query = """
-                SELECT
-                    symbol,
-                    COUNT(*) as trades,
-                    SUM(net_pnl) as net_pnl,
-                    SUM(fee) as fees,
-                    SUM(funding) as funding,
-                    AVG(bars_held) as avg_duration,
-                    SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
-                FROM trades
-            """
-            params = []
-            if session_id:
-                query += " WHERE session_id = ?"
-                params.append(session_id)
+            with self._get_conn() as conn:
+                query = """
+                    SELECT
+                        symbol,
+                        COUNT(*) as trades,
+                        SUM(net_pnl) as net_pnl,
+                        SUM(fee) as fees,
+                        SUM(funding) as funding,
+                        AVG(bars_held) as avg_duration,
+                        SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
+                    FROM trades
+                """
+                params = []
+                if session_id:
+                    query += " WHERE session_id = ?"
+                    params.append(session_id)
 
-            query += " GROUP BY symbol ORDER BY net_pnl DESC"
+                query += " GROUP BY symbol ORDER BY net_pnl DESC"
 
-            with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(query, params)
                 return [dict(row) for row in cursor.fetchall()]
@@ -179,9 +244,11 @@ class TradeHistorian:
     def run_integrity_check(self) -> Dict[str, Any]:
         """Performs a mathematical integrity check on all records."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_conn() as conn:
                 conn.row_factory = sqlite3.Row
-                cursor = conn.execute("SELECT * FROM trades")
+                cursor = conn.execute(
+                    "SELECT trade_id, gross_pnl, fee, funding, net_pnl, entry_price, exit_price FROM trades"
+                )
                 rows = cursor.fetchall()
 
             issues = []
@@ -210,7 +277,7 @@ class TradeHistorian:
         import csv
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_conn() as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute("SELECT * FROM trades ORDER BY id DESC")
                 rows = cursor.fetchall()
@@ -239,7 +306,7 @@ class TradeHistorian:
         Use with caution (e.g. strategy reset).
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_conn() as conn:
                 conn.execute("DELETE FROM trades")
                 conn.commit()
             logger.warning("🗑️ Historian: Trade history cleared manually.")
