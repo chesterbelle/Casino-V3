@@ -66,8 +66,8 @@ from exchanges.connectors import (
 # Enable faulthandler to dump traceback on segfault/hard crash
 faulthandler.enable()
 
-# Configure structured logging (console format for development)
-configure_logging(log_level="DEBUG", log_format="console")  # DEBUG for development/testing
+# Configure structured logging (Clean Console by default, Detailed bot.log always)
+configure_logging(log_level="INFO", log_format="console")
 logger = logging.getLogger("Casino-V3")
 
 

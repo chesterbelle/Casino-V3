@@ -88,14 +88,15 @@ class Croupier:
         self._start_background_tasks()
 
         self.logger.info(
-            f"✅ Croupier initialized | Balance: {initial_balance} | " f"Max Positions: {max_concurrent_positions}"
+            f"[CORE] ✅ Croupier initialized | Balance: {initial_balance} | "
+            f"Max Positions: {max_concurrent_positions}"
         )
 
     def set_drain_mode(self, enabled: bool):
         """Enable or disable drain mode (no new entries, narrow exits)."""
         self.is_drain_mode = enabled
         if enabled:
-            self.logger.warning("🕒 Croupier entering DRAIN MODE. Narrowing TPs for all positions.")
+            self.logger.warning("[CORE] 🕒 Croupier entering DRAIN MODE. Narrowing TPs for all positions.")
             # Trigger immediate soft exit check for all positions (Phase 1)
             asyncio.create_task(self.exit_manager.trigger_soft_exits())
 
@@ -128,45 +129,31 @@ class Croupier:
         symbol: str,
         old_tp_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Modify Take Profit for a position."""
+        """Modify Take Profit for a position using the unified OCOManager."""
         self.logger.info(f"🔄 Modifying TP for {trade_id} | New TP: {new_tp_price:.2f}")
 
-        position = next((p for p in self.position_tracker.open_positions if p.trade_id == trade_id), None)
-        if not position:
-            raise ValueError(f"Position not found: {trade_id}")
-
-        # tp_side = "sell" if position.side == "LONG" else "buy"
-        amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
-
-        # 1. Create new TP with defensive timeout
         try:
-            result = await self.oco_manager.create_tp_order(
-                symbol=symbol,
-                side=position.side,
-                amount=amount,
-                tp_price=new_tp_price,
-                trade_id=trade_id,
-                timeout=trading_config.GRACEFUL_TP_TIMEOUT,
+            result = await self.oco_manager.modify_bracket(
+                trade_id=trade_id, symbol=symbol, new_tp_price=new_tp_price, timeout=trading_config.GRACEFUL_TP_TIMEOUT
             )
-        except asyncio.TimeoutError:
-            self.logger.error(
-                f"❌ Soft Exit Timeout (>{trading_config.GRACEFUL_TP_TIMEOUT}s) for {trade_id}. "
-                "Skipping to prevent loop freeze."
-            )
-            return {"status": "error", "reason": "timeout"}
 
-        # 2. Cancel old TP
-        if old_tp_order_id:
-            try:
-                await self.oco_manager.cancel_order(old_tp_order_id, symbol)
-            except Exception as e:
-                self.logger.warning(f"⚠️ Failed to cancel old TP {old_tp_order_id}: {e}")
+            if result.get("status") == "success":
+                # Reconciliation for manual fallback safety
+                if "tp_id" in result:
+                    import asyncio
 
-        # Update local state
-        position.tp_level = new_tp_price
-        position.tp_order_id = result.get("order_id")
+                    asyncio.create_task(self.reconcile_positions(symbol))
 
-        return {"status": "success", "new_tp_price": new_tp_price, "new_order_id": position.tp_order_id}
+                return {
+                    "status": "success",
+                    "new_order_id": result.get("native_id") or result.get("tp_id"),
+                    "new_tp_price": new_tp_price,
+                }
+            return result
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to modify TP: {e}")
+            raise e
 
     async def execute_order(self, order: Dict[str, Any], wait_for_fill: bool = False) -> Dict[str, Any]:
         """
@@ -472,127 +459,31 @@ class Croupier:
         symbol: str,
         old_sl_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Modify the stop loss for a position (cancel old, create new).
-
-        Used by ExitManager for breakeven and trailing stop strategies.
-
-        Args:
-            trade_id: Position trade ID
-            new_sl_price: New stop loss price
-            symbol: Trading symbol
-            old_sl_order_id: ID of the order to cancel
-
-        Returns:
-            Dict with new_order_id and status
-        """
+        """Modify Stop Loss for a position using the unified OCOManager."""
         self.logger.info(f"🔄 Modifying SL for {trade_id} | New SL: {new_sl_price:.2f}")
 
-        # Find position to get side
-        position = None
-        for pos in self.position_tracker.open_positions:
-            if pos.trade_id == trade_id:
-                position = pos
-                break
-
-        if not position:
-            raise ValueError(f"Position not found: {trade_id}")
-
-        # 1. Create new SL order FIRST (Safety: prevent orphaned position)
-        # Determine side for SL (opposite of position)
-        sl_side = "sell" if position.side == "LONG" else "buy"
-
-        # Get amount from position (try multiple sources)
-        amount = None
-        if position.order and position.order.get("amount"):
-            amount = position.order.get("amount")
-        elif position.notional and position.entry_price:
-            # Fallback: calculate from notional / entry_price
-            amount = abs(position.notional / position.entry_price)
-            self.logger.debug(f"📊 Calculated amount from notional: {amount}")
-
-        if not amount:
-            raise ValueError(f"Position {trade_id} has no amount")
-
-        # Round price to exchange precision
-        rounded_sl_price = float(self.adapter.price_to_precision(symbol, new_sl_price))
-        self.logger.info(f"🎯 Rounded SL price: {new_sl_price} -> {rounded_sl_price}")
-
-        new_order_id = None
-        from core.error_handling import RetryConfig
-
         try:
-            # Use error_handler for transient network errors
-            new_sl_order = await self.error_handler.execute_with_breaker(
-                f"create_sl_{symbol}",
-                self.adapter.create_stop_loss_order,
-                symbol=symbol,
-                side=sl_side,
-                amount=amount,
-                stop_price=rounded_sl_price,
-                retry_config=RetryConfig(max_retries=2, backoff_base=0.5, backoff_max=3.0),
+            result = await self.oco_manager.modify_bracket(
+                trade_id=trade_id, symbol=symbol, new_sl_price=new_sl_price, timeout=trading_config.GRACEFUL_SL_TIMEOUT
             )
 
-            new_order_id = new_sl_order.get("id") or new_sl_order.get("order_id")
-            self.logger.info(f"✅ Created new SL order: {new_order_id} @ {rounded_sl_price:.2f}")
+            if result.get("status") == "success":
+                # Reconciliation as a safety measure for manual fallback
+                if "sl_id" in result:
+                    import asyncio
+
+                    asyncio.create_task(self.reconcile_positions(symbol))
+
+                return {
+                    "status": "success",
+                    "new_order_id": result.get("native_id") or result.get("sl_id"),
+                    "new_sl_price": new_sl_price,
+                }
+            return result
 
         except Exception as e:
-            # Check for MinNotional error specifically (business logic, not transient)
-            err_str = str(e)
-            if "-4164" in err_str or "Order's notional" in err_str:
-                self.logger.warning(f"⚠️ SL update skipped (MinNotional): {e}")
-                # We do NOT cancel the old order. Safe exit.
-                return {
-                    "status": "skipped",
-                    "reason": "min_notional",
-                    "old_order_id": old_sl_order_id,
-                    "new_sl_price": position.sl_level,  # Keep old price
-                }
-
-            self.logger.error(f"❌ Failed to create new SL: {e}")
-            raise e  # Re-raise other errors
-
-        # 2. Cancel old SL order ONLY if new one was successful
-        if old_sl_order_id and new_order_id:
-            try:
-                # Use error_handler with 1 retry - cancellation is best-effort
-                # since the new SL is already active
-                await self.error_handler.execute_with_breaker(
-                    f"cancel_old_sl_{symbol}",
-                    self.adapter.cancel_order,
-                    old_sl_order_id,
-                    symbol,
-                    retry_config=RetryConfig(max_retries=1, backoff_base=0.5, backoff_max=2.0),
-                )
-                self.logger.info(f"🛑 Cancelled old SL order: {old_sl_order_id}")
-            except Exception as e:
-                self.logger.warning(
-                    f"⚠️ Failed to cancel old SL {old_sl_order_id} (New SL {new_order_id} is active): {e}"
-                )
-                # TRIGGER EMERGENCY RECONCILIATION
-                # The old order is now likely a ghost (untracked). We must sweep it.
-                self.logger.warning(f"🚨 Triggering emergency reconciliation for {symbol} to sweep orphan...")
-                # Run as background task to avoid blocking return
-                import asyncio
-
-                # CRITICAL FIX: Update tracker state BEFORE triggering reconciliation.
-                # Otherwise, reconciliation will see the New SL as an "Orphan" (not yet in tracker)
-                # and cancel it, leaving the position naked.
-                position = self.position_tracker.get_position(trade_id)
-                if position:
-                    position.sl_order_id = new_order_id
-                    position.sl_level = rounded_sl_price
-                    # Force save state to be safe
-                    self.position_tracker._trigger_state_change()
-
-                asyncio.create_task(self.reconcile_positions(symbol))
-
-        return {
-            "status": "success",
-            "new_order_id": new_order_id,
-            "old_order_id": old_sl_order_id,
-            "new_sl_price": rounded_sl_price,
-        }
+            self.logger.error(f"❌ Failed to modify SL: {e}")
+            raise e
 
     async def reconcile_positions(self, symbol: Optional[str] = None):
         """
@@ -737,7 +628,7 @@ class Croupier:
 
     async def _reconciliation_loop(self):
         """Background loop to detect and correct balance drift every 5 mins."""
-        self.logger.info("⏱️ Starting Balance Reconciliation Loop (5m interval)")
+        self.logger.info("[SYNC] ⏱️ Starting Balance Reconciliation Loop (5m interval)")
         while True:
             try:
                 await asyncio.sleep(300)  # 5 minutes
@@ -763,7 +654,7 @@ class Croupier:
                     # Correct local balance manager if drift is significant
                     # This ensures future sizing is correct even if some fees were missed
                     self.balance_manager.set_balance(actual_equity)
-                    self.logger.info(f"🛠️ Corrected Local Balance to {actual_equity:.4f}")
+                    self.logger.info(f"[WALLET] 🛡️ Corrected Local Balance to {actual_equity:.4f}")
                 else:
                     self.logger.debug(f"⚖️ Balance OK | Drift: {drift:+.4f}")
 
@@ -775,7 +666,7 @@ class Croupier:
     def set_process_start_balance(self, balance: float):
         """Sets the exact balance at the start of this execution."""
         self.process_start_balance = float(balance)
-        self.logger.info(f"💰 Croupier: Process Start Balance set to {self.process_start_balance:.2f} USDT")
+        self.logger.info(f"[WALLET] 💰 Process Start Balance: {self.process_start_balance:.2f} USDT")
 
     def get_session_summary(self, final_balance: Optional[float] = None) -> Dict[str, Any]:
         """

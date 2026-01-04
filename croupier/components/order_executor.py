@@ -106,7 +106,7 @@ class OrderExecutor:
 
         symbol = order["symbol"]
         self.logger.info(
-            f"📤 Executing market order: {order['side']} {order['amount']} {symbol} | ID: {order.get('clientOrderId')}"
+            f"[TRADE] 📤 Executing Market Order: {order['side']} {order['amount']} {symbol} | ID: {order.get('clientOrderId')}"
         )
 
         result = await self.error_handler.execute_with_breaker(
@@ -121,7 +121,7 @@ class OrderExecutor:
         result = await self._enrich_fill_details(result, symbol)
 
         self.logger.info(
-            f"✅ Market order executed: {result.get('order_id')} | "
+            f"[TRADE] ✅ Market Order Filled: {result.get('order_id')} | "
             f"Status: {result.get('status')} | Fee: {result.get('fee', {}).get('cost', 0):.4f}"
         )
 
@@ -199,7 +199,7 @@ class OrderExecutor:
         retry_cfg = self._get_retry_config("limit")
 
         self.logger.info(
-            f"📤 Executing limit order: {side} {amount} {symbol} @ {price} | ID: {order.get('clientOrderId')}"
+            f"[TRADE] 📤 Executing Limit Order: {side} {amount} {symbol} @ {price} | ID: {order.get('clientOrderId')}"
         )
 
         try:
@@ -253,14 +253,14 @@ class OrderExecutor:
         retry_cfg = self._get_retry_config("stop")
 
         self.logger.info(
-            f"📤 Executing stop order: {side} {amount} {symbol} @ stop {stop_price} | ID: {order.get('clientOrderId')}"
+            f"[OCO] 📤 Executing Stop Order: {side} {amount} {symbol} @ stop {stop_price} | ID: {order.get('clientOrderId')}"
         )
 
         result = await self.error_handler.execute_with_breaker(
             f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
         )
 
-        self.logger.info(f"✅ Stop order executed: {result.get('order_id')}")
+        self.logger.info(f"[OCO] ✅ Stop Order Executed: {result.get('order_id')}")
 
         return result
 

@@ -920,8 +920,9 @@ class BinanceNativeConnector(BaseConnector):
         return self._normalize_algo_order(response)
 
     async def _create_algo_order(self, args: Dict[str, Any], timeout: Optional[float] = None) -> Dict[str, Any]:
-        """Create an algo/conditional order."""
-        symbol = args.get("symbol")  # Unified symbol if passed, but args usually has native from executor?
+        """Create an algo/conditional order (including Native OCO)."""
+        symbol = args.get("symbol")
+        algo_type = args.get("algoType", "CONDITIONAL")
 
         # Format params
         formatted_qty = None
@@ -929,15 +930,25 @@ class BinanceNativeConnector(BaseConnector):
             formatted_qty = self.amount_to_precision(symbol, float(args["quantity"]))
 
         algo_params = {
-            "algoType": "CONDITIONAL",
+            "algoType": algo_type,
             "symbol": args["symbol"],
             "side": args["side"],
             "type": args["type"],
             "quantity": formatted_qty,
         }
 
-        if "stopPrice" in args:
-            algo_params["triggerPrice"] = self.price_to_precision(symbol, float(args["stopPrice"]))
+        # OCO Specific Prices
+        if algo_type == "OCO":
+            if args.get("profitPrice") is not None:
+                algo_params["profitPrice"] = self.price_to_precision(symbol, float(args["profitPrice"]))
+            if args.get("lossPrice") is not None:
+                algo_params["lossPrice"] = self.price_to_precision(symbol, float(args["lossPrice"]))
+            if args.get("lossLimitPrice") is not None:
+                algo_params["lossLimitPrice"] = self.price_to_precision(symbol, float(args["lossLimitPrice"]))
+        else:
+            # Standard Conditional (STOP/TAKE_PROFIT)
+            if args.get("stopPrice") is not None:
+                algo_params["triggerPrice"] = self.price_to_precision(symbol, float(args["stopPrice"]))
 
         if args.get("reduceOnly"):
             algo_params["reduceOnly"] = "true"
@@ -946,7 +957,7 @@ class BinanceNativeConnector(BaseConnector):
 
         algo_params = {k: v for k, v in algo_params.items() if v is not None}
 
-        self.logger.info(f"📋 Creating Algo Order: {algo_params}")
+        self.logger.debug(f"📋 Creating {algo_type} Algo Order: {algo_params}")
         response = await self._request(
             "POST",
             "/fapi/v1/algoOrder",
@@ -986,7 +997,8 @@ class BinanceNativeConnector(BaseConnector):
             # Start Subscription Worker (Phase 11)
             self._subscription_worker_task = asyncio.create_task(self._subscription_worker())
 
-            self.logger.info("✅ Market Data Stream connected (Subscription Worker Active)")
+            self.logger.info("✅ Market Data Stream connected")
+            self.logger.debug("Subscription Worker Active")
 
             # Resubscribe if reconnecting
             if self._active_subscriptions:
@@ -1073,7 +1085,7 @@ class BinanceNativeConnector(BaseConnector):
         Prevents Error 1008 (Too many requests) by group symbols together
         and respecting message frequency limits.
         """
-        self.logger.info("👷 Subscription Worker started")
+        self.logger.debug("👷 Subscription Worker started")
         while True:
             try:
                 # Wait for at least one subscription request
@@ -1098,7 +1110,7 @@ class BinanceNativeConnector(BaseConnector):
                     "id": int(time.time() * 1000),
                 }
 
-                self.logger.info(f"📡 Batch subscribing to {len(streams_to_sub)} streams...")
+                self.logger.debug(f"📡 Batch subscribing to {len(streams_to_sub)} streams...")
                 await self._market_data_ws.send(json.dumps(subscribe_msg))
 
                 # Mark tasks as done

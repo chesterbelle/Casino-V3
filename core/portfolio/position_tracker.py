@@ -797,11 +797,14 @@ class PositionTracker:
         # Cancel the opposite order (OCO behavior)
         if opposite_order_id and self.adapter:
             try:
+                logger.debug(f"🧹 OCO: Attempting to cancel opposite order {opposite_order_id} for {symbol}")
                 await self.adapter.cancel_order(opposite_order_id, symbol)
                 logger.info(
                     f"✅ Cancelled opposite {('SL' if exit_reason == 'TP' else 'TP')} order: {opposite_order_id}"
                 )
             except Exception as e:
                 logger.warning(f"⚠️ Failed to cancel opposite order {opposite_order_id}: {e}")
+        else:
+            logger.debug(f"🔍 OCO skip: opposite_id={opposite_order_id}, has_adapter={bool(self.adapter)}")
 
         return result

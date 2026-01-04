@@ -55,7 +55,7 @@ class ReconciliationService:
         Reconcile ALL symbols in a single optimized pass.
         Fetches all positions and all orders once from the exchange.
         """
-        self.logger.info("🔄 Starting global reconciliation for all symbols")
+        self.logger.info("[SYNC] 🔄 Starting global reconciliation for all symbols")
         reports = []
 
         try:
@@ -103,7 +103,7 @@ class ReconciliationService:
                 report = await self._reconcile_symbol_data(symbol, ex_pos_by_symbol[symbol], orders_by_symbol[symbol])
                 reports.append(report)
 
-            self.logger.info(f"✅ Global reconciliation complete. {len(reports)} symbols processed.")
+            self.logger.info(f"[SYNC] ✅ Global reconciliation complete. {len(reports)} symbols processed.")
 
         except Exception as e:
             self.logger.error(f"❌ Global reconciliation failed: {e}", exc_info=True)
@@ -116,7 +116,7 @@ class ReconciliationService:
         Useful for targeted syncs after manual trades or errors.
         """
         symbol = normalize_symbol(symbol)
-        self.logger.info(f"🔄 Starting individual reconciliation for {symbol}")
+        self.logger.info(f"[SYNC] 🔄 Starting individual reconciliation for {symbol}")
 
         # Fetch for this symbol only
         exchange_positions = await self._fetch_exchange_positions(symbol)

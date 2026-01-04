@@ -332,9 +332,14 @@ class OCOManager:
                 self.tracker.new_shorts += 1
 
             self.tracker._trigger_state_change()
-            self.logger.info(f"🛡️ Position registered as OPENING: {position.trade_id} (Protection enabled)")
+            self.logger.info(f"[TRADE] 🛡️ Position Opening: {position.trade_id} (Protection pending)")
 
             try:
+                # =========================================================
+                # HARDENED MANUAL OCO FLOW
+                # =========================================================
+                self.logger.info(f"[OCO] 🛡️ Creating Protected Bracket (Manual) for {symbol}")
+
                 # Step 4: Create TP order
                 tp_order = await self._create_tp_order(symbol, side, main_order["amount"], tp_price)
                 watchdog.heartbeat(operation_id, f"TP order created: {tp_order.get('order_id') or tp_order.get('id')}")
@@ -360,18 +365,20 @@ class OCOManager:
                 watchdog.heartbeat(operation_id, "OCO pair registered")
 
                 self.logger.info(
-                    f"✅ OCO bracket created: Main={main_order.get('order_id') or main_order.get('id')}, "
-                    f"TP={tp_order_id}, SL={sl_order_id}"
+                    f"[OCO] ✅ Bracket Active | Main: {main_order.get('order_id') or main_order.get('id')} | "
+                    f"TP: {tp_order_id} | SL: {sl_order_id}"
                 )
 
-                # UPDATE POSITION STATE TO ACTIVE WITH DUAL IDs
+                # UPDATE POSITION STATE WITH DUAL IDs
                 position.tp_order_id = tp_order.get("client_order_id") or tp_order_id
                 position.exchange_tp_id = tp_order.get("order_id") or tp_order_id
                 position.sl_order_id = sl_order.get("client_order_id") or sl_order_id
                 position.exchange_sl_id = sl_order.get("order_id") or sl_order_id
+
+                # Finalize position state
                 position.status = "ACTIVE"
                 self.tracker._trigger_state_change()
-                self.logger.info(f"✅ Position transitioned to ACTIVE: {position.trade_id}")
+                self.logger.info(f"[TRADE] ✅ Position Active: {position.trade_id}")
 
             except Exception as e:
                 # If TP/SL creation fails, the position is broken/partial.
@@ -413,6 +420,103 @@ class OCOManager:
                 watchdog.unregister(operation_id)
             except Exception:
                 pass  # Ignore errors during cleanup
+
+    async def modify_bracket(
+        self,
+        trade_id: str,
+        symbol: str,
+        new_tp_price: Optional[float] = None,
+        new_sl_price: Optional[float] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Modifies an existing bracket (Native or Manual).
+        If Native OCO: cancels the current OCO and creates a new one.
+        If Manual OCO: replaces only the necessary leg.
+        """
+        position = self.tracker.get_position(trade_id)
+        if not position:
+            raise ValueError(f"Position not found: {trade_id}")
+
+        # Determine if it's a native bracket
+        is_native = (
+            position.exchange_tp_id is not None
+            and position.exchange_sl_id is not None
+            and position.exchange_tp_id == position.exchange_sl_id
+        )
+
+        tp_price = new_tp_price or position.tp_level
+        sl_price = new_sl_price or position.sl_level
+        amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
+
+        if is_native:
+            self.logger.info(f"🔄 Re-creating Native OCO bracket for {symbol} (Modification)")
+
+            # 1. Cancel existing Native OCO
+            await self.cancel_order(position.exchange_tp_id, symbol)
+
+            # 2. Create new Native OCO bracket
+            oco_result = await self.adapter.create_native_oco_bracket(
+                symbol=symbol,
+                side=position.side,
+                amount=amount,
+                tp_price=tp_price,
+                sl_price=sl_price,
+                params={"client_order_id": f"OMOD_{trade_id}_{uuid.uuid4().hex[:4]}"},
+            )
+
+            # Update position IDs
+            native_id = oco_result.get("id") or oco_result.get("order_id")
+            position.tp_order_id = native_id
+            position.exchange_tp_id = native_id
+            position.sl_order_id = native_id
+            position.exchange_sl_id = native_id
+            position.tp_level = tp_price
+            position.sl_level = sl_price
+
+            self.tracker._trigger_state_change()
+            return {"status": "success", "native_id": native_id}
+        else:
+            # Manual OCO modification (fallback)
+            self.logger.info(f"🔄 Modifying Manual OCO bracket for {symbol}")
+
+            results = {"status": "success"}
+
+            if new_tp_price and new_tp_price != position.tp_level:
+                # Cancel old TP
+                if position.exchange_tp_id:
+                    await self.cancel_order(position.exchange_tp_id, symbol)
+                # Create new TP
+                tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
+                tp_id = tp_order.get("order_id") or tp_order.get("id")
+                position.tp_order_id = tp_order.get("client_order_id") or tp_id
+                position.exchange_tp_id = tp_id
+                position.tp_level = new_tp_price
+                results["tp_id"] = tp_id
+
+            if new_sl_price and new_sl_price != position.sl_level:
+                # Cancel old SL
+                if position.exchange_sl_id:
+                    await self.cancel_order(position.exchange_sl_id, symbol)
+                # Create new SL
+                sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
+                sl_id = sl_order.get("order_id") or sl_order.get("id")
+                position.sl_order_id = sl_order.get("client_order_id") or sl_id
+                position.exchange_sl_id = sl_id
+                position.sl_level = new_sl_price
+                results["sl_id"] = sl_id
+
+            # Re-register OCO pair if both IDs exist and are separate
+            if (
+                not is_native
+                and position.exchange_tp_id
+                and position.exchange_sl_id
+                and position.exchange_tp_id != position.exchange_sl_id
+            ):
+                await self.adapter.register_oco_pair(symbol, position.exchange_tp_id, position.exchange_sl_id)
+
+            self.tracker._trigger_state_change()
+            return results
 
     async def _execute_main_order(self, order: Dict[str, Any], client_order_id: str = None) -> Dict[str, Any]:
         """Execute main market order."""

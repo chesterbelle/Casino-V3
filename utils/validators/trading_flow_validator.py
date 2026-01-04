@@ -677,7 +677,7 @@ async def main():
     parser.add_argument("--exchange", required=True, help="Exchange ID (binance)")
     parser.add_argument("--symbol", required=True, help="Trading symbol (LTCUSDT)")
     parser.add_argument("--mode", default="demo", choices=["demo", "live"], help="Mode")
-    parser.add_argument("--size", type=float, default=0.05, help="Position size fraction (0.05 = 5%)")
+    parser.add_argument("--size", type=float, default=0.05, help="Position size fraction (0.05 = 5%%)")
     parser.add_argument(
         "--execute-orders", action="store_true", help="Execute real orders (always true for this validator)"
     )

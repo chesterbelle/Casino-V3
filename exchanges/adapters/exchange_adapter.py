@@ -328,9 +328,16 @@ class ExchangeAdapter:
             self.logger.error(f"❌ Error getting current price for {symbol}: {e}")
             raise ValueError(f"Cannot get current price for {symbol}: {e}")
 
+    @property
+    def supports_native_oco(self) -> bool:
+        """Determines if the underlying connector supports native OCO."""
+        # Forcing False to prioritize hardened Manual OCO orchestration
+        return False
+
     async def register_oco_pair(self, symbol: str, tp_order_id: str, sl_order_id: str):
         """
         Registers an OCO pair with the underlying connector if supported.
+        Used for manual OCO orchestration.
         """
         if hasattr(self.connector, "register_oco_pair"):
             await self.connector.register_oco_pair(symbol, tp_order_id, sl_order_id)
