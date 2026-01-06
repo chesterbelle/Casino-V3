@@ -138,6 +138,7 @@ class ErrorClassifier:
         # Binance Futures - Temporary/Retriable
         (r"-1001", ErrorCategory.TEMPORARY),  # Disconnected from server
         (r"-1000", ErrorCategory.TEMPORARY),  # Unknown error (often temporary)
+        (r"-1021", ErrorCategory.TEMPORARY),  # Timestamp outside recvWindow (Fix: Auto-Resync)
         (r"-2022", ErrorCategory.TEMPORARY),  # Binance: ReduceOnly Order rejected (Sync Lag)
         (r"-4118", ErrorCategory.TEMPORARY),  # Binance: ReduceOnly Order failed (Sync Lag)
         # NOTE: -4164 moved to NON_RETRIABLE - it's a validation error, not a sync issue

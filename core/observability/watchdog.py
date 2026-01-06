@@ -63,6 +63,12 @@ class WatchdogRegistry:
             # Auto-register with default settings if it hasn't been registered yet
             self.register(name)
 
+    def unregister(self, name: str):
+        """Unregister a monitored task."""
+        if name in self.tasks:
+            del self.tasks[name]
+        # Silent if not found (idempotent)
+
     async def start(self):
         """Start the watchdog monitor loop."""
         if self.running:

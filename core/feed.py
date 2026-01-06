@@ -467,8 +467,12 @@ class StreamManager:
         price_changed = last_price is None or price_rounded != round(last_price, 8)
 
         if price_changed or self._tick_count % 100 == 0:
-            logger.info(f"⚡ Tick: {symbol} {price}")
+            logger.debug(f"⚡ Tick: {symbol} {price}")
             self._last_price[symbol] = price
+
+        # Periodic throughput log (every 1000 total ticks across all symbols)
+        if self._tick_count % 1000 == 0:
+            logger.info(f"📊 Market Feed: Processed {self._tick_count} total ticks")
 
         # Ticker events are still useful for price updates, but we don't use them for Footprint anymore
         # because we have the real trades stream.

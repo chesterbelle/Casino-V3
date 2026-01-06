@@ -251,6 +251,13 @@ class BinanceNativeConnector(BaseConnector):
             code = resp.status
             msg = text
 
+        # Phase 14: Auto-Resync on Time Error (-1021)
+        if str(code) == "-1021" or "-1021" in str(msg):
+            self.logger.warning("⚠️ Timestamp Error detected (-1021). Triggering Auto-Resync...")
+            await self._sync_time()
+            # We raise the exception, and ErrorHandler (configured with RETRIABLE -1021) will retry.
+            # Since we just fixed the offset, the retry should work.
+
         raise Exception(f"({code}) {msg}")
 
     # =========================================================
@@ -305,7 +312,12 @@ class BinanceNativeConnector(BaseConnector):
 
             # 5. Start WebSocket Streams
             if self._enable_websocket:
-                await self._start_market_data_stream()
+                # 4. Start Websocket Stream (non-blocking)
+                asyncio.create_task(self._start_market_data_stream())
+                # Phase 11: Start Subscription Worker
+                self._subscription_worker_task = asyncio.create_task(self._subscription_worker())
+
+                self.logger.info("✅ WebSocket & Subscription Worker started")
 
             if self._enable_websocket and self._api_key and self._secret:
                 await self._start_user_data_stream()
@@ -314,10 +326,35 @@ class BinanceNativeConnector(BaseConnector):
             self.logger.info("✅ Binance Native Connector connected (100% Native)")
 
         except Exception as e:
-            self.logger.error(f"❌ Connection failed: {e}")
+            self.logger.error(f"❌ Failed to connect: {e}")
+            self._connected = False
             if self._http_session:
                 await self._http_session.close()
+                self._http_session = None
             raise
+
+    async def _sync_time(self) -> None:
+        """
+        Force re-synchronization of local time with Binance server time.
+        Used when -1021 (Timestamp outside recvWindow) is detected.
+        """
+        try:
+            self.logger.warning("🕒 Syncing time with Binance...")
+            # Use raw request to avoid recursion loop if this fails
+            url = f"{self._base_url}/fapi/v1/time"
+            if self._http_session:
+                async with self._http_session.get(url, timeout=5) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        server_time = data["serverTime"]
+                        local_time = int(time.time() * 1000)
+                        old_offset = self._time_offset
+                        self._time_offset = server_time - local_time
+                        self.logger.info(f"✅ Time Resynced. Offset: {old_offset}ms -> {self._time_offset}ms")
+                    else:
+                        self.logger.error(f"❌ Time sync failed: status {resp.status}")
+        except Exception as e:
+            self.logger.error(f"❌ Time sync exception: {e}")
 
     async def close(self) -> None:
         """Close all connections."""

@@ -12,6 +12,7 @@ Author: Casino V3 Team
 Version: 3.1.0
 """
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -65,6 +66,44 @@ class ReconciliationService:
             if exchange_positions is None:
                 self.logger.error("❌ Aborting global reconciliation due to fetch error")
                 return []
+
+            # Phase 16: Active Verification (Anti-Glitch Safety Valve)
+            # If local tracking shows significant activity but exchange reports ZERO, verify hard.
+            local_count = self.tracker.get_stats().get("open_positions", 0)
+            exchange_count = len(
+                [p for p in exchange_positions if float(p.get("contracts", 0) or p.get("size", 0)) != 0]
+            )
+            GLITCH_THRESHOLD = 5
+
+            if local_count > GLITCH_THRESHOLD and exchange_count == 0:
+                self.logger.warning(
+                    f"⚠️ Potential Exchange Glitch Detected! Reported 0 positions vs {local_count} local. "
+                    "Initiating Active Verification Protocol..."
+                )
+
+                # Active Verification Loop
+                is_glitch_confirmed = False
+                for attempt in range(1, 4):
+                    await asyncio.sleep(1.0)
+                    self.logger.info(f"🕵️ Verification Attempt {attempt}/3...")
+                    retry_positions = await self._fetch_exchange_positions(None)
+
+                    if retry_positions:
+                        retry_count = len(
+                            [p for p in retry_positions if float(p.get("contracts", 0) or p.get("size", 0)) != 0]
+                        )
+                        if retry_count > 0:
+                            self.logger.info(f"✅ Glitch Resolved! Found {retry_count} positions on attempt {attempt}.")
+                            exchange_positions = retry_positions
+                            is_glitch_confirmed = True
+                            break
+
+                if not is_glitch_confirmed:
+                    self.logger.critical(
+                        f"🚨 MASS DETACHMENT ALERT: Exchange persistently reports 0 positions vs {local_count} local. "
+                        "Aborting reconciliation to prevent mass-close safety hazard."
+                    )
+                    return []
 
             # Fetch ALL open orders once
             open_orders = await self.error_handler.execute_with_breaker(

@@ -95,30 +95,65 @@ class Croupier:
     def set_drain_mode(self, enabled: bool):
         """Enable or disable drain mode (no new entries, narrow exits)."""
         self.is_drain_mode = enabled
+
+        # Bypass circuit breakers during draining to ensure exit attempts continue
+        self.error_handler.set_shutdown_mode(enabled)
+
         if enabled:
             self.logger.warning("[CORE] 🕒 Croupier entering DRAIN MODE. Narrowing TPs for all positions.")
-            # Trigger immediate soft exit check for all positions (Phase 1)
-            asyncio.create_task(self.exit_manager.trigger_soft_exits())
+
+    async def _apply_drain_phase(self, phase: str):
+        """Helper to apply a drain phase to all active positions."""
+        # Fix: PositionTracker uses a list 'open_positions', not a dict
+        active_positions = list(self.position_tracker.open_positions)
+        if not active_positions:
+            return
+
+        self.logger.info(f"⏳ Drain Phase: {phase} | Positions: {len(active_positions)}")
+
+        # Limit concurrency to prevent Circuit Breaker trips (Burst protection)
+        sem = asyncio.Semaphore(2)
+
+        async def _apply_with_limit(pos):
+            async with sem:
+                await self.exit_manager.apply_dynamic_exit(pos, phase)
+
+        tasks = [_apply_with_limit(pos) for pos in active_positions]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def update_drain_status(self, remaining_minutes: float):
         """
         Periodically called during drain phase to trigger progressive exits.
 
-        Phase 1 (T-30m): Optimistic (Narrow TP) - Handled by set_drain_mode
-        Phase 2 (T-15m): Defensive (Breakeven)
-        Phase 3 (T-5m): Aggressive (Force Close)
+        Schedule (T-30m window):
+        - T-30m to T-20m: OPTIMISTIC (50% TP)
+        - T-20m to T-10m: DEFENSIVE (Break Even)
+        - T-10m to T-5m:  AGGRESSIVE (Small Loss)
+        - T-5m to T-0m:   PANIC (Market Close)
         """
         if not self.is_drain_mode or self._drain_in_progress:
             return
 
         try:
             self._drain_in_progress = True
-            if remaining_minutes <= 5.0:
-                # Phase 3: Aggressive
-                await self.exit_manager.trigger_aggressive_exits(fraction=0.2)  # Close 20% of worst positions per tick
-            elif remaining_minutes <= 15.0:
-                # Phase 2: Defensive
-                await self.exit_manager.trigger_defensive_exits()
+
+            # Determine Phase based on window ratio
+            ratio = remaining_minutes / trading_config.DRAIN_PHASE_MINUTES
+
+            if ratio <= 0.16:  # Last 5m of a 30m window
+                phase = "PANIC"
+            elif ratio <= 0.33:  # Last 10m of a 30m window
+                phase = "AGGRESSIVE"
+            elif ratio <= 0.66:  # Last 20m of a 30m window
+                phase = "DEFENSIVE"
+            else:
+                phase = "OPTIMISTIC"
+
+            # Apply Phase logic
+            await self._apply_drain_phase(phase)
+
+        except Exception as e:
+            self.logger.error(f"❌ Error in update_drain_status: {e}")
         finally:
             self._drain_in_progress = False
 

@@ -11,7 +11,9 @@ Author: Casino V3 Team
 Version: 1.0.0
 """
 
+import asyncio
 import logging
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import config.trading as config
@@ -36,6 +38,7 @@ class ExitManager:
         """
         self.croupier = croupier
         self.logger = logging.getLogger("ExitManager")
+        self._position_locks = defaultdict(asyncio.Lock)
         self.logger.info("✅ ExitManager initialized")
 
     async def on_signal(self, event: AggregatedSignalEvent):
@@ -206,35 +209,68 @@ class ExitManager:
                 except Exception as e:
                     self.logger.error(f"❌ Failed to execute hard time exit: {e}")
 
+    async def apply_dynamic_exit(self, position: OpenPosition, phase: str):
+        """
+        Apply dynamic exit strategy based on drain phase.
+
+        Phases:
+        - OPTIMISTIC (T-30m): TP = 50% of target (Gain)
+        - DEFENSIVE (T-20m): TP = Entry Price (Break Even)
+        - AGGRESSIVE (T-10m): TP = -0.1% (Small Loss)
+        - PANIC (T-5m): Market Close (Immediate Exit)
+        """
+        async with self._position_locks[position.trade_id]:
+            # Avoid redundant updates if already in this phase
+            if getattr(position, "drain_phase", None) == phase:
+                return
+
+            self.logger.info(f"📉 Applying Dynamic Exit ({phase}) for {position.trade_id}")
+            position.drain_phase = phase
+
+            try:
+                new_tp = None
+
+                if phase == "OPTIMISTIC":
+                    # Original Soft Exit Logic: 50% of target
+                    current_diff = abs(position.tp_level - position.entry_price)
+                    narrowed_diff = current_diff * config.SOFT_EXIT_TP_MULT
+                    if position.side == "LONG":
+                        new_tp = position.entry_price + narrowed_diff
+                    else:
+                        new_tp = position.entry_price - narrowed_diff
+
+                elif phase == "DEFENSIVE":
+                    # Breakeven
+                    new_tp = position.entry_price
+
+                elif phase == "AGGRESSIVE":
+                    # Accept small loss (-0.1%)
+                    loss_dist = position.entry_price * 0.001
+                    if position.side == "LONG":
+                        new_tp = position.entry_price - loss_dist
+                    else:
+                        new_tp = position.entry_price + loss_dist
+
+                elif phase == "PANIC":
+                    self.logger.warning(f"🚨 PANIC Exit for {position.trade_id} | Force Closing")
+                    await self.croupier.close_position(position.trade_id, exit_reason="DRAIN_PANIC")
+                    return
+
+                if new_tp:
+                    await self.croupier.modify_tp(
+                        trade_id=position.trade_id,
+                        new_tp_price=new_tp,
+                        symbol=position.symbol,
+                        old_tp_order_id=position.tp_order_id,
+                    )
+                    self.logger.info(f"✅ {phase} TP applied: {new_tp:.4f}")
+
+            except Exception as e:
+                self.logger.error(f"❌ Failed to apply {phase} exit: {e!r}")
+
     async def _execute_soft_exit(self, position: OpenPosition, reason: str):
-        """
-        Narrow the Take Profit to target a quick exit.
-        """
-        if getattr(position, "soft_exit_triggered", False) and reason != "Session Drain (Optimistic)":
-            return
-
-        self.logger.info(f"⏳ {reason} Soft Exit for {position.trade_id} | Narrowing TP")
-        position.soft_exit_triggered = True
-
-        try:
-            # Narrow TP by the multiplier (e.g., target 50% of original profit)
-            current_diff = abs(position.tp_level - position.entry_price)
-            narrowed_diff = current_diff * config.SOFT_EXIT_TP_MULT
-
-            if position.side == "LONG":
-                new_tp = position.entry_price + narrowed_diff
-            else:
-                new_tp = position.entry_price - narrowed_diff
-
-            await self.croupier.modify_tp(
-                trade_id=position.trade_id,
-                new_tp_price=new_tp,
-                symbol=position.symbol,
-                old_tp_order_id=position.tp_order_id,
-            )
-            self.logger.info(f"✅ Soft Exit applied: New TP @ {new_tp:.4f}")
-        except Exception as e:
-            self.logger.error(f"❌ Failed to apply soft exit: {e}")
+        """Legacy wrapper for compatibility."""
+        await self.apply_dynamic_exit(position, "OPTIMISTIC")
 
     async def _check_breakeven(self, position: OpenPosition, current_price: float):
         """

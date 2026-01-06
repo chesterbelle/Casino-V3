@@ -401,7 +401,7 @@ class OCOManager:
 
         except Exception as e:
             # Cleanup on failure
-            self.logger.error(f"❌ OCO bracket creation failed: {e}")
+            self.logger.error(f"❌ OCO bracket creation failed: {e!r}")
             if "main_order" in locals() and main_order:
                 # Only cleanup if main_order was created
                 await self._cleanup_partial_oco(
