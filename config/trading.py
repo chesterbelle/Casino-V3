@@ -74,6 +74,7 @@ BREAKEVEN_ACTIVATION_PCT = 0.003  # Move to BE after 0.3% profit
 # Close position if a strong opposite signal is detected
 SIGNAL_REVERSAL_ENABLED = True
 SIGNAL_REVERSAL_THRESHOLD = 0.8  # Confidence threshold for reversal signal
+GRACEFUL_SL_TIMEOUT = 10.0  # Timeout for SL modification requests
 
 # =====================================================
 # 💧 FILTROS DE LIQUIDEZ (FLYTEST)

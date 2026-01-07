@@ -104,10 +104,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from core.network import NetworkIterator, NetworkStatus
 from exchanges.connectors.connector_base import BaseConnector
 
 
-class ExchangeAdapter:
+class ExchangeAdapter(NetworkIterator):
     async def fetch_positions(self, symbols: list = None) -> list:
         """
         Fetch open positions, preferring WS if enabled and available.
@@ -185,15 +186,6 @@ class ExchangeAdapter:
         timeframe: str = "1m",
         prefer_ws: bool = False,
     ):
-        """
-        Inicializa el adaptador con el conector y configuración.
-
-        Args:
-            connector: Cualquier implementación de BaseConnector (SDK nativo o CCXT)
-            symbol: Par de trading (e.g., "BTC/USDT:USDT")
-            timeframe: Timeframe para velas (default: "1m")
-            prefer_ws: Preferir WebSocket sobre REST cuando esté disponible
-        """
         super().__init__()
         # El conector es la única dependencia.
         self.connector = connector
@@ -663,3 +655,51 @@ class ExchangeAdapter:
             return self.exchange.amount_to_precision(symbol, amount)
 
         return str(amount)
+
+    # =========================================================
+    # 🕵️ V4 NETWORK ITERATOR IMPLEMENTATION
+    # =========================================================
+
+    @property
+    def name(self) -> str:
+        return f"Adapter({self.exchange_name})"
+
+    async def start(self) -> None:
+        """Start the adapter (connect)."""
+        self._network_status = NetworkStatus.STARTING
+        try:
+            await self.connect()
+            self._network_status = NetworkStatus.CONNECTED
+        except Exception as e:
+            self.logger.error(f"❌ Failed to start adapter: {e}")
+            self._network_status = NetworkStatus.ERROR
+
+    async def stop(self) -> None:
+        """Stop the adapter."""
+        await self.disconnect()
+        self._network_status = NetworkStatus.STOPPED
+
+    async def tick(self, timestamp: float) -> None:
+        """
+        Clock tick handler.
+        Checks connection health periodically.
+        """
+        # Simple Polling for status update (Frequency controlled here, not sleep)
+        if int(timestamp) % 5 == 0:  # Check every 5 seconds
+            await self.check_network()
+
+    async def check_network(self) -> NetworkStatus:
+        """Check connection status from connector."""
+        if hasattr(self.connector, "is_connected"):
+            # Check property directly
+            is_connected = self.connector.is_connected
+            # Special case: connector might be a coroutine property (unlikely but possible in some designs)
+            if hasattr(is_connected, "__await__"):
+                is_connected = await is_connected
+
+            if is_connected:
+                self._network_status = NetworkStatus.CONNECTED
+            else:
+                self._network_status = NetworkStatus.NOT_CONNECTED
+
+        return self._network_status

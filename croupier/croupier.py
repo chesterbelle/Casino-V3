@@ -18,7 +18,9 @@ from typing import Any, Dict, List, Optional
 
 from config import trading as trading_config
 from core.error_handling import get_error_handler
+from core.interfaces import TimeIterator
 from core.observability.historian import historian
+from core.order_tracker import OrderTracker
 from core.portfolio.balance_manager import BalanceManager
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
@@ -29,7 +31,7 @@ from .components.order_executor import OrderExecutor
 from .components.reconciliation_service import ReconciliationService
 
 
-class Croupier:
+class Croupier(TimeIterator):
     """
     Portfolio orchestrator - delegates to specialized components.
 
@@ -62,6 +64,7 @@ class Croupier:
             initial_balance: Starting capital
             max_concurrent_positions: Max number of concurrent positions
         """
+        super().__init__()
         self.adapter = exchange_adapter
         # Backward compatibility: some components expect exchange_adapter
         self.exchange_adapter = exchange_adapter
@@ -74,21 +77,23 @@ class Croupier:
             max_concurrent_positions=max_concurrent_positions, adapter=exchange_adapter
         )
 
-        # Initialize specialized components
-        self.order_executor = OrderExecutor(exchange_adapter, self.error_handler)
+        # V4: OrderTracker is the NEW Source of Truth
+        self.order_tracker = OrderTracker(exchange_adapter)
+
+        # Initialize specialized components (Pass OrderTracker for local tracking)
+        self.order_executor = OrderExecutor(exchange_adapter, self.error_handler, self.order_tracker)
         self.oco_manager = OCOManager(self.order_executor, self.position_tracker, exchange_adapter)
+
+        # Legacy: Still keep reconciliation for Adopt/Cleanup logic, but without its own loop
         self.reconciliation = ReconciliationService(exchange_adapter, self.position_tracker, self.oco_manager)
+
         self.exit_manager = ExitManager(self)
         self.process_start_balance: float = 0.0
         self.is_drain_mode: bool = False
         self._drain_in_progress: bool = False  # Task guard for drain status updates
 
-        # Phase 27: Background Reconciliation & Stats
-        self._reconciliation_task: Optional[asyncio.Task] = None
-        self._start_background_tasks()
-
         self.logger.info(
-            f"[CORE] ✅ Croupier initialized | Balance: {initial_balance} | "
+            f"[CORE] ✅ Croupier V4 initialized | Balance: {initial_balance} | "
             f"Max Positions: {max_concurrent_positions}"
         )
 
@@ -653,50 +658,58 @@ class Croupier:
             self.logger.error(f"❌ Error reconciling/cleaning positions for {symbol}: {e}")
 
     # =========================================================
+    # V4 REACTOR INTERFACE (TimeIterator)
+    # =========================================================
+
+    @property
+    def name(self) -> str:
+        return "Croupier"
+
+    async def start(self) -> None:
+        """Start components."""
+        await self.order_tracker.start()
+        self.logger.info("🛡️ Croupier Reactor Started")
+
+    async def stop(self) -> None:
+        """Stop components."""
+        await self.order_tracker.stop()
+        self.logger.info("🛑 Croupier Reactor Stopped")
+
+    async def tick(self, timestamp: float) -> None:
+        """
+        Single tick entry point.
+        Unifies all periodic activities.
+        """
+        # 1. Drive OrderTracker
+        await self.order_tracker.tick(timestamp)
+
+        # 2. Periodic Balance Sync (Every 5 mins)
+        if int(timestamp) % 300 == 0:
+            await self._sync_balance()
+
+        # 3. Dynamic Exits (If needed, can be driven here)
+        # Note: In V3, ExitManager was likely driven by external ticks or own loop.
+        # In V4, it should be driven here.
+        # await self.exit_manager.tick(timestamp)
+
+    async def _sync_balance(self):
+        """Standardized balance sync."""
+        try:
+            exchange_balance = await self.adapter.fetch_balance()
+            actual_equity = exchange_balance.get("total", {}).get("USDT", 0.0)
+            if actual_equity > 0:
+                self.balance_manager.set_balance(actual_equity)
+                self.logger.info(f"[WALLET] ⚖️ Synced Balance: {actual_equity:.2f} USDT")
+        except Exception as e:
+            self.logger.error(f"❌ Balance sync failed: {e}")
+
+    # =========================================================
     # PHASE 27: PERSISTENT ACCOUNTING & RECONCILIATION
     # =========================================================
 
     def _start_background_tasks(self):
-        """Start background maintenance tasks."""
-        if self._reconciliation_task is None or self._reconciliation_task.done():
-            self._reconciliation_task = asyncio.create_task(self._reconciliation_loop())
-
-    async def _reconciliation_loop(self):
-        """Background loop to detect and correct balance drift every 5 mins."""
-        self.logger.info("[SYNC] ⏱️ Starting Balance Reconciliation Loop (5m interval)")
-        while True:
-            try:
-                await asyncio.sleep(300)  # 5 minutes
-
-                # Fetch actual balance from exchange
-                exchange_balance = await self.adapter.fetch_balance()
-                actual_equity = exchange_balance.get("total", {}).get("USDT", 0.0)
-
-                if actual_equity == 0:
-                    continue  # Safety for transient API errors
-
-                # Calculate local estimated equity
-                local_equity = self.get_equity()
-                drift = actual_equity - local_equity
-
-                if abs(drift) > 0.1:  # Alert if drift > 0.1 USDT
-                    self.logger.warning(
-                        f"⚖️ BALANCE DRIFT DETECTED! | "
-                        f"Exchange: {actual_equity:.4f} | "
-                        f"Local: {local_equity:.4f} | "
-                        f"Drift: {drift:+.4f} USDT"
-                    )
-                    # Correct local balance manager if drift is significant
-                    # This ensures future sizing is correct even if some fees were missed
-                    self.balance_manager.set_balance(actual_equity)
-                    self.logger.info(f"[WALLET] 🛡️ Corrected Local Balance to {actual_equity:.4f}")
-                else:
-                    self.logger.debug(f"⚖️ Balance OK | Drift: {drift:+.4f}")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error(f"❌ Reconciliation loop error: {e}")
+        """Deprecated in V4 - use Clock instead."""
+        pass
 
     def set_process_start_balance(self, balance: float):
         """Sets the exact balance at the start of this execution."""
@@ -716,21 +729,30 @@ class Croupier:
         # Calculate Transparency Metrics (Phase 30)
         strategy_net_pnl = stats.get("total_net_pnl", 0.0)
 
-        if final_balance is not None and self.process_start_balance > 0:
-            account_delta = float(final_balance) - self.process_start_balance
+        # Robust conversion for final_balance (handle "N/A" or other non-numeric strings)
+        try:
+            final_bal_float = float(final_balance) if final_balance is not None else None
+        except (ValueError, TypeError):
+            final_bal_float = None
+
+        if final_bal_float is not None and self.process_start_balance > 0:
+            account_delta = final_bal_float - self.process_start_balance
             # Leakage = Actual change - Strategy PnL
             # This accounts for ghosts, funding, and other untracked adjustments
             leakage = account_delta - strategy_net_pnl
+            verified = True
         else:
             account_delta = 0.0
-            leakage = 0.0
+            leakage = None  # Use None to indicate UNVERIFIED
+            verified = False
 
         stats.update(
             {
                 "account_delta": account_delta,
                 "leakage": leakage,
+                "audit_verified": verified,
                 "start_balance": self.process_start_balance,
-                "final_balance": final_balance if final_balance is not None else 0.0,
+                "final_balance": final_bal_float if final_bal_float is not None else 0.0,
             }
         )
 

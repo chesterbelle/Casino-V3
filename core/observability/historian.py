@@ -83,19 +83,40 @@ class TradeHistorian:
 
         Expected trade_data keys:
         - trade_id, symbol, side, entry_price, exit_price, notional,
-        - pnl (gross), fee, funding, exit_reason, bars_held, session_id
+        - pnl (gross), fee, funding, exit_reason, bars_held, session_id,
+        - qty (optional, derived from notional if missing)
         """
         try:
+            trade_id = trade_data.get("trade_id")
+            if not trade_id:
+                logger.error("❌ Historian: Cannot record trade without trade_id")
+                return
+
+            # Basic Price Validation
+            entry_price = float(trade_data.get("entry_price", 0.0))
+            exit_price = float(trade_data.get("exit_price", 0.0))
+
+            if entry_price <= 0:
+                logger.warning(f"⚠️ Historian: Trade {trade_id} has invalid entry_price: {entry_price}. Skipping.")
+                return
+
             # Calculate net pnl if not provided
-            gross = trade_data.get("pnl", 0.0)
-            fee = trade_data.get("fee", 0.0)
-            funding = trade_data.get("funding", 0.0)
+            gross = float(trade_data.get("pnl", 0.0))
+            fee = float(trade_data.get("fee", 0.0))
+            funding = float(trade_data.get("funding", 0.0))
             net_pnl = gross - fee - funding
 
-            # Estimate qty from notional for accounting
-            entry_price = trade_data.get("entry_price", 0.0)
-            notional = trade_data.get("notional", 0.0)
-            qty = notional / entry_price if entry_price > 0 else 0.0
+            # Robust Qty Handling
+            qty = float(trade_data.get("qty", 0.0))
+            if qty <= 0:
+                notional = float(trade_data.get("notional", 0.0))
+                qty = notional / entry_price if entry_price > 0 else 0.0
+
+            if qty <= 0:
+                logger.warning(
+                    f"⚠️ Historian: Trade {trade_id} has 0 qty and 0 notional. Forcing minimum for traceability."
+                )
+                qty = 0.00000001  # Token qty to prevent DB null/0 issues if it's a ghost trace
 
             session_id = trade_data.get("session_id")
 
@@ -107,11 +128,11 @@ class TradeHistorian:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
-                        trade_data.get("trade_id"),
+                        trade_id,
                         trade_data.get("symbol"),
                         trade_data.get("side"),
                         entry_price,
-                        trade_data.get("exit_price"),
+                        exit_price,
                         qty,
                         fee,
                         funding,
@@ -125,7 +146,7 @@ class TradeHistorian:
                 )
                 conn.commit()
             logger.info(
-                f"💾 Historian: Registered trade {trade_data.get('trade_id')} | Net PnL: {net_pnl:+.4f} | Session: {session_id}"
+                f"💾 Historian: Registered trade {trade_id} ({trade_data.get('symbol')}) | Net PnL: {net_pnl:+.4f} | Session: {session_id}"
             )
         except Exception as e:
             logger.error(f"❌ Historian: Error recording trade: {e}")

@@ -96,8 +96,8 @@ class BinanceNativeConnector(BaseConnector):
         # Batch & Throttle System (Phase 11)
         self._subscription_queue = asyncio.Queue()
         self._subscription_worker_task: Optional[asyncio.Task] = None
-        self._subscription_batch_size = 50
-        self._subscription_throttle_sec = 0.333
+        self._subscription_batch_size = 20  # Smoother bursts (was 50)
+        self._subscription_throttle_sec = 0.5  # Higher safety (was 0.33)
 
         # User Data Stream
         self._listen_key: Optional[str] = None
@@ -390,6 +390,46 @@ class BinanceNativeConnector(BaseConnector):
         self._connected = False
         self._market_data_ws = None
         self._user_data_ws = None
+
+    async def hard_reset(self) -> bool:
+        """
+        Emergency Panic Button: Kills everything and forces a clean reconnection.
+        Used by the Watchdog when a silent stall is detected.
+        """
+        self.logger.critical("🚨 HARD RESET TRIGGERED - Emergency recovery in progress...")
+
+        try:
+            # 1. Force close everything
+            await self.close()
+
+            # 2. Clear queues to prevent backlog pressure
+            while not self._subscription_queue.empty():
+                try:
+                    self._subscription_queue.get_nowait()
+                    self._subscription_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+
+            # Also clear ticker/trade queues
+            for q in self._trade_queues.values():
+                while not q.empty():
+                    q.get_nowait()
+            for q in self._ticker_queues.values():
+                while not q.empty():
+                    q.get_nowait()
+
+            # 3. Small cool-off
+            await asyncio.sleep(2)
+
+            # 4. Re-establish connection
+            self.logger.info("🔄 Hard Reset: Re-establishing connections...")
+            await self.connect()
+
+            self.logger.info("✅ Hard Reset complete. System should pulse again.")
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Hard Reset FAILED: {e}", exc_info=True)
+            return False
 
     # =========================================================
     # MARKET DATA

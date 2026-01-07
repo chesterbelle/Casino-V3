@@ -37,6 +37,7 @@ except ImportError:
 from config import exchange as exchange_config
 from config import trading as trading_config
 from core.candle_maker import CandleMaker
+from core.clock import Clock
 from core.engine import Engine
 from core.error_handling.error_handler import RetryConfig, get_error_handler
 from core.events import EventType
@@ -140,15 +141,16 @@ async def main():
     startup_state = {"complete": False}  # Mutable container to avoid nonlocal
 
     def signal_handler():
-        logger.info("🛑 Received shutdown signal")
-        stop_event.set()
-        if not startup_state["complete"]:
-            # During startup, just mark for shutdown but don't cancel tasks yet
-            logger.warning("⚠️ Shutdown deferred until startup completes...")
+        if stop_event.is_set():
+            # Second signal: Force Kill
+            logger.warning("🛑 Force kill requested! Cancelling all tasks...")
+            for task in asyncio.all_tasks(loop):
+                if task is not asyncio.current_task():
+                    task.cancel()
             return
-        # Full cancellation only after startup
-        for task in asyncio.all_tasks(loop):
-            task.cancel()
+
+        logger.info("🛑 Received shutdown signal (Graceful)")
+        stop_event.set()
 
     try:
         loop.add_signal_handler(signal.SIGTERM, signal_handler)
@@ -234,10 +236,11 @@ async def main():
 
     croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance)
 
-    # 3.1 Subscribe Exit Manager to events
-    # 3.1 Subscribe Exit Manager to events
+    # 3.1 Subscribe components to exchange and logic events
     engine.subscribe(EventType.AGGREGATED_SIGNAL, croupier.exit_manager.on_signal)
     engine.subscribe(EventType.CANDLE, croupier.exit_manager.on_candle)
+    # V4: Connect OrderTracker to real-time WebSocket updates
+    engine.subscribe(EventType.ORDER_UPDATE, croupier.order_tracker.handle_ws_update)
 
     # 4. Initialize Data Feed
     data_feed = StreamManager(adapter, engine)
@@ -473,41 +476,13 @@ async def main():
     await watchdog.start()
     watchdog.register("main_loop", timeout=30.0)
 
-    # --- Persistence & Recovery ---
-    # --- Periodic Reconciliation Loop ---
-    # Crucial for recovering from network outages where "Close" events were missed.
-    async def reconciliation_loop():
-        """Periodically force reconciliation to clear ghosts/orphans."""
-        logger.info("🔄 Periodic reconciliation loop started (Interval: 300s)")
-        watchdog.register("reconciliation_loop", timeout=600.0)  # 10 min timeout
-        while True:
-            # Report heartbeat before sleep
-            watchdog.heartbeat("reconciliation_loop", "Waiting for next cycle")
-            await asyncio.sleep(300)  # Run every 5 minutes
-            try:
-                logger.info("🔄 Running global periodic reconciliation...")
-                reports = await error_handler.execute(
-                    croupier.reconcile_positions, retry_config=network_retry, context="global_reconcile"
-                )
+    # --- V4 REACTOR SETUP ---
+    clock = Clock(tick_size_seconds=1.0)
 
-                # Report heartbeat after successful (or attempted) execution
-                watchdog.heartbeat("reconciliation_loop", "Finished global reconciliation")
-
-                for report in reports:
-                    if (
-                        report.get("ghosts_removed", 0) > 0
-                        or report.get("positions_fixed", 0) > 0
-                        or report.get("positions_closed", 0) > 0
-                    ):
-                        sym = report.get("symbol", "UNKNOWN")
-                        logger.warning(
-                            f"⚠️ Reconciliation fixed {sym}: Ghosts={report.get('ghosts_removed', 0)}, "
-                            f"Adopted={report.get('positions_fixed', 0)}, Closed={report.get('positions_closed', 0)}"
-                        )
-            except Exception as e:
-                logger.error(f"❌ Periodic reconciliation failed: {e}")
-
-    reconciliation_task = asyncio.create_task(reconciliation_loop())
+    # Register Components
+    clock.add_iterator(adapter)  # NetworkIterator
+    clock.add_iterator(croupier)  # Orchestrator
+    clock.add_iterator(watchdog)  # Health Monitor
 
     # Subscribe to ticker & trades for ALL active symbols
     for sym in active_symbols:
@@ -517,13 +492,15 @@ async def main():
         # Spread the initial task creation load
         await asyncio.sleep(0.5)
 
-    logger.info("✅ Casino-V3 Running | Press Ctrl+C to stop")
+    # Start the Clock Reactor
+    clock_task = asyncio.create_task(clock.start())
+
+    logger.info("✅ Casino-V4 Reactor Running | Press Ctrl+C to stop")
     if args.timeout:
         logger.info(f"⏰ Timer set: Stopping in {args.timeout} minutes.")
 
     # Mark startup as complete
     startup_state["complete"] = True
-    logger.info("🏁 Startup complete - entering main loop")
 
     start_time = time.time()
     exit_reason_str = "SHUTDOWN"
@@ -531,8 +508,10 @@ async def main():
     try:
         while engine.running and not stop_event.is_set():
             # Report main loop heartbeat
-            watchdog.heartbeat("main_loop", "Active / Engine running")
-            await asyncio.sleep(1)
+            watchdog.heartbeat("main_loop", "Clock Reactor Active")
+
+            # Use short sleep to keep main active but light
+            await asyncio.sleep(1.0)
 
             # Check timeout
             if args.timeout:
@@ -549,8 +528,6 @@ async def main():
 
                     # Progressive Exit Update
                     remaining = args.timeout - elapsed_min
-                    # Fire and forget (it handles its own async logic or internal checks)
-                    # We use create_task to avoid blocking the main loop with exit logic
                     asyncio.create_task(croupier.update_drain_status(remaining))
 
                 # B. Hard Timeout (Session Ends)
@@ -578,6 +555,9 @@ async def main():
         exit_reason_str = "CRASH"
     finally:
         logger.info("🧹 Cleaning up resources...")
+
+        # Stop the Clock Reactor moved to END of cleanup
+        # await clock.stop()
 
         # --- HEARTBEAT WATCHDOG ---
         class HeartbeatWatchdog:
@@ -667,18 +647,24 @@ async def main():
         finally:
             cleanup_watchdog.heartbeat()  # Final heartbeat after sweep
 
-        # 0.75. Fetch REAL final balance from exchange (PRIORITY for summary)
+        # 0.7. Final Balance Handover
         final_balance_usdt = "N/A"
+        final_bal_float = None
+
         try:
             logger.info("💰 Fetching final balance from exchange...")
             bal = await asyncio.wait_for(croupier.adapter.fetch_balance(), timeout=10.0)
+
             final_balance_usdt = bal.get("total", {}).get("USDT", "N/A")
+            try:
+                final_bal_float = float(final_balance_usdt) if final_balance_usdt != "N/A" else None
+            except (ValueError, TypeError):
+                final_bal_float = None
+
             # Update state with final balance
             state = state_manager.persistent_state.get_state()
-            if state:
-                state.current_balance = (
-                    float(final_balance_usdt) if final_balance_usdt != "N/A" else state.current_balance
-                )
+            if state and final_bal_float is not None:
+                state.current_balance = final_bal_float
         except Exception as e:
             logger.error(f"❌ Error fetching final balance: {e}")
 
@@ -701,8 +687,12 @@ async def main():
             win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
 
             strategy_net_pnl = summary.get("total_net_pnl", 0.0)
-            adjustment = summary.get("leakage", 0.0)
+            adjustment = summary.get("leakage")
+            adjustment_str = f"{adjustment:+.4f} USDT" if adjustment is not None else "UNVERIFIED"
+
             account_delta = summary.get("account_delta", 0.0)
+            account_delta_str = f"{account_delta:+.4f} USDT" if adjustment is not None else "UNVERIFIED (Exchange Lag)"
+
             total_fees = summary.get("total_fees", 0.0)
 
             start_bal = summary.get("start_balance", 0.0)
@@ -711,11 +701,11 @@ async def main():
             logger.info("🏁 SESSION SUMMARY (Persistent Historian)")
             logger.info(f"   Reason: {exit_reason_str}")
             logger.info(f"   Start Balance: {start_bal:.2f} USDT")
-            logger.info(f"   Final Balance: {final_balance_usdt} USDT")
+            logger.info(f"   Final Balance: {final_bal_float if final_bal_float is not None else 'N/A'}")
             logger.info("   --------------------------------------")
             logger.info(f"   📈 Strategy PnL: {strategy_net_pnl:+.4f} USDT")
-            logger.info(f"   🧹 Audit Adjust: {adjustment:+.4f} USDT (Ghosts/Fees/Funding)")
-            logger.info(f"   💰 Account Delta: {account_delta:+.4f} USDT (ACTUAL)")
+            logger.info(f"   🧹 Audit Adjust: {adjustment_str} (Ghosts/Fees/Funding)")
+            logger.info(f"   💰 Account Delta: {account_delta_str}")
             logger.info("   --------------------------------------")
             logger.info(f"   Total Fees Paid: {total_fees:.4f} USDT")
             logger.info(f"   Total Trades: {total_trades}")
@@ -725,8 +715,14 @@ async def main():
             logger.error(f"❌ Error generating summary: {e}")
 
         # 1. STOP REMAINING COMPONENTS
-        # (Engine and OrderManager stopped earlier)
-        # (SensorManager stopped earlier)
+
+        # Stop Clock Reactor (This stops Croupier -> Adapter)
+        # MUST happen AFTER Audit Report to keep connection alive
+        logger.info("🛑 Stopping Clock Reactor...")
+        try:
+            await clock.stop()
+        except Exception as e:
+            logger.error(f"❌ Error stopping clock: {e}")
 
         # 2. Sync final state before closing positions
         logger.info("💾 Syncing final state...")

@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
+from core.interfaces import TimeIterator
+
 logger = logging.getLogger("Watchdog")
 
 
@@ -17,7 +19,7 @@ class WatchedTask:
     is_critical: bool = True
 
 
-class WatchdogRegistry:
+class WatchdogRegistry(TimeIterator):
     """
     Registry for monitoring the health of internal bot tasks.
     Allows components to register their loops and report heartbeats.
@@ -36,9 +38,9 @@ class WatchdogRegistry:
     def __init__(self):
         if self._initialized:
             return
+        super().__init__()
         self.tasks: Dict[str, WatchedTask] = {}
         self.running = False
-        self._monitor_task: Optional[asyncio.Task] = None
         self._initialized = True
 
     def register(
@@ -69,54 +71,53 @@ class WatchdogRegistry:
             del self.tasks[name]
         # Silent if not found (idempotent)
 
+    @property
+    def name(self) -> str:
+        return "Watchdog"
+
     async def start(self):
-        """Start the watchdog monitor loop."""
+        """Start the watchdog monitor."""
         if self.running:
             return
         self.running = True
-        self._monitor_task = asyncio.create_task(self._monitor_loop())
-        logger.info("🛡️ Watchdog monitoring loop started.")
+        logger.info("🛡️ Watchdog monitor started.")
 
     async def stop(self):
-        """Stop the watchdog monitor loop."""
+        """Stop the watchdog monitor."""
         self.running = False
-        if self._monitor_task:
-            self._monitor_task.cancel()
-            try:
-                await self._monitor_task
-            except asyncio.CancelledError:
-                pass
-        logger.info("🛡️ Watchdog monitoring loop stopped.")
+        logger.info("🛡️ Watchdog monitor stopped.")
 
-    async def _monitor_loop(self):
-        """Background loop that checks for stale tasks."""
-        while self.running:
-            await asyncio.sleep(10)  # Check every 10 seconds
-            now = time.time()
+    async def tick(self, timestamp: float) -> None:
+        """
+        Check for stale tasks every 10 ticks.
+        """
+        if not self.running:
+            return
 
-            for name, task in list(self.tasks.items()):
-                elapsed = now - task.last_heartbeat
-                if elapsed > task.timeout:
-                    msg = f"🚨 TASK STALL DETECTED: {name} | Last heartbeat: {elapsed:.2f}s ago"
-                    if task.last_message:
-                        msg += f" | Last message: '{task.last_message}'"
+        if int(timestamp) % 10 != 0:
+            return
 
-                    logger.error(msg)
+        now = timestamp
+        for name, task in list(self.tasks.items()):
+            elapsed = now - task.last_heartbeat
+            if elapsed > task.timeout:
+                msg = f"🚨 TASK STALL DETECTED: {name} | Last heartbeat: {elapsed:.2f}s ago"
+                if task.last_message:
+                    msg += f" | Last message: '{task.last_message}'"
 
-                    if task.recovery_callback:
-                        try:
-                            logger.warning(f"🔄 Triggering recovery callback for {name}...")
-                            if asyncio.iscoroutinefunction(task.recovery_callback):
-                                await task.recovery_callback()
-                            else:
-                                task.recovery_callback()
-                        except Exception as e:
-                            logger.error(f"❌ Recovery callback failed for {name}: {e}")
+                logger.error(msg)
+                if task.recovery_callback:
+                    try:
+                        logger.warning(f"🔄 Triggering recovery callback for {name}...")
+                        if asyncio.iscoroutinefunction(task.recovery_callback):
+                            await task.recovery_callback()
+                        else:
+                            task.recovery_callback()
+                    except Exception as e:
+                        logger.error(f"❌ Recovery callback failed for {name}: {e}")
 
-                    # If critical, we might want to trigger a global shutdown or raise an alert
-                    # For now, we just log it and reset the heartbeat to avoid constant alerts
-                    # unless the user wants a more aggressive 'kill-bot' strategy.
-                    task.last_heartbeat = now  # Reset to avoid alert storm
+                # Reset heartbeat to avoid alert storm
+                task.last_heartbeat = now
 
     def get_status(self) -> Dict[str, Any]:
         """Return a report of all monitored tasks."""

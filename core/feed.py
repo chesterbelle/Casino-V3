@@ -30,6 +30,7 @@ class StreamManager:
         self._disabled_symbols: Set[str] = set()  # Symbols disabled due to stream failures
         self._last_price: Dict[str, float] = {}  # Last logged price per symbol
         self._max_disabled_before_reset = 3  # If this many symbols fail, trigger hard_reset
+        self._reset_lock = asyncio.Lock()  # Prevent multiple simultaneous hard resets
 
     async def connect(self):
         """Connect the adapter."""
@@ -156,7 +157,8 @@ class StreamManager:
             # Register with watchdog for each symbol (long timeout due to potential inactivity)
             # Actually, let's use a unified 'feed_activity' or similar to avoid 48 tasks in monitor if preferred,
             # but for Task-Level, per-symbol is fine if timeout is large.
-            watchdog.register(f"stream_{symbol}", timeout=120.0)
+            # LINK: Register recovery callback to trigger hard_reset on stall
+            watchdog.register(f"stream_{symbol}", timeout=120.0, recovery_callback=self._trigger_adapter_reset)
 
             consecutive_failures = 0
             max_consecutive_failures = 10
@@ -485,3 +487,28 @@ class StreamManager:
             side="UNKNOWN",  # Side comes from trades stream now
         )
         await self.engine.dispatch(event)
+
+    async def _trigger_adapter_reset(self):
+        """
+        Trigger a hard reset of the adapter's connector.
+        Protected by a lock to prevent concurrent reset storms.
+        """
+        if self._reset_lock.locked():
+            logger.warning("🔄 Hard reset already in progress, skipping redundant trigger.")
+            return
+
+        async with self._reset_lock:
+            logger.critical("🚨 StreamManager: Systemic stall detected! Triggering Hard Reset...")
+            try:
+                if hasattr(self.adapter, "connector") and hasattr(self.adapter.connector, "hard_reset"):
+                    success = await self.adapter.connector.hard_reset()
+                    if success:
+                        logger.info("✅ Hard Reset successful. Monitoring for recovery...")
+                        # Clear disabled symbols as they might recover now
+                        self._disabled_symbols.clear()
+                    else:
+                        logger.error("❌ Hard Reset returned failure status.")
+                else:
+                    logger.error("❌ Adapter/Connector does not support hard_reset().")
+            except Exception as e:
+                logger.error(f"❌ Error during hard reset: {e}", exc_info=True)

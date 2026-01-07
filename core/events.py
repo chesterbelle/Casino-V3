@@ -14,6 +14,7 @@ class EventType(Enum):
     CANDLE = auto()
     SIGNAL = auto()
     AGGREGATED_SIGNAL = auto()
+    DECISION = auto()
     ERROR = auto()
     SYSTEM = auto()
 

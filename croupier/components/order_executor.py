@@ -37,16 +37,18 @@ class OrderExecutor:
         })
     """
 
-    def __init__(self, exchange_adapter, error_handler=None):
+    def __init__(self, exchange_adapter, error_handler=None, order_tracker=None):
         """
         Initialize OrderExecutor.
 
         Args:
             exchange_adapter: ExchangeAdapter instance for order execution
             error_handler: Optional ErrorHandler (uses global if None)
+            order_tracker: Optional OrderTracker instance (for local tracking)
         """
         self.adapter = exchange_adapter
         self.error_handler = error_handler or get_error_handler()
+        self.order_tracker = order_tracker
         self.logger = logging.getLogger("OrderExecutor")
 
     def _ensure_client_order_id(self, order: Dict[str, Any], prefix: str = "ENTRY") -> None:
@@ -116,6 +118,10 @@ class OrderExecutor:
             retry_config=retry_cfg,
             timeout=timeout,
         )
+
+        # LOCAL TRACKING: Register in OrderTracker if available
+        if self.order_tracker:
+            self.order_tracker.track_local_order(result)
 
         # ENRICHMENT: Fetch exact fill details and fees if not present
         result = await self._enrich_fill_details(result, symbol)
@@ -206,6 +212,11 @@ class OrderExecutor:
             result = await self.error_handler.execute_with_breaker(
                 f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
             )
+
+            # LOCAL TRACKING: Register in OrderTracker if available
+            if self.order_tracker:
+                self.order_tracker.track_local_order(result)
+
             self._log_execution(result, "Limit")
             return result
         except Exception as e:
@@ -259,6 +270,10 @@ class OrderExecutor:
         result = await self.error_handler.execute_with_breaker(
             f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
         )
+
+        # LOCAL TRACKING: Register in OrderTracker if available
+        if self.order_tracker:
+            self.order_tracker.track_local_order(result)
 
         self.logger.info(f"[OCO] ✅ Stop Order Executed: {result.get('order_id')}")
 

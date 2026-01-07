@@ -29,7 +29,7 @@ class DecisionEvent(Event):
         sl_pct: float = None,
         selected_sensor: str = None,
     ):
-        super().__init__(type=EventType.SYSTEM, timestamp=time.time())
+        super().__init__(type=EventType.DECISION, timestamp=time.time())
         self.symbol = symbol
         self.side = side
         self.bet_size = bet_size
