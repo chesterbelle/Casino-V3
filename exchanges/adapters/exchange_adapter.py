@@ -503,6 +503,31 @@ class ExchangeAdapter(NetworkIterator):
         symbol = symbol or self.symbol
         return await self.connector.cancel_order(order_id, symbol)
 
+    async def amend_order(
+        self,
+        symbol: str,
+        order_id: str,
+        side: str,
+        quantity: float = None,
+        price: float = None,
+        params: Dict[str, Any] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Amend an existing order by delegating to the connector.
+        """
+        if hasattr(self.connector, "amend_order"):
+            return await self.connector.amend_order(
+                symbol=symbol,
+                order_id=order_id,
+                side=side,
+                quantity=quantity,
+                price=price,
+                params=params,
+                timeout=timeout,
+            )
+        raise NotImplementedError(f"Connector {self.connector.__class__.__name__} does not support amend_order")
+
     async def cancel_all_orders(self, symbol: str = None) -> None:
         """
         Cancel ALL open orders for a symbol.

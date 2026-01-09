@@ -750,27 +750,21 @@ class BinanceNativeConnector(BaseConnector):
     # =========================================================
 
     async def fetch_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
-        """Fetch ALL open orders (regular + algo)."""
+        """Fetch ALL open orders (regular + algo). Propagates errors on failure."""
         all_orders = []
 
         # 1. Regular orders
-        try:
-            params = {}
-            if symbol:
-                params["symbol"] = self._normalize_symbol(symbol)
+        params = {}
+        if symbol:
+            params["symbol"] = self._normalize_symbol(symbol)
 
-            self.logger.info(f"🔍 Fetching regular orders with params: {params}")
-            orders = await self._request("GET", "/fapi/v1/openOrders", params, signed=True, endpoint_type="orders")
-            all_orders.extend([self._normalize_order(o) for o in orders])
-        except Exception as e:
-            self.logger.error(f"❌ Failed to fetch regular orders: {e}")
+        # self.logger.debug(f"🔍 Fetching regular orders with params: {params}")
+        orders = await self._request("GET", "/fapi/v1/openOrders", params, signed=True, endpoint_type="orders")
+        all_orders.extend([self._normalize_order(o) for o in orders])
 
         # 2. Algo/Conditional orders
-        try:
-            algo_orders = await self._fetch_open_algo_orders(symbol)
-            all_orders.extend(algo_orders)
-        except Exception as e:
-            self.logger.error(f"❌ Failed to fetch algo orders: {e}")
+        algo_orders = await self._fetch_open_algo_orders(symbol)
+        all_orders.extend(algo_orders)
 
         return all_orders
 
@@ -839,8 +833,8 @@ class BinanceNativeConnector(BaseConnector):
                 args.pop("quantity", None)
             args.pop("reduceOnly", None)
 
-        # Route to Algo API for conditional orders
-        ALGO_ORDER_TYPES = {"STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TRAILING_STOP_MARKET"}
+        # Route to Algo API for conditional orders (Mandatory since Dec 2024 update)
+        ALGO_ORDER_TYPES = {"STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TRAILING_STOP_MARKET", "OCO"}
         if order_type.upper() in ALGO_ORDER_TYPES:
             if params.get("stopPrice"):
                 args["stopPrice"] = params["stopPrice"]
@@ -964,24 +958,21 @@ class BinanceNativeConnector(BaseConnector):
     # =========================================================
 
     async def _fetch_open_algo_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
-        """Fetch open algo/conditional orders."""
+        """Fetch open algo/conditional orders. Propagates errors."""
         params = {}
         if symbol:
             params["symbol"] = self._normalize_symbol(symbol)
 
-        try:
-            response = await self._request(
-                "GET", "/fapi/v1/openAlgoOrders", params, signed=True, endpoint_type="orders"
-            )
-            # Handle both list and dict responses (API version differences)
-            if isinstance(response, list):
-                orders = response
-            else:
-                orders = response.get("orders", [])
-            return [self._normalize_algo_order(o) for o in orders]
-        except Exception as e:
-            self.logger.warning(f"⚠️ Algo orders fetch failed: {e}")
-            return []
+        # FIX: Force max limit to avoid visibility loss (default is often 20 or 100)
+        params["limit"] = 1000
+
+        response = await self._request("GET", "/fapi/v1/openAlgoOrders", params, signed=True, endpoint_type="orders")
+        # Handle both list and dict responses (API version differences)
+        if isinstance(response, list):
+            orders = response
+        else:
+            orders = response.get("orders", [])
+        return [self._normalize_algo_order(o) for o in orders]
 
     async def _fetch_algo_order(self, algo_id: str, symbol: str) -> Dict[str, Any]:
         """Fetch single algo order."""
@@ -1056,6 +1047,55 @@ class BinanceNativeConnector(BaseConnector):
             params["clientAlgoId"] = algo_id
 
         await self._request("DELETE", "/fapi/v1/algoOrder", params, signed=True, endpoint_type="orders")
+
+    async def amend_order(
+        self,
+        symbol: str,
+        order_id: str,
+        side: str,
+        quantity: float = None,
+        price: float = None,
+        params: Dict[str, Any] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Amend an existing order (atomic modification).
+        Uses PUT /fapi/v1/order to modify price/quantity in-place.
+        Crucial for ReduceOnly orders to avoid "Exceeds Position Limit" rejection.
+        """
+        native_symbol = self._normalize_symbol(symbol)
+        args = {"symbol": native_symbol, "side": side.upper()}
+        params = params or {}
+
+        # IDs
+        if order_id.isdigit():
+            args["orderId"] = int(order_id)
+        else:
+            args["origClientOrderId"] = order_id
+
+        # Updates
+        if quantity:
+            args["quantity"] = self.amount_to_precision(symbol, quantity)
+        if price:
+            args["price"] = self.price_to_precision(symbol, price)
+
+        # Merge extra params (e.g. stopPrice)
+        if params:
+            args.update(params)
+
+        # Standard Amend
+        try:
+            self.logger.info(f"🔄 Amending Order {order_id} | Price: {price} | Params: {params}")
+            response = await self._request(
+                "PUT", "/fapi/v1/order", args, signed=True, endpoint_type="orders", timeout=timeout
+            )
+            return self._normalize_order(response)
+        except Exception as e:
+            # If standard amend fails, check if it's an Algo Order (different endpoint)?
+            # Note: Binance Algo Orders (TP/SL) usually require DELETE+CREATE, they don't support PUT often.
+            # But standard LIMIT/STOP orders do.
+            self.logger.warning(f"⚠️ Amend failed for {order_id}: {e}")
+            raise e
 
     # =========================================================
     # WEBSOCKET - Market Data

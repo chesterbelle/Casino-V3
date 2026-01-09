@@ -482,29 +482,57 @@ class OCOManager:
 
             results = {"status": "success"}
 
-            if new_tp_price and new_tp_price != position.tp_level:
-                # Cancel old TP
-                if position.exchange_tp_id:
-                    await self.cancel_order(position.exchange_tp_id, symbol)
-                # Create new TP
-                tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
-                tp_id = tp_order.get("order_id") or tp_order.get("id")
-                position.tp_order_id = tp_order.get("client_order_id") or tp_id
-                position.exchange_tp_id = tp_id
-                position.tp_level = new_tp_price
-                results["tp_id"] = tp_id
+            results = {"status": "success"}
 
+            # --- TAKE PROFIT AMENDMENT ---
+            if new_tp_price and new_tp_price != position.tp_level:
+                # 1. SET STATE LOCK
+                old_status = position.status
+                position.status = "MODIFYING"
+
+                try:
+                    self.logger.info(f"🔄 Replacing TP for {symbol} ({position.exchange_tp_id} -> {new_tp_price})")
+                    # Cancel old TP
+                    if position.exchange_tp_id:
+                        await self.cancel_order(position.exchange_tp_id, symbol)
+
+                    # Create new TP
+                    tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
+                    tp_id = tp_order.get("order_id") or tp_order.get("id")
+
+                    # Update state
+                    position.tp_order_id = tp_order.get("client_order_id") or tp_id
+                    position.exchange_tp_id = tp_id
+                    position.tp_level = new_tp_price
+                    results["tp_id"] = tp_id
+                finally:
+                    # 2. RELEASE STATE LOCK
+                    position.status = old_status
+
+            # --- STOP LOSS AMENDMENT ---
             if new_sl_price and new_sl_price != position.sl_level:
-                # Cancel old SL
-                if position.exchange_sl_id:
-                    await self.cancel_order(position.exchange_sl_id, symbol)
-                # Create new SL
-                sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
-                sl_id = sl_order.get("order_id") or sl_order.get("id")
-                position.sl_order_id = sl_order.get("client_order_id") or sl_id
-                position.exchange_sl_id = sl_id
-                position.sl_level = new_sl_price
-                results["sl_id"] = sl_id
+                # 1. SET STATE LOCK
+                old_status = position.status
+                position.status = "MODIFYING"
+
+                try:
+                    self.logger.info(f"🔄 Replacing SL for {symbol} ({position.exchange_sl_id} -> {new_sl_price})")
+                    # Cancel old SL
+                    if position.exchange_sl_id:
+                        await self.cancel_order(position.exchange_sl_id, symbol)
+
+                    # Create new SL
+                    sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
+                    sl_id = sl_order.get("order_id") or sl_order.get("id")
+
+                    # Update state
+                    position.sl_order_id = sl_order.get("client_order_id") or sl_id
+                    position.exchange_sl_id = sl_id
+                    position.sl_level = new_sl_price
+                    results["sl_id"] = sl_id
+                finally:
+                    # 2. RELEASE STATE LOCK
+                    position.status = old_status
 
             # Re-register OCO pair if both IDs exist and are separate
             if (

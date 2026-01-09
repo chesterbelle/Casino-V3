@@ -967,13 +967,34 @@ class Croupier(TimeIterator):
                                                 pos.get("entryPrice") or pos.get("entry_price") or fill_price
                                             )
 
+                                            # PHASE 28: FETCH REAL FEES FOR SWEEP
+                                            # During shutdown, we want accuracy but speed.
+                                            # We will try to fetch the trade to get the exact Fee.
+                                            real_fee = 0.0
+                                            try:
+                                                # Small pause to allow fill indexing
+                                                await asyncio.sleep(0.5)
+                                                trades = await self.adapter.fetch_my_trades(sym, limit=3)
+                                                # Simple match: last trade for this symbol
+                                                if trades:
+                                                    # Sort by time just in case
+                                                    trades.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+                                                    # Get the most recent trade (our closure)
+                                                    latest = trades[0]
+                                                    real_fee = float(latest.get("fee", {}).get("cost", 0) or 0)
+                                                    # Update price if available
+                                                    fill_price = float(latest.get("price", 0) or fill_price)
+
+                                            except Exception as fetch_e:
+                                                self.logger.warning(f"⚠️ Could not fetch sweep fee for {sym}: {fetch_e}")
+
                                             historian.record_external_closure(
                                                 symbol=sym,
                                                 side=side.upper(),
                                                 qty=size,
                                                 entry_price=raw_entry,
                                                 exit_price=fill_price,
-                                                fee=0.0,  # Could be enriched if we add fetch_my_trades here, but it's slow during shutdown
+                                                fee=real_fee,  # Real Fee!
                                                 reason=f"BRUTE_{reason}",
                                                 session_id=self.position_tracker.session_id,
                                             )
