@@ -45,10 +45,13 @@ class PositionState:
     main_order_id: Optional[str] = None
     tp_order_id: Optional[str] = None
     sl_order_id: Optional[str] = None
+    exchange_tp_id: Optional[str] = None
+    exchange_sl_id: Optional[str] = None
     bars_held: int = 0
+    entry_fee: float = 0.0  # Phase 30
     funding_accrued: float = 0.0
     contributors: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)  # Generic store for order details
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

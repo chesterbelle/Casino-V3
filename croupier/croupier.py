@@ -14,6 +14,7 @@ Version: 3.0.0
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from config import trading as trading_config
@@ -91,6 +92,7 @@ class Croupier(TimeIterator):
         self.process_start_balance: float = 0.0
         self.is_drain_mode: bool = False
         self._drain_in_progress: bool = False  # Task guard for drain status updates
+        self._last_funding_sync: float = 0.0  # Phase 30: For precision accounting
 
         self.logger.info(
             f"[CORE] ✅ Croupier V4 initialized | Balance: {initial_balance} | "
@@ -687,6 +689,10 @@ class Croupier(TimeIterator):
         if int(timestamp) % 300 == 0:
             await self._sync_balance()
 
+        # 2.5. Periodic Funding Sync (Every 10 mins) - Phase 30
+        if int(timestamp) % 600 == 0:
+            await self._sync_funding_fees()
+
         # 3. Dynamic Exits (If needed, can be driven here)
         # Note: In V3, ExitManager was likely driven by external ticks or own loop.
         # In V4, it should be driven here.
@@ -702,6 +708,48 @@ class Croupier(TimeIterator):
                 self.logger.info(f"[WALLET] ⚖️ Synced Balance: {actual_equity:.2f} USDT")
         except Exception as e:
             self.logger.error(f"❌ Balance sync failed: {e}")
+
+    async def _sync_funding_fees(self):
+        """
+        Fetch and distribute funding fees to open positions.
+        Ensures that 'Real PnL' includes interest costs.
+        """
+        if not self.adapter or not self.position_tracker.open_positions:
+            return
+
+        now = time.time()
+        # Initial sync use 15m ago, subsequent syncs use last_sync_time
+        # We add 1ms to startTime to avoid fetching the same record twice
+        since = int(((self._last_funding_sync or (now - 900))) * 1000) + 1
+
+        try:
+            income_list = await self.adapter.fetch_income(income_type="FUNDING_FEE", since=since)
+            self._last_funding_sync = now
+
+            if not income_list:
+                return
+
+            # Group income by symbol
+            symbol_totals = {}
+            for item in income_list:
+                symbol = self.adapter.denormalize_symbol(item["symbol"])
+                income_val = float(item["income"])
+                symbol_totals[symbol] = symbol_totals.get(symbol, 0.0) + income_val
+
+            # Distribute to open positions
+            for pos in self.position_tracker.open_positions:
+                if pos.symbol in symbol_totals:
+                    # income is negative for fees PAID, positive for fees RECEIVED.
+                    # net_pnl = gross - exit_fee - entry_fee - funding_accrued
+                    # So if income = -0.5 (payment out), funding_accrued should increase by 0.5.
+                    net_cost = -symbol_totals[pos.symbol]
+                    if abs(net_cost) > 1e-8:
+                        pos.funding_accrued += net_cost
+                        self.logger.info(
+                            f"💰 Captured {net_cost:+.4f} funding for {pos.symbol} | Total: {pos.funding_accrued:.4f}"
+                        )
+        except Exception as e:
+            self.logger.error(f"❌ Failed to sync funding fees: {e}")
 
     # =========================================================
     # PHASE 27: PERSISTENT ACCOUNTING & RECONCILIATION

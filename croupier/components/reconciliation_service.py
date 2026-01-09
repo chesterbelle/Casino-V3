@@ -197,7 +197,7 @@ class ReconciliationService:
                     report["positions_closed"] += 1
                 else:
                     self.logger.warning(f"⚠️ Investigation inconclusive for {pos.trade_id}. Removing as Error.")
-                    if self.tracker.remove_position(pos.trade_id):
+                    if await self.tracker.remove_position(pos.trade_id):
                         report["ghosts_removed"] += 1
                         report["issues_found"].append(f"ghost_removed:{pos.trade_id}")
                 continue
@@ -624,9 +624,10 @@ class ReconciliationService:
                     )
                     self.logger.info(f"✅ Closed unknown position: {target_symbol} {size} (Market)")
 
-                    # PERFECT ACCOUNTING: Record this external closure
+                    # PERFECT ACCOUNTING: Record this external closure with forensic enrichment
                     try:
                         fill_price = float(res.get("average") or res.get("price") or 0.0)
+                        order_id = res.get("id")
                         if fill_price <= 0:
                             fill_price = await self.adapter.get_current_price(target_symbol)
 
@@ -634,12 +635,30 @@ class ReconciliationService:
                             position_dict.get("entryPrice") or position_dict.get("entry_price") or fill_price
                         )
 
+                        # Enriquecimiento forense
+                        fee_real = 0.0
+                        if order_id:
+                            try:
+                                await asyncio.sleep(1.0)  # Wait for indexing
+                                trades = await self.adapter.fetch_my_trades(target_symbol, limit=5)
+                                matched = [
+                                    t for t in trades if str(t.get("order") or t.get("order_id")) == str(order_id)
+                                ]
+                                if matched:
+                                    fee_real = sum(float(t.get("fee", {}).get("cost", 0) or 0) for t in matched)
+                                    self.logger.info(
+                                        f"✅ Enriched forced closure for {target_symbol}: fee={fee_real:.4f}"
+                                    )
+                            except Exception as e:
+                                self.logger.warning(f"⚠️ Failed to enrich forced closure fee: {e}")
+
                         historian.record_external_closure(
                             symbol=target_symbol,
                             side=side_raw.upper(),
                             qty=size,
                             entry_price=raw_entry,
                             exit_price=fill_price,
+                            fee=fee_real,
                             reason="RECON_FORCE",
                             session_id=self.tracker.session_id,
                         )

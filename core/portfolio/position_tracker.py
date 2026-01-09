@@ -227,6 +227,7 @@ class PositionTracker:
         sl_order_id: Optional[str] = None,
         exchange_tp_id: Optional[str] = None,
         exchange_sl_id: Optional[str] = None,
+        entry_fee: float = 0.0,  # Phase 30
     ) -> Optional[OpenPosition]:
         """
         Abre una nueva posición y la registra.
@@ -324,6 +325,7 @@ class PositionTracker:
                 exchange_tp_id=exchange_tp_id,
                 exchange_sl_id=exchange_sl_id,
                 contributors=order.get("contributors", []),
+                entry_fee=entry_fee,  # Phase 30
             )
 
             # Registrar posición
@@ -493,7 +495,9 @@ class PositionTracker:
             "result": "WIN" if pnl > 0 else "LOSS",
             "pnl": pnl,  # ← PNL REAL
             "pnl_pct": pnl / position.notional if position.notional > 0 else 0.0,
-            "fee": fee,  # ← FEE REAL
+            "entry_fee": position.entry_fee,  # Phase 30
+            "exit_fee": fee,  # Phase 30
+            "fee": fee + position.entry_fee,  # Total fee for historian
             "funding": position.funding_accrued,
             "liquidated": exit_reason == "LIQUIDATION",
             "margin_used": position.margin_used,
@@ -671,25 +675,78 @@ class PositionTracker:
         self._trigger_state_change()
         return closed_results
 
-    def remove_position(self, trade_id: str) -> bool:
+    async def remove_position(self, trade_id: str) -> bool:
         """
-        Remove a position silently (used for reconciliation/cleanup).
-        Releases blocked capital but does NOT record stats/history.
+        Remove a position and perform a GHOST AUDIT via REST.
+        This ensures that even if a position is orphaned, its PnL/Fees are captured.
         """
+        found_pos = None
         for pos in self.open_positions:
             if pos.trade_id == trade_id:
-                self.open_positions.remove(pos)
-                self.blocked_capital -= pos.margin_used
-                # Cleanup pending confirmations if any
-                if trade_id in self.pending_confirmations:
-                    del self.pending_confirmations[trade_id]
-                logger.warning(f"👻 Removed ghost position: {trade_id}")
-                # Count as error so stats balance (Opened = Active + Closed/Error)
-                self.total_errors += 1
-                self.total_trades_closed += 1
-                self._trigger_state_change()
-                return True
-        return False
+                found_pos = pos
+                break
+
+        if not found_pos:
+            return False
+
+        # 1. GHOST AUDIT
+        audit_fee = found_pos.entry_fee
+        audit_pnl = 0.0
+        audit_reason = "GHOST_REMOVAL"
+
+        if self.adapter:
+            try:
+                logger.info(f"🕵️ Analyzing Ghost Position {trade_id} ({found_pos.symbol}) for residual costs...")
+                # Fetch recent trades for this symbol
+                trades = await self.adapter.fetch_my_trades(found_pos.symbol, limit=20)
+
+                # Match by trade_id (Binance Client Order ID often matches our trade_id)
+                # Note: We look for ANY trade that corresponds to this position's entry or exit
+                relevant_trades = [
+                    t
+                    for t in trades
+                    if str(t.get("order") or t.get("id")) == str(trade_id)
+                    or str(t.get("clientOrderId")) == str(trade_id)
+                ]
+
+                if relevant_trades:
+                    total_fee = sum(float(t.get("fee", {}).get("cost", 0) or 0) for t in relevant_trades)
+                    total_pnl = sum(float(t.get("realizedPnl", 0) or 0) for t in relevant_trades)
+                    audit_fee += total_fee
+                    audit_pnl = total_pnl
+                    logger.info(
+                        f"✅ Ghost Audit Success: Found {len(relevant_trades)} trades. Fee={audit_fee:.4f}, PnL={audit_pnl:.4f}"
+                    )
+                else:
+                    logger.warning(f"⚠️ Ghost Audit: No exchange trades found for {trade_id}. Using internal estimates.")
+            except Exception as e:
+                logger.error(f"❌ Ghost Audit Failed for {trade_id}: {e}")
+
+        # 2. RECORD IN HISTORIAN
+        historian.record_external_closure(
+            symbol=found_pos.symbol,
+            side=found_pos.side,
+            qty=found_pos.notional / found_pos.entry_price if found_pos.entry_price > 0 else 0,
+            entry_price=found_pos.entry_price,
+            exit_price=found_pos.entry_price,  # Use entry as proxy if unknown
+            fee=audit_fee,
+            funding=found_pos.funding_accrued,
+            reason=audit_reason,
+            session_id=self.session_id,
+        )
+
+        # 3. ACTUAL REMOVAL
+        self.open_positions.remove(found_pos)
+        self.blocked_capital -= found_pos.margin_used
+
+        if trade_id in self.pending_confirmations:
+            del self.pending_confirmations[trade_id]
+
+        logger.warning(f"👻 Removed ghost position: {trade_id} (PnL/Fees Logged)")
+        self.total_errors += 1
+        self.total_trades_closed += 1
+        self._trigger_state_change()
+        return True
 
     def add_position(self, position: OpenPosition):
         """
@@ -780,24 +837,23 @@ class PositionTracker:
         # ----------------------------------------------------------------
         # PHASE 28: PRECISION ACCOUNTING (REAL DATA FETCH)
         # If fee is 0.0 (common on WS), trigger REST enrichment to get the truth.
-        # We assume the position is closing, so we can afford an async call.
+        # Perform enrichment BEFORE confirm_close
         # ----------------------------------------------------------------
         should_enrich = fee == 0.0 and self.adapter
 
         if should_enrich:
-            logger.info(f"🔍 Fee is 0.0 for {order_id}. Triggering REST enrichment to fetch real ledger data...")
-            # We must launch this as a background task to avoid blocking the WS loop
-            asyncio.create_task(
-                self._enrich_trade_with_rest(
-                    order_id=order_id,
-                    symbol=position.symbol,
-                    trade_id=position.trade_id,
-                    exit_reason=exit_reason,
-                    fill_price=fill_price,
-                    pnl_estimated=pnl_value,
-                )
+            logger.info(f"🔍 Fee is 0.0 for {order_id}. Enriching trade details via REST...")
+            # Perform enrichment BEFORE confirm_close
+            fee_real, pnl_real = await self._enrich_trade_with_rest(
+                order_id=order_id,
+                symbol=position.symbol,
+                trade_id=position.trade_id,
+                exit_reason=exit_reason,
+                fill_price=fill_price,
+                pnl_estimated=pnl_value,
             )
-            return  # Exit early, confirm_close will be called by enrichment task
+            fee = fee_real
+            pnl_value = pnl_real
 
         logger.info(
             f"📬 Order Update | {order_id} {exit_reason} filled @ {fill_price:.2f} | " f"Position: {position.trade_id}"
@@ -872,11 +928,4 @@ class PositionTracker:
         except Exception as e:
             logger.error(f"❌ Failed to enrich trade {order_id}: {e}")
 
-        # Finalize the close with whatever data we managed to get
-        self.confirm_close(
-            trade_id=trade_id,
-            exit_price=fill_price,
-            exit_reason=exit_reason,
-            pnl=pnl_real,
-            fee=fee_real,
-        )
+        return fee_real, pnl_real

@@ -57,6 +57,8 @@ class BinanceNativeConnector(BaseConnector):
 
         # Phase 24: Global Circuit Breaker name for REST Market Data (Pressure Relief)
         self._market_data_breaker_name = "rest_market_data"
+        self._account_breaker_name = "rest_account_api"
+        self._order_breaker_name = "rest_order_api"
 
         # API Configuration
         if mode == "demo":
@@ -717,6 +719,40 @@ class BinanceNativeConnector(BaseConnector):
             self.logger.error(f"❌ Failed to fetch orders in discovery: {e}")
 
         return list(active_symbols)
+
+    async def fetch_income(
+        self,
+        symbol: Optional[str] = None,
+        income_type: Optional[str] = None,
+        since: Optional[int] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch income history (Funding, Commission, etc.).
+        GET /fapi/v1/income
+        """
+        params = {"limit": limit}
+        if symbol:
+            params["symbol"] = self._normalize_symbol(symbol)
+        if income_type:
+            params["incomeType"] = income_type
+        if since:
+            params["startTime"] = since
+
+        try:
+            return await self.error_handler.execute_with_breaker(
+                self._account_breaker_name,
+                self._request,
+                "GET",
+                "/fapi/v1/income",
+                params=params,
+                signed=True,
+                endpoint_type="account",
+                timeout=15,
+            )
+        except Exception as e:
+            self.logger.error(f"🚨 Fetch Income failed: {e}")
+            raise
 
     async def fetch_my_trades(self, symbol: str, since: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """Fetch user's trades (fills) for a specific symbol."""

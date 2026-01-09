@@ -166,6 +166,20 @@ class ExchangeAdapter(NetworkIterator):
         DataSource (Mesa) → ExchangeAdapter (este) → Conector (BinanceNativeConnector, etc.)
     """
 
+    async def fetch_income(
+        self,
+        symbol: Optional[str] = None,
+        income_type: Optional[str] = None,
+        since: Optional[int] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch income history (Funding, Commission, etc.).
+        """
+        if hasattr(self.connector, "fetch_income"):
+            return await self.connector.fetch_income(symbol, income_type, since, limit)
+        return []
+
     async def fetch_balance(self) -> dict:
         """
         Fetch account balance, preferring WS if enabled and available.

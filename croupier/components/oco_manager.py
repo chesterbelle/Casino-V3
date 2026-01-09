@@ -77,7 +77,7 @@ class OCOManager:
         self.tpsl_retry_config = RetryConfig(max_retries=6, backoff_base=1.5, backoff_factor=2.0, jitter=True)
 
         # Pending fill futures: order_id -> asyncio.Future
-        self.pending_fills: Dict[str, asyncio.Future] = {}
+        self.pending_orders: Dict[str, asyncio.Future] = {}
 
         # Pending symbols (In-flight lock)
         # Prevents double-entry during network latency
@@ -91,25 +91,15 @@ class OCOManager:
         order_id = str(order.get("id") or order.get("order_id", ""))
         status = order.get("status", "").lower()
 
-        if order_id in self.pending_fills:
-            if status in ["filled", "closed"]:
-                # Resolve the future with the fill price
-                fill_price = float(order.get("average") or order.get("price") or 0)
-
-                # CRITICAL: Only resolve if we have a valid price
-                if fill_price > 0:
-                    if not self.pending_fills[order_id].done():
-                        self.pending_fills[order_id].set_result(fill_price)
-                        self.logger.debug(f"⚡ Event received: Order {order_id} filled @ {fill_price}")
-                else:
-                    self.logger.warning(
-                        f"⚠️ Received FILL event for {order_id} but price is 0. Waiting for better update..."
-                    )
-            elif status in ["canceled", "rejected", "expired"]:
-                if not self.pending_fills[order_id].done():
-                    self.pending_fills[order_id].set_exception(
-                        OCOAtomicityError(f"Order {order_id} failed with status: {status}")
-                    )
+        if order_id in self.pending_orders:
+            future = self.pending_orders[order_id]
+            if not future.done():
+                if status in ["filled", "closed"]:
+                    # Pass full order data for Phase 30 fee capture
+                    future.set_result(order)
+                    self.logger.debug(f"[OCO] Resolved future for order {order_id}")
+                elif status in ["canceled", "rejected", "expired"]:
+                    future.set_exception(OCOAtomicityError(f"Order {order_id} failed with status: {status}"))
 
     async def create_bracketed_order(
         self, order: Dict[str, Any], wait_for_fill: bool = True, fill_timeout: float = 30.0, contributors: list = None
@@ -206,10 +196,10 @@ class OCOManager:
             # PRE-RESERVE CLIENT ORDER ID (To prevent race conditions with WS Fill Events)
             client_order_id = f"C3_ENTRY_{uuid.uuid4().hex[:12]}"
 
-            # Pre-register future in pending_fills (so if event arrives before new_order returns, we catch it)
+            # Pre-register future in pending_orders (so if event arrives before new_order returns, we catch it)
             loop = asyncio.get_running_loop()
             future = loop.create_future()
-            self.pending_fills[client_order_id] = future
+            self.pending_orders[client_order_id] = future
             # Step 1: Execute main market order
             main_order = await self._execute_main_order(order, client_order_id=client_order_id)
             watchdog.heartbeat(
@@ -233,47 +223,40 @@ class OCOManager:
             # Register numeric ID as well (pointing to same future)
             # This covers cases where WS event prioritizes numeric ID over client ID
             if order_id and order_id != client_order_id:
-                self.pending_fills[str(order_id)] = future
+                self.pending_orders[str(order_id)] = future
 
             # Step 2: Wait for fill confirmation or use immediate response
+            fill_data = None
             if wait_for_fill:
-                fill_price = await self._wait_for_fill(order_id, symbol, timeout=fill_timeout, future=future)
-                watchdog.heartbeat(operation_id, f"Main order filled via event @ {fill_price}")
+                fill_data = await self._wait_for_fill(order_id, symbol, timeout=fill_timeout, future=future)
             else:
                 # For market orders, use response price immediately (faster)
                 # The connector is responsible for normalizing the price (including calculating from cumQuote if needed)
-
-                # DEBUG: Log the full response
-                # self.logger.info(f"🔍 DEBUG: main_order keys = {list(main_order.keys())}")
-
-                # Use standard normalized fields
-                fill_price = main_order.get("price") or main_order.get("avgPrice") or main_order.get("average")
-
-                if fill_price and float(fill_price) > 0:
-                    fill_price = float(fill_price)
-                    # self.logger.info(f"🔍 DEBUG: Using normalized fill_price = {fill_price}")
+                fill_price_from_response = (
+                    main_order.get("price") or main_order.get("avgPrice") or main_order.get("average")
+                )
+                if fill_price_from_response and float(fill_price_from_response) > 0:
+                    fill_data = main_order
                 else:
-                    fill_price = None
+                    # Last resort: check fills array (standard CCXT structure)
+                    if main_order.get("fills") and len(main_order["fills"]) > 0 and main_order["fills"][0].get("price"):
+                        fill_data = main_order
 
-                # Last resort: check fills array (standard CCXT structure)
-                if not fill_price and main_order.get("fills"):
-                    fills = main_order["fills"]
-                    if fills and len(fills) > 0:
-                        fill_price = fills[0].get("price")
-                        if fill_price:
-                            fill_price = float(fill_price)
-                            # self.logger.info(f"🔍 DEBUG: From fills[0], fill_price = {fill_price}")
-
-            # If we still don't have a price (e.g. order status is NEW), we MUST wait for fill
-            if not fill_price or fill_price <= 0:
+            # If we still don't have fill_data (e.g. order status is NEW), we MUST wait for fill
+            if not fill_data or float(fill_data.get("price") or fill_data.get("average") or 0) <= 0:
                 self.logger.info("⏳ Fill price not in response (status NEW?), waiting for fill...")
                 try:
-                    fill_price = await self._wait_for_fill(order_id, symbol, timeout=fill_timeout, future=future)
+                    fill_data = await self._wait_for_fill(order_id, symbol, timeout=fill_timeout, future=future)
                 except Exception as e:
                     self.logger.error(f"❌ Failed to wait for fill: {e}")
                     raise OCOAtomicityError(f"Failed to get fill price: {e}")
 
-            self.logger.info(f"✅ Main order filled @ {fill_price}")
+            # Extract precise data from fill (Phase 30)
+            fill_price = float(fill_data.get("price") or fill_data.get("average") or 0)
+            entry_fee = float(fill_data.get("fee", {}).get("cost", 0) or 0)
+
+            watchdog.heartbeat(operation_id, f"Main filled at {fill_price} (Fee: {entry_fee})")
+            self.logger.info(f"✅ Main order filled @ {fill_price} (Fee: {entry_fee})")
 
             # Step 2.5: REGISTER TENTATIVE POSITION (State Machine: OPENING)
             # This protects against "Stale Read" by Reconciliation Service during TP/SL creation.
@@ -324,6 +307,7 @@ class OCOManager:
             # Add to tracker IMMEDIATELY
             self.tracker.open_positions.append(position)
             self.tracker.total_trades_opened += 1
+            position.entry_fee = entry_fee  # Phase 30
 
             # Update granular counters for Session Report
             if side == "LONG":
@@ -385,7 +369,7 @@ class OCOManager:
                 # _cleanup_partial_oco will close it on exchange.
                 # We must also remove it from tracker.
                 self.logger.error("❌ OCO Creation failed after Position Registration. Rolling back state...")
-                self.tracker.remove_position(position.trade_id)
+                await self.tracker.remove_position(position.trade_id)
                 raise e
 
             return {
@@ -409,6 +393,8 @@ class OCOManager:
                     tp_order if "tp_order" in locals() else None,
                     sl_order if "sl_order" in locals() else None,
                 )
+            if position:
+                await self.tracker.remove_position(position.trade_id)
             raise OCOAtomicityError(f"Failed to create OCO bracket: {e}") from e
 
         finally:
@@ -561,7 +547,7 @@ class OCOManager:
 
     async def _wait_for_fill(
         self, order_id: str, symbol: str, timeout: float = 30.0, future: asyncio.Future = None
-    ) -> Optional[float]:
+    ) -> Dict[str, Any]:
         """
         Wait for order fill confirmation via WebSocket Event (Zero-API usage).
         Falls back to single API check if event missed.
@@ -569,71 +555,57 @@ class OCOManager:
         Args:
             order_id: Numeric Order ID or Client Order ID
             symbol: Trading symbol
-            timeout: Timeout in seconds
-            future: Pre-registered future (optional)
+            timeout: Max time to wait
+            future: Optional future if already registered
 
         Returns:
-            Fill price
+            Full Fill data dict (to extract price and fee)
 
         Raises:
             TimeoutError: If fill not confirmed within timeout
         """
-        # 1. Register Future (if not provided)
         if not future:
-            loop = asyncio.get_running_loop()
-            future = loop.create_future()
-            self.pending_fills[order_id] = future
-        else:
-            # Future is already in pending_fills from step 1
-            pass
+            # Register if not already done
+            future = asyncio.Future()
+            self.pending_orders[order_id] = future
+
+        # Start polling task as backup (every 3s)
+        poll_task = asyncio.create_task(self._poll_for_fill(order_id, symbol, future))
 
         try:
-            # 2. Initial API Check (Race condition handling)
-            # In case it filled before we registered the future
-            # We do ONE single check.
+            # Wait for WS result
+            fill_data = await asyncio.wait_for(future, timeout=timeout)
+            return fill_data
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            # Fallback to REST check
+            self.logger.warning(f"🕒 Timeout waiting for WS fill ({order_id}). Falling back to REST...")
             try:
                 order_info = await self.adapter.fetch_order(order_id, symbol)
-                status = order_info.get("status")
-                if status == "closed":
-                    fill_price = float(order_info.get("average") or order_info.get("price") or 0)
-                    if fill_price > 0:
-                        self.logger.info(f"⚡ Immediate fill found for {order_id} @ {fill_price}")
-                        return fill_price
+                if order_info.get("status") in ("closed", "filled"):
+                    return order_info
             except Exception as e:
-                self.logger.warning(f"⚠️ Initial fill check failed (will wait for event): {e}")
+                self.logger.error(f"❌ REST fallback failed for {order_id}: {e}")
 
-            # 3. Wait for Event OR Poll
-            self.logger.debug(f"⏳ Waiting for event: {order_id} (timeout={timeout}s)")
-
-            # Start polling task as backup (every 3s)
-            poll_task = asyncio.create_task(self._poll_for_fill(order_id, symbol, future))
-
-            try:
-                result = await asyncio.wait_for(future, timeout)
-                if result is None or float(result) <= 0:
-                    raise OCOAtomicityError(f"Wait for fill returned invalid price: {result}")
-                return float(result)
-            finally:
-                poll_task.cancel()
-                try:
-                    await poll_task
-                except asyncio.CancelledError:
-                    pass
-
-        except asyncio.TimeoutError:
-            raise TimeoutError(f"Order {order_id} not filled within {timeout}s (No event received)")
-        except Exception as e:
-            raise e
+            raise TimeoutError(f"Order {order_id} not filled within {timeout}s")
         finally:
+            poll_task.cancel()
             # Cleanup
-            if order_id in self.pending_fills:
-                del self.pending_fills[order_id]
+            if order_id in self.pending_orders:
+                del self.pending_orders[order_id]
 
     async def _poll_for_fill(self, order_id: str, symbol: str, future: asyncio.Future):
         """Periodically check order status via REST API as a fallback."""
         while not future.done():
-            await asyncio.sleep(2.0)  # Check every 2 seconds
+            await asyncio.sleep(3.0)  # Check every 3 seconds
             try:
+                order_info = await self.adapter.fetch_order(order_id, symbol)
+                if order_info.get("status") in ("closed", "filled"):
+                    if not future.done():
+                        future.set_result(order_info)
+                        self.logger.info(f"✅ Order {order_id} fill confirmed via REST Polling")
+                        break
+            except Exception as e:
+                self.logger.debug(f"Polling check failed for {order_id}: {e}")
                 order_info = await self.adapter.fetch_order(order_id, symbol)
                 status = order_info.get("status", "").lower()
                 if status == "closed":
@@ -642,9 +614,6 @@ class OCOManager:
                         self.logger.info(f"✅ Polling found fill for {order_id} @ {fill_price}")
                         future.set_result(fill_price)
                         return
-            except Exception:
-                # Ignore transient errors during polling
-                pass
 
     def _calculate_tp_sl_prices(
         self, entry_price: float, side: str, tp_pct: float, sl_pct: float, symbol: str
