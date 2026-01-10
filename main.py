@@ -239,8 +239,16 @@ async def main():
     # 3.1 Subscribe components to exchange and logic events
     engine.subscribe(EventType.AGGREGATED_SIGNAL, croupier.exit_manager.on_signal)
     engine.subscribe(EventType.CANDLE, croupier.exit_manager.on_candle)
-    # V4: Connect OrderTracker to real-time WebSocket updates
-    engine.subscribe(EventType.ORDER_UPDATE, croupier.order_tracker.handle_ws_update)
+
+    # Phase 31: Unified ORDER_UPDATE routing through PositionTracker
+    async def unified_order_update_handler(event: dict):
+        """Unified handler that routes through PositionTracker."""
+        # PositionTracker is now the single source of truth for order events
+        matched = croupier.position_tracker.handle_order_update(event)
+        if matched:
+            logger.debug(f"[Phase31] ✅ ORDER_UPDATE handled by PositionTracker: {matched}")
+
+    engine.subscribe(EventType.ORDER_UPDATE, unified_order_update_handler)
 
     # 4. Initialize Data Feed
     data_feed = StreamManager(adapter, engine)

@@ -21,7 +21,8 @@ from config import trading as trading_config
 from core.error_handling import get_error_handler
 from core.interfaces import TimeIterator
 from core.observability.historian import historian
-from core.order_tracker import OrderTracker
+
+# Phase 31: OrderTracker removed - PositionTracker is now the single source of truth
 from core.portfolio.balance_manager import BalanceManager
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
@@ -78,11 +79,9 @@ class Croupier(TimeIterator):
             max_concurrent_positions=max_concurrent_positions, adapter=exchange_adapter
         )
 
-        # V4: OrderTracker is the NEW Source of Truth
-        self.order_tracker = OrderTracker(exchange_adapter)
-
-        # Initialize specialized components (Pass OrderTracker for local tracking)
-        self.order_executor = OrderExecutor(exchange_adapter, self.error_handler, self.order_tracker)
+        # Phase 31: PositionTracker is now the single source of truth for order state
+        # Initialize specialized components
+        self.order_executor = OrderExecutor(exchange_adapter, self.error_handler)
         self.oco_manager = OCOManager(self.order_executor, self.position_tracker, exchange_adapter)
 
         # Legacy: Still keep reconciliation for Adopt/Cleanup logic, but without its own loop
@@ -484,12 +483,25 @@ class Croupier(TimeIterator):
         else:
             pnl = (position.entry_price - fill_price) * position.notional / position.entry_price
 
+        # PHASE 30: FORENSIC FEE ENRICHMENT
+        # Fetch real exit fee from the exchange to ensure accurate accounting
+        real_fee = 0.0
+        try:
+            await asyncio.sleep(0.5)  # Allow exchange to index the trade
+            trades = await self.adapter.fetch_my_trades(position.symbol, limit=3)
+            if trades:
+                trades.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+                real_fee = float(trades[0].get("fee", {}).get("cost", 0) or 0)
+                self.logger.info(f"💰 Enriched close for {trade_id}: exit_fee={real_fee:.4f}")
+        except Exception as enrich_e:
+            self.logger.warning(f"⚠️ Could not enrich exit fee for {trade_id}: {enrich_e}")
+
         self.position_tracker.confirm_close(
             trade_id=trade_id,
             exit_price=fill_price,
             exit_reason=exit_reason,
             pnl=pnl,
-            fee=0.0,  # We don't have fee info here easily without parsing fills
+            fee=real_fee,
         )
 
         return result
@@ -669,12 +681,10 @@ class Croupier(TimeIterator):
 
     async def start(self) -> None:
         """Start components."""
-        await self.order_tracker.start()
         self.logger.info("🛡️ Croupier Reactor Started")
 
     async def stop(self) -> None:
         """Stop components."""
-        await self.order_tracker.stop()
         self.logger.info("🛑 Croupier Reactor Stopped")
 
     async def tick(self, timestamp: float) -> None:
@@ -682,15 +692,14 @@ class Croupier(TimeIterator):
         Single tick entry point.
         Unifies all periodic activities.
         """
-        # 1. Drive OrderTracker
-        await self.order_tracker.tick(timestamp)
+        # Phase 31: OrderTracker removed - PositionTracker handles order state
 
         # 2. Periodic Balance Sync (Every 5 mins)
         if int(timestamp) % 300 == 0:
             await self._sync_balance()
 
         # 2.5. Periodic Funding Sync (Every 10 mins) - Phase 30
-        if int(timestamp) % 600 == 0:
+        if timestamp - self._last_funding_sync >= 600:
             await self._sync_funding_fees()
 
         # 3. Dynamic Exits (If needed, can be driven here)

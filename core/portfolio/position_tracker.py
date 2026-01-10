@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
 if TYPE_CHECKING:
@@ -38,6 +39,45 @@ from core.observability.historian import historian
 from utils.symbol_norm import normalize_symbol
 
 logger = logging.getLogger("PositionTracker")
+
+
+@dataclass
+class OrderState:
+    """
+    Represents the state of a single order within a position.
+    Phase 31: Unified architecture - orders are embedded in positions.
+    """
+
+    client_order_id: str  # Our ID (e.g., "CASINO_TP_abc123")
+    order_type: str  # "MAIN", "TP", "SL"
+    side: str  # "BUY" or "SELL"
+    amount: float = 0.0
+    price: float = 0.0
+    exchange_order_id: Optional[str] = None  # Binance ID (e.g., "142114122")
+    status: str = "PENDING"  # PENDING → OPEN → FILLED/CANCELED
+    fee: float = 0.0
+    filled_price: float = 0.0
+    filled_at: Optional[float] = None
+    created_at: float = field(default_factory=time.time)
+    last_updated: float = field(default_factory=time.time)
+
+    def update_from_event(self, event: Dict[str, Any]) -> bool:
+        """Update order state from WebSocket event. Returns True if status changed."""
+        old_status = self.status
+        self.status = event.get("X") or event.get("status", self.status)
+        self.last_updated = time.time()
+
+        if self.status in ("FILLED", "closed"):
+            self.filled_at = time.time()
+            self.filled_price = float(event.get("ap", 0) or event.get("average", 0) or event.get("L", 0))
+            fee_info = event.get("fee", {})
+            if isinstance(fee_info, dict):
+                self.fee = float(fee_info.get("cost", 0) or 0)
+
+        if not self.exchange_order_id:
+            self.exchange_order_id = str(event.get("i") or event.get("orderId") or event.get("id"))
+
+        return old_status != self.status
 
 
 @dataclass
@@ -56,20 +96,55 @@ class OpenPosition:
     sl_level: float
     liquidation_level: Optional[float]
     order: Dict[str, Any]
-    main_order_id: Optional[str] = None  # ID de la orden principal (MARKET/LIMIT)
-    tp_order_id: Optional[str] = None  # ID de la orden TP (Client ID)
-    sl_order_id: Optional[str] = None  # ID de la orden SL (Client ID)
-    exchange_tp_id: Optional[str] = None  # ID numérico de Binance para TP
-    exchange_sl_id: Optional[str] = None  # ID numérico de Binance para SL
+    # Legacy ID fields (for backward compatibility during migration)
+    main_order_id: Optional[str] = None
+    tp_order_id: Optional[str] = None
+    sl_order_id: Optional[str] = None
+    exchange_tp_id: Optional[str] = None
+    exchange_sl_id: Optional[str] = None
+    # Phase 31: Embedded OrderState objects (unified architecture)
+    main_order: Optional[OrderState] = None
+    tp_order: Optional[OrderState] = None
+    sl_order: Optional[OrderState] = None
     bars_held: int = 0
+    entry_fee: float = 0.0
     funding_accrued: float = 0.0
-    contributors: List[str] = None  # Sensores que contribuyeron a la señal
+    contributors: List[str] = None
 
     # State Machine Status
     # OPENING: In process of creating TP/SL orders (Audit should wait)
     # ACTIVE: Fully established with TP/SL (Audit should enforce)
     # CLOSING: In process of closing (Audit should wait)
     status: str = "ACTIVE"
+
+    def on_order_update(self, event: Dict[str, Any]) -> Optional[str]:
+        """
+        Handle ORDER_UPDATE event for this position.
+        Returns event type if matched: "TP_FILLED", "SL_FILLED", "MAIN_FILLED", or None.
+        """
+        client_id = event.get("c") or event.get("clientOrderId")
+        if not client_id:
+            return None
+
+        # Check TP order
+        if self.tp_order and client_id == self.tp_order.client_order_id:
+            self.tp_order.update_from_event(event)
+            if self.tp_order.status in ("FILLED", "closed"):
+                return "TP_FILLED"
+
+        # Check SL order
+        elif self.sl_order and client_id == self.sl_order.client_order_id:
+            self.sl_order.update_from_event(event)
+            if self.sl_order.status in ("FILLED", "closed"):
+                return "SL_FILLED"
+
+        # Check Main order
+        elif self.main_order and client_id == self.main_order.client_order_id:
+            self.main_order.update_from_event(event)  # F841 fix: removed unused status_changed
+            if self.main_order.status in ("FILLED", "closed"):
+                return "MAIN_FILLED"
+
+        return None
 
 
 class PositionTracker:
@@ -158,6 +233,9 @@ class PositionTracker:
         # Tracking de confirmaciones pendientes
         self.pending_confirmations: Dict[str, Dict[str, Any]] = {}
 
+        # Phase 31: O(1) lookup by client_order_id for unified event routing
+        self._positions_by_client_id: Dict[str, OpenPosition] = {}
+
         logger.info(f"PositionTracker inicializado | Max positions: {max_concurrent_positions}")
 
     def set_state_change_callback(self, callback: Callable[[], Awaitable[None]]):
@@ -170,6 +248,116 @@ class PositionTracker:
             task = asyncio.create_task(self.state_change_callback())
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
+
+    # =========================================================================
+    # Phase 31: Unified Event Routing (replaces OrderTracker)
+    # =========================================================================
+
+    def register_order(self, position: "OpenPosition", order: OrderState):
+        """
+        Register an order for O(1) lookup by client_order_id.
+        Called by OCOManager after creating TP/SL orders.
+        """
+        self._positions_by_client_id[order.client_order_id] = position
+        logger.debug(f"📝 Registered order {order.client_order_id} for position {position.trade_id}")
+
+    def unregister_order(self, client_order_id: str):
+        """Remove order from O(1) lookup (called on position close)."""
+        self._positions_by_client_id.pop(client_order_id, None)
+
+    def handle_order_update(self, event: Dict[str, Any]) -> Optional[str]:
+        """
+        Handle WebSocket ORDER_UPDATE event with O(1) lookup.
+
+        Phase 31: This is the single source of truth for order events.
+        Replaces the fragmented OrderTracker.handle_ws_update().
+
+        Args:
+            event: Raw ORDER_UPDATE event from WebSocket
+
+        Returns:
+            trade_id if event was matched to a position, None otherwise
+        """
+        client_id = event.get("c") or event.get("clientOrderId")
+        if not client_id:
+            return None
+
+        # O(1) lookup by client_order_id
+        position = self._positions_by_client_id.get(client_id)
+        if not position:
+            return None
+
+        # Delegate to position's event handler
+        event_type = position.on_order_update(event)
+
+        if event_type == "TP_FILLED":
+            logger.info(f"🎯 TP FILLED detected for {position.trade_id} via unified routing")
+            self._handle_tp_filled(position, event)
+        elif event_type == "SL_FILLED":
+            logger.info(f"🛑 SL FILLED detected for {position.trade_id} via unified routing")
+            self._handle_sl_filled(position, event)
+        elif event_type == "MAIN_FILLED":
+            logger.info(f"✅ MAIN FILLED for {position.trade_id} via unified routing")
+
+        return position.trade_id
+
+    def _handle_tp_filled(self, position: "OpenPosition", event: Dict[str, Any]):
+        """Handle TP fill event - close position and cancel SL."""
+        if position.tp_order:
+            exit_price = position.tp_order.filled_price or position.tp_level
+            fee = position.tp_order.fee
+
+            # Calculate PnL
+            if position.side == "LONG":
+                pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+            else:
+                pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+
+            self.confirm_close(trade_id=position.trade_id, exit_price=exit_price, exit_reason="TP", pnl=pnl, fee=fee)
+
+            # Cancel SL order
+            if position.sl_order and self.adapter:
+                asyncio.create_task(self._cancel_sl_order(position))
+
+    def _handle_sl_filled(self, position: "OpenPosition", event: Dict[str, Any]):
+        """Handle SL fill event - close position and cancel TP."""
+        if position.sl_order:
+            exit_price = position.sl_order.filled_price or position.sl_level
+            fee = position.sl_order.fee
+
+            # Calculate PnL
+            if position.side == "LONG":
+                pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+            else:
+                pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+
+            self.confirm_close(trade_id=position.trade_id, exit_price=exit_price, exit_reason="SL", pnl=pnl, fee=fee)
+
+            # Cancel TP order
+            if position.tp_order and self.adapter:
+                asyncio.create_task(self._cancel_tp_order(position))
+
+    async def _cancel_sl_order(self, position: "OpenPosition"):
+        """Cancel SL order after TP fill (fire-and-forget)."""
+        try:
+            if position.sl_order and position.sl_order.exchange_order_id:
+                await self.adapter.cancel_order(position.sl_order.exchange_order_id, position.symbol)
+                logger.info(f"✅ Cancelled SL order {position.sl_order.client_order_id} after TP fill")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not cancel SL order: {e} (likely already cancelled)")
+
+    async def _cancel_tp_order(self, position: "OpenPosition"):
+        """Cancel TP order after SL fill (fire-and-forget)."""
+        try:
+            if position.tp_order and position.tp_order.exchange_order_id:
+                await self.adapter.cancel_order(position.tp_order.exchange_order_id, position.symbol)
+                logger.info(f"✅ Cancelled TP order {position.tp_order.client_order_id} after SL fill")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not cancel TP order: {e} (likely already cancelled)")
+
+    # =========================================================================
+    # Original Methods (unchanged)
+    # =========================================================================
 
     def get_available_equity(self, total_equity: float) -> float:
         """Calcula capital disponible (total - bloqueado)."""
@@ -543,7 +731,10 @@ class PositionTracker:
         # Add to history
         self.history.append(result)
 
-        logger.info(f"PnL REAL: {pnl:+.2f} | Fee: {fee:.2f} | Bars: {position.bars_held}")
+        logger.info(
+            f"PnL REAL: {pnl:+.2f} | Fee (Entry+Exit): {fee + position.entry_fee:.4f} | "
+            f"Funding: {position.funding_accrued:+.4f} | Bars: {position.bars_held}"
+        )
 
         # Record in persistent history
         historian.record_trade(result)
@@ -705,13 +896,14 @@ class PositionTracker:
                 relevant_trades = [
                     t
                     for t in trades
-                    if str(t.get("order") or t.get("id")) == str(trade_id)
-                    or str(t.get("clientOrderId")) == str(trade_id)
+                    if str(t.get("order_id") or t.get("id")) == str(trade_id)
+                    or str(t.get("order_id")) == str(found_pos.tp_order_id)
+                    or str(t.get("order_id")) == str(found_pos.sl_order_id)
                 ]
 
                 if relevant_trades:
                     total_fee = sum(float(t.get("fee", {}).get("cost", 0) or 0) for t in relevant_trades)
-                    total_pnl = sum(float(t.get("realizedPnl", 0) or 0) for t in relevant_trades)
+                    total_pnl = sum(float(t.get("realized_pnl", 0) or 0) for t in relevant_trades)
                     audit_fee += total_fee
                     audit_pnl = total_pnl
                     logger.info(
@@ -765,122 +957,8 @@ class PositionTracker:
         logger.info(f"🧬 Adopted position: {position.trade_id} | {position.symbol} {position.side}")
         self._trigger_state_change()
 
-    async def handle_order_update(self, order: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Handle order update from exchange (VirtualExchange or Binance WebSocket).
-
-        When a TP or SL order fills, this method finds the corresponding position,
-        calls confirm_close to properly record the win/loss, and CANCELS the opposite order.
-
-        Args:
-            order: Normalized order dict with 'id', 'status', 'price', etc.
-
-        Returns:
-            Close result if a position was closed, None otherwise
-        """
-        order_id = str(order.get("id") or order.get("order_id", ""))
-        status = order.get("status", "").lower()
-
-        # Only process filled orders (closed = filled in our normalization)
-        if status not in ["closed", "filled"]:
-            return None
-
-        # Find position by TP or SL order ID
-        position = None
-        exit_reason = None
-        opposite_order_id = None
-
-        for pos in self.open_positions:
-            if order_id in [pos.tp_order_id, pos.exchange_tp_id] and pos.tp_order_id:
-                position = pos
-                exit_reason = "TP"
-                opposite_order_id = pos.sl_order_id or pos.exchange_sl_id
-                break
-            elif order_id in [pos.sl_order_id, pos.exchange_sl_id] and pos.sl_order_id:
-                position = pos
-                exit_reason = "SL"
-                opposite_order_id = pos.tp_order_id or pos.exchange_tp_id
-                break
-
-        if not position:
-            # Not a TP/SL order, might be a main order - ignore
-            return None
-
-        # Extract fill price
-        fill_price = float(order.get("price", 0) or 0)
-        if fill_price <= 0:
-            fill_price = float(order.get("average", 0) or order.get("avgPrice", 0) or 0)
-
-        if fill_price <= 0:
-            logger.warning(f"⚠️ Cannot get fill price for order {order_id}")
-            return None
-
-        # Calculate PnL (Use amount * price_diff for accuracy)
-        # PnL = (Exit - Entry) * Amount * Direction
-        price_diff = fill_price - position.entry_price
-        direction = 1 if position.side == "LONG" else -1
-
-        # Use amount if available (robustness against notional=0 bug)
-        amount_to_use = 0.0
-        if position.order and "amount" in position.order:
-            amount_to_use = float(position.order["amount"])
-        elif position.notional > 0 and position.entry_price > 0:
-            amount_to_use = position.notional / position.entry_price
-
-        pnl_value = price_diff * amount_to_use * direction
-
-        fee = 0.0
-        fee_info = order.get("fee", {})
-        if isinstance(fee_info, dict):
-            fee = float(fee_info.get("cost", 0) or 0)
-
-        # ----------------------------------------------------------------
-        # PHASE 28: PRECISION ACCOUNTING (REAL DATA FETCH)
-        # If fee is 0.0 (common on WS), trigger REST enrichment to get the truth.
-        # Perform enrichment BEFORE confirm_close
-        # ----------------------------------------------------------------
-        should_enrich = fee == 0.0 and self.adapter
-
-        if should_enrich:
-            logger.info(f"🔍 Fee is 0.0 for {order_id}. Enriching trade details via REST...")
-            # Perform enrichment BEFORE confirm_close
-            fee_real, pnl_real = await self._enrich_trade_with_rest(
-                order_id=order_id,
-                symbol=position.symbol,
-                trade_id=position.trade_id,
-                exit_reason=exit_reason,
-                fill_price=fill_price,
-                pnl_estimated=pnl_value,
-            )
-            fee = fee_real
-            pnl_value = pnl_real
-
-        logger.info(
-            f"📬 Order Update | {order_id} {exit_reason} filled @ {fill_price:.2f} | " f"Position: {position.trade_id}"
-        )
-
-        # Store symbol before confirm_close removes position
-        symbol = position.symbol
-
-        # Confirm the close
-        result = self.confirm_close(
-            trade_id=position.trade_id,
-            exit_price=fill_price,
-            exit_reason=exit_reason,
-            pnl=pnl_value,
-            fee=fee,
-        )
-
-        # Cancel the opposite order (OCO behavior)
-
-        if opposite_order_id and self.adapter:
-            try:
-                # Fire and forget cancel
-                asyncio.create_task(self._cancel_opposite_order_safe(opposite_order_id, symbol))
-            except Exception as e:
-                logger.error(f"❌ Failed to queue opposite order cancel: {e}")
-
-        return result
+    # Phase 31: Legacy async handle_order_update REMOVED
+    # PositionTracker.handle_order_update (sync, O(1) lookup) is now the single source of truth
 
     async def _cancel_opposite_order_safe(self, order_id: str, symbol: str):
         """Helper to cancel opposite order without blocking."""

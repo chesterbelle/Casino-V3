@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 from core.error_handling import RetryConfig, get_error_handler
 from core.observability.watchdog import watchdog
-from core.portfolio.position_tracker import OpenPosition, PositionTracker
+from core.portfolio.position_tracker import OpenPosition, OrderState, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
 # Timeout for price fetching during OCO (protects against REST breaker hangs)
@@ -320,15 +320,19 @@ class OCOManager:
 
             try:
                 # =========================================================
-                # HARDENED MANUAL OCO FLOW
+                # HARDENED MANUAL OCO FLOW - Phase 31 Enhanced
                 # =========================================================
                 self.logger.info(f"[OCO] 🛡️ Creating Protected Bracket (Manual) for {symbol}")
 
-                # Step 4: Create TP order
+                # Phase 31: Generate client_order_ids for correlation
+                tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
+                sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+
+                # Step 4: Create TP order with client_order_id
                 tp_order = await self._create_tp_order(symbol, side, main_order["amount"], tp_price)
                 watchdog.heartbeat(operation_id, f"TP order created: {tp_order.get('order_id') or tp_order.get('id')}")
 
-                # Step 5: Create SL order
+                # Step 5: Create SL order with client_order_id
                 sl_order = await self._create_sl_order(symbol, side, main_order["amount"], sl_price)
                 watchdog.heartbeat(operation_id, f"SL order created: {sl_order.get('order_id') or sl_order.get('id')}")
 
@@ -353,11 +357,45 @@ class OCOManager:
                     f"TP: {tp_order_id} | SL: {sl_order_id}"
                 )
 
-                # UPDATE POSITION STATE WITH DUAL IDs
-                position.tp_order_id = tp_order.get("client_order_id") or tp_order_id
-                position.exchange_tp_id = tp_order.get("order_id") or tp_order_id
-                position.sl_order_id = sl_order.get("client_order_id") or sl_order_id
-                position.exchange_sl_id = sl_order.get("order_id") or sl_order_id
+                # Phase 31: Create OrderState objects for unified tracking
+                import time
+
+                tp_order_state = OrderState(
+                    client_order_id=tp_client_id,
+                    order_type="TP",
+                    side="SELL" if side == "LONG" else "BUY",
+                    amount=main_order["amount"],
+                    price=tp_price,
+                    exchange_order_id=str(tp_order_id),
+                    status="open",
+                    created_at=time.time(),
+                    last_updated=time.time(),
+                )
+                sl_order_state = OrderState(
+                    client_order_id=sl_client_id,
+                    order_type="SL",
+                    side="SELL" if side == "LONG" else "BUY",
+                    amount=main_order["amount"],
+                    price=sl_price,
+                    exchange_order_id=str(sl_order_id),
+                    status="open",
+                    created_at=time.time(),
+                    last_updated=time.time(),
+                )
+
+                # Legacy ID fields (backward compatibility)
+                position.tp_order_id = tp_client_id
+                position.exchange_tp_id = str(tp_order_id)
+                position.sl_order_id = sl_client_id
+                position.exchange_sl_id = str(sl_order_id)
+
+                # Phase 31: Embed OrderState objects in position
+                position.tp_order = tp_order_state
+                position.sl_order = sl_order_state
+
+                # Phase 31: Register for O(1) lookup by client_order_id
+                self.tracker.register_order(position, tp_order_state)
+                self.tracker.register_order(position, sl_order_state)
 
                 # Finalize position state
                 position.status = "ACTIVE"

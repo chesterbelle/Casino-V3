@@ -411,7 +411,13 @@ class ReconciliationService:
                             else (pos.entry_price - price) * amount
                         )
 
-                        self.tracker.confirm_close(pos.trade_id, exit_price=price, exit_reason="TP (Recon)", pnl=pnl)
+                        # Extract fee from order if available
+                        fee_info = tp_order.get("fee", {})
+                        exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
+
+                        self.tracker.confirm_close(
+                            pos.trade_id, exit_price=price, exit_reason="TP (Recon)", pnl=pnl, fee=exit_fee
+                        )
                         return "Closed via TP (Confirmed)"
                 except Exception as e:
                     self.logger.warning(f"Could not fetch TP order {pos.tp_order_id}: {e}")
@@ -437,7 +443,13 @@ class ReconciliationService:
                             else (pos.entry_price - price) * amount
                         )
 
-                        self.tracker.confirm_close(pos.trade_id, exit_price=price, exit_reason="SL (Recon)", pnl=pnl)
+                        # Extract fee from order if available
+                        fee_info = sl_order.get("fee", {})
+                        exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
+
+                        self.tracker.confirm_close(
+                            pos.trade_id, exit_price=price, exit_reason="SL (Recon)", pnl=pnl, fee=exit_fee
+                        )
                         return "Closed via SL (Confirmed)"
                 except Exception as e:
                     self.logger.warning(f"Could not fetch SL order {pos.sl_order_id}: {e}")
@@ -470,11 +482,17 @@ class ReconciliationService:
                     if not isinstance(trade_ts, (int, float)):
                         continue
 
-                    # Filter by time (trade must be AFTER entry)
-                    if trade_ts >= entry_time:
-                        # Filter by side (must be opposite to entry)
+                    # Filter by time (trade must be AFTER or EQUAL to entry, with 1s buffer for safety)
+                    if trade_ts >= (entry_time - 1000):
+                        # Filter by side (must be opposite to entry) or by ID
                         close_side = "sell" if pos.side == "LONG" else "buy"
-                        if t.get("side") == close_side:
+                        order_id = str(t.get("order_id") or t.get("id"))
+
+                        is_match = order_id in [str(pos.main_order_id), str(pos.tp_order_id), str(pos.sl_order_id)] or (
+                            t.get("side") == close_side and trade_ts >= entry_time
+                        )
+
+                        if is_match:
                             matches.append(t)
 
                 if matches:
@@ -482,14 +500,21 @@ class ReconciliationService:
                     last_trade = matches[-1]
 
                     price = float(last_trade.get("price", 0))
-                    pnl = float(last_trade.get("realizedPnl", 0))
+                    pnl = float(last_trade.get("realized_pnl", 0))
+
+                    fee_real = float(last_trade.get("fee", {}).get("cost", 0) or 0)
 
                     if price > 0:
                         self.logger.info(
-                            f"🕵️ Deep Search found closing trade: {last_trade.get('id')} @ {price} (PnL: {pnl})"
+                            f"🕵️ Deep Search found closing trade: {last_trade.get('id')} @ {price} "
+                            f"(PnL: {pnl}, Fee: {fee_real})"
                         )
                         self.tracker.confirm_close(
-                            pos.trade_id, exit_price=price, exit_reason="TRADE_CONFIRMED", pnl=pnl
+                            pos.trade_id,
+                            exit_price=price,
+                            exit_reason="TRADE_CONFIRMED",
+                            pnl=pnl,
+                            fee=fee_real,
                         )
                         return f"Closed via Trade {last_trade.get('id')} (Deep Confirmed)"
 

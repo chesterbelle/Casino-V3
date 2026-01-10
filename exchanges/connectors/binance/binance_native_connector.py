@@ -776,6 +776,7 @@ class BinanceNativeConnector(BaseConnector):
                     "cost": float(t.get("commission", 0)),
                     "currency": t.get("commissionAsset", "USDT"),
                 },
+                "realized_pnl": float(t.get("realizedPnl", 0)),
                 "timestamp": t["time"],
             }
             for t in trades
