@@ -193,8 +193,16 @@ class TradeHistorian:
         except Exception as e:
             logger.error(f"❌ Historian: Error recording external closure: {e}")
 
+    # Phase 32: Clean exit reasons for Strategy PnL vs Error Recovery
+    CLEAN_EXIT_REASONS = ("TP", "SL", "MANUAL")
+
     def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
-        """Returns statistics for the current database state, optionally filtered by session."""
+        """
+        Returns statistics for the current database state, optionally filtered by session.
+
+        Phase 32: Separates clean trades (TP, SL, MANUAL) from error recovery trades
+        to distinguish Strategy performance from execution issues.
+        """
         try:
             params = []
             query = """
@@ -205,7 +213,15 @@ class TradeHistorian:
                     SUM(fee) as total_fees,
                     SUM(funding) as total_funding,
                     SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
-                    SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses
+                    SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses,
+                    -- Phase 32: Clean trades (Strategy PnL)
+                    SUM(CASE WHEN exit_reason IN ('TP', 'SL', 'MANUAL') THEN net_pnl ELSE 0 END) as clean_pnl,
+                    SUM(CASE WHEN exit_reason IN ('TP', 'SL', 'MANUAL') THEN 1 ELSE 0 END) as clean_count,
+                    SUM(CASE WHEN exit_reason IN ('TP', 'SL', 'MANUAL') THEN fee ELSE 0 END) as clean_fees,
+                    -- Phase 32: Error recovery trades (Audit Adjust)
+                    SUM(CASE WHEN exit_reason NOT IN ('TP', 'SL', 'MANUAL') OR exit_reason IS NULL THEN net_pnl ELSE 0 END) as error_pnl,
+                    SUM(CASE WHEN exit_reason NOT IN ('TP', 'SL', 'MANUAL') OR exit_reason IS NULL THEN 1 ELSE 0 END) as error_count,
+                    SUM(CASE WHEN exit_reason NOT IN ('TP', 'SL', 'MANUAL') OR exit_reason IS NULL THEN fee ELSE 0 END) as error_fees
                 FROM trades
             """
             if session_id:
@@ -227,6 +243,12 @@ class TradeHistorian:
                         "total_funding": 0.0,
                         "wins": 0,
                         "losses": 0,
+                        "clean_pnl": 0.0,
+                        "clean_count": 0,
+                        "clean_fees": 0.0,
+                        "error_pnl": 0.0,
+                        "error_count": 0,
+                        "error_fees": 0.0,
                     }
                 )
         except Exception as e:

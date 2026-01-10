@@ -694,7 +694,15 @@ async def main():
             losses = summary.get("losses", 0)
             win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
 
+            # Phase 32: Separated PnL metrics
+            clean_pnl = summary.get("clean_pnl", 0.0) or 0.0
+            clean_count = summary.get("clean_count", 0) or 0
+            error_pnl = summary.get("error_pnl", 0.0) or 0.0
+            error_count = summary.get("error_count", 0) or 0
+
+            # Legacy: total_net_pnl for backward compatibility
             strategy_net_pnl = summary.get("total_net_pnl", 0.0)
+
             adjustment = summary.get("leakage")
             adjustment_str = f"{adjustment:+.4f} USDT" if adjustment is not None else "UNVERIFIED"
 
@@ -711,7 +719,9 @@ async def main():
             logger.info(f"   Start Balance: {start_bal:.2f} USDT")
             logger.info(f"   Final Balance: {final_bal_float if final_bal_float is not None else 'N/A'}")
             logger.info("   --------------------------------------")
-            logger.info(f"   📈 Strategy PnL: {strategy_net_pnl:+.4f} USDT")
+            # Phase 32: Clean trades = Strategy performance, Error trades = Execution issues
+            logger.info(f"   📈 Strategy PnL: {clean_pnl:+.4f} USDT ({clean_count} clean trades)")
+            logger.info(f"   🔧 Error Recovery: {error_pnl:+.4f} USDT ({error_count} error trades)")
             logger.info(f"   🧹 Audit Adjust: {adjustment_str} (Ghosts/Fees/Funding)")
             logger.info(f"   💰 Account Delta: {account_delta_str}")
             logger.info("   --------------------------------------")
@@ -719,6 +729,7 @@ async def main():
             logger.info(f"   Total Trades: {total_trades}")
             logger.info(f"   Wins/Losses: {wins}/{losses} (WR: {win_rate:.2f}%)")
             logger.info("==========================================")
+
         except Exception as e:
             logger.error(f"❌ Error generating summary: {e}")
 
