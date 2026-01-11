@@ -120,20 +120,22 @@ class ReconciliationService:
 
             ex_pos_by_symbol = defaultdict(list)
             for p in exchange_positions:
-                ex_pos_by_symbol[normalize_symbol(p["symbol"])].append(p)
+                ex_pos_by_symbol[normalize_symbol(p["symbol"]).replace("/", "")].append(p)
 
             orders_by_symbol = defaultdict(list)
             open_orders_symbols = set()
             for o in open_orders:
-                norm_sym = normalize_symbol(o["symbol"])
+                norm_sym = normalize_symbol(o["symbol"]).replace("/", "")
                 orders_by_symbol[norm_sym].append(o)
                 open_orders_symbols.add(norm_sym)
 
             # Discover all symbols to check (Tracker + Exchange + Open Orders)
-            # Use unified normalization for all sources to prevent Ghost/Unknown mismatches
-            local_symbols = {normalize_symbol(pos.symbol) for pos in self.tracker.open_positions}
+            # Use unified slash-agnostic normalization for all sources
+            local_symbols = {normalize_symbol(pos.symbol).replace("/", "") for pos in self.tracker.open_positions}
             exchange_symbols = {
-                normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
+                normalize_symbol(p["symbol"]).replace("/", "")
+                for p in exchange_positions
+                if abs(float(p.get("contracts", 0))) > 1e-8
             }
             all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
@@ -188,9 +190,11 @@ class ReconciliationService:
             "issues_found": [],
         }
 
-        # Core filter: Match local positions via normalized symbols
-        norm_target = normalize_symbol(symbol)
-        local_positions = [pos for pos in self.tracker.open_positions if normalize_symbol(pos.symbol) == norm_target]
+        # Core filter: Match local positions via slash-agnostic normalized symbols
+        norm_target = normalize_symbol(symbol).replace("/", "")
+        local_positions = [
+            pos for pos in self.tracker.open_positions if normalize_symbol(pos.symbol).replace("/", "") == norm_target
+        ]
         report["positions_checked"] = len(local_positions)
 
         # 2. PURGE GHOSTS
