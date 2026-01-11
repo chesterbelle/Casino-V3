@@ -27,11 +27,11 @@ class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
         pos = self.tracker.open_position(
             order=order, entry_price=10.0, entry_timestamp="123456789", available_equity=1000.0
         )
-        self.assertEqual(pos.symbol, "ATOM/USDT")
-        self.assertEqual(self.tracker.open_positions[0].symbol, "ATOM/USDT")
+        self.assertEqual(pos.symbol, "ATOMUSDT")
+        self.assertEqual(self.tracker.open_positions[0].symbol, "ATOMUSDT")
 
     async def test_reconciliation_symbol_neutrality(self):
-        """Verify that reconciliation matches ATOM/USDT (local) with ATOM/USDT:USDT (exchange)."""
+        """Verify that reconciliation matches ATOMUSDT (local) with ATOM/USDT:USDT (exchange)."""
         # 1. Setup local position (already normalized per fix above)
         order = {"symbol": "ATOM/USDT", "side": "LONG", "size": 0.05, "leverage": 1.0}
         pos = self.tracker.open_position(
@@ -72,23 +72,23 @@ class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
 
         # 3. Run reconciliation
         # Note: We call _reconcile_symbol_data which is the core logic
-        report = await self.reconciliation._reconcile_symbol_data("ATOM/USDT", exchange_positions, open_orders)
+        report = await self.reconciliation._reconcile_symbol_data("ATOMUSDT", exchange_positions, open_orders)
 
         # 4. Verify no ghosts were removed and position remains active
         self.assertEqual(report["ghosts_removed"], 0)
         self.assertEqual(report["positions_closed"], 0)
         self.assertEqual(len(self.tracker.open_positions), 1)
-        self.assertEqual(self.tracker.open_positions[0].symbol, "ATOM/USDT")
+        self.assertEqual(self.tracker.open_positions[0].symbol, "ATOMUSDT")
 
     async def test_exit_manager_matching(self):
-        """Verify ExitManager matches ATOM/USDT position with ATOM/USDT:USDT candle."""
+        """Verify ExitManager matches ATOMUSDT position with ATOM/USDT:USDT candle."""
         from croupier.components.exit_manager import ExitManager
 
         croupier = MagicMock()
         croupier.get_open_positions.return_value = [
             OpenPosition(
                 trade_id="t1",
-                symbol="ATOM/USDT",
+                symbol="ATOMUSDT",
                 side="LONG",
                 entry_price=10.0,
                 entry_timestamp="0",
@@ -121,9 +121,9 @@ class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
         # We check if processing logic is reached
         with patch.object(exit_mgr, "logger") as mock_logger:
             await exit_mgr.on_candle(candle)
-            # Find if "Processing Exit Logic for ATOM/USDT" was logged
+            # Find if "Processing Exit Logic for ATOMUSDT" was logged
             found = any(
-                "Processing Exit Logic for ATOM/USDT" in (call.args[0] if call.args else "")
+                "Processing Exit Logic for ATOMUSDT" in (call.args[0] if call.args else "")
                 for call in mock_logger.info.call_args_list
             )
             self.assertTrue(found, "Exit logic was not processed for normalized symbol")
