@@ -212,7 +212,7 @@ class MultiAssetManager:
                     # C7. Stream Liveness Check (Phase 37)
                     # Verify that the symbol actually streams WebSocket data
                     # Some testnet symbols exist in exchangeInfo but don't transmit
-                    stream_liveness_timeout = getattr(trading_config, "FLYTEST_STREAM_LIVENESS_TIMEOUT", 5.0)
+                    stream_liveness_timeout = getattr(trading_config, "FLYTEST_STREAM_LIVENESS_TIMEOUT", 10.0)
                     if stream_liveness_timeout > 0:
                         is_live = await self._check_stream_liveness(target_symbol, stream_liveness_timeout)
                         if not is_live:
