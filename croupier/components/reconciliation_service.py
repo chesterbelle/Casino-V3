@@ -221,6 +221,28 @@ class ReconciliationService:
             has_sl = str(pos.sl_order_id) in open_order_ids
 
             if not has_tp or not has_sl:
+                # --- CONCURRENCY GRACE PERIOD (Phase 34) ---
+                # If a TP/SL order is missing from exchange data, check if it was recently updated/created locally.
+                # This prevents "Naked" closure due to exchange REST indexing lag without adding execution lag.
+                grace_period = 5.0  # seconds
+                now = time.time()
+
+                tp_recent = False
+                if pos.tp_order and (now - pos.tp_order.last_updated < grace_period):
+                    tp_recent = True
+
+                sl_recent = False
+                if pos.sl_order and (now - pos.sl_order.last_updated < grace_period):
+                    sl_recent = True
+
+                # If the missing order is "newly created/updated", we wait for the next reconciliation cycle
+                if (not has_tp and tp_recent) or (not has_sl and sl_recent):
+                    self.logger.info(
+                        f"⏳ Reconciliation: Potential lag detected for {pos.trade_id} (TP={has_tp}, SL={has_sl}). "
+                        "Benefiting from Grace Period (Wait for next cycle)."
+                    )
+                    continue
+
                 self.logger.warning(f"⚠️ Position {pos.trade_id} is NAKED/BROKEN (TP={has_tp}, SL={has_sl}).")
 
                 # Close on exchange immediately

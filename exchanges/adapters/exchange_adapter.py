@@ -254,6 +254,18 @@ class ExchangeAdapter(NetworkIterator):
             return await self.connector.watch_ticker(symbol)
         raise NotImplementedError("Connector does not support watch_ticker")
 
+    def get_market_filters(self, symbol: str = None) -> Dict[str, Any]:
+        """
+        Returns official exchange filters (tickSize, stepSize, etc.) for a symbol.
+        Used for robust Band-Compliant execution without Regex parsing.
+        """
+        symbol = symbol or self.symbol
+        if hasattr(self.connector, "get_market_filters"):
+            return self.connector.get_market_filters(symbol)
+
+        # Default safety fallback
+        return {"tickSize": 0.01, "stepSize": 0.01, "minNotional": 10.0}
+
     async def watch_order_book(self, symbol: str = None, limit: int = 20) -> Dict[str, Any]:
         """
         Watch order book using WebSocket (if supported).
@@ -413,36 +425,6 @@ class ExchangeAdapter(NetworkIterator):
         except Exception as e:
             self.logger.error(f"❌ Error executing order: {e}")
             raise
-
-    async def modify_order(self, order_id: str, symbol: str, changes: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Modifies an active order (Atomic Update).
-        Delegates to connector if supported (amend_order).
-
-        Args:
-            order_id: Order ID to modify
-            symbol: Symbol
-            changes: Dict of changes (e.g. {'price': 20000, 'quantity': 1.5})
-
-        Returns:
-            Dict with result if successful.
-
-        Raises:
-            NotImplementedError: If connector does not support atomic modification.
-            Exception: If modification fails.
-        """
-        if hasattr(self.connector, "amend_order"):
-            # Extract basic params
-            side = changes.get("side", "")  # required by binance
-            quantity = changes.get("quantity") or changes.get("amount")
-            price = changes.get("price")
-            params = changes.get("params", {})
-
-            return await self.connector.amend_order(
-                symbol=symbol, order_id=order_id, side=side, quantity=quantity, price=price, params=params
-            )
-        else:
-            raise NotImplementedError("Connector does not support atomic modification (amend_order)")
 
     def normalize_trade(self, raw_trade: Dict[str, Any]) -> Dict[str, Any]:
         """

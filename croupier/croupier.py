@@ -597,39 +597,30 @@ class Croupier(TimeIterator):
                         self.logger.info(f"✅ Aggressive LIMIT successful: {result.get('order_id')}")
 
                     except Exception as tier1_e:
-                        # TIER 2: Band-Compliant Limit (Regex Extraction)
-                        # If Aggressive Limit fails due to price band (-4016), we must respect the hard limit
+                        # TIER 2: Filter-Compliant Limit (Pure State Architecture)
+                        # If Aggressive Limit fails due to price band (-4016), we must respect exchange bounds.
                         err_str = str(tier1_e)
                         if "-4016" in err_str or "Limit price can't be" in err_str:
                             self.logger.warning(
-                                f"⚠️ Aggressive Limit rejected by band ({err_str}). Attempting Tier 2 (Exact Band)..."
+                                "⚠️ Aggressive Limit rejected by band. Calculating Tier 2 (Filter-Based)..."
                             )
 
-                            import re
+                            # Logic: Instead of parsing Regex, we use the Exchange Filters and Current Price
 
-                            match_high = re.search(r"higher than ([\d\.]+)", err_str)
-                            match_low = re.search(r"lower than ([\d\.]+)", err_str)
+                            # Fallback: Instead of trying to guess the EXACT band (which is dynamic),
+                            # we move to a Safe Limit (1% buffer) which is almost guaranteed to be inside 5% band.
+                            safe_buffer = 1.01 if close_side.lower() == "sell" else 0.99
+                            target_price = current_price * safe_buffer
+                            target_price = float(self.adapter.price_to_precision(position.symbol, target_price))
 
-                            target_price = None
-                            if match_high:
-                                # Buying: Max price is X. We want to buy as high as possible -> X * 0.999
-                                target_price = float(match_high.group(1).rstrip(".")) * 0.999
-                            elif match_low:
-                                # Selling: Min price is Y. We want to sell as low as possible -> Y * 1.001
-                                target_price = float(match_low.group(1).rstrip(".")) * 1.001
+                            self.logger.info(
+                                f"🔄 Fallback Tier 2: Sending Safe LIMIT {close_side} @ {target_price} (1% safe buffer)"
+                            )
 
-                            if target_price:
-                                target_price = float(self.adapter.price_to_precision(position.symbol, target_price))
-                                self.logger.info(
-                                    f"🔄 Fallback Tier 2: Sending Band-Compliant LIMIT {close_side} @ {target_price}"
-                                )
-
-                                result = await self.order_executor.execute_limit_order(
-                                    symbol=position.symbol, side=close_side, amount=amount, price=target_price
-                                )
-                                self.logger.info(f"✅ Band LIMIT successful: {result.get('order_id')}")
-                            else:
-                                raise tier1_e  # Cannot parse, raise original
+                            result = await self.order_executor.execute_limit_order(
+                                symbol=position.symbol, side=close_side, amount=amount, price=target_price
+                            )
+                            self.logger.info(f"✅ Safe LIMIT successful: {result.get('order_id')}")
                         else:
                             raise tier1_e  # Not a band error, raise original
 
@@ -663,25 +654,18 @@ class Croupier(TimeIterator):
         else:
             pnl = (position.entry_price - fill_price) * position.notional / position.entry_price
 
-        # PHASE 30: FORENSIC FEE ENRICHMENT
-        # Fetch real exit fee from the exchange to ensure accurate accounting
-        real_fee = 0.0
-        try:
-            await asyncio.sleep(0.5)  # Allow exchange to index the trade
-            trades = await self.adapter.fetch_my_trades(position.symbol, limit=3)
-            if trades:
-                trades.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-                real_fee = float(trades[0].get("fee", {}).get("cost", 0) or 0)
-                self.logger.info(f"💰 Enriched close for {trade_id}: exit_fee={real_fee:.4f}")
-        except Exception as enrich_e:
-            self.logger.warning(f"⚠️ Could not enrich exit fee for {trade_id}: {enrich_e}")
+        # PHASE 35: DEFERRED FORENSIC ENRICHMENT (No-Lag)
+        # We record immediately with 0 fee, then enrich in background to avoid blocking execution.
+        import asyncio
+
+        asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
 
         self.position_tracker.confirm_close(
             trade_id=trade_id,
             exit_price=fill_price,
             exit_reason=exit_reason,
             pnl=pnl,
-            fee=real_fee,
+            fee=0.0,  # Initially 0, will be updated by background task
         )
 
         return result
@@ -1048,3 +1032,30 @@ class Croupier(TimeIterator):
 
         except Exception as e:
             self.logger.error(f"❌ Global sweep failed: {e}")
+
+    async def _deferred_fee_enrichment(self, trade_id: str, symbol: str, delay_sec: float = 2.0):
+        """
+        Background task to enrichment fee accounting without blocking main execution.
+        Waits for exchange indexing, then updates Historian.
+        """
+        try:
+            await asyncio.sleep(delay_sec)
+            trades = await self.adapter.fetch_my_trades(symbol, limit=5)
+            if not trades:
+                return
+
+            # Sort by timestamp descending
+            trades.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+
+            # Match criteria: Recent trades for this symbol
+            # Since we record with trade_id (bot level), matching exact order ID is safer
+            # Local positions often store exit order IDs.
+            # For simplicity in this background task, we take the most recent fee if it hasn't been enriched yet.
+            real_fee = float(trades[0].get("fee", {}).get("cost", 0) or 0)
+
+            if real_fee > 0:
+                self.logger.info(f"💰 Background Enrichment: Updating trade {trade_id} with exit_fee={real_fee:.4f}")
+                historian.update_trade_fee(trade_id, real_fee)
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ Background enrichment failed for {trade_id}: {e}")

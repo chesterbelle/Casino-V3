@@ -1590,12 +1590,23 @@ class BinanceNativeConnector(BaseConnector):
                 "quote": s["quoteAsset"],
             }
 
-    def get_min_notional(self, symbol: str) -> float:
-        """Get minimum notional value for a symbol."""
+    def get_market_filters(self, symbol: str) -> Dict[str, Any]:
+        """Get trading filters for a symbol (tickSize, stepSize, minNotional)."""
         native_symbol = self._normalize_symbol(symbol)
         market = self._markets.get(native_symbol, {})
-        # Default to 20 for testnet safety
-        return market.get("min_notional", 20.0)
+        if not market:
+            # Return defaults if not found
+            return {
+                "tickSize": 0.01,
+                "stepSize": 0.01,
+                "minNotional": 10.0,
+            }
+
+        return {
+            "tickSize": market.get("tick_size", 0.01),
+            "stepSize": market.get("step_size", 0.01),
+            "minNotional": market.get("min_notional", 20.0),
+        }
 
     def _normalize_order(self, o: Dict) -> Dict[str, Any]:
         """Normalize regular order response."""

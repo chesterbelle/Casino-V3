@@ -508,101 +508,48 @@ class OCOManager:
 
             results = {"status": "success"}
 
-            # --- TAKE PROFIT AMENDMENT ---
-            if new_tp_price and new_tp_price != position.tp_level:
-                # 1. SET STATE LOCK
-                old_status = position.status
-                position.status = "MODIFYING"
-
-                try:
+            # --- UNIFIED MODIFICATION LOCK ---
+            # Use a single lock for both TP and SL to prevent Reconciliation from seeing a "naked" state
+            old_status = position.status
+            position.status = "MODIFYING"
+            try:
+                # --- TAKE PROFIT AMENDMENT ---
+                if new_tp_price and new_tp_price != position.tp_level:
                     self.logger.info(f"🔄 Replacing TP for {symbol} ({position.exchange_tp_id} -> {new_tp_price})")
 
-                    # Phase 34: Try Atomic Update first
-                    modification_success = False
+                    # FALLBACK: Cancel old TP
                     if position.exchange_tp_id:
-                        try:
-                            # Construct changes dict
-                            changes = {
-                                "price": new_tp_price,
-                                "side": position.side,  # OCO limits are usually opposite side, but keeping generic
-                                "quantity": amount,
-                            }
-                            # Attempt atomic modify
-                            await self.adapter.modify_order(position.exchange_tp_id, symbol, changes)
-                            self.logger.info(f"✅ Atomic TP Modification successful for {position.exchange_tp_id}")
+                        await self.cancel_order(position.exchange_tp_id, symbol)
 
-                            # Update State directly
-                            position.tp_level = new_tp_price
-                            # Ideally we update client_order_id if changed, but atomic usually keeps it unless specified
-                            modification_success = True
-                            results["tp_id"] = position.exchange_tp_id
+                    # Create new TP
+                    tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
+                    tp_id = tp_order.get("order_id") or tp_order.get("id")
 
-                        except NotImplementedError:
-                            self.logger.debug("Atomic modify not supported, falling back to cancel/replace")
-                        except Exception as e:
-                            self.logger.warning(f"⚠️ Atomic modify failed: {e}. Falling back to cancel/replace")
+                    # Update state
+                    position.tp_order_id = tp_order.get("client_order_id") or tp_id
+                    position.exchange_tp_id = tp_id
+                    position.tp_level = new_tp_price
+                    results["tp_id"] = tp_id
 
-                    if not modification_success:
-                        # FALLBACK: Cancel old TP
-                        if position.exchange_tp_id:
-                            await self.cancel_order(position.exchange_tp_id, symbol)
-
-                        # Create new TP
-                        tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
-                        tp_id = tp_order.get("order_id") or tp_order.get("id")
-
-                        # Update state
-                        position.tp_order_id = tp_order.get("client_order_id") or tp_id
-                        position.exchange_tp_id = tp_id
-                        position.tp_level = new_tp_price
-                        results["tp_id"] = tp_id
-                finally:
-                    # 2. RELEASE STATE LOCK
-                    position.status = old_status
-
-            # --- STOP LOSS AMENDMENT ---
-            if new_sl_price and new_sl_price != position.sl_level:
-                # 1. SET STATE LOCK
-                old_status = position.status
-                position.status = "MODIFYING"
-
-                try:
+                # --- STOP LOSS AMENDMENT ---
+                if new_sl_price and new_sl_price != position.sl_level:
                     self.logger.info(f"🔄 Replacing SL for {symbol} ({position.exchange_sl_id} -> {new_sl_price})")
 
-                    # Phase 34: Try Atomic Update first
-                    modification_success = False
+                    # FALLBACK: Cancel old SL
                     if position.exchange_sl_id:
-                        try:
-                            changes = {"price": new_sl_price, "side": position.side, "quantity": amount}
-                            await self.adapter.modify_order(position.exchange_sl_id, symbol, changes)
-                            self.logger.info(f"✅ Atomic SL Modification successful for {position.exchange_sl_id}")
+                        await self.cancel_order(position.exchange_sl_id, symbol)
 
-                            position.sl_level = new_sl_price
-                            modification_success = True
-                            results["sl_id"] = position.exchange_sl_id
+                    # Create new SL
+                    sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
+                    sl_id = sl_order.get("order_id") or sl_order.get("id")
 
-                        except NotImplementedError:
-                            self.logger.debug("Atomic modify not supported, falling back to cancel/replace")
-                        except Exception as e:
-                            self.logger.warning(f"⚠️ Atomic modify failed: {e}. Falling back to cancel/replace")
-
-                    if not modification_success:
-                        # FALLBACK: Cancel old SL
-                        if position.exchange_sl_id:
-                            await self.cancel_order(position.exchange_sl_id, symbol)
-
-                        # Create new SL
-                        sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
-                        sl_id = sl_order.get("order_id") or sl_order.get("id")
-
-                        # Update state
-                        position.sl_order_id = sl_order.get("client_order_id") or sl_id
-                        position.exchange_sl_id = sl_id
-                        position.sl_level = new_sl_price
-                        results["sl_id"] = sl_id
-                finally:
-                    # 2. RELEASE STATE LOCK
-                    position.status = old_status
+                    # Update state
+                    position.sl_order_id = sl_order.get("client_order_id") or sl_id
+                    position.exchange_sl_id = sl_id
+                    position.sl_level = new_sl_price
+                    results["sl_id"] = sl_id
+            finally:
+                position.status = old_status
 
             # Re-register OCO pair if both IDs exist and are separate
             if (
@@ -735,18 +682,26 @@ class OCOManager:
         return tp_price, sl_price
 
     async def cancel_order(self, order_id: str, symbol: str) -> None:
-        """Cancel a single order with retry logic."""
+        """Cancel a single order with retry logic (idempotent)."""
         cancel_retry_config = RetryConfig(max_retries=3, backoff_base=0.3, backoff_factor=2.0, jitter=True)
-        # Use symbol-specific breaker to isolate network issues
-        await self.error_handler.execute_with_breaker(
-            f"oco_cancel_{symbol}",
-            self.adapter.cancel_order,
-            order_id,
-            symbol,
-            retry_config=cancel_retry_config,
-            timeout=15.0,
-        )
-        self.logger.info(f"✅ Cancelled order: {order_id}")
+        try:
+            # Use symbol-specific breaker to isolate network issues
+            await self.error_handler.execute_with_breaker(
+                f"oco_cancel_{symbol}",
+                self.adapter.cancel_order,
+                order_id,
+                symbol,
+                retry_config=cancel_retry_config,
+                timeout=15.0,
+            )
+            self.logger.info(f"✅ Cancelled order: {order_id}")
+        except Exception as e:
+            err_str = str(e).lower()
+            if "unknown order" in err_str or "-2011" in err_str:
+                self.logger.info(f"ℹ️ Order {order_id} already gone for {symbol} (-2011), treating as success.")
+            else:
+                self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
+                raise
 
     async def create_tp_order(
         self,

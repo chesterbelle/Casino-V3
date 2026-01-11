@@ -29,11 +29,6 @@ class OrderManager:
         self.pending_trades = {}  # trade_id -> (decision, sensor_id)
         self.processed_decisions = set()  # Track processed decision IDs to prevent duplicates
 
-        # LAYER 2 ATOMICITY PROTECTION: Conditional validation (only if Layer 1 fails)
-        self.validation_needed = False  # Flag set when cancellation errors occur
-        self.validation_candle_count = 0
-        self.validation_interval = 5  # Run validation every 5 candles if needed
-
         # Subscribe to DECISION events (from AdaptivePlayer)
         self.engine.subscribe(EventType.DECISION, self.on_decision)
 
@@ -239,27 +234,6 @@ class OrderManager:
         """Handle new candle to check for potential exits."""
         if not self.active:
             return
-
-        # LAYER 2 ATOMICITY PROTECTION: Conditional validation (only if errors occurred)
-        # Check if Croupier flagged integrity issues
-        if hasattr(self.croupier, "integrity_check_failed") and self.croupier.integrity_check_failed:
-            self.validation_needed = True
-            self.croupier.integrity_check_failed = False  # Reset Croupier flag
-            logger.info("🚨 Integrity check failure detected, enabling conditional validation")
-
-        if self.validation_needed:
-            self.validation_candle_count += 1
-            if self.validation_candle_count >= self.validation_interval:
-                self.validation_candle_count = 0
-                logger.info("🔍 Running conditional position integrity validation (triggered by previous errors)")
-                try:
-                    await self.croupier.validate_all_positions_integrity()
-                    # Reset flag if validation succeeds
-                    self.validation_needed = False
-                    logger.info("✅ Validation complete, disabling periodic checks")
-                except Exception as e:
-                    logger.error(f"❌ Position validation failed: {e}", exc_info=True)
-                    # Keep flag set to retry
 
         # Convert event to dict for Croupier
         candle_dict = {

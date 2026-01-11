@@ -151,6 +151,52 @@ class TradeHistorian:
         except Exception as e:
             logger.error(f"❌ Historian: Error recording trade: {e}")
 
+    def update_trade_fee(self, trade_id: str, fee: float, exit_price: Optional[float] = None):
+        """
+        Updates the fee (and optionally exit_price) for an existing trade record.
+        Automatically recalculates net_pnl.
+        """
+        try:
+            with self._get_conn() as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    "SELECT gross_pnl, funding, entry_price, side, qty FROM trades WHERE trade_id = ?", (trade_id,)
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    logger.warning(f"⚠️ Historian: Cannot update fee for unknown trade_id {trade_id}")
+                    return
+
+                gross = float(row["gross_pnl"])
+                funding = float(row["funding"])
+                entry_price = float(row["entry_price"])
+                side = row["side"]
+                qty = float(row["qty"])
+
+                # If exit_price is provided, recalculate gross_pnl
+                new_gross = gross
+                if exit_price is not None:
+                    direction = 1 if side.upper() in ["LONG", "BUY"] else -1
+                    new_gross = (exit_price - entry_price) * qty * direction
+
+                new_net = new_gross - fee - funding
+
+                if exit_price is not None:
+                    conn.execute(
+                        "UPDATE trades SET fee = ?, exit_price = ?, gross_pnl = ?, net_pnl = ? WHERE trade_id = ?",
+                        (fee, exit_price, new_gross, new_net, trade_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE trades SET fee = ?, net_pnl = ? WHERE trade_id = ?",
+                        (fee, new_net, trade_id),
+                    )
+                conn.commit()
+            logger.info(f"✅ Historian: Enriched trade {trade_id} with fee {fee:.6f}")
+        except Exception as e:
+            logger.error(f"❌ Historian: Error updating fee for {trade_id}: {e}")
+
     def record_external_closure(
         self,
         symbol: str,
