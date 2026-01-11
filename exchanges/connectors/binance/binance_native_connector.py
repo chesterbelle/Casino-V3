@@ -177,8 +177,12 @@ class BinanceNativeConnector(BaseConnector):
         Uses the centralized ErrorHandler for exponential backoff and
         resilience on retriable errors (rate limits, server errors).
         """
-        if not self._http_session:
-            raise RuntimeError("HTTP session not initialized. Call connect() first.")
+        # Phase 37: Lazy session re-initialization if lost during concurrent operations
+        if not self._http_session or self._http_session.closed:
+            self.logger.warning("⚠️ HTTP session lost. Attempting lazy re-initialization...")
+            connector = aiohttp.TCPConnector(limit=100, limit_per_host=20, use_dns_cache=True, ttl_dns_cache=300)
+            timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
+            self._http_session = aiohttp.ClientSession(connector=connector, timeout=timeout)
 
         url = f"{self._base_url}{endpoint}"
         params = params or {}
@@ -1496,7 +1500,12 @@ class BinanceNativeConnector(BaseConnector):
     # =========================================================
 
     async def ensure_websocket(self) -> None:
-        """Health check + Reconnect."""
+        """Health check + Reconnect (Surgical Recovery).
+
+        Phase 37: Refactored to avoid full session destruction. Instead of
+        close()/connect(), we now restart only the failing streams while
+        preserving the HTTP session and any concurrent operations.
+        """
         if not self._enable_websocket:
             return
 
@@ -1505,15 +1514,28 @@ class BinanceNativeConnector(BaseConnector):
         market_closed = self._market_data_ws is None
         user_closed = self._user_data_ws is None and self._api_key is not None
 
-        if market_stale or market_closed or user_closed:
+        if market_stale or market_closed:
             self.logger.warning(
-                f"⚠️ WS Health Check Failed | "
-                f"Market (Stale: {market_stale}, Closed: {market_closed}) | "
-                f"User (Closed: {user_closed}). Restarting..."
+                f"⚠️ Market Stream Health Fail | Stale: {market_stale}, Closed: {market_closed}. Restarting stream only..."
             )
-            await self.close()
-            await asyncio.sleep(1)
-            await self.connect()
+            # Surgical restart: only the market stream
+            try:
+                if self._market_data_ws:
+                    await self._market_data_ws.close()
+                    self._market_data_ws = None
+                if self._market_data_task and not self._market_data_task.done():
+                    self._market_data_task.cancel()
+                await self._start_market_data_stream()
+            except Exception as e:
+                self.logger.error(f"❌ Market stream restart failed: {e}")
+
+        if user_closed:
+            self.logger.warning(f"⚠️ User Stream Health Fail | Closed: {user_closed}. Restarting stream only...")
+            # Surgical restart: only the user data stream
+            try:
+                await self._reconnect_user_data_stream()
+            except Exception as e:
+                self.logger.error(f"❌ User stream restart failed: {e}")
 
     # =========================================================
     # UTILITIES
