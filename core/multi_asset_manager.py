@@ -209,6 +209,19 @@ class MultiAssetManager:
                         if not is_deep_enough:
                             continue  # Logged inside the method
 
+                    # C7. Stream Liveness Check (Phase 37)
+                    # Verify that the symbol actually streams WebSocket data
+                    # Some testnet symbols exist in exchangeInfo but don't transmit
+                    stream_liveness_timeout = getattr(trading_config, "FLYTEST_STREAM_LIVENESS_TIMEOUT", 5.0)
+                    if stream_liveness_timeout > 0:
+                        is_live = await self._check_stream_liveness(target_symbol, stream_liveness_timeout)
+                        if not is_live:
+                            logger.warning(
+                                f"❌ Rejected {symbol}: Stream Liveness Failed "
+                                f"(no ticker received in {stream_liveness_timeout}s)"
+                            )
+                            continue
+
                 except Exception as e:
                     logger.warning(f"❌ Rejected {symbol}: Failed to validate market depth/liquidity ({e})")
                     continue  # STRICT: No fallback, skip this symbol
@@ -343,6 +356,45 @@ class MultiAssetManager:
 
         except Exception as e:
             logger.warning(f"⚠️ Depth check error for {symbol}: {e}")
+            return False
+
+    async def _check_stream_liveness(self, symbol: str, timeout: float = 5.0) -> bool:
+        """
+        Phase 37: Stream Liveness Check.
+
+        Verifies that Binance actually streams WebSocket data for this symbol.
+        Some testnet symbols exist in exchangeInfo but don't transmit data.
+
+        Args:
+            symbol: Symbol to check
+            timeout: Max seconds to wait for a ticker
+
+        Returns:
+            True if a ticker was received, False if timeout
+        """
+        import asyncio
+
+        try:
+            # Use the adapter's watch_ticker which subscribes and waits for data
+            if not hasattr(self.adapter, "watch_ticker"):
+                logger.debug(f"⚠️ Adapter doesn't support watch_ticker, skipping liveness check for {symbol}")
+                return True  # Skip check if not supported
+
+            # Try to get a ticker within the timeout
+            ticker = await asyncio.wait_for(self.adapter.watch_ticker(symbol), timeout=timeout)
+
+            if ticker and ticker.get("last", 0) > 0:
+                logger.debug(f"✅ Stream liveness OK for {symbol}: price={ticker.get('last')}")
+                return True
+            else:
+                logger.warning(f"⚠️ Stream liveness: empty ticker for {symbol}")
+                return False
+
+        except asyncio.TimeoutError:
+            logger.debug(f"⚠️ Stream liveness timeout for {symbol} ({timeout}s)")
+            return False
+        except Exception as e:
+            logger.warning(f"⚠️ Stream liveness error for {symbol}: {e}")
             return False
 
     async def start_liquidity_watchdog(
