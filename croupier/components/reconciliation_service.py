@@ -33,7 +33,7 @@ class ReconciliationService:
     - Orphans: Orders without valid position → Cancel
     """
 
-    def __init__(self, exchange_adapter, position_tracker: PositionTracker, oco_manager):
+    def __init__(self, exchange_adapter, position_tracker: PositionTracker, oco_manager, croupier=None):
         """
         Initialize ReconciliationService.
 
@@ -41,10 +41,12 @@ class ReconciliationService:
             exchange_adapter: ExchangeAdapter for fetching positions/orders
             position_tracker: PositionTracker instance
             oco_manager: OCOManager for fixing missing TP/SL
+            croupier: Croupier instance for background tasks
         """
         self.adapter = exchange_adapter
         self.tracker = position_tracker
         self.oco_manager = oco_manager
+        self.croupier = croupier
         self.error_handler = get_error_handler()
         self.logger = logging.getLogger("ReconciliationService")
 
@@ -128,7 +130,8 @@ class ReconciliationService:
                 open_orders_symbols.add(norm_sym)
 
             # Discover all symbols to check (Tracker + Exchange + Open Orders)
-            local_symbols = {pos.symbol for pos in self.tracker.open_positions}
+            # Use unified normalization for all sources to prevent Ghost/Unknown mismatches
+            local_symbols = {normalize_symbol(pos.symbol) for pos in self.tracker.open_positions}
             exchange_symbols = {
                 normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
             }
@@ -185,7 +188,9 @@ class ReconciliationService:
             "issues_found": [],
         }
 
-        local_positions = [pos for pos in self.tracker.open_positions if pos.symbol == symbol]
+        # Core filter: Match local positions via normalized symbols
+        norm_target = normalize_symbol(symbol)
+        local_positions = [pos for pos in self.tracker.open_positions if normalize_symbol(pos.symbol) == norm_target]
         report["positions_checked"] = len(local_positions)
 
         # 2. PURGE GHOSTS
@@ -687,24 +692,12 @@ class ReconciliationService:
                             position_dict.get("entryPrice") or position_dict.get("entry_price") or fill_price
                         )
 
-                        # Enriquecimiento forense
+                        # Phase 35: Standardized Enrichment logic
+                        # We record the closure immediately. For fee enrichment,
+                        # we now use the Croupier's background task if accessible.
                         fee_real = 0.0
-                        if order_id:
-                            try:
-                                await asyncio.sleep(1.0)  # Wait for indexing
-                                trades = await self.adapter.fetch_my_trades(target_symbol, limit=5)
-                                matched = [
-                                    t for t in trades if str(t.get("order") or t.get("order_id")) == str(order_id)
-                                ]
-                                if matched:
-                                    fee_real = sum(float(t.get("fee", {}).get("cost", 0) or 0) for t in matched)
-                                    self.logger.info(
-                                        f"✅ Enriched forced closure for {target_symbol}: fee={fee_real:.4f}"
-                                    )
-                            except Exception as e:
-                                self.logger.warning(f"⚠️ Failed to enrich forced closure fee: {e}")
 
-                        historian.record_external_closure(
+                        trade_id = historian.record_external_closure(
                             symbol=target_symbol,
                             side=side_raw.upper(),
                             qty=size,
@@ -714,69 +707,45 @@ class ReconciliationService:
                             reason="RECON_FORCE",
                             session_id=self.tracker.session_id,
                         )
+
+                        # Trigger non-blocking enrichment if trade_id and order_id are present
+                        if trade_id and order_id and hasattr(self, "croupier") and self.croupier:
+                            asyncio.create_task(self.croupier._deferred_fee_enrichment(trade_id, target_symbol))
                     except Exception as hist_err:
                         self.logger.error(f"❌ Failed to record external closure in Recon: {hist_err}")
 
                 except Exception as e:
-                    # SMART CLOSE FALLBACK LOGIC
+                    # TIER 2: Filter-Compliant Limit (Pure State Architecture)
+                    # If Aggressive Limit fails due to price band (-4016), we must respect exchange bounds.
                     err_str = str(e)
-                    if "-4131" in err_str:
+                    if "-4131" in err_str or "-4016" in err_str or "Limit price can't be" in err_str:
                         self.logger.warning(
-                            f"⚠️ Market Close blocked by -4131. Initiating Smart Close Fallback for {target_symbol}..."
+                            f"⚠️ Market/Aggressive Close blocked for {target_symbol}. Calculating Safe Limit..."
                         )
                         try:
                             current_price = await self.adapter.get_current_price(target_symbol)
 
-                            # Tier 1: Aggressive Limit (+/- 5%)
-                            buffer = 0.95 if close_side == "sell" else 1.05
-                            limit_price = float(self.adapter.price_to_precision(target_symbol, current_price * buffer))
+                            # Fallback: Safe 1% buffer
+                            safe_buffer = 1.01 if close_side == "sell" else 0.99
+                            target_price = float(
+                                self.adapter.price_to_precision(target_symbol, current_price * safe_buffer)
+                            )
 
-                            self.logger.info(f"🔄 RecSvc Fallback Tier 1: Limit {limit_price}")
-                            try:
-                                await self.adapter.create_order(
-                                    symbol=target_symbol,
-                                    side=close_side,
-                                    amount=size,
-                                    order_type="limit",
-                                    price=limit_price,
-                                    params={"timeInForce": "GTC"},
-                                )
-                                self.logger.info(f"✅ Closed {target_symbol} via Tier 1 LIMIT")
-                            except Exception as t1_e:
-                                t1_str = str(t1_e)
-                                if "-4016" in t1_str or "Limit price can't be" in t1_str:
-                                    self.logger.warning(f"⚠️ Tier 1 failed ({t1_str}). Attempting Tier 2 (Regex)...")
-                                    import re
+                            self.logger.info(f"🔄 RecSvc Fallback: Sending Safe LIMIT {close_side} @ {target_price}")
 
-                                    match_high = re.search(r"higher than ([\d\.]+)", t1_str)
-                                    match_low = re.search(r"lower than ([\d\.]+)", t1_str)
-
-                                    target_price = None
-                                    if match_high:
-                                        target_price = float(match_high.group(1).rstrip(".")) * 0.999
-                                    elif match_low:
-                                        target_price = float(match_low.group(1).rstrip(".")) * 1.001
-
-                                    if target_price:
-                                        target_price = float(
-                                            self.adapter.price_to_precision(target_symbol, target_price)
-                                        )
-                                        self.logger.info(f"🔄 RecSvc Fallback Tier 2: Limit {target_price}")
-                                        await self.adapter.create_order(
-                                            symbol=target_symbol,
-                                            side=close_side,
-                                            amount=size,
-                                            order_type="limit",
-                                            price=target_price,
-                                            params={"timeInForce": "GTC"},
-                                        )
-                                        self.logger.info(f"✅ Closed {target_symbol} via Tier 2 LIMIT")
-                                    else:
-                                        raise t1_e
-                                else:
-                                    raise t1_e
+                            await self.adapter.execute_order(
+                                {
+                                    "symbol": target_symbol,
+                                    "side": close_side,
+                                    "amount": size,
+                                    "type": "limit",
+                                    "price": target_price,
+                                    "params": {"timeInForce": "GTC"},
+                                }
+                            )
+                            self.logger.info(f"✅ Closed {target_symbol} via Safe LIMIT")
                         except Exception as fallback_e:
-                            self.logger.error(f"❌ Smart Close Failed: {fallback_e}")
+                            self.logger.error(f"❌ RecSvc Smart Close Failed: {fallback_e}")
                             raise e  # Propagate original error
                     else:
                         raise e  # Propagate original error

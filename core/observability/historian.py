@@ -236,8 +236,10 @@ class TradeHistorian:
 
             self.record_trade(trade_data)
             logger.warning(f"🔍 Historian: External closure recorded for {symbol} ({reason}) | PnL: {net_pnl:+.4f}")
+            return trade_id
         except Exception as e:
             logger.error(f"❌ Historian: Error recording external closure: {e}")
+            return None
 
     # Phase 32: Clean exit reasons for Strategy PnL vs Error Recovery
     CLEAN_EXIT_REASONS = ("TP", "SL", "MANUAL")

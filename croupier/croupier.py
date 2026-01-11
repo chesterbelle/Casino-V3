@@ -85,7 +85,9 @@ class Croupier(TimeIterator):
         self.oco_manager = OCOManager(self.order_executor, self.position_tracker, exchange_adapter)
 
         # Legacy: Still keep reconciliation for Adopt/Cleanup logic, but without its own loop
-        self.reconciliation = ReconciliationService(exchange_adapter, self.position_tracker, self.oco_manager)
+        self.reconciliation = ReconciliationService(
+            exchange_adapter, self.position_tracker, self.oco_manager, croupier=self
+        )
 
         self.exit_manager = ExitManager(self)
         self.process_start_balance: float = 0.0
@@ -97,6 +99,10 @@ class Croupier(TimeIterator):
             f"[CORE] ✅ Croupier V4 initialized | Balance: {initial_balance} | "
             f"Max Positions: {max_concurrent_positions}"
         )
+
+        # Debounce for reconciliations
+        self._reconciliation_tasks: Dict[str, float] = {}
+        self._reconcile_lock = asyncio.Lock()
 
     def set_drain_mode(self, enabled: bool):
         """Enable or disable drain mode (no new entries, narrow exits)."""
@@ -210,8 +216,11 @@ class Croupier(TimeIterator):
 
                 for i, pos in enumerate(tracked_positions):
                     # Only close positions for the requested symbols
-                    if symbols and pos.symbol not in symbols:
-                        continue
+                    pos_symbol = normalize_symbol(pos.symbol)
+                    if symbols:
+                        norm_symbols = [normalize_symbol(s) for s in symbols]
+                        if pos_symbol not in norm_symbols:
+                            continue
 
                     try:
                         self.logger.info(
@@ -258,9 +267,11 @@ class Croupier(TimeIterator):
                     symbol_map[sym]["positions"].append(pos)
 
                 for order in all_exchange_orders:
-                    sym = order["symbol"]
-                    if symbols and sym not in symbols:
-                        continue
+                    sym = normalize_symbol(order["symbol"])
+                    if symbols:
+                        norm_symbols = [normalize_symbol(s) for s in symbols]
+                        if sym not in norm_symbols:
+                            continue
                     if sym not in symbol_map:
                         symbol_map[sym] = {"positions": [], "orders": []}
                     symbol_map[sym]["orders"].append(order)
@@ -351,6 +362,7 @@ class Croupier(TimeIterator):
         old_tp_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Modify Take Profit for a position using the unified OCOManager."""
+        symbol = normalize_symbol(symbol)
         self.logger.info(f"🔄 Modifying TP for {trade_id} | New TP: {new_tp_price:.2f}")
 
         try:
@@ -359,11 +371,9 @@ class Croupier(TimeIterator):
             )
 
             if result.get("status") == "success":
-                # Reconciliation for manual fallback safety
                 if "tp_id" in result:
-                    import asyncio
-
-                    asyncio.create_task(self.reconcile_positions(symbol))
+                    # Reconciliation for manual fallback safety (Debounced)
+                    self.trigger_reconciliation_task(symbol)
 
                 return {
                     "status": "success",
@@ -678,6 +688,7 @@ class Croupier(TimeIterator):
         old_sl_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Modify Stop Loss for a position using the unified OCOManager."""
+        symbol = normalize_symbol(symbol)
         self.logger.info(f"🔄 Modifying SL for {trade_id} | New SL: {new_sl_price:.2f}")
 
         try:
@@ -686,11 +697,9 @@ class Croupier(TimeIterator):
             )
 
             if result.get("status") == "success":
-                # Reconciliation as a safety measure for manual fallback
                 if "sl_id" in result:
-                    import asyncio
-
-                    asyncio.create_task(self.reconcile_positions(symbol))
+                    # Reconciliation as a safety measure for manual fallback (Debounced)
+                    self.trigger_reconciliation_task(symbol)
 
                 return {
                     "status": "success",
@@ -702,6 +711,20 @@ class Croupier(TimeIterator):
         except Exception as e:
             self.logger.error(f"❌ Failed to modify SL: {e}")
             raise e
+
+    def trigger_reconciliation_task(self, symbol: str):
+        """Spawns a debounced reconciliation task."""
+        symbol = normalize_symbol(symbol)
+        now = time.time()
+
+        # Debounce: Minimum 5s between reconciliations for the same symbol
+        last_run = self._reconciliation_tasks.get(symbol, 0)
+        if now - last_run < 5.0:
+            self.logger.debug(f"⏭️ Skipping debounced reconciliation for {symbol}")
+            return
+
+        self._reconciliation_tasks[symbol] = now
+        asyncio.create_task(self.reconcile_positions(symbol))
 
     async def reconcile_positions(self, symbol: Optional[str] = None):
         """

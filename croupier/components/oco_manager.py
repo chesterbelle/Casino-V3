@@ -458,6 +458,9 @@ class OCOManager:
         If Native OCO: cancels the current OCO and creates a new one.
         If Manual OCO: replaces only the necessary leg.
         """
+        # 0. NORMALIZE SYMBOL
+        symbol = normalize_symbol(symbol)
+
         position = self.tracker.get_position(trade_id)
         if not position:
             raise ValueError(f"Position not found: {trade_id}")
@@ -683,6 +686,7 @@ class OCOManager:
 
     async def cancel_order(self, order_id: str, symbol: str) -> None:
         """Cancel a single order with retry logic (idempotent)."""
+        symbol = normalize_symbol(symbol)
         cancel_retry_config = RetryConfig(max_retries=3, backoff_base=0.3, backoff_factor=2.0, jitter=True)
         try:
             # Use symbol-specific breaker to isolate network issues

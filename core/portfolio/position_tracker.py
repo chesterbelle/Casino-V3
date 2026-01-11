@@ -424,7 +424,8 @@ class PositionTracker:
         try:
             side_raw = order.get("side", "")
             side = self._normalize_side(side_raw)
-            symbol = order.get("symbol", "")
+            raw_symbol = order.get("symbol", "")
+            symbol = normalize_symbol(raw_symbol)
             size_fraction = order.get("size", 0.0)
             leverage = order.get("leverage", 1.0)
             trade_id = order.get("trade_id", f"pos_{self.total_trades_opened}")
@@ -567,7 +568,10 @@ class PositionTracker:
         for position in self.open_positions:
             # CRITICAL FIX: Check symbol FIRST to prevent multi-counting in Multi-Asset mode
             # Each position should only increment bars_held for its own symbol's candles
-            if position.symbol != current_candle.get("symbol"):
+            pos_sym = normalize_symbol(position.symbol)
+            candle_sym = normalize_symbol(current_candle.get("symbol", ""))
+
+            if pos_sym != candle_sym:
                 continue
 
             position.bars_held += 1
@@ -691,7 +695,7 @@ class PositionTracker:
             "margin_used": position.margin_used,
             "notional": position.notional,
             "leverage": position.leverage,
-            "symbol": position.symbol,
+            "symbol": normalize_symbol(position.symbol),
             "entry_price": position.entry_price,
             "exit_price": exit_price,  # ← PRECIO REAL
             "trigger_price": exit_price,

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import config.trading as config
 from core.events import AggregatedSignalEvent, CandleEvent
 from core.portfolio.position_tracker import OpenPosition
+from utils.symbol_norm import normalize_symbol
 
 if TYPE_CHECKING:
     from croupier.croupier import Croupier
@@ -66,12 +67,12 @@ class ExitManager:
             #    f"🔍 Checking {position.symbol} vs Event {event.symbol} | Price: {current_price}"
             # )
 
-            # Fix: Ensure we only process logic for the symbol that just updated
-            # Normalize strings to be safe (remove / and :)
-            pos_sym_clean = position.symbol.replace("/", "").replace(":", "").split("USDT")[0]
-            evt_sym_clean = event.symbol.replace("/", "").replace(":", "").split("USDT")[0]
+            # Ensure we only process logic for the symbol that just updated
+            # Use unified normalization for safe comparison
+            pos_sym_norm = normalize_symbol(position.symbol)
+            evt_sym_norm = normalize_symbol(event.symbol)
 
-            if pos_sym_clean != evt_sym_clean:
+            if pos_sym_norm != evt_sym_norm:
                 # self.logger.debug(f"⏭️ Skipping {position.symbol} (Event: {event.symbol})")
                 continue
 
@@ -93,7 +94,7 @@ class ExitManager:
         Close position if strong opposite signal detected.
         """
         # Ignore signals for other symbols
-        if signal.symbol != position.symbol:
+        if normalize_symbol(signal.symbol) != normalize_symbol(position.symbol):
             return
 
         # Ignore weak signals
