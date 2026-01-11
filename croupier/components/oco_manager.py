@@ -516,19 +516,46 @@ class OCOManager:
 
                 try:
                     self.logger.info(f"🔄 Replacing TP for {symbol} ({position.exchange_tp_id} -> {new_tp_price})")
-                    # Cancel old TP
+
+                    # Phase 34: Try Atomic Update first
+                    modification_success = False
                     if position.exchange_tp_id:
-                        await self.cancel_order(position.exchange_tp_id, symbol)
+                        try:
+                            # Construct changes dict
+                            changes = {
+                                "price": new_tp_price,
+                                "side": position.side,  # OCO limits are usually opposite side, but keeping generic
+                                "quantity": amount,
+                            }
+                            # Attempt atomic modify
+                            await self.adapter.modify_order(position.exchange_tp_id, symbol, changes)
+                            self.logger.info(f"✅ Atomic TP Modification successful for {position.exchange_tp_id}")
 
-                    # Create new TP
-                    tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
-                    tp_id = tp_order.get("order_id") or tp_order.get("id")
+                            # Update State directly
+                            position.tp_level = new_tp_price
+                            # Ideally we update client_order_id if changed, but atomic usually keeps it unless specified
+                            modification_success = True
+                            results["tp_id"] = position.exchange_tp_id
 
-                    # Update state
-                    position.tp_order_id = tp_order.get("client_order_id") or tp_id
-                    position.exchange_tp_id = tp_id
-                    position.tp_level = new_tp_price
-                    results["tp_id"] = tp_id
+                        except NotImplementedError:
+                            self.logger.debug("Atomic modify not supported, falling back to cancel/replace")
+                        except Exception as e:
+                            self.logger.warning(f"⚠️ Atomic modify failed: {e}. Falling back to cancel/replace")
+
+                    if not modification_success:
+                        # FALLBACK: Cancel old TP
+                        if position.exchange_tp_id:
+                            await self.cancel_order(position.exchange_tp_id, symbol)
+
+                        # Create new TP
+                        tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
+                        tp_id = tp_order.get("order_id") or tp_order.get("id")
+
+                        # Update state
+                        position.tp_order_id = tp_order.get("client_order_id") or tp_id
+                        position.exchange_tp_id = tp_id
+                        position.tp_level = new_tp_price
+                        results["tp_id"] = tp_id
                 finally:
                     # 2. RELEASE STATE LOCK
                     position.status = old_status
@@ -541,19 +568,38 @@ class OCOManager:
 
                 try:
                     self.logger.info(f"🔄 Replacing SL for {symbol} ({position.exchange_sl_id} -> {new_sl_price})")
-                    # Cancel old SL
+
+                    # Phase 34: Try Atomic Update first
+                    modification_success = False
                     if position.exchange_sl_id:
-                        await self.cancel_order(position.exchange_sl_id, symbol)
+                        try:
+                            changes = {"price": new_sl_price, "side": position.side, "quantity": amount}
+                            await self.adapter.modify_order(position.exchange_sl_id, symbol, changes)
+                            self.logger.info(f"✅ Atomic SL Modification successful for {position.exchange_sl_id}")
 
-                    # Create new SL
-                    sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
-                    sl_id = sl_order.get("order_id") or sl_order.get("id")
+                            position.sl_level = new_sl_price
+                            modification_success = True
+                            results["sl_id"] = position.exchange_sl_id
 
-                    # Update state
-                    position.sl_order_id = sl_order.get("client_order_id") or sl_id
-                    position.exchange_sl_id = sl_id
-                    position.sl_level = new_sl_price
-                    results["sl_id"] = sl_id
+                        except NotImplementedError:
+                            self.logger.debug("Atomic modify not supported, falling back to cancel/replace")
+                        except Exception as e:
+                            self.logger.warning(f"⚠️ Atomic modify failed: {e}. Falling back to cancel/replace")
+
+                    if not modification_success:
+                        # FALLBACK: Cancel old SL
+                        if position.exchange_sl_id:
+                            await self.cancel_order(position.exchange_sl_id, symbol)
+
+                        # Create new SL
+                        sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
+                        sl_id = sl_order.get("order_id") or sl_order.get("id")
+
+                        # Update state
+                        position.sl_order_id = sl_order.get("client_order_id") or sl_id
+                        position.exchange_sl_id = sl_id
+                        position.sl_level = new_sl_price
+                        results["sl_id"] = sl_id
                 finally:
                     # 2. RELEASE STATE LOCK
                     position.status = old_status

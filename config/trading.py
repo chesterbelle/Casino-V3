@@ -23,7 +23,8 @@ STOP_LOSS = 0.01  # 1.0% stop
 MAX_HOLD_BARS = 180  # Increase to 3h for more natural exits
 
 # --- Graceful Exit (Soft Timeout) ---
-DRAIN_PHASE_MINUTES = 30  # Production value
+DRAIN_PHASE_MINUTES = 45  # Extended for defensive exit
+DRAIN_MAX_CLOSE_RATE = 5  # Max positions to close per minute (Prevent -1021)
 SOFT_EXIT_TP_MULT = 0.5  # Narrow TP by 50% for soft exit
 GRACEFUL_TP_TIMEOUT = 30.0  # Increase to 30s for Demo API latency handling
 

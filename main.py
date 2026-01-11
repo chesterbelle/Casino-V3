@@ -768,6 +768,7 @@ async def main():
         await watchdog.stop()
 
         logger.info("🏁 Cleanup complete. Goodbye.")
+        logging.shutdown()
         os._exit(0)
 
 

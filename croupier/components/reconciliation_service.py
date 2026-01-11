@@ -624,7 +624,12 @@ class ReconciliationService:
                     self.logger.info(f"🧹 Cancelled orphaned order: {order_id}")
                     cancelled_count += 1
                 except Exception as e:
-                    self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
+                    # Idempotency: If order doesn't exist (-2011), consider it cancelled
+                    if "-2011" in str(e) or "Unknown order" in str(e):
+                        self.logger.info(f"🧹 Orphan order {order_id} already gone (treated as success)")
+                        cancelled_count += 1
+                    else:
+                        self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
 
         return cancelled_count
 
