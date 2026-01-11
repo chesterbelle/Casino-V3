@@ -310,7 +310,7 @@ async def main():
     # The callback is async, so we wrap it for the synchronous connector callback
     async def async_order_update_handler(order):
         # 1. Update Position Tracker (Current Limit/Stop management)
-        await croupier.position_tracker.handle_order_update(order)
+        croupier.position_tracker.handle_order_update(order)
         # 2. Update OCO Manager (Initial entry wait)
         await croupier.oco_manager.on_order_update(order)
 

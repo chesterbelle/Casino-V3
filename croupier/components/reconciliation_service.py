@@ -213,7 +213,7 @@ class ReconciliationService:
 
             # Integrity check
             status = getattr(pos, "status", "ACTIVE")
-            if status in ["OPENING", "CLOSING"]:
+            if status in ["OPENING", "CLOSING", "MODIFYING"]:
                 continue
 
             open_order_ids = {str(o.get("id")) for o in open_orders}
