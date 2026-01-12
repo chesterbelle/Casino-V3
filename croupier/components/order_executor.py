@@ -62,7 +62,12 @@ class OrderExecutor:
             order["params"] = {}
 
         # If clientOrderId already exists (e.g. passed from OCOManager), don't overwrite
-        if "clientOrderId" in order["params"]:
+        # Phase 46.1: Check both formats to prevent duplicate IDs or overwrites
+        if "clientOrderId" in order["params"] or "client_order_id" in order["params"]:
+            # Ensure both are set if one is
+            cid = order["params"].get("clientOrderId") or order["params"].get("client_order_id")
+            order["params"]["clientOrderId"] = cid
+            order["params"]["client_order_id"] = cid
             return
 
         import uuid
@@ -107,6 +112,7 @@ class OrderExecutor:
         # Apply Exchange Precision
         amount = float(self.adapter.amount_to_precision(symbol, amount_raw))
 
+        self.logger.info(f"📐 Sizing Calibrated: {symbol} -> Qty: {amount}, Notional: {position_value} USDT")
         return position_value, amount
 
     async def execute_market_order(

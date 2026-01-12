@@ -100,6 +100,9 @@ class Croupier(TimeIterator):
             f"Max Positions: {max_concurrent_positions}"
         )
 
+        # Register callback for automatic cleanup when exchange hits TP/SL
+        self.position_tracker.on_close_callback = self._on_position_closed_cleanup
+
         # Debounce for reconciliations
         self._reconciliation_tasks: Dict[str, float] = {}
         self._reconcile_lock = asyncio.Lock()
@@ -362,6 +365,12 @@ class Croupier(TimeIterator):
         old_tp_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Modify Take Profit for a position using the unified OCOManager."""
+        # Centralized Governance: Check if position is available for modification
+        position = self.position_tracker.get_position(trade_id)
+        if position and position.status == "CLOSING":
+            self.logger.debug(f"⏭️ Skipping modify_tp: Position {trade_id} is already CLOSING")
+            return {"status": "skipped", "reason": "position_closing"}
+
         symbol = normalize_symbol(symbol)
         self.logger.info(f"🔄 Modifying TP for {trade_id} | New TP: {new_tp_price:.2f}")
 
@@ -463,100 +472,126 @@ class Croupier(TimeIterator):
         1. Cancel TP/SL orders
         2. Execute market close order
         """
-        # Find position
-        position = position_obj
-        if not position:
-            for pos in self.position_tracker.open_positions:
-                if pos.trade_id == trade_id:
-                    position = pos
-                    break
+        # Centralized Governance: Attempt to lock position for closure
+        # This replaces the manual status check with an atomic architectural guard
+        if not await self.position_tracker.lock_for_closure(trade_id):
+            self.logger.debug(f"⏭️ Skipping close_position: {trade_id} is busy or already CLOSING")
+            return {"status": "skipped", "reason": "already_closing"}
 
+        # At this point, the position status is "CLOSING" and we hold the governance lock
+        # We RE-FETCH position to ensure we have the locked object
+        position = self.position_tracker.get_position(trade_id)
         if not position:
-            raise ValueError(f"Position not found: {trade_id}")
+            self.position_tracker.unlock(trade_id)  # Safety
+            raise ValueError(f"Position vanished after locking: {trade_id}")
 
         self.logger.info(f"📤 Closing position: {trade_id} | {position.symbol} {position.side}")
 
-        # State Machine: Mark as CLOSING to prevent reconciliation interference
-        position.status = "CLOSING"
-        self.position_tracker._trigger_state_change()
-
-        # 1. Cancel TP/SL
-        await self.oco_manager.cancel_bracket(position.tp_order_id, position.sl_order_id, position.symbol)
-
-        # 2. Execute market close
-
-        # Calculate amount (use remaining amount if partial fills supported, but for now full close)
-        # We need to use the original amount or current size.
-        # Fallback logic for reconciled positions that lack 'order' history.
-        amount = position.order.get("amount")
-
-        if not amount:
-            # Fallback 1: Try getting from raw exchange info (most accurate)
-            if hasattr(position, "info") and position.info and "positionAmt" in position.info:
-                try:
-                    amount = abs(float(position.info["positionAmt"]))
-                except (ValueError, TypeError):
-                    pass
-
-        if not amount:
-            # Fallback 2: Calculate from Notional / Entry Price
-            if position.entry_price > 0 and position.notional:
-                amount = abs(position.notional) / position.entry_price
-
-        if not amount:
-            # Fallback 3: Raise error if strictly impossible to determine
-            raise ValueError(
-                f"Position {trade_id} has no amount information (Order missing, Info missing, Calc failed)"
-            )
-
         try:
-            # Phase 43: Universal Funnel - Delegate "Smart Close" to OrderExecutor
-            result = await self.order_executor.force_close_position(
-                symbol=position.symbol, side=position.side, amount=amount
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Failed to close position {trade_id} via Executor: {e}")
-            raise e
+            # 1. Cancel TP/SL
+            await self.oco_manager.cancel_bracket(position.tp_order_id, position.sl_order_id, position.symbol)
 
-        fill_price = float(result.get("average", 0) or result.get("price", 0))
+            # 2. Execute market close
 
-        # FIX: Prevent 0.0 fill price from destroying PnL
-        if fill_price <= 0:
-            self.logger.warning(
-                f"⚠️ Order result missing fill price (Got {fill_price}). Fetching current price for PnL estimation..."
-            )
+            # Calculate amount (use remaining amount if partial fills supported, but for now full close)
+            # We need to use the original amount or current size.
+            # Fallback logic for reconciled positions that lack 'order' history.
+            amount = position.order.get("amount")
+
+            if not amount:
+                # Fallback 1: Try getting from raw exchange info (most accurate)
+                if hasattr(position, "info") and position.info and "positionAmt" in position.info:
+                    try:
+                        amount = abs(float(position.info["positionAmt"]))
+                    except (ValueError, TypeError):
+                        pass
+
+            if not amount:
+                # Fallback 2: Calculate from Notional / Entry Price
+                if position.entry_price > 0 and position.notional:
+                    amount = abs(position.notional) / position.entry_price
+
+            if not amount:
+                # Fallback 3: Raise error if strictly impossible to determine
+                raise ValueError(
+                    f"Position {trade_id} has no amount information (Order missing, Info missing, Calc failed)"
+                )
+
             try:
-                fill_price = await self.adapter.get_current_price(position.symbol)
-                self.logger.info(f"✅ Fetched fallback price: {fill_price}")
+                # Phase 43: Universal Funnel - Delegate "Smart Close" to OrderExecutor
+                result = await self.order_executor.force_close_position(
+                    symbol=position.symbol, side=position.side, amount=amount
+                )
             except Exception as e:
-                self.logger.error(f"❌ Failed to fetch current price for fallback: {e}")
-                # Fallback to entry price to avoid massive PnL spike (neutral exit)
-                fill_price = position.entry_price
+                self.logger.error(f"❌ Failed to close position {trade_id} via Executor: {e}")
+                raise e
 
-        self.logger.info(f"✅ Position closed: {trade_id} | Fill: {fill_price}")
+            fill_price = float(result.get("average", 0) or result.get("price", 0))
 
-        # Manually confirm close in tracker since we initiated it
-        # Calculate PnL
-        if position.side == "LONG":
-            pnl = (fill_price - position.entry_price) * position.notional / position.entry_price
-        else:
-            pnl = (position.entry_price - fill_price) * position.notional / position.entry_price
+            # FIX: Prevent 0.0 fill price from destroying PnL
+            if fill_price <= 0:
+                self.logger.warning(
+                    f"⚠️ Order result missing fill price (Got {fill_price}). Fetching current price for PnL estimation..."
+                )
+                try:
+                    fill_price = await self.adapter.get_current_price(position.symbol)
+                    self.logger.info(f"✅ Fetched fallback price: {fill_price}")
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to fetch current price for fallback: {e}")
+                    # Fallback to entry price to avoid massive PnL spike (neutral exit)
+                    fill_price = position.entry_price
 
-        # PHASE 35: DEFERRED FORENSIC ENRICHMENT (No-Lag)
-        # We record immediately with 0 fee, then enrich in background to avoid blocking execution.
+            self.logger.info(f"✅ Position closed: {trade_id} | Fill: {fill_price}")
+
+            # The lock is released by confirm_close or in the finally block below
+            # if confirm_close is not called.
+
+            # Calculate PnL
+            if position.side == "LONG":
+                pnl = (fill_price - position.entry_price) * position.notional / position.entry_price
+            else:
+                pnl = (position.entry_price - fill_price) * position.notional / position.entry_price
+
+            # PHASE 35: DEFERRED FORENSIC ENRICHMENT (No-Lag)
+            # We record immediately with 0 fee, then enrich in background to avoid blocking execution.
+            import asyncio
+
+            asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
+
+            self.position_tracker.confirm_close(
+                trade_id=trade_id,
+                exit_price=fill_price,
+                exit_reason=exit_reason,
+                pnl=pnl,
+                fee=0.0,  # Initially 0, will be updated by background task
+            )
+
+            # IMPORTANT: Position is now removed from tracker, lock is effectively gone.
+
+            return result
+        finally:
+            # Emergency safety: Ensure lock is released if we crashed before confirm_close
+            self.position_tracker.unlock(trade_id, position=position)
+
+    def _on_position_closed_cleanup(self, trade_id: str, result: Dict[str, Any]):
+        """
+        Callback triggered by PositionTracker when a position is removed.
+        Used to cleanup bracket orders if the position was closed by the exchange (TP/SL).
+        """
+        # We start an async task for cleanup to avoid blocking the tracker
         import asyncio
 
-        asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
+        asyncio.create_task(self._async_bracket_cleanup(trade_id, result))
 
-        self.position_tracker.confirm_close(
-            trade_id=trade_id,
-            exit_price=fill_price,
-            exit_reason=exit_reason,
-            pnl=pnl,
-            fee=0.0,  # Initially 0, will be updated by background task
-        )
-
-        return result
+    async def _async_bracket_cleanup(self, trade_id: str, result: Dict[str, Any]):
+        """Background task to cancel remaining bracket orders."""
+        try:
+            symbol = result.get("symbol")
+            if symbol:
+                self.logger.info(f"🧹 Performing bracket cleanup for {symbol} after close...")
+                await self.adapter.cancel_all_orders(symbol)
+        except Exception as e:
+            self.logger.error(f"❌ Bracket cleanup failed for {trade_id}: {e}")
 
     async def modify_sl(
         self,
@@ -566,6 +601,12 @@ class Croupier(TimeIterator):
         old_sl_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Modify Stop Loss for a position using the unified OCOManager."""
+        # State Guard: Check status BEFORE any action
+        position = self.position_tracker.get_position(trade_id)
+        if position and position.status == "CLOSING":
+            self.logger.debug(f"⏭️ Skipping modify_sl: Position {trade_id} is CLOSING")
+            return {"status": "skipped", "reason": "position_closing"}
+
         symbol = normalize_symbol(symbol)
         self.logger.info(f"🔄 Modifying SL for {trade_id} | New SL: {new_sl_price:.2f}")
 

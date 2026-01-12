@@ -132,3 +132,13 @@ class AggregatedSignalEvent(Event):
 
     def __post_init__(self):
         self.type = EventType.AGGREGATED_SIGNAL
+
+
+@dataclass
+class AccountUpdateEvent(Event):
+    """Real-time account/balance update event."""
+
+    data: Dict[str, Any]
+
+    def __post_init__(self):
+        self.type = EventType.ACCOUNT_UPDATE

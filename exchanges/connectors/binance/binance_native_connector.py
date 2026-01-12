@@ -116,6 +116,7 @@ class BinanceNativeConnector(BaseConnector):
         self._last_user_message_time = time.time()
         self._last_tickers_refresh = 0  # Timestamp for REST ticker cache
         self._ticker_lock = asyncio.Lock()  # Prevent Thundering Herd
+        self._time_sync_lock = asyncio.Lock()  # Phase 46.1: Prevent redundant time syncs
 
         # Phase 24: Global Circuit Breaker name for REST Market Data (Pressure Relief)
         self._market_data_breaker_name = "rest_market_data"
@@ -347,23 +348,28 @@ class BinanceNativeConnector(BaseConnector):
         Force re-synchronization of local time with Binance server time.
         Used when -1021 (Timestamp outside recvWindow) is detected.
         """
-        try:
-            self.logger.warning("🕒 Syncing time with Binance...")
-            # Use raw request to avoid recursion loop if this fails
-            url = f"{self._base_url}/fapi/v1/time"
-            if self._http_session:
-                async with self._http_session.get(url, timeout=5) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        server_time = data["serverTime"]
-                        local_time = int(time.time() * 1000)
-                        old_offset = self._time_offset
-                        self._time_offset = server_time - local_time
-                        self.logger.info(f"✅ Time Resynced. Offset: {old_offset}ms -> {self._time_offset}ms")
-                    else:
-                        self.logger.error(f"❌ Time sync failed: status {resp.status}")
-        except Exception as e:
-            self.logger.error(f"❌ Time sync exception: {e}")
+        if self._time_sync_lock.locked():
+            self.logger.debug("🕒 Time sync already in progress, skipping redundant request.")
+            return
+
+        async with self._time_sync_lock:
+            try:
+                self.logger.warning("🕒 Syncing time with Binance...")
+                # Use raw request to avoid recursion loop if this fails
+                url = f"{self._base_url}/fapi/v1/time"
+                if self._http_session:
+                    async with self._http_session.get(url, timeout=5) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            server_time = data["serverTime"]
+                            local_time = int(time.time() * 1000)
+                            old_offset = self._time_offset
+                            self._time_offset = server_time - local_time
+                            self.logger.info(f"✅ Time Resynced. Offset: {old_offset}ms -> {self._time_offset}ms")
+                        else:
+                            self.logger.error(f"❌ Time sync failed: status {resp.status}")
+            except Exception as e:
+                self.logger.error(f"❌ Time sync exception: {e}")
 
     async def close(self) -> None:
         """Close all connections."""

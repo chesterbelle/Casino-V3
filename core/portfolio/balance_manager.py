@@ -91,7 +91,7 @@ class BalanceManager:
                 # Update balance and equity
                 self.balance = wallet_balance
                 self.equity = wallet_balance  # In a more complex setup, we'd add unrealized PnL
-                # self.logger.info(f"💰 Real-Time Balance Update: {self.balance:.2f} USDT")
+                logger.info(f"💰 Real-Time Balance Update: {self.balance:.2f} USDT")
                 break
 
     def get_state(self):

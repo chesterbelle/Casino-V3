@@ -191,15 +191,14 @@ class ReconciliationService:
             "issues_found": [],
         }
 
-        # Core filter: Match local positions via normalized symbols
-        norm_target = normalize_symbol(symbol)
-        local_positions = [pos for pos in self.tracker.open_positions if normalize_symbol(pos.symbol) == norm_target]
+        # Phase 46.1: O(1) Symbol Lookup replaces linear list scan (prevents N^2 growth complexity)
+        local_positions = self.tracker.get_positions_by_symbol(symbol)
         report["positions_checked"] = len(local_positions)
 
         # 2. PURGE GHOSTS
         for pos in local_positions[:]:
             if not self._exists_in_exchange(pos, exchange_positions):
-                self.logger.warning(f"👻 Ghost position found in tracker: {pos.trade_id} (not on exchange)")
+                self.logger.debug(f"👻 Ghost position found in tracker: {pos.trade_id} (not on exchange)")
                 investigation_result = await self._investigate_ghost(pos, symbol)
                 if investigation_result:
                     report["positions_closed"] += 1
@@ -281,11 +280,19 @@ class ReconciliationService:
                     (ep for ep in exchange_positions if normalize_symbol(ep.get("symbol", "")) == symbol), None
                 )
                 if matched_ex_pos:
-                    self.logger.warning(f"⛔ Closing NAKED position {pos.trade_id} on exchange for safety.")
-                    await self._close_position_dict(matched_ex_pos)
-                    report["positions_closed"] += 1
+                    # Centralized Governance: Request lock before force-closing
+                    if await self.tracker.lock_for_closure(pos.trade_id):
+                        try:
+                            self.logger.warning(f"⛔ Closing NAKED position {pos.trade_id} on exchange for safety.")
+                            await self._close_position_dict(matched_ex_pos)
+                            report["positions_closed"] += 1
+                        finally:
+                            self.tracker.unlock(pos.trade_id, position=pos)
+                    else:
+                        self.logger.info(f"⏭️ Skipping reconciliation close for {pos.trade_id}: Position busy")
+                        continue
 
-                if self.tracker.remove_position(pos.trade_id):
+                if await self.tracker.remove_position(pos.trade_id):
                     report["ghosts_removed"] += 1
                     report["issues_found"].append(f"naked_closed:{pos.trade_id}")
 

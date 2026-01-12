@@ -66,7 +66,7 @@ class ExitManager:
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
 
         for position in positions[:]:
-            self.logger.info(f"⚡ Processing Exit Logic for {position.symbol} | Price: {current_price}")
+            self.logger.debug(f"⚡ Processing Exit Logic for {position.symbol} | Price: {current_price}")
 
             # 1. Check Time-Based Exit
             await self._check_time_exit(position, event)

@@ -112,6 +112,10 @@ class OpenPosition:
     funding_accrued: float = 0.0
     contributors: List[str] = None
 
+    # THE GOVERNANCE LOCK: Per-position concurrency control
+    # Not included in repr to avoid noise
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
     # State Machine Status
     # OPENING: In process of creating TP/SL orders (Audit should wait)
     # ACTIVE: Fully established with TP/SL (Audit should enforce)
@@ -213,7 +217,7 @@ class PositionTracker:
         self.blocked_capital: float = 0.0
         self.max_concurrent_positions = max_concurrent_positions
         self.adapter = adapter  # For OCO cancellation
-        self.on_close_callback = on_close_callback
+        self._close_listeners: List[callable] = []
         # Callback for immediate state persistence
         self.state_change_callback: Optional[Callable[[], Awaitable[None]]] = None
         self._background_tasks = set()  # Prevent GC of fire-and-forget tasks
@@ -229,7 +233,7 @@ class PositionTracker:
         self.new_longs = 0
         self.new_shorts = 0
 
-        # Architecture: Libretica (The Alias Map)
+        # Architecture: Alias Map for O(1) Order ID Lookup
         # Centralized index for O(1) lookup of any order ID (Client or Exchange) -> Position
         self._alias_map: Dict[str, OpenPosition] = {}
 
@@ -243,7 +247,32 @@ class PositionTracker:
         logger.info(f"PositionTracker inicializado | Max positions: {max_concurrent_positions}")
 
     # =========================================================
-    # LIBRETICA: Centralized Identity Management (Phase 44)
+    # LISTENER MANAGEMENT
+    # =========================================================
+
+    def add_close_listener(self, callback: callable):
+        """Adds a listener for position closure events."""
+        if callback not in self._close_listeners:
+            self._close_listeners.append(callback)
+
+    def remove_close_listener(self, callback: callable):
+        """Removes a listener for position closure events."""
+        if callback in self._close_listeners:
+            self._close_listeners.remove(callback)
+
+    @property
+    def on_close_callback(self):
+        """Legacy compatibility for single callback."""
+        return self._close_listeners[0] if self._close_listeners else None
+
+    @on_close_callback.setter
+    def on_close_callback(self, callback):
+        """Legacy compatibility for single callback (appends if not present)."""
+        if callback:
+            self.add_close_listener(callback)
+
+    # =========================================================
+    # ALIAS MAP: Centralized Identity Management (Phase 44)
     # =========================================================
 
     def register_alias(self, alias_id: str, position: OpenPosition) -> None:
@@ -265,13 +294,20 @@ class PositionTracker:
             # logger.debug(f"🗑️ Unregistered alias: {alias_id}")
 
     def get_position_by_id(self, order_id: str) -> Optional[OpenPosition]:
-        """
-        O(1) Lookup: Retrieves position for ANY registered ID (Client, Exchange, Trade).
-        """
-        return self._alias_map.get(str(order_id))
+        """Look up position by any known ID (Client or Exchange)."""
+        # 1. O(1) lookup (Alias Map)
+        pos = self._alias_map.get(str(order_id))
+        if pos:
+            return pos
+
+        # 2. Linear Fallback (Safety)
+        for pos in self.open_positions:
+            if pos.trade_id == order_id:
+                return pos
+        return None
 
     def get_position(self, trade_id: str) -> Optional[OpenPosition]:
-        """Legacy access method (wraps Libretica lookup)."""
+        """Legacy access method (wraps Alias Map lookup)."""
         return self.get_position_by_id(trade_id)
 
     def get_positions_by_symbol(self, symbol: str) -> List[OpenPosition]:
@@ -301,8 +337,78 @@ class PositionTracker:
             self.unregister_alias(position.sl_order.client_order_id)
             self.unregister_alias(position.sl_order.exchange_order_id)
 
+    # =========================================================
+    # GOVERNANCE AUTHORITY: Centralized State Transitions
+    # =========================================================
+
+    async def lock_for_closure(self, trade_id: str, wait_if_busy: bool = True) -> bool:
+        """
+        Attempts to atomically lock a position for closure.
+        """
+        position = self.get_position(trade_id)
+        if not position:
+            return False
+        import traceback
+
+        for frame in traceback.extract_stack()[::-1]:
+            if "croupier.py" in frame.filename or "reconciliation_service.py" in frame.filename:
+                caller = f"{frame.filename.split('/')[-1]}:{frame.lineno}"
+                break
+
+        # DEFINITIVE PRINT FOR DEBUGGING
+        print(
+            f"DEBUG_GOV: [{trade_id}] Request by {caller}. Status={position.status}, Locked={position._lock.locked()}",
+            flush=True,
+        )
+
+        # 1. Non-blocking checkout
+        if position.status == "CLOSING" or position._lock.locked():
+            if not wait_if_busy:
+                return False
+
+            # Wait for the lock to be released by whoever holds it
+            try:
+                # We use a timeout to avoid hangs
+                async with asyncio.timeout(10.0):
+                    async with position._lock:
+                        return False
+            except (asyncio.TimeoutError, Exception):
+                return False
+
+        # 2. Acquire lock
+        await position._lock.acquire()
+
+        # Double check status after acquisition
+        if position.status == "CLOSING":
+            position._lock.release()
+            return False
+
+        position.status = "CLOSING"
+        if self.state_change_callback:
+            asyncio.create_task(self.state_change_callback())
+
+        return True
+
+    def unlock(self, trade_id: str, position: Optional[OpenPosition] = None) -> None:
+        """
+        Releases the governance lock for a position.
+
+        Args:
+            trade_id: Position ID.
+            position: Optional pre-fetched position object (used if already removed from tracker).
+        """
+        target = position or self.get_position(trade_id)
+        if target and target._lock.locked():
+            target._lock.release()
+            logger.debug(f"🔓 Governance lock released for {trade_id}")
+
         for contrib_id in position.contributors or []:
             self.unregister_alias(contrib_id)
+
+        # Phase 46.1: Ensure Symbol Map Cleanup (Centralized)
+        sym_norm = normalize_symbol(position.symbol)
+        if sym_norm in self._symbol_map and position in self._symbol_map[sym_norm]:
+            self._symbol_map[sym_norm].remove(position)
 
     def set_state_change_callback(self, callback: Callable[[], Awaitable[None]]):
         """Register callback for immediate state persistence."""
@@ -352,7 +458,7 @@ class PositionTracker:
         client_id = event.get("c") or event.get("clientOrderId")
         exchange_id = str(event.get("i") or event.get("orderId") or event.get("id") or "")
 
-        # O(1) lookup: The Libretica (Phase 44)
+        # O(1) lookup via Alias Map (Phase 44)
         position = self.get_position_by_id(client_id)
         if not position and exchange_id:
             position = self.get_position_by_id(exchange_id)
@@ -361,7 +467,7 @@ class PositionTracker:
         if position and exchange_id and exchange_id not in ("0", "", "None"):
             if not self.get_position_by_id(exchange_id):
                 self.register_alias(exchange_id, position)
-                logger.info(f"🧠 Libretica learned alias: {exchange_id} -> {position.symbol}")
+                logger.info(f"🧠 Alias Map learned: {exchange_id} -> {position.symbol}")
 
         if not position:
             return None
@@ -590,10 +696,12 @@ class PositionTracker:
             )
 
             # Registrar posición
+            sym_norm = normalize_symbol(symbol)
             self.open_positions.append(position)
-            self._symbol_map[symbol].append(position)
+            if position not in self._symbol_map[sym_norm]:
+                self._symbol_map[sym_norm].append(position)
 
-            # --- LIBRETICA: Register Aliases (Phase 44) ---
+            # --- Alias Map: Register Aliases (Phase 44) ---
             self.register_alias(trade_id, position)
             if main_order_id:
                 self.register_alias(main_order_id, position)
@@ -805,7 +913,7 @@ class PositionTracker:
         if trade_id in self.pending_confirmations:
             del self.pending_confirmations[trade_id]
 
-        # --- LIBRETICA Cleanup ---
+            # --- Alias Map Cleanup ---
         self._unregister_all_aliases(position)
         # -------------------------
 
@@ -842,14 +950,16 @@ class PositionTracker:
         historian.record_trade(result)
 
         # Notificar a Gemini (o cualquier otro listener) sobre el resultado
-        if self.on_close_callback:
+        for listener in self._close_listeners:
             try:
-                self.on_close_callback(trade_id, result)
+                listener(trade_id, result)
             except Exception as e:
-                logger.error(f"Error en callback on_close_callback: {e}")
+                logger.error(f"❌ Error in close listener: {e}")
 
-            except Exception as e:
-                logger.error(f"Error en callback on_close_callback: {e}")
+        # --- Governance Cleanup: Release lock after removal ---
+        if position._lock.locked():
+            position._lock.release()
+            logger.debug(f"🔓 Final governance lock released for {trade_id}")
 
         self._trigger_state_change()
 
@@ -964,7 +1074,7 @@ class PositionTracker:
             # Record force close in persistent history
             historian.record_trade(result)
 
-            # --- LIBRETICA Cleanup ---
+            # --- Alias Map Cleanup ---
             self._unregister_all_aliases(position)
             # -------------------------
 
@@ -1039,7 +1149,7 @@ class PositionTracker:
         )
 
         # 3. ACTUAL REMOVAL
-        # --- LIBRETICA Cleanup ---
+        # --- Alias Map Cleanup ---
         self._unregister_all_aliases(found_pos)
         # -------------------------
 
@@ -1069,6 +1179,11 @@ class PositionTracker:
         position.symbol = normalize_symbol(position.symbol)
         self.open_positions.append(position)
         self.blocked_capital += position.margin_used
+
+        # Phase 46.1: Ensure O(1) Symbol Map is updated for adopted positions
+        sym_norm = position.symbol
+        if position not in self._symbol_map[sym_norm]:
+            self._symbol_map[sym_norm].append(position)
         # Increment opened counter to ensure 'Total Managed' is correct
         self.total_trades_opened += 1
         # Track specifically as recovered/adopted

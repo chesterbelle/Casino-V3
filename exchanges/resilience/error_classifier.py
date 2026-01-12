@@ -139,8 +139,7 @@ class ErrorClassifier:
         (r"-1001", ErrorCategory.TEMPORARY),  # Disconnected from server
         (r"-1000", ErrorCategory.TEMPORARY),  # Unknown error (often temporary)
         (r"-1021", ErrorCategory.TEMPORARY),  # Timestamp outside recvWindow (Fix: Auto-Resync)
-        (r"-2022", ErrorCategory.TEMPORARY),  # Binance: ReduceOnly Order rejected (Sync Lag)
-        (r"-4118", ErrorCategory.TEMPORARY),  # Binance: ReduceOnly Order failed (Sync Lag)
+        # NOTE: -2022 and -4118 moved to NON_RETRIABLE - connector handles sync lag internally
         # NOTE: -4164 moved to NON_RETRIABLE - it's a validation error, not a sync issue
         # Temporary
         (r"temporary.*error", ErrorCategory.TEMPORARY),
@@ -176,6 +175,8 @@ class ErrorClassifier:
         (r"-2013", ErrorCategory.INVALID_ORDER),  # Binance: Order does not exist
         (r"-4003", ErrorCategory.INVALID_ORDER),  # Quantity less than minQty
         (r"-4164", ErrorCategory.INVALID_ORDER),  # Binance: Notional too small (validation, not retry)
+        (r"-2022", ErrorCategory.INVALID_ORDER),  # Binance: ReduceOnly rejected (connector handles sync)
+        (r"-4118", ErrorCategory.INVALID_ORDER),  # Binance: ReduceOnly failed (connector handles sync)
         # Insufficient funds
         (r"insufficient.*funds", ErrorCategory.INSUFFICIENT_FUNDS),
         (r"insufficient.*balance", ErrorCategory.INSUFFICIENT_FUNDS),

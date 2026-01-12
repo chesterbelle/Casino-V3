@@ -49,7 +49,7 @@ logger = logging.getLogger("MultiSymbolValidator")
 
 
 class MultiSymbolValidator:
-    def __init__(self, exchange_id="binance", symbols=["LTCUSDT", "BTCUSDT", "ETHUSDT"], mode="demo", size=0.05):
+    def __init__(self, exchange_id="binance", symbols=["LTCUSDT", "BTCUSDT", "ETHUSDT"], mode="demo", size=500.0):
         self.exchange_id = exchange_id
         self.symbols = [s.strip().upper() for s in symbols]
         self.mode = mode
@@ -110,6 +110,17 @@ class MultiSymbolValidator:
             exchange_adapter=self.multi_adapter, initial_balance=self.initial_balance, max_concurrent_positions=20
         )
         logger.info("✅ Croupier initialized (Multi-symbol mode)")
+
+        # 4.1 Register order update callback (matches main.py)
+        # This is CRITICAL for PositionTracker to see fills and close positions!
+        async def async_order_update_handler(order):
+            # 1. Update Position Tracker (Current Limit/Stop management)
+            self.croupier.position_tracker.handle_order_update(order)
+            # 2. Update OCO Manager (Initial entry wait)
+            await self.croupier.oco_manager.on_order_update(order)
+
+        self.connector.set_order_update_callback(async_order_update_handler)
+        logger.info("✅ Order update callback registered for tracker/OCO")
 
         # 5. Pre-test cleanup
         await self._force_cleanup_all()
@@ -359,7 +370,7 @@ async def main():
         "--symbols", default="LTCUSDT,BTCUSDT,ETHUSDT", help="Comma separated symbols (e.g. LTCUSDT,BTCUSDT)"
     )
     parser.add_argument("--mode", default="demo", choices=["demo", "live"], help="Exchange mode")
-    parser.add_argument("--size", type=float, default=0.05, help="Position size fraction")
+    parser.add_argument("--size", type=float, default=500.0, help="Position size fraction")
 
     args = parser.parse_args()
 

@@ -40,7 +40,7 @@ from core.candle_maker import CandleMaker
 from core.clock import Clock
 from core.engine import Engine
 from core.error_handling.error_handler import RetryConfig, get_error_handler
-from core.events import EventType
+from core.events import AccountUpdateEvent, EventType
 from core.execution import OrderManager
 from core.feed import StreamManager
 
@@ -322,7 +322,7 @@ async def main():
         """Routes real-time balance updates to BalanceManager."""
         croupier.balance_manager.handle_account_update(event)
         # Also emit to engine for other interested components (Historian, etc.)
-        engine.emit(EventType.ACCOUNT_UPDATE, event)
+        await engine.dispatch(AccountUpdateEvent(type=EventType.ACCOUNT_UPDATE, timestamp=time.time(), data=event))
 
     if hasattr(connector, "set_account_update_callback"):
         connector.set_account_update_callback(account_update_handler)
