@@ -889,6 +889,12 @@ class Croupier(TimeIterator):
         if timestamp - self._last_funding_sync >= 600:
             await self._sync_funding_fees()
 
+        # 3. Periodic Reconciliation (Every 60s) - Safety Net for Ghosts
+        if int(timestamp) % 60 == 0:
+            # We use reconcile_positions(None) to reconcile ALL symbols
+            # This is lightweight if tracking matches exchange, heavy if detachment found.
+            asyncio.create_task(self.reconcile_positions(None))
+
         # 3. Dynamic Exits (If needed, can be driven here)
         # Note: In V3, ExitManager was likely driven by external ticks or own loop.
         # In V4, it should be driven here.

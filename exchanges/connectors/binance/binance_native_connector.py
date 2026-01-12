@@ -1420,6 +1420,8 @@ class BinanceNativeConnector(BaseConnector):
 
                     if event == "ORDER_TRADE_UPDATE":
                         self._handle_order_update(data)
+                    elif event == "ACCOUNT_UPDATE":
+                        self._handle_account_update(data)
                     elif event == "STRATEGY_UPDATE":
                         self._handle_strategy_update(data)
                     elif event == "listenKeyExpired":
@@ -1433,6 +1435,27 @@ class BinanceNativeConnector(BaseConnector):
             await self._handle_stream_error("user", e)
         finally:
             self._user_data_ws = None
+
+    def _handle_account_update(self, data: Dict) -> None:
+        """Handle ACCOUNT_UPDATE from User Data Stream."""
+        # Update event: 'a' contains update data
+        update_data = data.get("a", {})
+
+        # 'P' contains position updates
+        positions = update_data.get("P", [])
+        for pos in positions:
+            symbol = pos.get("s")
+            amount = float(pos.get("pa", 0))
+
+            # TODO: Dispatch event or update internal cache
+            # For now, we log critical changes
+            if amount == 0:
+                self.logger.info(f"📉 Position Closed (External/Liquidated): {symbol}")
+
+            # Ideally, we should sync this to PositionTracker if we had a direct link
+            # But PositionTracker relies on Order Updates.
+            # If this update implies a liquidation, we might need to simulate an order update?
+            # Or just rely on the upcoming ReconciliationService poll.
 
     async def _keepalive_loop(self) -> None:
         """Keepalive loop for listen key."""
