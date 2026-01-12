@@ -107,6 +107,9 @@ class BinanceNativeConnector(BaseConnector):
         self._user_data_task: Optional[asyncio.Task] = None
         self._keepalive_task: Optional[asyncio.Task] = None
         self._order_update_callback = None
+        
+        # Phase 37: Push-based event dispatch callbacks
+        self._tick_event_callback = None  # Callback for direct tick event dispatch
 
         # WS Health Tracking
         self._last_market_message_time = time.time()
@@ -1343,24 +1346,35 @@ class BinanceNativeConnector(BaseConnector):
                 queue.put_nowait(trade)
 
     def _handle_ticker_update(self, data: Dict) -> None:
-        """Handle ticker update from WebSocket."""
+        """Handle ticker update from WebSocket.
+        
+        Phase 37: Supports both push-based (direct callback) and pull-based (queue) models.
+        When _tick_event_callback is registered, dispatches events directly without queue.
+        """
         native_symbol = data.get("s", "")
         unified_symbol = self.denormalize_symbol(native_symbol)
+        timestamp_ms = data.get("E", int(time.time() * 1000))
 
-        self._tickers[native_symbol] = {
+        ticker_data = {
             "symbol": unified_symbol,
             "last": float(data.get("c", 0)),
             "bid": float(data.get("b", 0)),
             "ask": float(data.get("a", 0)),
-            "timestamp": data.get("E", int(time.time() * 1000)),
+            "timestamp": timestamp_ms,
         }
+        self._tickers[native_symbol] = ticker_data
 
-        # Push to queue (non-blocking, drop oldest if full)
+        # Phase 37: Push-based event dispatch (preferred)
+        if self._tick_event_callback:
+            asyncio.create_task(self._tick_event_callback(ticker_data))
+            return  # Skip queue when using push model
+
+        # Legacy: Push to queue (pull-based fallback)
         try:
             q = self._ticker_queues[unified_symbol]
             if q.full():
                 q.get_nowait()
-            q.put_nowait(self._tickers[native_symbol])
+            q.put_nowait(ticker_data)
         except Exception:
             pass
 
@@ -1494,6 +1508,10 @@ class BinanceNativeConnector(BaseConnector):
     def set_order_update_callback(self, callback) -> None:
         """Set callback for order updates."""
         self._order_update_callback = callback
+
+    def set_tick_callback(self, callback) -> None:
+        """Phase 37: Set callback for direct tick event dispatch (push-based)."""
+        self._tick_event_callback = callback
 
     # =========================================================
     # HEALTH CHECK
