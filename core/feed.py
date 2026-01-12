@@ -148,11 +148,22 @@ class StreamManager:
         norm_symbol = normalize_symbol(symbol)
         self._subscribed_symbols.add(norm_symbol)
 
+        # Phase 37: Lazy push callback registration (once, on first subscription)
+        if not hasattr(self, "_push_mode"):
+            if hasattr(self.adapter, "connector") and hasattr(self.adapter.connector, "set_tick_callback"):
+                self.adapter.connector.set_tick_callback(self._on_push_tick)
+                logger.info("✅ Push-based tick dispatch enabled")
+                self._push_mode = True
+            else:
+                logger.warning("⚠️ Connector doesn't support push mode, using legacy loops")
+                self._push_mode = False
+
         if self.running:
-            if f"ticker_{norm_symbol}" in self._tasks:
+            task_key = f"sub_{norm_symbol}"
+            if task_key in self._tasks:
                 return
             logger.info(f"📡 Subscribing to ticker: {norm_symbol}")
-            self._tasks[f"ticker_{norm_symbol}"] = asyncio.create_task(self._watch_ticker_loop(norm_symbol))
+            self._tasks[task_key] = asyncio.create_task(self._subscribe_and_watch(norm_symbol))
         else:
             logger.info(f"📝 Queued ticker subscription: {norm_symbol}")
 
