@@ -13,7 +13,7 @@ Version: 3.0.0
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from core.error_handling import RetryConfig, get_error_handler
 
@@ -68,13 +68,46 @@ class OrderExecutor:
         import uuid
 
         uid = uuid.uuid4().hex[:12]
-        client_id = f"C3_{prefix}_{uid}"
+        # Phase 43: Universal Funnel - Standardize prefix to CASINO_
+        client_id = f"CASINO_{prefix}_{uid}"
 
         order["params"]["clientOrderId"] = client_id
         order["params"]["client_order_id"] = client_id
         # Also set top-level for some adapters/ccxt versions
         order["clientOrderId"] = client_id
         order["client_order_id"] = client_id
+
+    def calculate_sizing(
+        self,
+        symbol: str,
+        bet_size: float,
+        current_equity: float,
+        current_price: float,
+        sl_pct: float = 0.0,
+        sizing_mode: str = "FIXED_NOTIONAL",
+    ) -> Tuple[float, float]:
+        """
+        High-Frequency Hardening: Centralized Sizing Logic.
+        Calculates notional position value and contract amount with precision.
+        """
+        if sizing_mode == "FIXED_RISK":
+            if sl_pct <= 0:
+                self.logger.error(f"❌ Fixed Risk Sizing requires positive Stop Loss % (got {sl_pct})")
+                raise ValueError("Fixed Risk requires positive SL%")
+
+            risk_amount = current_equity * bet_size
+            position_value = risk_amount / sl_pct
+        else:
+            # Default: FIXED_NOTIONAL
+            position_value = current_equity * bet_size
+
+        # Calculate raw amount
+        amount_raw = position_value / current_price
+
+        # Apply Exchange Precision
+        amount = float(self.adapter.amount_to_precision(symbol, amount_raw))
+
+        return position_value, amount
 
     async def execute_market_order(
         self,
@@ -224,10 +257,16 @@ class OrderExecutor:
             raise
 
     async def execute_stop_order(
-        self, symbol: str, side: str, amount: float, stop_price: float, params: Dict = None
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        stop_price: float,
+        params: Dict = None,
+        order_type: str = "STOP_MARKET",
     ) -> Dict[str, Any]:
         """
-        Execute a stop order (Stop Loss) with retry logic.
+        Execute a stop order (Stop Loss or Take Profit) with retry logic.
         """
         # Round amount and price to exchange precision
         amount = float(self.adapter.amount_to_precision(symbol, amount))
@@ -247,7 +286,7 @@ class OrderExecutor:
         order = {
             "symbol": symbol,
             "side": side,
-            "type": "STOP_MARKET",  # Reverted to STOP_MARKET
+            "type": order_type,  # Allow override (e.g. TAKE_PROFIT_MARKET)
             "amount": amount,
             "stop_price": stop_price,
             "params": order_params,
@@ -337,6 +376,121 @@ class OrderExecutor:
             return RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
         else:
             return RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
+
+    async def force_close_position(self, symbol: str, side: str, amount: float) -> Dict[str, Any]:
+        """
+        Force close a position with "Smart Close" fallback logic.
+
+        Strategy:
+        1. Market Order (Preferred)
+        2. Aggressive Limit (5% buffer) - if Market blocked by volatility
+        3. Safe Limit (1% buffer) - if Aggressive blocked by price bands
+        """
+        symbol = self.adapter.normalize_symbol(symbol)
+        # Invert side for closing
+        # side argument is the POSITION side (LONG/SHORT)
+        # close_side is the ORDER side (SELL/BUY)
+        close_side = "sell" if side.upper() == "LONG" else "buy"
+
+        self.logger.info(f"📉 Force Closing {symbol} {side} {amount} (Smart Close)")
+
+        # Generate Universal ID
+        import uuid
+
+        client_id = f"CASINO_FC_{uuid.uuid4().hex[:12]}"
+
+        # TIER 0: Market Close
+        try:
+            return await self.execute_market_order(
+                {
+                    "symbol": symbol,
+                    "side": close_side,
+                    "amount": amount,
+                    "params": {"reduceOnly": True, "client_order_id": client_id},
+                }
+            )
+        except Exception as e:
+            err_str = str(e).lower()
+            # Check for specific binance errors preventing market orders
+            # -4131: PERCENT_PRICE filter (Market order price out of bounds due to volatility)
+            # -2021: Order would trigger immediately (sometimes with FOK/IOC market orders)
+            # -1013: Filter failure
+            if "-4131" in err_str or "percent_price" in err_str or "filter" in err_str:
+                self.logger.warning(f"⚠️ Market Close blocked for {symbol} ({e}). Initiating Smart Close Fallbacks...")
+                return await self._execute_smart_close_fallback(symbol, close_side, amount)
+
+            raise e
+
+    async def _execute_smart_close_fallback(self, symbol: str, close_side: str, amount: float) -> Dict[str, Any]:
+        """Tier 1 & 2 Fallback logic for closures."""
+        try:
+            current_price = await self.adapter.get_current_price(symbol)
+
+            # TIER 1: Aggressive Limit (5% buffer)
+            # Simulates a Market order but strictly defined to pass PERCENT_PRICE if bands are wide enough
+            buffer = 0.95 if close_side == "sell" else 1.05
+            limit_price = float(self.adapter.price_to_precision(symbol, current_price * buffer))
+
+            import uuid
+
+            client_id = f"CASINO_FC1_{uuid.uuid4().hex[:12]}"
+
+            self.logger.info(f"🔄 Smart Close T1: Aggressive LIMIT {close_side} @ {limit_price} (5%)")
+
+            return await self.execute_limit_order(
+                symbol=symbol, side=close_side, amount=amount, price=limit_price, params={"client_order_id": client_id}
+            )
+
+        except Exception as tier1_e:
+            err_str = str(tier1_e).lower()
+            # If Aggressive Limit fails due to price band (-4016), we must respect exchange bounds
+            if "-4016" in err_str or "limit price" in err_str:
+                self.logger.warning("⚠️ Aggressive Limit blocked. Initiating T2 Safe Limit...")
+
+                # TIER 2: Safe Limit (1% buffer)
+                # Almost guaranteed to be inside bands, but might not fill immediately if price runs away
+                buffer = 0.99 if close_side == "sell" else 1.01
+                limit_price = float(self.adapter.price_to_precision(symbol, current_price * buffer))
+
+                import uuid
+
+                client_id = f"CASINO_FC2_{uuid.uuid4().hex[:12]}"
+
+                self.logger.info(f"🔄 Smart Close T2: Safe LIMIT {close_side} @ {limit_price} (1%)")
+
+                return await self.execute_limit_order(
+                    symbol=symbol,
+                    side=close_side,
+                    amount=amount,
+                    price=limit_price,
+                    params={"client_order_id": client_id},
+                )
+
+            raise tier1_e
+
+    async def cancel_order(self, order_id: str, symbol: str) -> bool:
+        """
+        Cancel an order with retry logic and standard logging.
+        """
+        try:
+            self.logger.info(f"🗑️ Cancelling Order: {order_id} ({symbol})")
+            await self.error_handler.execute_with_breaker(
+                f"exchange_cancel_{symbol}",
+                self.adapter.cancel_order,
+                order_id,
+                symbol,
+                retry_config=self._get_retry_config("market"),  # Use aggressive retry for cancels
+            )
+            self.logger.info(f"✅ Order {order_id} cancelled.")
+            return True
+        except Exception as e:
+            # Idempotency: If order doesn't exist (-2011), consider it cancelled
+            if "-2011" in str(e) or "Unknown order" in str(e):
+                self.logger.info(f"✅ Cancel skipped: Order {order_id} already gone.")
+                return True
+
+            self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
+            raise e
 
     def _log_execution(self, result: Dict[str, Any], order_type: str) -> None:
         """Log successful execution."""

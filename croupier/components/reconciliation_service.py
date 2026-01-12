@@ -129,36 +129,39 @@ class ReconciliationService:
                 orders_by_symbol[norm_sym].append(o)
                 open_orders_symbols.add(norm_sym)
 
-            # Discover all symbols to check (Tracker + Exchange + Open Orders)
-            # Use unified normalized symbols for all sources
-            local_symbols = {normalize_symbol(pos.symbol) for pos in self.tracker.open_positions}
-            exchange_symbols = {
-                normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
-            }
-            all_symbols = local_symbols | exchange_symbols | open_orders_symbols
+                # Discover all symbols to check (Tracker + Exchange + Open Orders)
+                # Use unified normalized symbols for all sources
+                local_symbols = {normalize_symbol(pos.symbol) for pos in self.tracker.open_positions}
+                exchange_symbols = {
+                    normalize_symbol(p["symbol"])
+                    for p in exchange_positions
+                    if abs(float(p.get("contracts", 0))) > 1e-8
+                }
+                all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
-            for symbol in all_symbols:
-                # Reuse the individual symbol logic but with pre-fetched data
-                # We need to refactor reconcile_symbol slightly to accept pre-fetched data
-                # Or just implement a variant here.
-                # To keep it DRY, I'll refactor the core logic into a private method.
-                report = await self._reconcile_symbol_data(symbol, ex_pos_by_symbol[symbol], orders_by_symbol[symbol])
-                reports.append(report)
+                for symbol in all_symbols:
+                    report = await self._reconcile_symbol_data(
+                        symbol,
+                        ex_pos_by_symbol[symbol],
+                        orders_by_symbol[symbol],
+                        mode="active",  # Default to active for global sync
+                    )
+                    reports.append(report)
 
-            self.logger.info(f"[SYNC] ✅ Global reconciliation complete. {len(reports)} symbols processed.")
+                self.logger.info(f"[SYNC] ✅ Global reconciliation complete. {len(reports)} symbols processed.")
 
         except Exception as e:
             self.logger.error(f"❌ Global reconciliation failed: {e}", exc_info=True)
 
         return reports
 
-    async def reconcile_symbol(self, symbol: str) -> Dict[str, Any]:
+    async def reconcile_symbol(self, symbol: str, mode: str = "active") -> Dict[str, Any]:
         """
         Reconcile a single symbol (Individual pass).
         Useful for targeted syncs after manual trades or errors.
         """
         symbol = normalize_symbol(symbol)
-        self.logger.info(f"[SYNC] 🔄 Starting individual reconciliation for {symbol}")
+        self.logger.info(f"[SYNC] 🔄 Starting individual reconciliation for {symbol} (Mode: {mode})")
 
         # Fetch for this symbol only
         exchange_positions = await self._fetch_exchange_positions(symbol)
@@ -171,10 +174,10 @@ class ReconciliationService:
         if open_orders is None:
             return {"symbol": symbol, "error": "Orders fetch error"}
 
-        return await self._reconcile_symbol_data(symbol, exchange_positions, open_orders)
+        return await self._reconcile_symbol_data(symbol, exchange_positions, open_orders, mode=mode)
 
     async def _reconcile_symbol_data(
-        self, symbol: str, exchange_positions: List[Dict], open_orders: List[Dict]
+        self, symbol: str, exchange_positions: List[Dict], open_orders: List[Dict], mode: str = "active"
     ) -> Dict[str, Any]:
         """Core reconciliation logic with pre-provided data."""
         # This is the same logic as reconcile_symbol minus the fetching
@@ -221,9 +224,27 @@ class ReconciliationService:
             if status in ["OPENING", "CLOSING", "MODIFYING"]:
                 continue
 
+            # Extract ID sets for dual-verification
             open_order_ids = {str(o.get("id")) for o in open_orders}
-            has_tp = str(pos.tp_order_id) in open_order_ids
-            has_sl = str(pos.sl_order_id) in open_order_ids
+            open_client_ids = {str(o.get("clientOrderId")) for o in open_orders}
+
+            # Check TP (Client ID OR Exchange ID)
+            has_tp_client = str(pos.tp_order_id) in open_client_ids
+            has_tp_exchange = str(pos.exchange_tp_id) in open_order_ids
+            # Also check the embedded OrderState object (Phase 31)
+            if not has_tp_exchange and pos.tp_order and pos.tp_order.exchange_order_id:
+                has_tp_exchange = str(pos.tp_order.exchange_order_id) in open_order_ids
+
+            has_tp = has_tp_client or has_tp_exchange
+
+            # Check SL (Client ID OR Exchange ID)
+            has_sl_client = str(pos.sl_order_id) in open_client_ids
+            has_sl_exchange = str(pos.exchange_sl_id) in open_order_ids
+            # Also check the embedded OrderState object (Phase 31)
+            if not has_sl_exchange and pos.sl_order and pos.sl_order.exchange_order_id:
+                has_sl_exchange = str(pos.sl_order.exchange_order_id) in open_order_ids
+
+            has_sl = has_sl_client or has_sl_exchange
 
             if not has_tp or not has_sl:
                 # --- CONCURRENCY GRACE PERIOD (Phase 34) ---
@@ -250,6 +271,11 @@ class ReconciliationService:
 
                 self.logger.warning(f"⚠️ Position {pos.trade_id} is NAKED/BROKEN (TP={has_tp}, SL={has_sl}).")
 
+                # If mode is audit, we just report
+                if mode == "audit":
+                    report["issues_found"].append(f"naked_detected:{pos.trade_id}")
+                    continue
+
                 # Close on exchange immediately
                 matched_ex_pos = next(
                     (ep for ep in exchange_positions if normalize_symbol(ep.get("symbol", "")) == symbol), None
@@ -266,6 +292,10 @@ class ReconciliationService:
         # 3. ADOPT UNKNOWNS
         for ex_pos in exchange_positions:
             if not self._exists_in_tracker(ex_pos, local_positions):
+                if mode == "audit":
+                    report["issues_found"].append(f"unknown_detected:{symbol}")
+                    continue
+
                 adopted = await self._adopt_position_if_healthy(ex_pos, open_orders, symbol)
                 if adopted:
                     report["positions_fixed"] += 1
@@ -275,7 +305,7 @@ class ReconciliationService:
                     report["positions_closed"] += 1
 
         # 4. CLEANUP ORPHANS
-        cancelled = await self._cleanup_orphaned_orders(symbol, open_orders, exchange_positions)
+        cancelled = await self._cleanup_orphaned_orders(symbol, open_orders, exchange_positions, mode=mode)
         report["orders_cancelled"] = cancelled
 
         return report
@@ -447,7 +477,13 @@ class ReconciliationService:
                         )
                         return "Closed via TP (Confirmed)"
                 except Exception as e:
-                    self.logger.warning(f"Could not fetch TP order {pos.tp_order_id}: {e}")
+                    if "-2013" in str(e):
+                        self.logger.info(
+                            f"ℹ️ TP order {pos.tp_order_id} for {pos.trade_id} is missing/archived. High probability of closure."
+                        )
+                        # Don't return yet, let it fall through to Deep Search Step 3
+                    else:
+                        self.logger.warning(f"⚠️ Could not fetch TP order {pos.tp_order_id}: {e}")
 
             # 2. Check known SL Order
             if pos.sl_order_id:
@@ -479,7 +515,13 @@ class ReconciliationService:
                         )
                         return "Closed via SL (Confirmed)"
                 except Exception as e:
-                    self.logger.warning(f"Could not fetch SL order {pos.sl_order_id}: {e}")
+                    if "-2013" in str(e):
+                        self.logger.info(
+                            f"ℹ️ SL order {pos.sl_order_id} for {pos.trade_id} is missing/archived. High probability of closure."
+                        )
+                        # Let it fall through to Step 3
+                    else:
+                        self.logger.warning(f"⚠️ Could not fetch SL order {pos.sl_order_id}: {e}")
 
             self.logger.warning(
                 f"⚠️ Investigation inconclusive for {pos.trade_id}. Could not confirm close via TP/SL orders."
@@ -561,12 +603,20 @@ class ReconciliationService:
         C3_SL_... -> SL
         C3_ENTRY_... -> ENTRY
         """
-        if not client_id or not client_id.startswith("C3_"):
+        if not client_id:
             return ""
+
+        # Phase 41: Recognize CASINO_ prefix
+        prefix = "CASINO_"
+        if not client_id.startswith(prefix):
+            # Try legacy C3_ prefix just in case
+            if not client_id.startswith("C3_"):
+                return ""
+            prefix = "C3_"
 
         parts = client_id.split("_")
         if len(parts) >= 2:
-            return parts[1]  # TP, SL, ENTRY
+            return parts[1]  # TP, SL, ENTRY (ENTRY usually followed by 'V3' or similar)
         return ""
 
     async def _fetch_exchange_positions(self, symbol: str) -> List[Dict]:
@@ -607,7 +657,7 @@ class ReconciliationService:
         return False
 
     async def _cleanup_orphaned_orders(
-        self, symbol: str, open_orders: List[Dict], exchange_positions: List[Dict]
+        self, symbol: str, open_orders: List[Dict], exchange_positions: List[Dict], mode: str = "active"
     ) -> int:
         """
         Cancel orphaned orders (orders without associated position).
@@ -640,16 +690,26 @@ class ReconciliationService:
                 # Safety: If we have a position but we don't track this order,
                 # be careful. But strictly, if it's not in our tracked_ids (which includes adopted ones),
                 # it is an orphan.
+                if mode == "audit":
+                    self.logger.info(f"🕵️ Orphan detected: {order_id} (not cancelled in audit mode)")
+                    continue
+
                 try:
-                    await self.error_handler.execute_with_breaker(
-                        "reconciliation_cancel",
-                        self.adapter.cancel_order,
-                        order_id,
-                        symbol,
-                        retry_config=self.reconcile_retry_config,
-                    )
-                    self.logger.info(f"🧹 Cancelled orphaned order: {order_id}")
-                    cancelled_count += 1
+                    # Phase 45: Delegate to OrderExecutor
+                    if self.croupier and self.croupier.order_executor:
+                        await self.croupier.order_executor.cancel_order(order_id, symbol)
+                        cancelled_count += 1
+                    else:
+                        # Fallback to direct call if for some reason Croupier is missing executor
+                        await self.error_handler.execute_with_breaker(
+                            "reconciliation_cancel",
+                            self.adapter.cancel_order,
+                            order_id,
+                            symbol,
+                            retry_config=self.reconcile_retry_config,
+                        )
+                        self.logger.info(f"🧹 [Fallback] Cancelled orphaned order: {order_id}")
+                        cancelled_count += 1
                 except Exception as e:
                     # Idempotency: If order doesn't exist (-2011), consider it cancelled
                     if "-2011" in str(e) or "Unknown order" in str(e):
@@ -672,83 +732,53 @@ class ReconciliationService:
             size = abs(float(position_dict.get("contracts", 0) or position_dict.get("size", 0) or 0))
             if size > 0:
                 side_raw = position_dict.get("side", "").lower()
-                close_side = "sell" if side_raw == "long" else "buy"
+                # force_close_position expects POSITION SIDE (LONG/SHORT)
+                position_side = "LONG" if side_raw == "long" else "SHORT"
 
+                if not self.croupier or not self.croupier.order_executor:
+                    self.logger.error("❌ Cancellation aborted: No OrderExecutor available in ReconciliationService")
+                    return
+
+                # Phase 43: Universal Funnel
+                res = await self.croupier.order_executor.force_close_position(
+                    symbol=target_symbol, side=position_side, amount=size
+                )
+                self.logger.info(f"✅ Closed unknown position via Unified Executor: {target_symbol}")
+
+                # PERFECT ACCOUNTING: Record this external closure with forensic enrichment
                 try:
-                    # Tier 0: Market Close (Standard)
-                    res = await self.adapter.create_market_order(
-                        symbol=target_symbol, side=close_side, amount=size, params={"reduceOnly": True}
-                    )
-                    self.logger.info(f"✅ Closed unknown position: {target_symbol} {size} (Market)")
+                    fill_price = float(res.get("average") or res.get("price") or 0.0)
+                    order_id = res.get("id") or res.get("order_id")
+                    if fill_price <= 0:
+                        # Attempt to get price from fills if available
+                        if res.get("fills"):
+                            fill_price = float(res["fills"][0].get("price", 0))
 
-                    # PERFECT ACCOUNTING: Record this external closure with forensic enrichment
-                    try:
-                        fill_price = float(res.get("average") or res.get("price") or 0.0)
-                        order_id = res.get("id")
                         if fill_price <= 0:
                             fill_price = await self.adapter.get_current_price(target_symbol)
 
-                        raw_entry = float(
-                            position_dict.get("entryPrice") or position_dict.get("entry_price") or fill_price
-                        )
+                    raw_entry = float(position_dict.get("entryPrice") or position_dict.get("entry_price") or fill_price)
 
-                        # Phase 35: Standardized Enrichment logic
-                        # We record the closure immediately. For fee enrichment,
-                        # we now use the Croupier's background task if accessible.
-                        fee_real = 0.0
+                    # Phase 35: Standardized Enrichment logic
+                    # We record the closure immediately.
+                    fee_real = 0.0
 
-                        trade_id = historian.record_external_closure(
-                            symbol=target_symbol,
-                            side=side_raw.upper(),
-                            qty=size,
-                            entry_price=raw_entry,
-                            exit_price=fill_price,
-                            fee=fee_real,
-                            reason="RECON_FORCE",
-                            session_id=self.tracker.session_id,
-                        )
+                    trade_id = historian.record_external_closure(
+                        symbol=target_symbol,
+                        side=side_raw.upper(),
+                        qty=size,
+                        entry_price=raw_entry,
+                        exit_price=fill_price,
+                        fee=fee_real,
+                        reason="RECON_FORCE",
+                        session_id=self.tracker.session_id,
+                    )
 
-                        # Trigger non-blocking enrichment if trade_id and order_id are present
-                        if trade_id and order_id and hasattr(self, "croupier") and self.croupier:
-                            asyncio.create_task(self.croupier._deferred_fee_enrichment(trade_id, target_symbol))
-                    except Exception as hist_err:
-                        self.logger.error(f"❌ Failed to record external closure in Recon: {hist_err}")
-
-                except Exception as e:
-                    # TIER 2: Filter-Compliant Limit (Pure State Architecture)
-                    # If Aggressive Limit fails due to price band (-4016), we must respect exchange bounds.
-                    err_str = str(e)
-                    if "-4131" in err_str or "-4016" in err_str or "Limit price can't be" in err_str:
-                        self.logger.warning(
-                            f"⚠️ Market/Aggressive Close blocked for {target_symbol}. Calculating Safe Limit..."
-                        )
-                        try:
-                            current_price = await self.adapter.get_current_price(target_symbol)
-
-                            # Fallback: Safe 1% buffer
-                            safe_buffer = 1.01 if close_side == "sell" else 0.99
-                            target_price = float(
-                                self.adapter.price_to_precision(target_symbol, current_price * safe_buffer)
-                            )
-
-                            self.logger.info(f"🔄 RecSvc Fallback: Sending Safe LIMIT {close_side} @ {target_price}")
-
-                            await self.adapter.execute_order(
-                                {
-                                    "symbol": target_symbol,
-                                    "side": close_side,
-                                    "amount": size,
-                                    "type": "limit",
-                                    "price": target_price,
-                                    "params": {"timeInForce": "GTC"},
-                                }
-                            )
-                            self.logger.info(f"✅ Closed {target_symbol} via Safe LIMIT")
-                        except Exception as fallback_e:
-                            self.logger.error(f"❌ RecSvc Smart Close Failed: {fallback_e}")
-                            raise e  # Propagate original error
-                    else:
-                        raise e  # Propagate original error
+                    # Trigger non-blocking enrichment if trade_id and order_id are present
+                    if trade_id and order_id:
+                        asyncio.create_task(self.croupier._deferred_fee_enrichment(trade_id, target_symbol))
+                except Exception as hist_err:
+                    self.logger.error(f"❌ Failed to record external closure in Recon: {hist_err}")
 
         except Exception as e:
             self.logger.error(f"Failed to close position: {e}")

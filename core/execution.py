@@ -101,48 +101,35 @@ class OrderManager:
         # Mode 2: Fixed Risk -> Size = (Equity * Bet_Size) / SL_Distance
         sizing_mode = getattr(config.trading, "POSITION_SIZING_MODE", "FIXED_NOTIONAL")
 
-        if sizing_mode == "FIXED_RISK":
-            if sl_pct <= 0:
-                logger.error(f"❌ Fixed Risk Sizing requires positive Stop Loss % (got {sl_pct})")
-                return
-
-            risk_amount = current_equity * bet_size
-            position_value = risk_amount / sl_pct
-            logger.info(
-                f"⚖️ OrderManager: Risk={risk_amount:.2f} ({bet_size:.2%}) | SL={sl_pct:.2%} | Notional={position_value:.2f}"
-            )
-
-        else:  # FIXED_NOTIONAL
-            position_value = current_equity * bet_size  # Value in USDT
-
-        # Get current price to calculate amount in contracts
+        # Calculate sizing via centralized OrderExecutor logic (Phase 46)
         try:
             current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
+            position_value, amount = self.croupier.order_executor.calculate_sizing(
+                symbol=symbol,
+                bet_size=bet_size,
+                current_equity=current_equity,
+                current_price=current_price,
+                sl_pct=sl_pct,
+                sizing_mode=sizing_mode,
+            )
         except Exception as e:
-            logger.error(f"❌ Failed to get current price for {symbol}: {e}")
+            logger.error(f"❌ Sizing calculation failed for {symbol}: {e}")
             return
-
-        # Calculate amount in contracts (for BTC/USDT, 1 contract = 1 BTC worth of notional)
-        # For perpetuals: amount = position_value / price
-        amount_raw = position_value / current_price
-
-        # Round to exchange precision (Binance has specific precision requirements)
-        amount = float(self.croupier.exchange_adapter.amount_to_precision(symbol, amount_raw))
 
         # Validate minimum amount after precision rounding
         if amount <= 0:
             logger.error(
                 f"❌ Order too small after precision rounding: "
-                f"raw={amount_raw:.12f} → rounded={amount:.8f} | "
-                f"Equity={current_equity:.2f} | Size={bet_size:.2%} | "
+                f"Value={position_value:.2f} | Price={current_price:.2f} | Amount={amount:.8f} | "
+                f"Equity={current_equity:.2f} | BetSize={bet_size:.2%} | "
                 f"Suggestion: Increase bet size or use higher equity"
             )
             return
 
         logger.info(
-            f"📊 Order calculation: Equity={current_equity:.2f} | "
-            f"Size={bet_size:.2%} | Value={position_value:.2f} | "
-            f"Price={current_price:.2f} | Amount={amount:.8f} (raw={amount_raw:.12f})"
+            f"📊 Hardened Sizing: Equity={current_equity:.2f} | "
+            f"BetSize={bet_size:.2%} | Value={position_value:.2f} | "
+            f"Price={current_price:.2f} | Amount={amount:.8f}"
         )
 
         order_payload = {

@@ -272,10 +272,19 @@ class PreflightValidator:
 
         try:
             # Create order with OCO
+            # Calculate amount (Master Sizing simulation)
+            price = await self.adapter.get_current_price(self.symbol)
+            # Use small fixed notional for test (e.g. 15 USDT to be safe > 5)
+            notional = 15.0
+            raw_amount = notional / price
+            amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
+
+            # Create order with OCO
             order = {
                 "symbol": self.symbol,
                 "side": "LONG",
                 "size": self.size,
+                "amount": amount,  # REQUIRED by Phase 42
                 "take_profit": 0.02,  # +2%
                 "stop_loss": 0.02,  # -2%
                 "trade_id": f"preflight_{int(time.time())}",
@@ -298,6 +307,47 @@ class PreflightValidator:
             logger.info(f"✅ TP order: {tp_id}")
             logger.info(f"✅ SL order: {sl_id}")
             logger.info(f"✅ Fill price: {result['fill_price']:.2f}")
+
+            # Universal Funnel Verification: Check CASINO_ Prefix
+            # Note: We check the client_order_id, which is what we sent.
+            # The result keys vary by exchange adapter, but usually we have 'clientOrderId' or we need to fetch it.
+
+            # Helper to get client ID from result or fetch
+            async def get_client_id(oid):
+                try:
+                    o = await self.connector.fetch_order(oid, self.symbol)
+                    return o.get("client_order_id") or o.get("clientOrderId", "")
+                except Exception as e:
+                    logger.error(f"❌ Error fetching order for client ID: {e}")
+                    return ""
+
+            main_cid = (
+                result["main_order"].get("client_order_id")
+                or result["main_order"].get("clientOrderId")
+                or await get_client_id(main_id)
+            )
+            tp_cid = (
+                result["tp_order"].get("client_order_id")
+                or result["tp_order"].get("clientOrderId")
+                or await get_client_id(tp_id)
+            )
+            sl_cid = (
+                result["sl_order"].get("client_order_id")
+                or result["sl_order"].get("clientOrderId")
+                or await get_client_id(sl_id)
+            )
+
+            if not main_cid.startswith("CASINO_"):
+                logger.error(f"❌ Main ClientID does not start with CASINO_: {main_cid}")
+                return False
+            if not tp_cid.startswith("CASINO_"):
+                logger.error(f"❌ TP ClientID does not start with CASINO_: {tp_cid}")
+                return False
+            if not sl_cid.startswith("CASINO_"):
+                logger.error(f"❌ SL ClientID does not start with CASINO_: {sl_cid}")
+                return False
+
+            logger.info(f"✅ Universal Funnel Verified: All ClientIDs start with CASINO_")
 
             # Verify TP/SL exist in exchange
             await asyncio.sleep(2)
@@ -332,7 +382,9 @@ class PreflightValidator:
             assert len(positions) == 1, f"Expected 1 position, got {len(positions)}"
 
             pos = positions[0]
-            assert pos.symbol == self.symbol, f"Wrong symbol: {pos.symbol}"
+            assert self.adapter.normalize_symbol(pos.symbol) == self.adapter.normalize_symbol(
+                self.symbol
+            ), f"Wrong symbol: {pos.symbol}"
             assert pos.side == "LONG", f"Wrong side: {pos.side}"
             assert pos.tp_order_id is not None, "Missing TP order ID"
             assert pos.sl_order_id is not None, "Missing SL order ID"
@@ -487,11 +539,18 @@ class PreflightValidator:
         logger.info("=" * 70)
 
         try:
+            # Calculate amount (Master Sizing simulation)
+            price = await self.adapter.get_current_price(self.symbol)
+            notional = 15.0
+            raw_amount = notional / price
+            amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
+
             # Create a new position with OCO
             order = {
                 "symbol": self.symbol,
                 "side": "SHORT",
                 "size": self.size,
+                "amount": amount,  # REQUIRED by Phase 42
                 "take_profit": 0.02,
                 "stop_loss": 0.02,
                 "trade_id": f"shutdown_test_{int(time.time())}",

@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
@@ -227,16 +228,81 @@ class PositionTracker:
         self.recovered_count = 0
         self.new_longs = 0
         self.new_shorts = 0
+
+        # Architecture: Libretica (The Alias Map)
+        # Centralized index for O(1) lookup of any order ID (Client or Exchange) -> Position
+        self._alias_map: Dict[str, OpenPosition] = {}
+
         # History of closed trades for detailed reporting
-        self.history: List[Dict[str, Any]] = []
+        self.history: List[Dict[str, Any]] = []  # Store closed trade results
+        self.pending_confirmations: Dict[str, Dict[str, Any]] = {}  # Pending close confirmations
 
-        # Tracking de confirmaciones pendientes
-        self.pending_confirmations: Dict[str, Dict[str, Any]] = {}
-
-        # Phase 31: O(1) lookup by client_order_id for unified event routing
-        self._positions_by_client_id: Dict[str, OpenPosition] = {}
+        # O(1) Symbol Map for high-frequency price processing
+        self._symbol_map: Dict[str, List[OpenPosition]] = defaultdict(list)
 
         logger.info(f"PositionTracker inicializado | Max positions: {max_concurrent_positions}")
+
+    # =========================================================
+    # LIBRETICA: Centralized Identity Management (Phase 44)
+    # =========================================================
+
+    def register_alias(self, alias_id: str, position: OpenPosition) -> None:
+        """
+        Maps an ID (Client or Exchange) to a Position.
+        Critical for O(1) lookups of WS events.
+        """
+        if not alias_id:
+            return
+        self._alias_map[str(alias_id)] = position
+        # logger.debug(f"📇 Registered alias: {alias_id} -> {position.symbol}")
+
+    def unregister_alias(self, alias_id: str) -> None:
+        """Removes an ID from the map."""
+        if not alias_id:
+            return
+        if str(alias_id) in self._alias_map:
+            del self._alias_map[str(alias_id)]
+            # logger.debug(f"🗑️ Unregistered alias: {alias_id}")
+
+    def get_position_by_id(self, order_id: str) -> Optional[OpenPosition]:
+        """
+        O(1) Lookup: Retrieves position for ANY registered ID (Client, Exchange, Trade).
+        """
+        return self._alias_map.get(str(order_id))
+
+    def get_position(self, trade_id: str) -> Optional[OpenPosition]:
+        """Legacy access method (wraps Libretica lookup)."""
+        return self.get_position_by_id(trade_id)
+
+    def get_positions_by_symbol(self, symbol: str) -> List[OpenPosition]:
+        """
+        O(1) Symbol Lookup: Retrieves all positions for a specific symbol.
+        Used to eliminate O(N) scans in ExitManager (Phase 46).
+        """
+        return self._symbol_map.get(normalize_symbol(symbol), [])
+
+    def _unregister_all_aliases(self, position: OpenPosition) -> None:
+        """Removes all aliases associated with a position."""
+        self.unregister_alias(position.trade_id)
+        self.unregister_alias(position.main_order_id)
+        self.unregister_alias(position.tp_order_id)
+        self.unregister_alias(position.sl_order_id)
+        self.unregister_alias(position.exchange_tp_id)
+        self.unregister_alias(position.exchange_sl_id)
+
+        # Unregister from OrderState objects
+        if position.main_order:
+            self.unregister_alias(position.main_order.client_order_id)
+            self.unregister_alias(position.main_order.exchange_order_id)
+        if position.tp_order:
+            self.unregister_alias(position.tp_order.client_order_id)
+            self.unregister_alias(position.tp_order.exchange_order_id)
+        if position.sl_order:
+            self.unregister_alias(position.sl_order.client_order_id)
+            self.unregister_alias(position.sl_order.exchange_order_id)
+
+        for contrib_id in position.contributors or []:
+            self.unregister_alias(contrib_id)
 
     def set_state_change_callback(self, callback: Callable[[], Awaitable[None]]):
         """Register callback for immediate state persistence."""
@@ -255,15 +321,20 @@ class PositionTracker:
 
     def register_order(self, position: "OpenPosition", order: OrderState):
         """
-        Register an order for O(1) lookup by client_order_id.
-        Called by OCOManager after creating TP/SL orders.
+        Register a specific order (TP/SL/Main) for O(1) lookup via Alias Map.
+        Supersedes legacy usage of _positions_by_client_id.
         """
-        self._positions_by_client_id[order.client_order_id] = position
-        logger.debug(f"📝 Registered order {order.client_order_id} for position {position.trade_id}")
+        if order.client_order_id:
+            self.register_alias(order.client_order_id, position)
+        if order.exchange_order_id:
+            self.register_alias(str(order.exchange_order_id), position)
 
-    def unregister_order(self, client_order_id: str):
-        """Remove order from O(1) lookup (called on position close)."""
-        self._positions_by_client_id.pop(client_order_id, None)
+    def unregister_order(self, client_order_id: Optional[str] = None, exchange_order_id: Optional[str] = None):
+        """Remove order from lookup (called on position close)."""
+        if client_order_id:
+            self.unregister_alias(client_order_id)
+        if exchange_order_id:
+            self.unregister_alias(str(exchange_order_id))
 
     def handle_order_update(self, event: Dict[str, Any]) -> Optional[str]:
         """
@@ -279,11 +350,19 @@ class PositionTracker:
             trade_id if event was matched to a position, None otherwise
         """
         client_id = event.get("c") or event.get("clientOrderId")
-        if not client_id:
-            return None
+        exchange_id = str(event.get("i") or event.get("orderId") or event.get("id") or "")
 
-        # O(1) lookup by client_order_id
-        position = self._positions_by_client_id.get(client_id)
+        # O(1) lookup: The Libretica (Phase 44)
+        position = self.get_position_by_id(client_id)
+        if not position and exchange_id:
+            position = self.get_position_by_id(exchange_id)
+
+        # Auto-Learning: Register Exchange ID if discovered for the first time
+        if position and exchange_id and exchange_id not in ("0", "", "None"):
+            if not self.get_position_by_id(exchange_id):
+                self.register_alias(exchange_id, position)
+                logger.info(f"🧠 Libretica learned alias: {exchange_id} -> {position.symbol}")
+
         if not position:
             return None
 
@@ -362,13 +441,6 @@ class PositionTracker:
     def get_available_equity(self, total_equity: float) -> float:
         """Calcula capital disponible (total - bloqueado)."""
         return max(0.0, total_equity - self.blocked_capital)
-
-    def get_position(self, trade_id: str) -> Optional["OpenPosition"]:
-        """Busca una posición por trade_id."""
-        for position in self.open_positions:
-            if position.trade_id == trade_id:
-                return position
-        return None
 
     def can_open_position(self, required_margin: float, available_equity: float) -> bool:
         """
@@ -519,6 +591,25 @@ class PositionTracker:
 
             # Registrar posición
             self.open_positions.append(position)
+            self._symbol_map[symbol].append(position)
+
+            # --- LIBRETICA: Register Aliases (Phase 44) ---
+            self.register_alias(trade_id, position)
+            if main_order_id:
+                self.register_alias(main_order_id, position)
+            if tp_order_id:
+                self.register_alias(tp_order_id, position)
+            if sl_order_id:
+                self.register_alias(sl_order_id, position)
+            if exchange_tp_id:
+                self.register_alias(exchange_tp_id, position)
+            if exchange_sl_id:
+                self.register_alias(exchange_sl_id, position)
+
+            for contrib_id in position.contributors or []:
+                self.register_alias(contrib_id, position)
+            # ----------------------------------------------
+
             self.blocked_capital += margin_used
             self.total_trades_opened += 1
             logger.debug(f"COUNTER_DEBUG: Incrementing total_opened to {self.total_trades_opened} via open_position")
@@ -714,8 +805,15 @@ class PositionTracker:
         if trade_id in self.pending_confirmations:
             del self.pending_confirmations[trade_id]
 
+        # --- LIBRETICA Cleanup ---
+        self._unregister_all_aliases(position)
+        # -------------------------
+
         # Remover posición
         self.open_positions.remove(position)
+        sym_norm = normalize_symbol(position.symbol)
+        if position in self._symbol_map.get(sym_norm, []):
+            self._symbol_map[sym_norm].remove(position)
 
         # Liberar capital bloqueado
         self.blocked_capital -= position.margin_used
@@ -866,6 +964,15 @@ class PositionTracker:
             # Record force close in persistent history
             historian.record_trade(result)
 
+            # --- LIBRETICA Cleanup ---
+            self._unregister_all_aliases(position)
+            # -------------------------
+
+            # Maintenance (Phase 46)
+            sym_norm = normalize_symbol(position.symbol)
+            if position in self._symbol_map.get(sym_norm, []):
+                self._symbol_map[sym_norm].remove(position)
+
         self.open_positions.clear()
         self._trigger_state_change()
         return closed_results
@@ -932,6 +1039,15 @@ class PositionTracker:
         )
 
         # 3. ACTUAL REMOVAL
+        # --- LIBRETICA Cleanup ---
+        self._unregister_all_aliases(found_pos)
+        # -------------------------
+
+        # Maintenance (Phase 46)
+        sym_norm = normalize_symbol(found_pos.symbol)
+        if found_pos in self._symbol_map.get(sym_norm, []):
+            self._symbol_map[sym_norm].remove(found_pos)
+
         self.open_positions.remove(found_pos)
         self.blocked_capital -= found_pos.margin_used
 
@@ -959,6 +1075,15 @@ class PositionTracker:
         self.recovered_count += 1
 
         logger.info(f"🧬 Adopted position: {position.trade_id} | {position.symbol} {position.side}")
+
+        # Index Re-hydration (Cures Internal Blindness during Recovery/Adoption)
+        if position.tp_order:
+            self.register_order(position, position.tp_order)
+        if position.sl_order:
+            self.register_order(position, position.sl_order)
+        if position.main_order:
+            self.register_order(position, position.main_order)
+
         self._trigger_state_change()
 
     # Phase 31: Legacy async handle_order_update REMOVED

@@ -194,7 +194,8 @@ class OCOManager:
                 self.logger.warning(f"⚠️ Pre-validation skipped (price fetch failed): {e}")
 
             # PRE-RESERVE CLIENT ORDER ID (To prevent race conditions with WS Fill Events)
-            client_order_id = f"C3_ENTRY_{uuid.uuid4().hex[:12]}"
+            # Phase 43: Standardize to CASINO_ prefix
+            client_order_id = f"CASINO_ENTRY_{uuid.uuid4().hex[:12]}"
 
             # Pre-register future in pending_orders (so if event arrives before new_order returns, we catch it)
             loop = asyncio.get_running_loop()
@@ -329,11 +330,15 @@ class OCOManager:
                 sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
 
                 # Step 4: Create TP order with client_order_id
-                tp_order = await self._create_tp_order(symbol, side, main_order["amount"], tp_price)
+                tp_order = await self._create_tp_order(
+                    symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id
+                )
                 watchdog.heartbeat(operation_id, f"TP order created: {tp_order.get('order_id') or tp_order.get('id')}")
 
                 # Step 5: Create SL order with client_order_id
-                sl_order = await self._create_sl_order(symbol, side, main_order["amount"], sl_price)
+                sl_order = await self._create_sl_order(
+                    symbol, side, main_order["amount"], sl_price, client_order_id=sl_client_id
+                )
                 watchdog.heartbeat(operation_id, f"SL order created: {sl_order.get('order_id') or sl_order.get('id')}")
 
                 # Step 6: Validate OCO completeness
@@ -477,32 +482,47 @@ class OCOManager:
         amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
 
         if is_native:
-            self.logger.info(f"🔄 Re-creating Native OCO bracket for {symbol} (Modification)")
-
-            # 1. Cancel existing Native OCO
-            await self.cancel_order(position.exchange_tp_id, symbol)
-
-            # 2. Create new Native OCO bracket
-            oco_result = await self.adapter.create_native_oco_bracket(
-                symbol=symbol,
-                side=position.side,
-                amount=amount,
-                tp_price=tp_price,
-                sl_price=sl_price,
-                params={"client_order_id": f"OMOD_{trade_id}_{uuid.uuid4().hex[:4]}"},
-            )
-
-            # Update position IDs
-            native_id = oco_result.get("id") or oco_result.get("order_id")
-            position.tp_order_id = native_id
-            position.exchange_tp_id = native_id
-            position.sl_order_id = native_id
-            position.exchange_sl_id = native_id
-            position.tp_level = tp_price
-            position.sl_level = sl_price
-
+            # --- ATOMICITY LOCK (Phase 34 Fix) ---
+            # Mark position as MODIFYING so ReconciliationService ignores it during the "Naked Window"
+            old_status = position.status
+            position.status = "MODIFYING"
             self.tracker._trigger_state_change()
-            return {"status": "success", "native_id": native_id}
+
+            try:
+                self.logger.info(f"🔄 Re-creating Native OCO bracket for {symbol} (Modification)")
+
+                # 1. Cancel existing Native OCO
+                await self.cancel_order(position.exchange_tp_id, symbol)
+
+                # 2. Create new Native OCO bracket
+                oco_result = await self.adapter.create_native_oco_bracket(
+                    symbol=symbol,
+                    side=position.side,
+                    amount=amount,
+                    tp_price=tp_price,
+                    sl_price=sl_price,
+                    params={"client_order_id": f"OMOD_{trade_id}_{uuid.uuid4().hex[:4]}"},
+                )
+
+                # Update position IDs
+                native_id = oco_result.get("id") or oco_result.get("order_id")
+                position.tp_order_id = native_id
+                position.exchange_tp_id = native_id
+                position.sl_order_id = native_id
+                position.exchange_sl_id = native_id
+                position.tp_level = tp_price
+                position.sl_level = sl_price
+
+                return {"status": "success", "native_id": native_id}
+
+            except Exception as e:
+                self.logger.error(f"❌ Native OCO Modification Failed: {e}")
+                raise e
+            finally:
+                # Restore status to ACTIVE (or previous) only after operation completes
+                if position.status == "MODIFYING":
+                    position.status = "ACTIVE"
+                self.tracker._trigger_state_change()
         else:
             # Manual OCO modification (fallback)
             self.logger.info(f"🔄 Modifying Manual OCO bracket for {symbol}")
@@ -573,7 +593,7 @@ class OCOManager:
             "symbol": order["symbol"],
             "type": "market",
             "side": "buy" if order["side"] == "LONG" else "sell",
-            "amount": order.get("amount", 0),  # Will be calculated by Croupier
+            "amount": order.get("amount", 0),  # Provided by OrderManager (Phase 42)
             "params": {"client_order_id": client_order_id} if client_order_id else {},
         }
 
@@ -684,28 +704,17 @@ class OCOManager:
 
         return tp_price, sl_price
 
-    async def cancel_order(self, order_id: str, symbol: str) -> None:
-        """Cancel a single order with retry logic (idempotent)."""
+    async def cancel_order(self, order_id: str, symbol: str) -> bool:
+        """
+        Cancel a single order via the OrderExecutor funnel.
+        """
         symbol = normalize_symbol(symbol)
-        cancel_retry_config = RetryConfig(max_retries=3, backoff_base=0.3, backoff_factor=2.0, jitter=True)
         try:
-            # Use symbol-specific breaker to isolate network issues
-            await self.error_handler.execute_with_breaker(
-                f"oco_cancel_{symbol}",
-                self.adapter.cancel_order,
-                order_id,
-                symbol,
-                retry_config=cancel_retry_config,
-                timeout=15.0,
-            )
-            self.logger.info(f"✅ Cancelled order: {order_id}")
+            # Phase 45: Delegate to centralized OrderExecutor
+            return await self.executor.cancel_order(order_id, symbol)
         except Exception as e:
-            err_str = str(e).lower()
-            if "unknown order" in err_str or "-2011" in err_str:
-                self.logger.info(f"ℹ️ Order {order_id} already gone for {symbol} (-2011), treating as success.")
-            else:
-                self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
-                raise
+            self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
+            raise e
 
     async def create_tp_order(
         self,
@@ -732,7 +741,13 @@ class OCOManager:
         return await self._create_sl_order(symbol, side, amount, sl_price, timeout)
 
     async def _create_tp_order(
-        self, symbol: str, side: str, amount: float, tp_price: float, timeout: Optional[float] = None
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        tp_price: float,
+        timeout: Optional[float] = None,
+        client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create take profit limit order with retry logic and ReduceOnly handling."""
         # TP is opposite side of entry
@@ -760,18 +775,19 @@ class OCOManager:
             try:
                 if use_close_position:
                     # Use TAKE_PROFIT_MARKET with closePosition=True for small notionals
-                    # LIMIT orders with closePosition are invalid
-                    return await self.executor.execute_order(
+                    # Phase 43: Use execute_stop_order (generalized) instead of execute_order
+                    # This allows passing order_type="TAKE_PROFIT_MARKET"
+                    return await self.executor.execute_stop_order(
                         symbol=symbol,
                         side=tp_side,
                         amount=0,  # Ignored with closePosition
-                        price=None,  # Market order doesn't have price
+                        stop_price=tp_price,
                         order_type="TAKE_PROFIT_MARKET",
                         params={
                             "closePosition": True,
-                            "stopPrice": tp_price,
                             "workingType": "MARK_PRICE",
-                            "clientOrderId_prefix": "TP",
+                            "client_order_id": client_order_id,
+                            "clientOrderId": client_order_id,
                         },
                     )
                 else:
@@ -780,7 +796,7 @@ class OCOManager:
                         side=tp_side,
                         amount=amount,
                         price=tp_price,
-                        params={"reduceOnly": True, "clientOrderId_prefix": "TP"},
+                        params={"reduceOnly": True, "client_order_id": client_order_id},
                     )
 
             except Exception as e:
@@ -820,7 +836,7 @@ class OCOManager:
                                 side=tp_side,
                                 amount=amount,
                                 price=tp_price,
-                                params={"reduceOnly": True, "clientOrderId_prefix": "TP"},
+                                params={"reduceOnly": True, "client_order_id": client_order_id},
                             )
 
                     except Exception as fetch_err:
@@ -839,7 +855,13 @@ class OCOManager:
         )
 
     async def _create_sl_order(
-        self, symbol: str, side: str, amount: float, sl_price: float, timeout: Optional[float] = None
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        sl_price: float,
+        timeout: Optional[float] = None,
+        client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create stop loss order with retry logic and ReduceOnly handling."""
         # SL is opposite side of entry
@@ -872,7 +894,7 @@ class OCOManager:
                         side=sl_side,
                         amount=0,  # Ignored with closePosition
                         stop_price=sl_price,
-                        params={"closePosition": True, "clientOrderId_prefix": "SL"},
+                        params={"closePosition": True, "client_order_id": client_order_id},
                     )
                 else:
                     result = await self.executor.execute_stop_order(
@@ -880,7 +902,7 @@ class OCOManager:
                         side=sl_side,
                         amount=amount,
                         stop_price=sl_price,
-                        params={"reduceOnly": True, "clientOrderId_prefix": "SL"},
+                        params={"reduceOnly": True, "client_order_id": client_order_id},
                     )
 
                 # Check for immediate zombie status (e.g. ReduceOnly race condition)
@@ -921,7 +943,7 @@ class OCOManager:
                                 side=sl_side,
                                 amount=amount,
                                 stop_price=sl_price,
-                                params={"reduceOnly": True, "clientOrderId_prefix": "SL"},
+                                params={"reduceOnly": True, "client_order_id": client_order_id},
                             )
 
                     except Exception as fetch_err:

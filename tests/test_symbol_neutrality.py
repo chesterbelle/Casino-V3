@@ -1,6 +1,28 @@
+import sys
 import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+# MOCK FAIL-SAFE: Ensure dependencies are available for import
+try:
+    import aiolimiter  # noqa: F401
+except ImportError:
+    sys.modules["aiolimiter"] = MagicMock()
+    sys.modules["aiolimiter"].AsyncLimiter = MagicMock()
+
+try:
+    import eth_account  # noqa: F401
+except ImportError:
+    sys.modules["eth_account"] = MagicMock()
+    sys.modules["eth_account"].Account = MagicMock()
+
+try:
+    import hyperliquid  # noqa: F401
+except ImportError:
+    mock_hl = MagicMock()
+    sys.modules["hyperliquid"] = mock_hl
+    sys.modules["hyperliquid.exchange"] = MagicMock()
+    sys.modules["hyperliquid.utils"] = MagicMock()
 
 from core.events import CandleEvent, EventType
 from core.portfolio.position_tracker import OpenPosition, PositionTracker

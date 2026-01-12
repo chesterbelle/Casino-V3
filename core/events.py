@@ -17,6 +17,7 @@ class EventType(Enum):
     DECISION = auto()
     ERROR = auto()
     SYSTEM = auto()
+    ACCOUNT_UPDATE = auto()
 
 
 @dataclass

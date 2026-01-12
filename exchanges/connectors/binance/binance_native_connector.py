@@ -878,11 +878,22 @@ class BinanceNativeConnector(BaseConnector):
             args.pop("reduceOnly", None)
 
         # Route to Algo API for conditional orders (Mandatory since Dec 2024 update)
+        # EXCEPTION: closePosition=True is only supported by the Main API (/fapi/v1/order)
+        # Algo API does not support closePosition and will fail with missing quantity.
         ALGO_ORDER_TYPES = {"STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TRAILING_STOP_MARKET", "OCO"}
-        if order_type.upper() in ALGO_ORDER_TYPES:
-            if params.get("stopPrice"):
-                args["stopPrice"] = params["stopPrice"]
 
+        # Verify if we should force Main API (when closePosition is used)
+        force_main_api = params.get("closePosition") or params.get(
+            "reduceOnly"
+        )  # reduceOnly works on both, but closePosition only on Main
+        if params.get("closePosition"):
+            force_main_api = True
+
+        # Ensure stopPrice is added for ALL conditional orders, regardless of API used
+        if params.get("stopPrice"):
+            args["stopPrice"] = params["stopPrice"]
+
+        if order_type.upper() in ALGO_ORDER_TYPES and not force_main_api:
             try:
                 return await self._create_algo_order(args, timeout=timeout)
             except Exception as e:
@@ -1447,7 +1458,10 @@ class BinanceNativeConnector(BaseConnector):
             symbol = pos.get("s")
             amount = float(pos.get("pa", 0))
 
-            # TODO: Dispatch event or update internal cache
+        # TODO: Dispatch event or update internal cache
+        if hasattr(self, "_account_update_callback") and self._account_update_callback:
+            asyncio.create_task(self._account_update_callback(update_data))
+
             # For now, we log critical changes
             if amount == 0:
                 self.logger.info(f"📉 Position Closed (External/Liquidated): {symbol}")
@@ -1535,6 +1549,10 @@ class BinanceNativeConnector(BaseConnector):
     def set_tick_callback(self, callback) -> None:
         """Phase 37: Set callback for direct tick event dispatch (push-based)."""
         self._tick_event_callback = callback
+
+    def set_account_update_callback(self, callback) -> None:
+        """Phase 46: Set callback for account/balance updates."""
+        self._account_update_callback = callback
 
     # =========================================================
     # HEALTH CHECK

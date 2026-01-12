@@ -149,10 +149,17 @@ class MultiSymbolValidator:
         try:
             # 1. Execute OCO Bracket
             # Price delta must be large enough to not fill TP/SL during test
+
+            # Phase 42: Manual Amount Calculation for Master Sizing
+            ticker = await self.connector.fetch_ticker(symbol)
+            current_price = float(ticker["last"])
+            amount = self.size / current_price
+
             order = {
                 "symbol": symbol,
                 "side": "LONG",
                 "size": self.size,
+                "amount": amount,
                 "take_profit": 0.05,  # +5%
                 "stop_loss": 0.05,  # -5%
                 "trade_id": f"multi_{symbol}_{int(time.time())}",
@@ -170,6 +177,43 @@ class MultiSymbolValidator:
             sl_id = result["sl_order"].get("order_id") or result["sl_order"].get("id")
 
             logger.info(f"✅ [{symbol}] Bracket Created: Main={main_id}, TP={tp_id}, SL={sl_id}")
+
+            # Universal Funnel Verification: Check CASINO_ Prefix
+            async def get_client_id(oid):
+                try:
+                    o = await self.connector.fetch_order(oid, symbol)
+                    return o.get("client_order_id") or o.get("clientOrderId", "")
+                except Exception as e:
+                    logger.error(f"❌ Error during cleanup: {e}")
+                    return ""
+
+            main_cid = (
+                result["main_order"].get("client_order_id")
+                or result["main_order"].get("clientOrderId")
+                or await get_client_id(main_id)
+            )
+            tp_cid = (
+                result["tp_order"].get("client_order_id")
+                or result["tp_order"].get("clientOrderId")
+                or await get_client_id(tp_id)
+            )
+            sl_cid = (
+                result["sl_order"].get("client_order_id")
+                or result["sl_order"].get("clientOrderId")
+                or await get_client_id(sl_id)
+            )
+
+            if not main_cid.startswith("CASINO_"):
+                logger.error(f"❌ [{symbol}] Main ClientID mismatch (no CASINO_): {main_cid}")
+                return False
+            if not tp_cid.startswith("CASINO_"):
+                logger.error(f"❌ [{symbol}] TP ClientID mismatch (no CASINO_): {tp_cid}")
+                return False
+            if not sl_cid.startswith("CASINO_"):
+                logger.error(f"❌ [{symbol}] SL ClientID mismatch (no CASINO_): {sl_cid}")
+                return False
+
+            logger.info(f"✅ [{symbol}] Universal Funnel Verified: All IDs start with CASINO_")
 
             # 2. Simulation phase (Wait and check integrity)
             await asyncio.sleep(5)

@@ -425,67 +425,10 @@ class Croupier(TimeIterator):
         # Extract contributors (sensor IDs) for tracking
         contributors = order.get("contributors", [])
 
-        # Calculate amount from size if not provided
-        if "amount" not in order or order.get("amount") == 0:
-            if "size" in order:
-                # size is a fraction of equity (e.g., 0.05 = 5%)
-                current_equity = self.get_equity()
-
-                # SIZING LOGIC
-                # Mode 1: Fixed Notional (Default) -> Size = Equity * Bet_Size
-                # Mode 2: Fixed Risk -> Size = (Equity * Bet_Size) / SL_Distance
-                sizing_mode = getattr(trading_config, "POSITION_SIZING_MODE", "FIXED_NOTIONAL")
-
-                if sizing_mode == "FIXED_RISK":
-                    stop_loss_pct = order.get("stop_loss", trading_config.STOP_LOSS)
-                    risk_amount = current_equity * order["size"]
-
-                    if stop_loss_pct <= 0:
-                        raise ValueError("Fixed Risk Sizing requires positive Stop Loss %")
-
-                    position_value = risk_amount / stop_loss_pct
-                    self.logger.info(
-                        f"⚖️ Fixed Risk Sizing: Risk={risk_amount:.2f} ({order['size']:.2%}) | SL={stop_loss_pct:.2%} | Notional={position_value:.2f}"
-                    )
-
-                else:  # FIXED_NOTIONAL
-                    position_value = current_equity * order["size"]
-
-                # Get current price (with retry for transient errors)
-                from core.error_handling import RetryConfig
-
-                current_price = await self.error_handler.execute_with_breaker(
-                    f"get_price_{order['symbol']}",
-                    self.exchange_adapter.get_current_price,
-                    order["symbol"],
-                    retry_config=RetryConfig(max_retries=3, backoff_base=0.5, backoff_max=5.0),
-                )
-
-                # Calculate amount in contracts
-                amount_raw = position_value / current_price
-
-                # Round to exchange precision
-                amount = float(self.exchange_adapter.amount_to_precision(order["symbol"], amount_raw))
-
-                # Validate minimum amount
-                if amount <= 0:
-                    raise ValueError(
-                        f"Order too small after precision rounding ({sizing_mode}): "
-                        f"raw={amount_raw:.12f} → rounded={amount:.8f} | "
-                        f"Equity={current_equity:.2f} | Size={order['size']:.2%}"
-                    )
-
-                # Add calculated amount to order
-                order = order.copy()
-                order["amount"] = amount
-
-                self.logger.info(
-                    f"📊 Calculated order amount ({sizing_mode}): Equity={current_equity:.2f} | "
-                    f"Size={order['size']:.2%} | Value={position_value:.2f} | "
-                    f"Price={current_price:.2f} | Amount={amount:.8f}"
-                )
-            else:
-                raise ValueError("Order must have either 'amount' or 'size'")
+        # Phase 42: Master Sizing enforced. Amount must be provided by OrderManager.
+        # We no longer calculate sizing here to avoid "Esquizofrenia Numérica" (Dual Rounding).
+        if "amount" not in order or float(order.get("amount", 0)) <= 0:
+            raise ValueError("Order missing 'amount'. Sizing must be handled by OrderManager.")
 
         # Delegate to OCOManager (don't wait for fill in demo/live, market orders are instant)
         result = await self.oco_manager.create_bracketed_order(
@@ -541,7 +484,6 @@ class Croupier(TimeIterator):
         await self.oco_manager.cancel_bracket(position.tp_order_id, position.sl_order_id, position.symbol)
 
         # 2. Execute market close
-        close_side = "sell" if position.side == "LONG" else "buy"
 
         # Calculate amount (use remaining amount if partial fills supported, but for now full close)
         # We need to use the original amount or current size.
@@ -567,78 +509,14 @@ class Croupier(TimeIterator):
                 f"Position {trade_id} has no amount information (Order missing, Info missing, Calc failed)"
             )
 
-        close_order = {
-            "symbol": position.symbol,
-            "side": close_side,
-            "type": "market",
-            "amount": amount,
-            "params": {},  # Removed reduceOnly to avoid -2022 error
-        }
-
-        self.logger.info(f"📉 Sending close order: {close_side} {amount} {position.symbol}")
-
         try:
-            result = await self.order_executor.execute_market_order(close_order, timeout=30.0)
+            # Phase 43: Universal Funnel - Delegate "Smart Close" to OrderExecutor
+            result = await self.order_executor.force_close_position(
+                symbol=position.symbol, side=position.side, amount=amount
+            )
         except Exception as e:
-            # Fallback for Binance PERCENT_PRICE filter error (-4131)
-            # This happens when Market orders are blocked due to volatility/wicks
-            if "-4131" in str(e):
-                self.logger.warning(
-                    f"⚠️ Caught PERCENT_PRICE error (-4131) for {position.symbol}. Initiating Smart Close Fallback..."
-                )
-                try:
-                    # Fetch fresh price
-                    current_price = await self.adapter.get_current_price(position.symbol)
-
-                    # TIER 1: User Strategy - Aggressive Marketable Limit (simulates Market)
-                    # Try 5% buffer to force immediate fill against book
-                    buffer = 0.95 if close_side.lower() == "sell" else 1.05
-                    limit_price = current_price * buffer
-                    limit_price = float(self.adapter.price_to_precision(position.symbol, limit_price))
-
-                    self.logger.info(
-                        f"🔄 Fallback Tier 1: Sending Aggressive LIMIT {close_side} @ {limit_price} (5% buffer)"
-                    )
-
-                    try:
-                        result = await self.order_executor.execute_limit_order(
-                            symbol=position.symbol, side=close_side, amount=amount, price=limit_price
-                        )
-                        self.logger.info(f"✅ Aggressive LIMIT successful: {result.get('order_id')}")
-
-                    except Exception as tier1_e:
-                        # TIER 2: Filter-Compliant Limit (Pure State Architecture)
-                        # If Aggressive Limit fails due to price band (-4016), we must respect exchange bounds.
-                        err_str = str(tier1_e)
-                        if "-4016" in err_str or "Limit price can't be" in err_str:
-                            self.logger.warning(
-                                "⚠️ Aggressive Limit rejected by band. Calculating Tier 2 (Filter-Based)..."
-                            )
-
-                            # Logic: Instead of parsing Regex, we use the Exchange Filters and Current Price
-
-                            # Fallback: Instead of trying to guess the EXACT band (which is dynamic),
-                            # we move to a Safe Limit (1% buffer) which is almost guaranteed to be inside 5% band.
-                            safe_buffer = 1.01 if close_side.lower() == "sell" else 0.99
-                            target_price = current_price * safe_buffer
-                            target_price = float(self.adapter.price_to_precision(position.symbol, target_price))
-
-                            self.logger.info(
-                                f"🔄 Fallback Tier 2: Sending Safe LIMIT {close_side} @ {target_price} (1% safe buffer)"
-                            )
-
-                            result = await self.order_executor.execute_limit_order(
-                                symbol=position.symbol, side=close_side, amount=amount, price=target_price
-                            )
-                            self.logger.info(f"✅ Safe LIMIT successful: {result.get('order_id')}")
-                        else:
-                            raise tier1_e  # Not a band error, raise original
-
-                except Exception as fallback_e:
-                    self.logger.error(f"❌ All Smart Close strategies failed: {fallback_e}")
-                    raise e  # Raise ORIGINAL error (Market fail) to keep logs clean upstream
-            else:
-                raise e
+            self.logger.error(f"❌ Failed to close position {trade_id} via Executor: {e}")
+            raise e
 
         fill_price = float(result.get("average", 0) or result.get("price", 0))
 

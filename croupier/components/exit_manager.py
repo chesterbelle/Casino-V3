@@ -60,22 +60,12 @@ class ExitManager:
         # We need current price. Candle close is a good approximation.
         current_price = event.close
 
-        # Iterate over copy to allow modification during iteration
-        for position in self.croupier.get_open_positions()[:]:
-            # DEBUG: Log every check to catch contamination
-            # self.logger.info(
-            #    f"🔍 Checking {position.symbol} vs Event {event.symbol} | Price: {current_price}"
-            # )
+        # Phase 46: Performance Hardening (O(1) Symbol Lookup)
+        # Instead of scanning ALL open positions, we only fetch positions for this symbol.
+        symbol_norm = normalize_symbol(event.symbol)
+        positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
 
-            # Ensure we only process logic for the symbol that just updated
-            # Use unified normalization for safe comparison
-            pos_sym_norm = normalize_symbol(position.symbol)
-            evt_sym_norm = normalize_symbol(event.symbol)
-
-            if pos_sym_norm != evt_sym_norm:
-                # self.logger.debug(f"⏭️ Skipping {position.symbol} (Event: {event.symbol})")
-                continue
-
+        for position in positions[:]:
             self.logger.info(f"⚡ Processing Exit Logic for {position.symbol} | Price: {current_price}")
 
             # 1. Check Time-Based Exit

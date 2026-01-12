@@ -317,6 +317,17 @@ async def main():
     connector.set_order_update_callback(async_order_update_handler)
     logger.info("✅ Order update callback registered for OCO cancellation")
 
+    # Phase 46: Real-Time Shadow Balance routing
+    async def account_update_handler(event: dict):
+        """Routes real-time balance updates to BalanceManager."""
+        croupier.balance_manager.handle_account_update(event)
+        # Also emit to engine for other interested components (Historian, etc.)
+        engine.emit(EventType.ACCOUNT_UPDATE, event)
+
+    if hasattr(connector, "set_account_update_callback"):
+        connector.set_account_update_callback(account_update_handler)
+        logger.info("✅ Account update callback registered for real-time balance sync")
+
     # Attempt recovery from previous session
     logger.info("🔄 Attempting state recovery...")
     recovered = await state_manager.recover()

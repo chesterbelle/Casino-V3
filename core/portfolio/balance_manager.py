@@ -5,6 +5,11 @@ Administra el capital del jugador.
 Actualiza equity, PnL y mantiene trazabilidad de operaciones.
 """
 
+import logging
+from typing import Any, Dict
+
+logger = logging.getLogger("BalanceManager")
+
 
 class BalanceManager:
     def __init__(self, starting_balance: float):
@@ -71,6 +76,23 @@ class BalanceManager:
         """
         self.balance -= amount
         self.equity = self.balance
+
+    def handle_account_update(self, event: Dict[str, Any]):
+        """
+        Calcula el balance y equity en tiempo real desde un evento ACCOUNT_UPDATE.
+        (Phase 46: Real-Time Shadow Balance).
+        """
+        # Binance ACCOUNT_UPDATE (WS) format: { 'B': [{'a': 'USDT', 'wb': '100.5', 'cw': '100.5'}] }
+        balances = event.get("B", [])
+        for b in balances:
+            asset = b.get("a")
+            if asset == "USDT":
+                wallet_balance = float(b.get("wb", self.balance))
+                # Update balance and equity
+                self.balance = wallet_balance
+                self.equity = wallet_balance  # In a more complex setup, we'd add unrealized PnL
+                # self.logger.info(f"💰 Real-Time Balance Update: {self.balance:.2f} USDT")
+                break
 
     def get_state(self):
         """Snapshot actual del capital."""
