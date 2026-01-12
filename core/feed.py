@@ -154,6 +154,10 @@ class StreamManager:
                 self.adapter.connector.set_tick_callback(self._on_push_tick)
                 logger.info("✅ Push-based tick dispatch enabled")
                 self._push_mode = True
+                # Auto-enable running when push mode is activated (connect() wasn't called)
+                if not self.running:
+                    self.running = True
+                    logger.info("✅ StreamManager auto-started in push mode")
             else:
                 logger.warning("⚠️ Connector doesn't support push mode, using legacy loops")
                 self._push_mode = False
