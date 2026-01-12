@@ -93,42 +93,42 @@ class StreamManager:
 
     async def _on_push_tick(self, ticker_data: Dict[str, Any]):
         """Phase 37: Handle tick event pushed directly from connector.
-        
+
         This is the push-based event handler - no loops, no timeouts, no queues.
         Events flow directly from WebSocket -> Connector -> here -> Engine.
         """
         try:
             symbol = ticker_data.get("symbol", "")
-            
+
             # Filter: only process subscribed symbols
             norm_symbol = normalize_symbol(symbol)
             if norm_symbol not in self._subscribed_symbols:
                 return
-            
+
             # Track last tick time for health monitoring
             if not hasattr(self, "_last_tick_time"):
                 self._last_tick_time = {}
             self._last_tick_time[norm_symbol] = time.time()
-            
+
             # Dispatch to engine (same as legacy on_ticker)
             await self.on_ticker(ticker_data)
-            
+
         except Exception as e:
             logger.debug(f"⚠️ Push tick error: {e}")
 
     async def _subscribe_and_watch(self, symbol: str):
         """Phase 37: Subscribe to ticker stream and optionally start legacy loop.
-        
+
         In push mode, this just subscribes. In legacy mode, falls back to polling.
         """
         norm_symbol = normalize_symbol(symbol)
-        
+
         try:
             # Subscribe to the ticker stream
             if hasattr(self.adapter, "connector") and hasattr(self.adapter.connector, "subscribe_ticker"):
                 await self.adapter.connector.subscribe_ticker(symbol)
                 logger.debug(f"📡 Subscribed to ticker: {norm_symbol}")
-            
+
             # In push mode, we're done - connector will push events
             if getattr(self, "_push_mode", False):
                 # Just keep this task alive for cleanup tracking
@@ -137,7 +137,7 @@ class StreamManager:
             else:
                 # Legacy mode: fall back to polling loop
                 await self._watch_ticker_loop(symbol)
-                
+
         except asyncio.CancelledError:
             logger.debug(f"📡 Subscription cancelled for {norm_symbol}")
         except Exception as e:

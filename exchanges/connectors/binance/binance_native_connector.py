@@ -107,7 +107,7 @@ class BinanceNativeConnector(BaseConnector):
         self._user_data_task: Optional[asyncio.Task] = None
         self._keepalive_task: Optional[asyncio.Task] = None
         self._order_update_callback = None
-        
+
         # Phase 37: Push-based event dispatch callbacks
         self._tick_event_callback = None  # Callback for direct tick event dispatch
 
@@ -1347,7 +1347,7 @@ class BinanceNativeConnector(BaseConnector):
 
     def _handle_ticker_update(self, data: Dict) -> None:
         """Handle ticker update from WebSocket.
-        
+
         Phase 37: Supports both push-based (direct callback) and pull-based (queue) models.
         When _tick_event_callback is registered, dispatches events directly without queue.
         """
