@@ -195,9 +195,20 @@ class ReconciliationService:
         local_positions = self.tracker.get_positions_by_symbol(symbol)
         report["positions_checked"] = len(local_positions)
 
-        # 2. PURGE GHOSTS
         for pos in local_positions[:]:
+            # LIFECYCLE: GARBAGE COLLECTION
+            if getattr(pos, "status", "") == "OFF_BOARDING":
+                if not self._exists_in_exchange(pos, exchange_positions):
+                    # Confirmed gone from exchange -> Cleanup
+                    self.logger.info(f"🧹 GC: Finalizing removal of OFF_BOARDING position {pos.trade_id}")
+                    await self.tracker.finalize_removal(pos.trade_id)
+                    continue
+                else:
+                    # Still closing on exchange -> Wait, do nothing (Respect State)
+                    continue
+
             if not self._exists_in_exchange(pos, exchange_positions):
+                # ... investigate ghost ...
                 self.logger.debug(f"👻 Ghost position found in tracker: {pos.trade_id} (not on exchange)")
                 investigation_result = await self._investigate_ghost(pos, symbol)
                 if investigation_result:
@@ -220,7 +231,7 @@ class ReconciliationService:
 
             # Integrity check
             status = getattr(pos, "status", "ACTIVE")
-            if status in ["OPENING", "CLOSING", "MODIFYING"]:
+            if status in ["OPENING", "CLOSING", "MODIFYING", "OFF_BOARDING"]:
                 continue
 
             # Extract ID sets for dual-verification

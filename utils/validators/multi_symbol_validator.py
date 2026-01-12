@@ -11,6 +11,7 @@ Usage:
         --size 0.05
 """
 
+# Standard Lib
 import argparse
 import asyncio
 import logging
@@ -20,11 +21,20 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+# Add root to sys.path to ensure absolute imports work
+sys.path.append(os.getcwd())
+
 from dotenv import load_dotenv
 
+from croupier.components.reconciliation_service import ReconciliationService
 from croupier.croupier import Croupier
 from exchanges.adapters import ExchangeAdapter
 from exchanges.connectors.binance.binance_native_connector import BinanceNativeConnector
+
+# OCOManager is usually part of Croupier but we need the class for typing or instantiation if needed
+# Although we use self.croupier.oco_manager, we imported it?
+# The error was on import line.
+# from core.portfolio.oco_manager import OCOManager # Removed to avoid import issues is usually part of Croupier but we need the class for typing or instantiation if needed
 
 
 def setup_logging():
@@ -105,11 +115,18 @@ class MultiSymbolValidator:
 
         logger.info(f"💰 Balance: ${self.initial_balance:,.2f}")
 
-        # 4. Create croupier
         self.croupier = Croupier(
             exchange_adapter=self.multi_adapter, initial_balance=self.initial_balance, max_concurrent_positions=20
         )
-        logger.info("✅ Croupier initialized (Multi-symbol mode)")
+        # LIFECYCLE SUPPORT: Initialize Reconciliation Service for GC
+        # We need this to cleanup OFF_BOARDING positions
+        self.oco_manager = self.croupier.oco_manager
+        self.recon_service = ReconciliationService(
+            self.multi_adapter, self.croupier.position_tracker, self.oco_manager, self.croupier
+        )
+        self.croupier.reconciliation_service = self.recon_service
+
+        logger.info("✅ Croupier & Reconciliation initialized (Multi-symbol mode)")
 
         # 4.1 Register order update callback (matches main.py)
         # This is CRITICAL for PositionTracker to see fills and close positions!
@@ -300,6 +317,10 @@ class MultiSymbolValidator:
         logger.info("=" * 70)
 
         try:
+            # 0. Trigger Garbage Collection (Lifecycle Architecture)
+            logger.info("🧹 Triggering final reconciliation sweep...")
+            await self.recon_service.reconcile_all()
+
             # 1. Tracker should be empty
             open_pos = self.croupier.position_tracker.open_positions
             if open_pos:

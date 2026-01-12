@@ -1148,25 +1148,21 @@ class PositionTracker:
             session_id=self.session_id,
         )
 
-        # 3. ACTUAL REMOVAL
-        # --- Alias Map Cleanup ---
-        self._unregister_all_aliases(found_pos)
-        # -------------------------
+        found_pos.exit_reason = audit_reason
+        found_pos.realized_pnl = audit_pnl  # Store audited PnL
+        found_pos.bars_held = self._calculate_bars_held(found_pos)
 
-        # Maintenance (Phase 46)
-        sym_norm = normalize_symbol(found_pos.symbol)
-        if found_pos in self._symbol_map.get(sym_norm, []):
-            self._symbol_map[sym_norm].remove(found_pos)
+        # LIFECYCLE ARCHITECTURE: Soft-Delete (Phase 48)
+        # We KEEP the object in memory with status OFF_BOARDING
+        # so ReconciliationService can see it and respect it.
+        found_pos.status = "OFF_BOARDING"
+        self.blocked_capital -= found_pos.margin_used  # Use blocked_capital logic here for safety
 
-        self.open_positions.remove(found_pos)
-        self.blocked_capital -= found_pos.margin_used
-
-        if trade_id in self.pending_confirmations:
-            del self.pending_confirmations[trade_id]
-
-        logger.warning(f"👻 Removed ghost position: {trade_id} (PnL/Fees Logged)")
-        self.total_errors += 1
-        self.total_trades_closed += 1
+        logger.info(
+            f"✅ Position Soft-Closed: {trade_id} | PnL: {audit_pnl:.2f} | Reason: {audit_reason} | Status: OFF_BOARDING"
+        )
+        self.total_errors += 1  # Still an error state for the tracker
+        self.total_trades_closed += 1  # Count as closed for stats
         self._trigger_state_change()
         return True
 
