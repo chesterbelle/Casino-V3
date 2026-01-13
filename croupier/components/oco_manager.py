@@ -314,15 +314,17 @@ class OCOManager:
                 tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
                 sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
 
-                # Step 4: Create TP order with client_order_id
-                tp_order = await self._create_tp_order(
-                    symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id
+                # Step 4: Create TP order with client_order_id (Phase 56: Anti-Hang Timeout)
+                tp_order = await asyncio.wait_for(
+                    self._create_tp_order(symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id),
+                    timeout=5.0,
                 )
                 watchdog.heartbeat(operation_id, f"TP order created: {tp_order.get('order_id') or tp_order.get('id')}")
 
-                # Step 5: Create SL order with client_order_id
-                sl_order = await self._create_sl_order(
-                    symbol, side, main_order["amount"], sl_price, client_order_id=sl_client_id
+                # Step 5: Create SL order with client_order_id (Phase 56: Anti-Hang Timeout)
+                sl_order = await asyncio.wait_for(
+                    self._create_sl_order(symbol, side, main_order["amount"], sl_price, client_order_id=sl_client_id),
+                    timeout=5.0,
                 )
                 watchdog.heartbeat(operation_id, f"SL order created: {sl_order.get('order_id') or sl_order.get('id')}")
 
@@ -631,7 +633,8 @@ class OCOManager:
             # Fallback to REST check
             self.logger.warning(f"🕒 Timeout waiting for WS fill ({order_id}). Falling back to REST...")
             try:
-                order_info = await self.adapter.fetch_order(order_id, symbol)
+                # Phase 56: Anti-Hang Timeout for REST Fallback
+                order_info = await asyncio.wait_for(self.adapter.fetch_order(order_id, symbol), timeout=5.0)
                 if order_info.get("status") in ("closed", "filled"):
                     return order_info
             except Exception as e:
@@ -803,9 +806,9 @@ class OCOManager:
                 if "-2022" in err_str or "-4118" in err_str or "-4164" in err_str:
                     self.logger.warning(f"⚠️ Limit TP rejected ({err_str}) for {symbol}. Checking position...")
 
-                    # Verify actual position
+                    # Verify actual position (Phase 56: Anti-Hang Timeout)
                     try:
-                        positions = await self.adapter.fetch_positions(symbol)
+                        positions = await asyncio.wait_for(self.adapter.fetch_positions(symbol), timeout=5.0)
                         # Filter for this symbol and correct side
                         # Note: fetch_positions might return list of all or list of one
                         current_pos = None

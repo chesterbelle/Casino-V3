@@ -150,12 +150,15 @@ class OrderExecutor:
             f"[TRADE] 📤 Executing Market Order: {order['side']} {order['amount']} {symbol} | ID: {order.get('clientOrderId')}"
         )
 
-        result = await self.error_handler.execute_with_breaker(
-            f"exchange_orders_{symbol}",
-            self.adapter.execute_order,
-            order,
-            retry_config=retry_cfg,
-            timeout=timeout,
+        result = await asyncio.wait_for(
+            self.error_handler.execute_with_breaker(
+                f"exchange_orders_{symbol}",
+                self.adapter.execute_order,
+                order,
+                retry_config=retry_cfg,
+                timeout=timeout,
+            ),
+            timeout=5.0,  # Phase 56: Strict Execution Timeout
         )
 
         # LOCAL TRACKING: Register in OrderTracker if available
@@ -248,8 +251,11 @@ class OrderExecutor:
         )
 
         try:
-            result = await self.error_handler.execute_with_breaker(
-                f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
+            result = await asyncio.wait_for(
+                self.error_handler.execute_with_breaker(
+                    f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
+                ),
+                timeout=5.0,  # Phase 56: Strict Execution Timeout
             )
 
             # LOCAL TRACKING: Register in OrderTracker if available
@@ -312,8 +318,11 @@ class OrderExecutor:
             f"[OCO] 📤 Executing Stop Order: {side} {amount} {symbol} @ stop {stop_price} | ID: {order.get('clientOrderId')}"
         )
 
-        result = await self.error_handler.execute_with_breaker(
-            f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
+        result = await asyncio.wait_for(
+            self.error_handler.execute_with_breaker(
+                f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
+            ),
+            timeout=5.0,  # Phase 56: Strict Execution Timeout
         )
 
         # LOCAL TRACKING: Register in OrderTracker if available
