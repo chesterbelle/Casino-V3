@@ -143,14 +143,23 @@ class ReconciliationService:
             all_symbols = local_symbols | exchange_symbols | open_orders_symbols
             all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
-            for symbol in all_symbols:
-                report = await self._reconcile_symbol_data(
-                    symbol,
-                    ex_pos_by_symbol[symbol],
-                    orders_by_symbol[symbol],
-                    mode="active",  # Default to active for global sync
-                )
-                reports.append(report)
+            # PHASE 58: Parallelize reconciliation to prevent loop lag
+            semaphore = asyncio.Semaphore(5)  # Max 5 symbols at once to stay safe
+
+            async def sem_reconcile(symbol):
+                async with semaphore:
+                    return await self._reconcile_symbol_data(
+                        symbol,
+                        ex_pos_by_symbol[symbol],
+                        orders_by_symbol[symbol],
+                        mode="active",
+                    )
+
+            tasks = [sem_reconcile(s) for s in all_symbols]
+            if tasks:
+                reports = await asyncio.gather(*tasks)
+            else:
+                reports = []
 
             self.logger.info(f"[SYNC] ✅ Global reconciliation complete. {len(reports)} symbols processed.")
 
@@ -216,6 +225,8 @@ class ReconciliationService:
                 try:
                     # entry_timestamp is in milliseconds (Binance/CCXT format)
                     entry_time_ms = float(pos.entry_timestamp or 0)
+                    if entry_time_ms < 100000000000:  # Detect seconds vs milliseconds
+                        entry_time_ms *= 1000
                     now_ms = time.time() * 1000
                     if (now_ms - entry_time_ms) < 60000:  # 60 seconds
                         self.logger.debug(
@@ -257,6 +268,8 @@ class ReconciliationService:
             if status == "ACTIVE":
                 try:
                     entry_time_ms = float(pos.entry_timestamp or 0)
+                    if entry_time_ms < 100000000000:
+                        entry_time_ms *= 1000
                     now_ms = time.time() * 1000
                     if (now_ms - entry_time_ms) < 60000:
                         # self.logger.debug(f"⏳ Sync: {pos.trade_id} is ACTIVE but in 60s grace period. Skipping naked check.")
@@ -303,7 +316,10 @@ class ReconciliationService:
                 if pos.order and self.oco_manager:
                     try:
                         self.logger.info(f"🚑 Smart Healing: Attempting to repair naked position {pos.trade_id}...")
-                        healed = await self.oco_manager.restore_bracket(pos)
+                        # Phase 57.4: Explicitly pass which legs are missing to force re-creation
+                        healed = await self.oco_manager.restore_bracket(
+                            pos, missing_tp=not has_tp, missing_sl=not has_sl
+                        )
                         if healed:
                             self.logger.info(f"✨ Smart Healing Successful for {pos.trade_id}. Position saved.")
                             report["positions_fixed"] += 1
@@ -352,7 +368,17 @@ class ReconciliationService:
                     report["positions_closed"] += 1
 
         # 4. CLEANUP ORPHANS
-        cancelled = await self._cleanup_orphaned_orders(symbol, open_orders, exchange_positions, mode=mode)
+        # Phase 57.5: If mass orphans detect (likely system reset/crash residue), use aggressive cleanup
+        orphans_detected = len(open_orders)
+        force_orphaned_reset = orphans_detected >= 5
+        if force_orphaned_reset:
+            self.logger.warning(
+                f"🌪️ Mass orphan storm detected for {symbol} ({orphans_detected} orders). Purging immediately."
+            )
+
+        cancelled = await self._cleanup_orphaned_orders(
+            symbol, open_orders, exchange_positions, mode=mode, orphaned_reset=force_orphaned_reset
+        )
         report["orders_cancelled"] = cancelled
 
         return report
@@ -603,9 +629,13 @@ class ReconciliationService:
                 # Handle string timestamps from state recovery
                 if isinstance(entry_time, str):
                     try:
-                        entry_time = int(entry_time)
+                        entry_time = float(entry_time)
                     except (ValueError, TypeError):
                         entry_time = 0
+
+                # Phase 57.3: Defensive unit detection (s vs ms)
+                if entry_time > 0 and entry_time < 100000000000:
+                    entry_time *= 1000
 
                 matches = []
                 for t in trades:
@@ -722,7 +752,12 @@ class ReconciliationService:
         return False
 
     async def _cleanup_orphaned_orders(
-        self, symbol: str, open_orders: List[Dict], exchange_positions: List[Dict], mode: str = "active"
+        self,
+        symbol: str,
+        open_orders: List[Dict],
+        exchange_positions: List[Dict],
+        mode: str = "active",
+        orphaned_reset: bool = False,
     ) -> int:
         """
         Cancel orphaned orders (orders without associated position).
@@ -764,7 +799,7 @@ class ReconciliationService:
 
             # If there's a position on exchange but we don't track this order, be careful
             # It might be a newly created order that hasn't been registered yet
-            if has_exchange_position and client_order_id and "CASINO_" in client_order_id:
+            if not orphaned_reset and has_exchange_position and client_order_id and "CASINO_" in client_order_id:
                 # This is likely our own order that's in-flight; skip for safety
                 self.logger.debug(f"⏳ Skipping potential in-flight order: {order_id} ({client_order_id})")
                 continue

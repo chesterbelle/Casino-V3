@@ -18,6 +18,7 @@ CLI Flags Reference:
 import argparse
 import asyncio
 import faulthandler
+import fcntl
 import logging
 import os
 import signal
@@ -123,9 +124,61 @@ def parse_args():
     return parser.parse_args()
 
 
+class PIDLock:
+    """
+    Process Lock using file-based locking (flock).
+    Prevents multiple bot instances from running in the same directory.
+    """
+
+    def __init__(self, lockfile=".bot.pid.lock"):
+        self.lockfile = lockfile
+        self.fd = None
+
+    def acquire(self):
+        try:
+            # Open (or create) the lock file
+            self.fd = open(self.lockfile, "w")
+            # Attempt an exclusive, non-blocking lock
+            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # If we reached here, we have the lock. Write the current PID.
+            self.fd.write(str(os.getpid()))
+            self.fd.flush()
+            return True
+        except (IOError, OSError):
+            # Lock is held by another process or file error
+            if self.fd:
+                self.fd.close()
+                self.fd = None
+            return False
+
+    def release(self):
+        if self.fd:
+            try:
+                fcntl.flock(self.fd, fcntl.LOCK_UN)
+                self.fd.close()
+            except Exception:
+                pass
+            try:
+                if os.path.exists(self.lockfile):
+                    os.remove(self.lockfile)
+            except Exception:
+                pass
+            self.fd = None
+
+
 async def main():
     """Main entry point for Casino V3."""
     args = parse_args()
+
+    # --- PHASE 58: PID LOCK ---
+    lock = PIDLock()
+    if not lock.acquire():
+        print("\n" + "!" * 60)
+        print("🚨 CRITICAL ERROR: Another bot instance is already running!")
+        print("Duplicate process detected. To prevent log and state corruption,")
+        print("this instance will now exit.")
+        print("!" * 60 + "\n")
+        sys.exit(1)
 
     # Initialize centralized error handler
     error_handler = get_error_handler()
@@ -610,6 +663,11 @@ async def main():
                         # Use os._exit for immediate hard kill
                         import os
 
+                        if "lock" in locals() or "lock" in globals():
+                            try:
+                                lock.release()
+                            except Exception:
+                                pass
                         os._exit(1)
                     time.sleep(1.0)
 
@@ -780,6 +838,7 @@ async def main():
 
         logger.info("🏁 Cleanup complete. Goodbye.")
         logging.shutdown()
+        lock.release()
         os._exit(0)
 
 

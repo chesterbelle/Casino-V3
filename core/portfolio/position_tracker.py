@@ -1330,7 +1330,7 @@ class PositionTracker:
             symbol=normalized_symbol,
             side=side,
             entry_price=0.0,
-            entry_timestamp=str(time.time()),
+            entry_timestamp=str(int(time.time() * 1000)),
             margin_used=notional / leverage if leverage else 0,
             notional=notional,
             leverage=leverage,

@@ -18,7 +18,7 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -36,7 +36,6 @@ class PositionState:
     entry_price: float
     entry_timestamp: str
     margin_used: float
-    margin_used: float
     notional: float
     leverage: float
     tp_level: float
@@ -52,6 +51,32 @@ class PositionState:
     funding_accrued: float = 0.0
     contributors: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Custom fast serialization to avoid asdict() overhead."""
+        return {
+            "trade_id": self.trade_id,
+            "symbol": self.symbol,
+            "side": self.side,
+            "entry_price": self.entry_price,
+            "entry_timestamp": self.entry_timestamp,
+            "margin_used": self.margin_used,
+            "notional": self.notional,
+            "leverage": self.leverage,
+            "tp_level": self.tp_level,
+            "sl_level": self.sl_level,
+            "amount": self.amount,
+            "main_order_id": self.main_order_id,
+            "tp_order_id": self.tp_order_id,
+            "sl_order_id": self.sl_order_id,
+            "exchange_tp_id": self.exchange_tp_id,
+            "exchange_sl_id": self.exchange_sl_id,
+            "bars_held": self.bars_held,
+            "entry_fee": self.entry_fee,
+            "funding_accrued": self.funding_accrued,
+            "contributors": self.contributors,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
@@ -83,6 +108,25 @@ class BotState:
 
     # Metadata
     version: str = "2.0.0"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Custom fast serialization to avoid asdict() overhead."""
+        return {
+            "session_id": self.session_id,
+            "start_time": self.start_time,
+            "last_update": self.last_update,
+            "initial_balance": self.initial_balance,
+            "current_balance": self.current_balance,
+            "available_balance": self.available_balance,
+            "allocated_balance": self.allocated_balance,
+            "open_positions": [p.to_dict() for p in self.open_positions],
+            "total_trades": self.total_trades,
+            "total_wins": self.total_wins,
+            "total_losses": self.total_losses,
+            "total_opened": self.total_opened,
+            "last_reconciliation": self.last_reconciliation,
+            "version": self.version,
+        }
 
 
 class PersistentState:
@@ -251,8 +295,8 @@ class PersistentState:
                 self._state.last_update = time.time()
 
                 # Deep copy state dict while in main thread to avoid dict modification while serializing
-                # Serializing to JSON in the thread is safe if we pass a dict.
-                state_dict = asdict(self._state)
+                # Use custom to_dict() for performance (Phase 58 optimization)
+                state_dict = self._state.to_dict()
 
                 # Offload the blocking work to the executor
                 await asyncio.get_event_loop().run_in_executor(self._executor, self._do_atomic_save, state_dict)

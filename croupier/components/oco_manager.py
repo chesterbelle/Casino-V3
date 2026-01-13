@@ -1156,10 +1156,17 @@ class OCOManager:
         # Parallelize TP and SL cancellation to halve shutdown time per position
         await asyncio.gather(cancel_single(tp_order_id, "TP"), cancel_single(sl_order_id, "SL"))
 
-    async def restore_bracket(self, position: Any, timeout: float = 5.0) -> bool:
+    async def restore_bracket(
+        self, position: Any, timeout: float = 5.0, missing_tp: bool = False, missing_sl: bool = False
+    ) -> bool:
         """
         Phase 57: Smart Healing (Auto-Repair).
         Attempts to restore missing TP/SL orders for a naked position using original intent.
+        Args:
+            position: OpenPosition object
+            timeout: API call timeout
+            missing_tp: Force TP restoration even if ID exists locally
+            missing_sl: Force SL restoration even if ID exists locally
         """
         symbol = position.symbol
         trade_id = position.trade_id
@@ -1169,13 +1176,19 @@ class OCOManager:
             self.logger.warning(f"🚑 Cannot heal {trade_id}: Missing order params or entry price.")
             return False
 
-        original_tp = position.order.get("take_profit")
-        original_sl = position.order.get("stop_loss")
+        original_tp_pct = position.order.get("take_profit")
+        original_sl_pct = position.order.get("stop_loss")
         amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
 
-        if not original_tp or not original_sl:
+        if not original_tp_pct or not original_sl_pct:
             self.logger.warning(f"🚑 Cannot heal {trade_id}: Missing TP/SL intent in position.order.")
             return False
+
+        # Phase 60: RE-CALCULATE ACTUAL PRICES from multipliers
+        # Previously, these multipliers were erroneously used as absolute prices.
+        tp_price, sl_price = self._calculate_tp_sl_prices(
+            position.entry_price, position.side, original_tp_pct, original_sl_pct, symbol
+        )
 
         # 2. Lock Position
         old_status = position.status
@@ -1185,13 +1198,36 @@ class OCOManager:
         try:
             self.logger.info(f"🚑 Healing Position {trade_id}: Restoring missing bracket legs...")
 
+            # Phase 57.4: Forced Reset if flags are provided (Cures "Blind Success" syndrome)
+            if missing_tp:
+                self.logger.info(f"🚑 Force-resetting TP state for {trade_id} due to exchange absence.")
+                position.tp_order_id = None
+                position.exchange_tp_id = None
+                if position.tp_order:
+                    # Unregister from tracker if it's there
+                    self.tracker.unregister_alias(position.tp_order.client_order_id)
+                    if position.tp_order.exchange_order_id:
+                        self.tracker.unregister_alias(position.tp_order.exchange_order_id)
+                    position.tp_order = None
+
+            if missing_sl:
+                self.logger.info(f"🚑 Force-resetting SL state for {trade_id} due to exchange absence.")
+                position.sl_order_id = None
+                position.exchange_sl_id = None
+                if position.sl_order:
+                    # Unregister from tracker if it's there
+                    self.tracker.unregister_alias(position.sl_order.client_order_id)
+                    if position.sl_order.exchange_order_id:
+                        self.tracker.unregister_alias(position.sl_order.exchange_order_id)
+                    position.sl_order = None
+
             # --- RESTORE TP ---
             if not position.exchange_tp_id:
-                self.logger.info(f"🚑 Restoring TP @ {original_tp}")
+                self.logger.info(f"🚑 Restoring TP @ {tp_price} (Intent: {original_tp_pct})")
                 # Create TP with anti-hang timeout
                 tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
                 tp_order = await asyncio.wait_for(
-                    self._create_tp_order(symbol, position.side, amount, original_tp, client_order_id=tp_client_id),
+                    self._create_tp_order(symbol, position.side, amount, tp_price, client_order_id=tp_client_id),
                     timeout=timeout,
                 )
 
@@ -1203,16 +1239,15 @@ class OCOManager:
                 # Update Object
                 position.tp_order_id = tp_client_id
                 position.exchange_tp_id = str(tp_id)
-                position.tp_level = original_tp
-                position.tp_level = original_tp
+                position.tp_level = tp_price
 
             # --- RESTORE SL ---
             if not position.exchange_sl_id:
-                self.logger.info(f"🚑 Restoring SL @ {original_sl}")
+                self.logger.info(f"🚑 Restoring SL @ {sl_price} (Intent: {original_sl_pct})")
                 # Create SL with anti-hang timeout
                 sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
                 sl_order = await asyncio.wait_for(
-                    self._create_sl_order(symbol, position.side, amount, original_sl, client_order_id=sl_client_id),
+                    self._create_sl_order(symbol, position.side, amount, sl_price, client_order_id=sl_client_id),
                     timeout=timeout,
                 )
 
@@ -1224,8 +1259,7 @@ class OCOManager:
                 # Update Object
                 position.sl_order_id = sl_client_id
                 position.exchange_sl_id = str(sl_id)
-                position.sl_level = original_sl
-                position.sl_level = original_sl
+                position.sl_level = sl_price
 
             # Registers OCO pair if both exist now
             if position.exchange_tp_id and position.exchange_sl_id:
