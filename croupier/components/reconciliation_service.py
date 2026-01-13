@@ -212,6 +212,19 @@ class ReconciliationService:
                     continue
 
             if not self._exists_in_exchange(pos, exchange_positions):
+                # Phase 57.1: Ghost Protection Grace Period (Prevent killing new positions due to REST lag)
+                try:
+                    # entry_timestamp is in milliseconds (Binance/CCXT format)
+                    entry_time_ms = float(pos.entry_timestamp or 0)
+                    now_ms = time.time() * 1000
+                    if (now_ms - entry_time_ms) < 60000:  # 60 seconds
+                        self.logger.debug(
+                            f"⏳ Sync: {pos.trade_id} is GHOST but in 60s grace period. Skipping ghost removal."
+                        )
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
                 # ... investigate ghost ...
                 self.logger.debug(f"👻 Ghost position found in tracker: {pos.trade_id} (not on exchange)")
                 investigation_result = await self._investigate_ghost(pos, symbol)
@@ -243,8 +256,9 @@ class ReconciliationService:
             # This prevents race conditions where the main order is filled but OCOManager is still creating brackets.
             if status == "ACTIVE":
                 try:
-                    entry_time = float(pos.entry_timestamp or 0)
-                    if (time.time() - entry_time) < 60:
+                    entry_time_ms = float(pos.entry_timestamp or 0)
+                    now_ms = time.time() * 1000
+                    if (now_ms - entry_time_ms) < 60000:
                         # self.logger.debug(f"⏳ Sync: {pos.trade_id} is ACTIVE but in 60s grace period. Skipping naked check.")
                         continue
                 except (ValueError, TypeError):
