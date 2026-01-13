@@ -285,6 +285,22 @@ class ReconciliationService:
                     report["issues_found"].append(f"naked_detected:{pos.trade_id}")
                     continue
 
+                # Phase 57: Smart Healing (Auto-Repair)
+                if pos.order and self.oco_manager:
+                    try:
+                        self.logger.info(f"🚑 Smart Healing: Attempting to repair naked position {pos.trade_id}...")
+                        healed = await self.oco_manager.restore_bracket(pos)
+                        if healed:
+                            self.logger.info(f"✨ Smart Healing Successful for {pos.trade_id}. Position saved.")
+                            report["positions_fixed"] += 1
+                            continue  # Skip closure
+                        else:
+                            self.logger.warning(
+                                f"⚠️ Smart Healing Failed for {pos.trade_id}. Proceeding to safety close."
+                            )
+                    except Exception as e:
+                        self.logger.error(f"❌ Smart Healing Error: {e}")
+
                 # Close on exchange immediately
                 matched_ex_pos = next(
                     (ep for ep in exchange_positions if normalize_symbol(ep.get("symbol", "")) == symbol), None

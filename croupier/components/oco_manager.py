@@ -1155,3 +1155,94 @@ class OCOManager:
 
         # Parallelize TP and SL cancellation to halve shutdown time per position
         await asyncio.gather(cancel_single(tp_order_id, "TP"), cancel_single(sl_order_id, "SL"))
+
+    async def restore_bracket(self, position: Any, timeout: float = 5.0) -> bool:
+        """
+        Phase 57: Smart Healing (Auto-Repair).
+        Attempts to restore missing TP/SL orders for a naked position using original intent.
+        """
+        symbol = position.symbol
+        trade_id = position.trade_id
+
+        # 1. Sanity Checks
+        if not position.order or not position.entry_price or position.entry_price <= 0:
+            self.logger.warning(f"🚑 Cannot heal {trade_id}: Missing order params or entry price.")
+            return False
+
+        original_tp = position.order.get("take_profit")
+        original_sl = position.order.get("stop_loss")
+        amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
+
+        if not original_tp or not original_sl:
+            self.logger.warning(f"🚑 Cannot heal {trade_id}: Missing TP/SL intent in position.order.")
+            return False
+
+        # 2. Lock Position
+        old_status = position.status
+        position.status = "MODIFYING"
+        self.tracker._trigger_state_change()
+
+        try:
+            self.logger.info(f"🚑 Healing Position {trade_id}: Restoring missing bracket legs...")
+
+            # --- RESTORE TP ---
+            if not position.exchange_tp_id:
+                self.logger.info(f"🚑 Restoring TP @ {original_tp}")
+                # Create TP with anti-hang timeout
+                tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
+                tp_order = await asyncio.wait_for(
+                    self._create_tp_order(symbol, position.side, amount, original_tp, client_order_id=tp_client_id),
+                    timeout=timeout,
+                )
+
+                tp_id = tp_order.get("order_id") or tp_order.get("id")
+
+                # Atomic Register
+                self.tracker.register_bracket_alias(tp_id, position, "TP")
+
+                # Update Object
+                position.tp_order_id = tp_client_id
+                position.exchange_tp_id = str(tp_id)
+                position.tp_level = original_tp
+                position.tp_level = original_tp
+
+            # --- RESTORE SL ---
+            if not position.exchange_sl_id:
+                self.logger.info(f"🚑 Restoring SL @ {original_sl}")
+                # Create SL with anti-hang timeout
+                sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+                sl_order = await asyncio.wait_for(
+                    self._create_sl_order(symbol, position.side, amount, original_sl, client_order_id=sl_client_id),
+                    timeout=timeout,
+                )
+
+                sl_id = sl_order.get("order_id") or sl_order.get("id")
+
+                # Atomic Register
+                self.tracker.register_bracket_alias(sl_id, position, "SL")
+
+                # Update Object
+                position.sl_order_id = sl_client_id
+                position.exchange_sl_id = str(sl_id)
+                position.sl_level = original_sl
+                position.sl_level = original_sl
+
+            # Registers OCO pair if both exist now
+            if position.exchange_tp_id and position.exchange_sl_id:
+                await self.adapter.register_oco_pair(symbol, position.exchange_tp_id, position.exchange_sl_id)
+
+            # 3. Promote to ACTIVE if fully restored
+            if position.exchange_tp_id and position.exchange_sl_id:
+                position.status = "ACTIVE"
+                self.logger.info(f"✨ Position {trade_id} HEALED and set to ACTIVE.")
+                self.tracker._trigger_state_change()
+                return True
+            else:
+                self.logger.warning(f"⚠️ Position {trade_id} heal incomplete.")
+                position.status = old_status  # Revert status if failed
+                return False
+
+        except Exception as e:
+            self.logger.error(f"❌ Smart Healing Failed for {trade_id}: {e}")
+            position.status = old_status  # Revert on error
+            return False
