@@ -1277,6 +1277,24 @@ class PositionTracker:
             self.new_shorts += 1
         return position
 
+    def register_inflight_bracket(
+        self,
+        position: OpenPosition,
+        tp_client_id: str,
+        sl_client_id: str,
+    ) -> None:
+        """
+        Pre-registers TP/SL client_order_ids BEFORE sending orders to exchange.
+        Ensures WS events for these orders can be matched even if they arrive
+        before the HTTP response.
+
+        Phase 52: Closes the race condition gap for bracket orders.
+        """
+        # Pre-register aliases for O(1) lookup when WS events arrive
+        self.register_alias(tp_client_id, position)
+        self.register_alias(sl_client_id, position)
+        logger.debug(f"📌 Pre-registered bracket aliases: TP={tp_client_id}, SL={sl_client_id}")
+
     def add_position(self, position: OpenPosition):
         """
         Manually inject a position (used for reconciliation/adoption).

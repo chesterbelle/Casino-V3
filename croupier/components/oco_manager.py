@@ -314,6 +314,9 @@ class OCOManager:
                 tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
                 sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
 
+                # Phase 52: Pre-register aliases BEFORE HTTP calls (closes race condition)
+                self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
+
                 # Step 4: Create TP order with client_order_id
                 tp_order = await self._create_tp_order(
                     symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id
