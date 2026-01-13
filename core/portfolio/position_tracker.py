@@ -328,6 +328,61 @@ class PositionTracker:
         """
         return self._symbol_map.get(normalize_symbol(symbol), [])
 
+    def has_valid_bracket(self, trade_id: str, exchange_order_ids: set, exchange_client_ids: set = None) -> tuple:
+        """
+        Phase 54: Check if a position has valid TP and SL orders on the exchange.
+        Uses the Alias Map as the Single Source of Truth.
+
+        Args:
+            trade_id: Position trade ID
+            exchange_order_ids: Set of order IDs currently on exchange
+            exchange_client_ids: Optional set of client order IDs on exchange
+
+        Returns:
+            (has_tp: bool, has_sl: bool) tuple
+        """
+        position = self.get_position_by_id(trade_id)
+        if not position:
+            return (False, False)
+
+        exchange_client_ids = exchange_client_ids or set()
+
+        # Check TP: Look for any of this position's TP IDs in exchange orders
+        has_tp = False
+        tp_ids_to_check = []
+        if position.tp_order_id:
+            tp_ids_to_check.append(str(position.tp_order_id))
+        if position.exchange_tp_id:
+            tp_ids_to_check.append(str(position.exchange_tp_id))
+        if position.tp_order and position.tp_order.exchange_order_id:
+            tp_ids_to_check.append(str(position.tp_order.exchange_order_id))
+        if position.tp_order and position.tp_order.client_order_id:
+            tp_ids_to_check.append(str(position.tp_order.client_order_id))
+
+        for tp_id in tp_ids_to_check:
+            if tp_id in exchange_order_ids or tp_id in exchange_client_ids:
+                has_tp = True
+                break
+
+        # Check SL: Look for any of this position's SL IDs in exchange orders
+        has_sl = False
+        sl_ids_to_check = []
+        if position.sl_order_id:
+            sl_ids_to_check.append(str(position.sl_order_id))
+        if position.exchange_sl_id:
+            sl_ids_to_check.append(str(position.exchange_sl_id))
+        if position.sl_order and position.sl_order.exchange_order_id:
+            sl_ids_to_check.append(str(position.sl_order.exchange_order_id))
+        if position.sl_order and position.sl_order.client_order_id:
+            sl_ids_to_check.append(str(position.sl_order.client_order_id))
+
+        for sl_id in sl_ids_to_check:
+            if sl_id in exchange_order_ids or sl_id in exchange_client_ids:
+                has_sl = True
+                break
+
+        return (has_tp, has_sl)
+
     def _unregister_all_aliases(self, position: OpenPosition) -> None:
         """Removes all aliases associated with a position."""
         self.unregister_alias(position.trade_id)

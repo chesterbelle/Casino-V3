@@ -245,27 +245,10 @@ class ReconciliationService:
                 except (ValueError, TypeError):
                     pass
 
-            # Extract ID sets for dual-verification
+            # Phase 54: Use PositionTracker as Single Source of Truth for bracket validation
             open_order_ids = {str(o.get("id")) for o in open_orders}
             open_client_ids = {str(o.get("clientOrderId")) for o in open_orders}
-
-            # Check TP (Client ID OR Exchange ID)
-            has_tp_client = str(pos.tp_order_id) in open_client_ids
-            has_tp_exchange = str(pos.exchange_tp_id) in open_order_ids
-            # Also check the embedded OrderState object (Phase 31)
-            if not has_tp_exchange and pos.tp_order and pos.tp_order.exchange_order_id:
-                has_tp_exchange = str(pos.tp_order.exchange_order_id) in open_order_ids
-
-            has_tp = has_tp_client or has_tp_exchange
-
-            # Check SL (Client ID OR Exchange ID)
-            has_sl_client = str(pos.sl_order_id) in open_client_ids
-            has_sl_exchange = str(pos.exchange_sl_id) in open_order_ids
-            # Also check the embedded OrderState object (Phase 31)
-            if not has_sl_exchange and pos.sl_order and pos.sl_order.exchange_order_id:
-                has_sl_exchange = str(pos.sl_order.exchange_order_id) in open_order_ids
-
-            has_sl = has_sl_client or has_sl_exchange
+            has_tp, has_sl = self.tracker.has_valid_bracket(pos.trade_id, open_order_ids, open_client_ids)
 
             if not has_tp or not has_sl:
                 # --- CONCURRENCY GRACE PERIOD (Phase 34) ---
@@ -462,9 +445,27 @@ class ReconciliationService:
                 status="ACTIVE",  # Assume active if on exchange
             )
 
-            # Inject
+            # Inject position into tracker
             self.tracker.add_position(position)
+
+            # Phase 54: Register TP/SL IDs in Alias Map for orphan detection
+            tp_exchange_id = str(tp_order.get("id", ""))
+            sl_exchange_id = str(sl_order.get("id", ""))
+            tp_client_id = str(tp_order.get("clientOrderId", ""))
+            sl_client_id = str(sl_order.get("clientOrderId", ""))
+
+            if tp_exchange_id:
+                self.tracker.register_alias(tp_exchange_id, position)
+            if sl_exchange_id:
+                self.tracker.register_alias(sl_exchange_id, position)
+            if tp_client_id:
+                self.tracker.register_alias(tp_client_id, position)
+            if sl_client_id:
+                self.tracker.register_alias(sl_client_id, position)
+
+            self.logger.info(f"✅ Position adopted with aliases registered: {trade_id}")
             return True
+
         except Exception as e:
             self.logger.error(f"Assimilation failed: {e}")
             return False
