@@ -314,9 +314,6 @@ class OCOManager:
                 tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
                 sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
 
-                # Phase 52: Pre-register aliases BEFORE HTTP calls (closes race condition)
-                self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
-
                 # Step 4: Create TP order with client_order_id
                 tp_order = await self._create_tp_order(
                     symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id
@@ -542,7 +539,10 @@ class OCOManager:
                     tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
                     tp_id = tp_order.get("order_id") or tp_order.get("id")
 
-                    # Update state
+                    # Phase 55: Atomic Handover to Tracker (Fix Race Condition)
+                    self.tracker.register_bracket_alias(tp_id, position, "TP")
+
+                    # Update state (redundant but safe)
                     position.tp_order_id = tp_order.get("client_order_id") or tp_id
                     position.exchange_tp_id = tp_id
                     position.tp_level = new_tp_price
@@ -560,7 +560,10 @@ class OCOManager:
                     sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
                     sl_id = sl_order.get("order_id") or sl_order.get("id")
 
-                    # Update state
+                    # Phase 55: Atomic Handover to Tracker (Fix Race Condition)
+                    self.tracker.register_bracket_alias(sl_id, position, "SL")
+
+                    # Update state (redundant but safe)
                     position.sl_order_id = sl_order.get("client_order_id") or sl_id
                     position.exchange_sl_id = sl_id
                     position.sl_level = new_sl_price

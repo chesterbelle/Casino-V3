@@ -508,6 +508,34 @@ class PositionTracker:
         if exchange_order_id:
             self.unregister_alias(str(exchange_order_id))
 
+    def register_bracket_alias(self, order_id: str, position: OpenPosition, order_type: str) -> None:
+        """
+        Register a new TP/SL order alias atomically.
+        Used by OCOManager to ensure Tracker is consistent BEFORE liberating the modification lock.
+
+        Args:
+            order_id: The new exchange order ID.
+            position: The OpenPosition object.
+            order_type: 'TP' or 'SL'.
+        """
+        if not order_id or not position:
+            return
+
+        order_id = str(order_id)
+
+        # 1. Register in Alias Map (Single Source of Truth)
+        self.register_alias(order_id, position)
+
+        # 2. Update Position Object Fields (in case caller hasn't yet, though it should)
+        # This acts as a safety enforcement of consistency
+        if order_type == "TP":
+            position.exchange_tp_id = order_id
+        elif order_type == "SL":
+            position.exchange_sl_id = order_id
+
+        logger.info(f"⚡ Atomic Alias Registered: {order_type} {order_id} -> {position.symbol}")
+        self._trigger_state_change()
+
     def handle_order_update(self, event: Dict[str, Any]) -> Optional[str]:
         """
         Handle WebSocket ORDER_UPDATE event with O(1) lookup.

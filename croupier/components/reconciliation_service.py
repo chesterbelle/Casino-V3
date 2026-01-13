@@ -62,12 +62,17 @@ class ReconciliationService:
         reports = []
 
         try:
-            # 1. Fetch EVERYTHING (Single pass)
-            # Use None to fetch all
-            exchange_positions = await self._fetch_exchange_positions(None)
+            # 1. Fetch current exchange state
+            # Use [] to fetch ALL symbols, bypassing the adapter's single-symbol pin
+            exchange_positions = await self._fetch_exchange_positions([])
             if exchange_positions is None:
                 self.logger.error("❌ Aborting global reconciliation due to fetch error")
                 return []
+
+            open_orders = await self.adapter.fetch_open_orders([])
+            self.logger.info(
+                f"[SYNC] 🔍 Global sync sees {len(exchange_positions)} positions and {len(open_orders)} orders"
+            )
 
             # Phase 16: Active Verification (Anti-Glitch Safety Valve)
             # If local tracking shows significant activity but exchange reports ZERO, verify hard.

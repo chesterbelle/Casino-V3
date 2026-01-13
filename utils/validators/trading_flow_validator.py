@@ -231,10 +231,20 @@ class PreflightValidator:
             limit_price = round(price * 0.90, 2)  # 10% below
 
             # Create limit order via OrderExecutor
-            # Dynamic sizing: Ensure > 5 USD (Target 10 USD)
-            target_notional = 10.0
+            # Dynamic sizing: Ensure > 100 USD (Binance Testnet restriction observed)
+            target_notional = 110.0
+
+            # 1. Calculate raw amount
             raw_amount = target_notional / limit_price
+
+            # 2. Get Precision
+            # If adapter has precision info, ensure we meet min quantity
             test_amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
+
+            # 3. Last resort safety check for BTC (if amount is 0 due to truncation)
+            if test_amount == 0.0:
+                logger.warning(f"⚠️ Calculated test amount was 0.0 (Price: {limit_price}). Forcing 0.001 minimum.")
+                test_amount = 0.001
 
             logger.info(f"📤 Creating limit order: buy {test_amount} @ {limit_price}")
             result = await self.croupier.order_executor.execute_limit_order(
@@ -287,12 +297,13 @@ class PreflightValidator:
 
         try:
             # Create order with OCO
-            # Calculate amount (Master Sizing simulation)
+            # Calculate amount (Master Sizing simulation - SAFE 110 NOTIONAL)
             price = await self.adapter.get_current_price(self.symbol)
-            # Use small fixed notional for test (e.g. 15 USDT to be safe > 5)
-            notional = 15.0
-            raw_amount = notional / price
+            target_notional = 110.0
+            raw_amount = target_notional / price
             amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
+            if amount == 0.0:
+                amount = 0.001
 
             # Create order with OCO
             order = {

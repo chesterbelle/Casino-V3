@@ -140,7 +140,14 @@ class ExchangeAdapter(NetworkIterator):
 
         # REST Fallback
         target_symbols = symbols
-        if not target_symbols and self.symbol != "MULTI":
+        # If symbols is NOT explicitly None (e.g. [], ['BTC']), we use it.
+        # If symbols IS None and we are pinned to a symbol, we use that symbol by default.
+        # BUT we need a way for global services (like Reconciler) to fetch EVERYTHING.
+        # Convention: pass an empty list [] to fetch EVERYTHING if the adapter is pinned?
+        # Actually, let's keep it simple: if symbols is explicitly None, and we are NOT MULTI, we pin.
+        # If symbols is a list (even empty), we pass it through.
+
+        if target_symbols is None and self.symbol != "MULTI":
             target_symbols = [self.symbol]
 
         return await self.connector.fetch_positions(target_symbols)
@@ -589,12 +596,12 @@ class ExchangeAdapter(NetworkIterator):
         Fetch all open orders for a symbol.
 
         Args:
-            symbol: Trading symbol (uses self.symbol if not provided)
+            symbol: Trading symbol (uses self.symbol if explicitly None)
 
         Returns:
             List of open orders
         """
-        if not symbol and self.symbol != "MULTI":
+        if symbol is None and self.symbol != "MULTI":
             symbol = self.symbol
         return await self.connector.fetch_open_orders(symbol)
 
@@ -603,14 +610,14 @@ class ExchangeAdapter(NetworkIterator):
         Fetch user's trade history.
 
         Args:
-            symbol: Trading symbol (uses self.symbol if not provided)
+            symbol: Trading symbol (uses self.symbol if explicitly None)
             since: Timestamp in ms
             limit: Num trades
 
         Returns:
             List of trades
         """
-        if not symbol and self.symbol != "MULTI":
+        if symbol is None and self.symbol != "MULTI":
             symbol = self.symbol
         if hasattr(self.connector, "fetch_my_trades"):
             return await self.connector.fetch_my_trades(symbol, since, limit)
