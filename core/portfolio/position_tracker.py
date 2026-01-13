@@ -398,17 +398,17 @@ class PositionTracker:
             position: Optional pre-fetched position object (used if already removed from tracker).
         """
         target = position or self.get_position(trade_id)
-        if target and target._lock.locked():
-            target._lock.release()
-            logger.debug(f"🔓 Governance lock released for {trade_id}")
+        if target:
+            if target._lock.locked():
+                target._lock.release()
+                logger.debug(f"🔓 Governance lock released for {trade_id}")
 
-        for contrib_id in position.contributors or []:
-            self.unregister_alias(contrib_id)
+            # Note: Unregister contributors here (they are aliases)
+            for contrib_id in target.contributors or []:
+                self.unregister_alias(contrib_id)
 
-        # Phase 46.1: Ensure Symbol Map Cleanup (Centralized)
-        sym_norm = normalize_symbol(position.symbol)
-        if sym_norm in self._symbol_map and position in self._symbol_map[sym_norm]:
-            self._symbol_map[sym_norm].remove(position)
+        # Phase 46.1: Symbol Map Cleanup REMOVED from unlock.
+        # It is now handled EXCLUSIVELY by finalize_removal (Phase 48).
 
     def set_state_change_callback(self, callback: Callable[[], Awaitable[None]]):
         """Register callback for immediate state persistence."""
@@ -482,6 +482,24 @@ class PositionTracker:
             logger.info(f"🛑 SL FILLED detected for {position.trade_id} via unified routing")
             self._handle_sl_filled(position, event)
         elif event_type == "MAIN_FILLED":
+            # Phase 50: In-Flight Promotion (OPENING -> ACTIVE)
+            if position.status == "OPENING":
+                position.status = "ACTIVE"
+                logger.info(f"✅ Promoted In-Flight Position {position.trade_id} to ACTIVE")
+
+                # If we were tracking by client ID, update to exchange ID
+                if exchange_id and position.trade_id != str(exchange_id):
+                    # Keep client ID alias, but update primary ID
+                    old_id = position.trade_id
+                    position.trade_id = str(exchange_id)
+                    self.register_alias(str(exchange_id), position)
+                    logger.info(f"🔄 Swapped ID: {old_id} -> {position.trade_id}")
+
+            # Recalculate entry based on actual fill
+            fill_price = float(event.get("ap", 0) or event.get("average", 0) or event.get("L", 0))
+            if fill_price > 0:
+                position.entry_price = fill_price
+
             logger.info(f"✅ MAIN FILLED for {position.trade_id} via unified routing")
 
         return position.trade_id
@@ -870,11 +888,7 @@ class PositionTracker:
             Confirmed close result or None if position not found
         """
         # Buscar posición
-        position = None
-        for pos in self.open_positions:
-            if pos.trade_id == trade_id:
-                position = pos
-                break
+        position = self.get_position(trade_id)
 
         if not position:
             logger.warning(f"⚠️ No se encontró posición para confirmar: {trade_id}")
@@ -913,22 +927,22 @@ class PositionTracker:
         if trade_id in self.pending_confirmations:
             del self.pending_confirmations[trade_id]
 
-            # --- Alias Map Cleanup ---
-        self._unregister_all_aliases(position)
-        # -------------------------
+        # LIFECYCLE ARCHITECTURE: Soft-Delete (Phase 48)
+        # We do NOT remove the position from open_positions here.
+        # Instead, we set status to OFF_BOARDING so ReconciliationService can see it.
+        # finalize_removal will handle the actual list removal.
+        position.status = "OFF_BOARDING"
+        position.exit_reason = exit_reason
+        position.realized_pnl = pnl
 
-        # Remover posición
-        self.open_positions.remove(position)
-        sym_norm = normalize_symbol(position.symbol)
-        if position in self._symbol_map.get(sym_norm, []):
-            self._symbol_map[sym_norm].remove(position)
+        # Note: We still unregister all aliases here to "hide" it from future WS updates
+        self._unregister_all_aliases(position)
 
         # Liberar capital bloqueado
         self.blocked_capital -= position.margin_used
         self.total_trades_closed += 1
 
         # Track wins/losses based on PnL (positive = win, negative/zero = loss)
-        # Any exit that makes money is a win, regardless of exit reason
         if exit_reason in ["ERROR", "FORCED_CLOSE", "CLI_FORCE_CLOSE", "SAFETY_CLOSE"]:
             self.total_errors += 1
         elif exit_reason in ["TIMEOUT", "TIME_EXIT"]:
@@ -1112,8 +1126,7 @@ class PositionTracker:
                 # Fetch recent trades for this symbol
                 trades = await self.adapter.fetch_my_trades(found_pos.symbol, limit=20)
 
-                # Match by trade_id (Binance Client Order ID often matches our trade_id)
-                # Note: We look for ANY trade that corresponds to this position's entry or exit
+                # Match by trade_id
                 relevant_trades = [
                     t
                     for t in trades
@@ -1141,7 +1154,7 @@ class PositionTracker:
             side=found_pos.side,
             qty=found_pos.notional / found_pos.entry_price if found_pos.entry_price > 0 else 0,
             entry_price=found_pos.entry_price,
-            exit_price=found_pos.entry_price,  # Use entry as proxy if unknown
+            exit_price=found_pos.entry_price,
             fee=audit_fee,
             funding=found_pos.funding_accrued,
             reason=audit_reason,
@@ -1149,22 +1162,104 @@ class PositionTracker:
         )
 
         found_pos.exit_reason = audit_reason
-        found_pos.realized_pnl = audit_pnl  # Store audited PnL
+        found_pos.realized_pnl = audit_pnl
         found_pos.bars_held = self._calculate_bars_held(found_pos)
 
         # LIFECYCLE ARCHITECTURE: Soft-Delete (Phase 48)
-        # We KEEP the object in memory with status OFF_BOARDING
-        # so ReconciliationService can see it and respect it.
         found_pos.status = "OFF_BOARDING"
-        self.blocked_capital -= found_pos.margin_used  # Use blocked_capital logic here for safety
 
-        logger.info(
-            f"✅ Position Soft-Closed: {trade_id} | PnL: {audit_pnl:.2f} | Reason: {audit_reason} | Status: OFF_BOARDING"
-        )
-        self.total_errors += 1  # Still an error state for the tracker
-        self.total_trades_closed += 1  # Count as closed for stats
+        # Unregister aliases
+        self._unregister_all_aliases(found_pos)
+
+        # Audit stats
+        self.total_errors += 1
+        self.total_trades_closed += 1
+
+        return True
+
+    async def finalize_removal(self, trade_id: str) -> bool:
+        """Actual list removal called by GC."""
+        found_pos = None
+        for pos in self.open_positions:
+            if pos.trade_id == trade_id:
+                found_pos = pos
+                break
+
+        if not found_pos:
+            return False
+
+        self.open_positions.remove(found_pos)
+        sym_norm = normalize_symbol(found_pos.symbol)
+        if found_pos in self._symbol_map.get(sym_norm, []):
+            self._symbol_map[sym_norm].remove(found_pos)
+
+        logger.info(f"🧹 GC: Terminated OFF_BOARDING position {trade_id}")
         self._trigger_state_change()
         return True
+
+    def _calculate_bars_held(self, position: OpenPosition) -> int:
+        """Calculates holding time in bars (minutes)."""
+        if not position.entry_timestamp:
+            return 0
+        try:
+            val = float(position.entry_timestamp)
+            if val > 10**11:
+                val /= 1000.0  # ms to s
+            held_seconds = time.time() - val
+            return max(0, int(held_seconds / 60))
+        except Exception:
+            return 0
+
+    # =========================================================
+    # Phase 50: In-Flight Architecture Restoration
+    # =========================================================
+
+    def register_inflight_position(
+        self,
+        client_order_id: str,
+        symbol: str,
+        side: str,
+        amount: float,
+        notional: float,
+        leverage: float,
+        order_params: Dict[str, Any],
+    ) -> OpenPosition:
+        """Optimistically registers a position before fill."""
+        normalized_symbol = normalize_symbol(symbol)
+        position = OpenPosition(
+            trade_id=client_order_id,
+            symbol=normalized_symbol,
+            side=side,
+            entry_price=0.0,
+            entry_timestamp=str(time.time()),
+            margin_used=notional / leverage if leverage else 0,
+            notional=notional,
+            leverage=leverage,
+            tp_level=0.0,
+            sl_level=0.0,
+            liquidation_level=None,
+            order=order_params,
+            main_order_id=client_order_id,
+            status="OPENING",
+        )
+        main_order_state = OrderState(
+            client_order_id=client_order_id,
+            order_type="MAIN",
+            side=side,
+            amount=amount,
+            status="NEW",
+            created_at=time.time(),
+        )
+        position.main_order = main_order_state
+        self.register_alias(client_order_id, position)
+        self.register_order(position, main_order_state)
+        self.open_positions.append(position)
+        self._symbol_map[normalized_symbol].append(position)
+        if side == "LONG":
+            self.new_longs += 1
+        else:
+            self.new_shorts += 1
+        return position
 
     def add_position(self, position: OpenPosition):
         """

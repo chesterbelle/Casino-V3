@@ -129,26 +129,25 @@ class ReconciliationService:
                 orders_by_symbol[norm_sym].append(o)
                 open_orders_symbols.add(norm_sym)
 
-                # Discover all symbols to check (Tracker + Exchange + Open Orders)
-                # Use unified normalized symbols for all sources
-                local_symbols = {normalize_symbol(pos.symbol) for pos in self.tracker.open_positions}
-                exchange_symbols = {
-                    normalize_symbol(p["symbol"])
-                    for p in exchange_positions
-                    if abs(float(p.get("contracts", 0))) > 1e-8
-                }
-                all_symbols = local_symbols | exchange_symbols | open_orders_symbols
+            # Discover all symbols to check (Tracker + Exchange + Open Orders)
+            # Use unified normalized symbols for all sources
+            local_symbols = {normalize_symbol(pos.symbol) for pos in self.tracker.open_positions}
+            exchange_symbols = {
+                normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
+            }
+            all_symbols = local_symbols | exchange_symbols | open_orders_symbols
+            all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
-                for symbol in all_symbols:
-                    report = await self._reconcile_symbol_data(
-                        symbol,
-                        ex_pos_by_symbol[symbol],
-                        orders_by_symbol[symbol],
-                        mode="active",  # Default to active for global sync
-                    )
-                    reports.append(report)
+            for symbol in all_symbols:
+                report = await self._reconcile_symbol_data(
+                    symbol,
+                    ex_pos_by_symbol[symbol],
+                    orders_by_symbol[symbol],
+                    mode="active",  # Default to active for global sync
+                )
+                reports.append(report)
 
-                self.logger.info(f"[SYNC] ✅ Global reconciliation complete. {len(reports)} symbols processed.")
+            self.logger.info(f"[SYNC] ✅ Global reconciliation complete. {len(reports)} symbols processed.")
 
         except Exception as e:
             self.logger.error(f"❌ Global reconciliation failed: {e}", exc_info=True)

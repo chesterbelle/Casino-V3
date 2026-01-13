@@ -545,7 +545,7 @@ class StreamManager:
         price_changed = last_price is None or price_rounded != round(last_price, 8)
 
         if price_changed or self._tick_count % 100 == 0:
-            logger.debug(f"⚡ Tick: {symbol} {price}")
+            # logger.debug(f"⚡ Tick: {symbol} {price}") # DISABLED to prevent log explosion in MULTI mode
             self._last_price[symbol] = price
 
         # Periodic throughput log (every 1000 total ticks across all symbols)

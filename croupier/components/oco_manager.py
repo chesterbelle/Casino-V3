@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 from core.error_handling import RetryConfig, get_error_handler
 from core.observability.watchdog import watchdog
-from core.portfolio.position_tracker import OpenPosition, OrderState, PositionTracker
+from core.portfolio.position_tracker import OrderState, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
 # Timeout for price fetching during OCO (protects against REST breaker hangs)
@@ -201,6 +201,19 @@ class OCOManager:
             loop = asyncio.get_running_loop()
             future = loop.create_future()
             self.pending_orders[client_order_id] = future
+
+            # Step 0.5: OPTIMISTIC REGISTRATION (In-Flight Architecture)
+            # Register "OPENING" placeholder to prevent Friendly Fire from ReconciliationService
+            position = self.tracker.register_inflight_position(
+                client_order_id=client_order_id,
+                symbol=symbol,
+                side=side,
+                amount=order.get("amount", 0),
+                notional=order.get("notional", 0),
+                leverage=order.get("leverage", 1),
+                order_params=order,
+            )
+
             # Step 1: Execute main market order
             main_order = await self._execute_main_order(order, client_order_id=client_order_id)
             watchdog.heartbeat(
@@ -259,65 +272,37 @@ class OCOManager:
             watchdog.heartbeat(operation_id, f"Main filled at {fill_price} (Fee: {entry_fee})")
             self.logger.info(f"✅ Main order filled @ {fill_price} (Fee: {entry_fee})")
 
-            # Step 2.5: REGISTER TENTATIVE POSITION (State Machine: OPENING)
-            # This protects against "Stale Read" by Reconciliation Service during TP/SL creation.
+            # Step 2.5: REGISTER TENTATIVE POSITION (State Machine: OPENING) - MOVED TO PRE-FLIGHT (Step 0.5)
+            # Logic now handled by register_inflight_position above.
+            # We just need to update the object with the ACTUAL fill price.
 
-            # Calculate TP/SL prices (needed for position object)
+            # Re-calculate TP/SL based on ACTUAL fill price
             tp_price, sl_price = self._calculate_tp_sl_prices(
                 fill_price, side, order["take_profit"], order["stop_loss"], symbol
             )
 
-            # CRITICAL: Final validation with ACTUAL fill price
-            if tp_price <= 0 or sl_price <= 0:
-                self.logger.error(f"❌ Actual fill price {fill_price} resulted in 0.0 TP/SL! Aborting.")
-                raise OCOAtomicityError(f"Invalid OCO prices calculated: TP={tp_price}, SL={sl_price}")
+            # The position object was returned by register_inflight_position
+            # and is already in self.tracker.open_positions.
 
-            # Calculate liquidation level
-            entry_price = fill_price
-            leverage = order.get("leverage", 1)
-            liquidation_level = None
+            # Update position with confirmed data
+            leverage = order.get("leverage", 1)  # Ensure leverage is defined in this scope
+            position.entry_price = fill_price
+            position.entry_fee = entry_fee
+            position.tp_level = tp_price
+            position.sl_level = sl_price
+
             if leverage > 0:
+
                 if side == "LONG":
-                    liquidation_level = entry_price * (1.0 - (1.0 / leverage) + 0.005)
+                    position.liquidation_level = fill_price * (1.0 - (1.0 / leverage) + 0.005)
                 elif side == "SHORT":
-                    liquidation_level = entry_price * (1.0 + (1.0 / leverage) - 0.005)
+                    position.liquidation_level = fill_price * (1.0 + (1.0 / leverage) - 0.005)
 
-            # Create position object with status="OPENING"
-            position = OpenPosition(
-                trade_id=main_order.get("order_id") or main_order.get("id"),
-                symbol=symbol,
-                side=side,
-                entry_price=entry_price,
-                entry_timestamp=main_order.get("timestamp", ""),
-                margin_used=order.get("margin_used", 0),
-                notional=order.get("notional", 0),
-                leverage=leverage,
-                tp_level=tp_price,
-                sl_level=sl_price,
-                liquidation_level=liquidation_level,
-                order=order,
-                main_order_id=main_order.get("order_id") or main_order.get("id"),
-                tp_order_id=None,  # Pending
-                sl_order_id=None,  # Pending
-                exchange_tp_id=None,  # Pending
-                exchange_sl_id=None,  # Pending
-                contributors=contributors or [],
-                status="OPENING",  # CRITICAL: Signals "Construction in Progress"
-            )
+            # Note: We do NOT promote to ACTIVE here.
+            # That happens manually after TP/SL creation (Step 7), or automatically via WS.
+            # But for Manual OCO, we keep it as OPENING until the bracket is ready.
 
-            # Add to tracker IMMEDIATELY
-            self.tracker.open_positions.append(position)
-            self.tracker.total_trades_opened += 1
-            position.entry_fee = entry_fee  # Phase 30
-
-            # Update granular counters for Session Report
-            if side == "LONG":
-                self.tracker.new_longs += 1
-            else:
-                self.tracker.new_shorts += 1
-
-            self.tracker._trigger_state_change()
-            self.logger.info(f"[TRADE] 🛡️ Position Opening: {position.trade_id} (Protection pending)")
+            self.logger.info(f"[TRADE] 🛡️ Position Fill Confirmed: {position.trade_id}")
 
             try:
                 # =========================================================
