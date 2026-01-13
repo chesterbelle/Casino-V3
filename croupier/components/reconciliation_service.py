@@ -690,62 +690,77 @@ class ReconciliationService:
     ) -> int:
         """
         Cancel orphaned orders (orders without associated position).
-        Uses pre-fetched data for optimization.
+
+        Phase 53: Uses PositionTracker.get_position_by_id() as the Single Source of Truth.
+        This eliminates the ID mismatch bug where client IDs were compared against exchange IDs.
         """
         if not open_orders:
             return 0
 
-        # Check if exchange has open position
-
-        tracked_order_ids = set()
-
-        # Only trust tracker if position actually exists on exchange
-        # (Though we likely purged ghosts already, double check safely)
-        for pos in self.tracker.open_positions:
-            if pos.symbol == symbol:
-                if self._exists_in_exchange(pos, exchange_positions):
-                    if pos.main_order_id:
-                        tracked_order_ids.add(str(pos.main_order_id))
-                    if pos.tp_order_id:
-                        tracked_order_ids.add(str(pos.tp_order_id))
-                    if pos.sl_order_id:
-                        tracked_order_ids.add(str(pos.sl_order_id))
+        # Check if there's any exchange position for this symbol
+        has_exchange_position = any(
+            normalize_symbol(ep.get("symbol", "")) == symbol and float(ep.get("contracts", 0)) != 0
+            for ep in exchange_positions
+        )
 
         # Cancel un-tracked orders
         cancelled_count = 0
         for order in open_orders:
             order_id = str(order.get("id", ""))
-            if order_id and order_id not in tracked_order_ids:
-                # Safety: If we have a position but we don't track this order,
-                # be careful. But strictly, if it's not in our tracked_ids (which includes adopted ones),
-                # it is an orphan.
-                if mode == "audit":
-                    self.logger.info(f"🕵️ Orphan detected: {order_id} (not cancelled in audit mode)")
-                    continue
+            client_order_id = str(order.get("clientOrderId", ""))
 
-                try:
-                    # Phase 45: Delegate to OrderExecutor
-                    if self.croupier and self.croupier.order_executor:
-                        await self.croupier.order_executor.cancel_order(order_id, symbol)
-                        cancelled_count += 1
-                    else:
-                        # Fallback to direct call if for some reason Croupier is missing executor
-                        await self.error_handler.execute_with_breaker(
-                            "reconciliation_cancel",
-                            self.adapter.cancel_order,
-                            order_id,
-                            symbol,
-                            retry_config=self.reconcile_retry_config,
-                        )
-                        self.logger.info(f"🧹 [Fallback] Cancelled orphaned order: {order_id}")
-                        cancelled_count += 1
-                except Exception as e:
-                    # Idempotency: If order doesn't exist (-2011), consider it cancelled
-                    if "-2011" in str(e) or "Unknown order" in str(e):
-                        self.logger.info(f"🧹 Orphan order {order_id} already gone (treated as success)")
-                        cancelled_count += 1
-                    else:
-                        self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
+            if not order_id:
+                continue
+
+            # PHASE 53: Use PositionTracker as Single Source of Truth
+            # Check if this order (by exchange ID or client ID) is associated with any tracked position
+            position_by_exchange_id = self.tracker.get_position_by_id(order_id)
+            position_by_client_id = self.tracker.get_position_by_id(client_order_id) if client_order_id else None
+
+            is_tracked = position_by_exchange_id is not None or position_by_client_id is not None
+
+            # If order is tracked AND the position exists on exchange, it's legitimate
+            if is_tracked:
+                # Double-check: If the associated position exists on exchange, order is NOT orphan
+                pos = position_by_exchange_id or position_by_client_id
+                if pos and self._exists_in_exchange(pos, exchange_positions):
+                    continue  # Legitimate order, skip
+
+            # If there's a position on exchange but we don't track this order, be careful
+            # It might be a newly created order that hasn't been registered yet
+            if has_exchange_position and client_order_id and "CASINO_" in client_order_id:
+                # This is likely our own order that's in-flight; skip for safety
+                self.logger.debug(f"⏳ Skipping potential in-flight order: {order_id} ({client_order_id})")
+                continue
+
+            # This order is truly orphaned
+            if mode == "audit":
+                self.logger.info(f"🕵️ Orphan detected: {order_id} (not cancelled in audit mode)")
+                continue
+
+            try:
+                # Phase 45: Delegate to OrderExecutor
+                if self.croupier and self.croupier.order_executor:
+                    await self.croupier.order_executor.cancel_order(order_id, symbol)
+                    cancelled_count += 1
+                else:
+                    # Fallback to direct call if for some reason Croupier is missing executor
+                    await self.error_handler.execute_with_breaker(
+                        "reconciliation_cancel",
+                        self.adapter.cancel_order,
+                        order_id,
+                        symbol,
+                        retry_config=self.reconcile_retry_config,
+                    )
+                    self.logger.info(f"🧹 [Fallback] Cancelled orphaned order: {order_id}")
+                    cancelled_count += 1
+            except Exception as e:
+                # Idempotency: If order doesn't exist (-2011), consider it cancelled
+                if "-2011" in str(e) or "Unknown order" in str(e):
+                    self.logger.info(f"🧹 Orphan order {order_id} already gone (treated as success)")
+                    cancelled_count += 1
+                else:
+                    self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
 
         return cancelled_count
 
