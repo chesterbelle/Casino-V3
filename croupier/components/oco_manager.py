@@ -387,10 +387,16 @@ class OCOManager:
                 self.tracker.register_order(position, tp_order_state)
                 self.tracker.register_order(position, sl_order_state)
 
-                # Finalize position state
-                position.status = "ACTIVE"
+                # Finalize position state (Phase 51: Atomic Promotion)
+                if position.status == "OPENING":
+                    position.status = "ACTIVE"
+                    self.logger.info(f"[TRADE] ✅ Position Active (via OCOManager): {position.trade_id}")
+                else:
+                    self.logger.info(
+                        f"[TRADE] ℹ️ Position status is {position.status}, skipping manual promotion to ACTIVE"
+                    )
+
                 self.tracker._trigger_state_change()
-                self.logger.info(f"[TRADE] ✅ Position Active: {position.trade_id}")
 
             except Exception as e:
                 # If TP/SL creation fails, the position is broken/partial.

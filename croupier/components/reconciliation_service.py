@@ -233,6 +233,18 @@ class ReconciliationService:
             if status in ["OPENING", "CLOSING", "MODIFYING", "OFF_BOARDING"]:
                 continue
 
+            # Phase 51: Naked Protection Grace Period
+            # If position is ACTIVE but missing brackets, give it 60 seconds before force-closing.
+            # This prevents race conditions where the main order is filled but OCOManager is still creating brackets.
+            if status == "ACTIVE":
+                try:
+                    entry_time = float(pos.entry_timestamp or 0)
+                    if (time.time() - entry_time) < 60:
+                        # self.logger.debug(f"⏳ Sync: {pos.trade_id} is ACTIVE but in 60s grace period. Skipping naked check.")
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
             # Extract ID sets for dual-verification
             open_order_ids = {str(o.get("id")) for o in open_orders}
             open_client_ids = {str(o.get("clientOrderId")) for o in open_orders}

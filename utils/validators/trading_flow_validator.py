@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from croupier.components.reconciliation_service import ReconciliationService
 from croupier.croupier import Croupier
 from exchanges.adapters import ExchangeAdapter
 from exchanges.connectors.binance.binance_native_connector import BinanceNativeConnector
@@ -130,7 +131,21 @@ class PreflightValidator:
         self.croupier = Croupier(
             exchange_adapter=self.adapter, initial_balance=self.initial_balance, max_concurrent_positions=10
         )
-        logger.info("✅ Croupier initialized")
+        # LIFECYCLE SUPPORT: Initialize Reconciliation Service for GC (Phase 48)
+        self.recon_service = ReconciliationService(
+            self.adapter, self.croupier.position_tracker, self.croupier.oco_manager, self.croupier
+        )
+        self.croupier.reconciliation_service = self.recon_service
+        logger.info("✅ Croupier & Reconciliation initialized")
+
+        # 4.1 Register order update callback (matches main.py)
+        # This is CRITICAL for PositionTracker to see fills and close positions!
+        async def async_order_update_handler(order):
+            self.croupier.position_tracker.handle_order_update(order)
+            await self.croupier.oco_manager.on_order_update(order)
+
+        self.connector.set_order_update_callback(async_order_update_handler)
+        logger.info("✅ Order update callback registered")
 
         # 5. Pre-test cleanup - ensure clean slate
         await self._force_cleanup()
@@ -424,8 +439,12 @@ class PreflightValidator:
             # Close position (should cancel TP/SL)
             await self.croupier.close_position(trade_id)
 
+            # Trigger GC to remove OFF_BOARDING position
+            logger.info("🧹 Triggering GC (ReconciliationService) to finalize removal...")
+            await self.recon_service.reconcile_all()
+
             # Verify position removed from tracker
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             positions = self.croupier.position_tracker.open_positions
             assert len(positions) == 0, f"Position not closed! Still {len(positions)} open"
             logger.info(f"✅ Position removed from tracker")

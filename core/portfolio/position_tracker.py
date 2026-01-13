@@ -65,18 +65,28 @@ class OrderState:
     def update_from_event(self, event: Dict[str, Any]) -> bool:
         """Update order state from WebSocket event. Returns True if status changed."""
         old_status = self.status
-        self.status = event.get("X") or event.get("status", self.status)
+        # Handle both raw Binance (X) and normalized (status)
+        self.status = event.get("X") or event.get("status") or self.status
         self.last_updated = time.time()
 
         if self.status in ("FILLED", "closed"):
             self.filled_at = time.time()
-            self.filled_price = float(event.get("ap", 0) or event.get("average", 0) or event.get("L", 0))
+            # Handle normalized (average, filled) and raw (ap, L, z)
+            self.filled_price = float(
+                event.get("average") or event.get("ap") or event.get("L") or event.get("price") or 0
+            )
+
             fee_info = event.get("fee", {})
             if isinstance(fee_info, dict):
-                self.fee = float(fee_info.get("cost", 0) or 0)
+                self.fee = float(fee_info.get("cost") or event.get("n") or 0)
+            else:
+                self.fee = float(event.get("n") or 0)
 
         if not self.exchange_order_id:
-            self.exchange_order_id = str(event.get("i") or event.get("orderId") or event.get("id"))
+            # Handle normalized (order_id, id) and raw (i)
+            self.exchange_order_id = str(event.get("order_id") or event.get("id") or event.get("i") or "")
+            if self.exchange_order_id == "None":
+                self.exchange_order_id = None
 
         return old_status != self.status
 
@@ -127,7 +137,8 @@ class OpenPosition:
         Handle ORDER_UPDATE event for this position.
         Returns event type if matched: "TP_FILLED", "SL_FILLED", "MAIN_FILLED", or None.
         """
-        client_id = event.get("c") or event.get("clientOrderId")
+        # Support both raw (c) and normalized (client_order_id)
+        client_id = event.get("client_order_id") or event.get("c") or event.get("clientOrderId")
         if not client_id:
             return None
 
@@ -455,12 +466,13 @@ class PositionTracker:
         Returns:
             trade_id if event was matched to a position, None otherwise
         """
-        client_id = event.get("c") or event.get("clientOrderId")
-        exchange_id = str(event.get("i") or event.get("orderId") or event.get("id") or "")
+        # Support both raw and normalized keys (Phase 51 Normalization)
+        client_id = event.get("client_order_id") or event.get("c") or event.get("clientOrderId")
+        exchange_id = str(event.get("order_id") or event.get("id") or event.get("i") or event.get("orderId") or "")
 
         # O(1) lookup via Alias Map (Phase 44)
         position = self.get_position_by_id(client_id)
-        if not position and exchange_id:
+        if not position and exchange_id and exchange_id not in ("0", "", "None"):
             position = self.get_position_by_id(exchange_id)
 
         # Auto-Learning: Register Exchange ID if discovered for the first time
@@ -470,6 +482,8 @@ class PositionTracker:
                 logger.info(f"🧠 Alias Map learned: {exchange_id} -> {position.symbol}")
 
         if not position:
+            if client_id and "CASINO_" in str(client_id):
+                logger.debug(f"🕵️ WS Event UNMATCHED: ID={exchange_id} c={client_id}")
             return None
 
         # Delegate to position's event handler
@@ -488,7 +502,7 @@ class PositionTracker:
                 logger.info(f"✅ Promoted In-Flight Position {position.trade_id} to ACTIVE")
 
                 # If we were tracking by client ID, update to exchange ID
-                if exchange_id and position.trade_id != str(exchange_id):
+                if exchange_id and exchange_id not in ("0", "", "None") and position.trade_id != str(exchange_id):
                     # Keep client ID alias, but update primary ID
                     old_id = position.trade_id
                     position.trade_id = str(exchange_id)
@@ -496,11 +510,13 @@ class PositionTracker:
                     logger.info(f"🔄 Swapped ID: {old_id} -> {position.trade_id}")
 
             # Recalculate entry based on actual fill
-            fill_price = float(event.get("ap", 0) or event.get("average", 0) or event.get("L", 0))
+            # Support normalized and raw keys
+            fill_price = float(event.get("average") or event.get("ap") or event.get("price") or event.get("L") or 0)
+
             if fill_price > 0:
                 position.entry_price = fill_price
 
-            logger.info(f"✅ MAIN FILLED for {position.trade_id} via unified routing")
+            logger.info(f"✅ MAIN FILLED for {position.trade_id} via unified routing (@{fill_price})")
 
         return position.trade_id
 
