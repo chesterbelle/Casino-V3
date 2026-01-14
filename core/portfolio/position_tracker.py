@@ -55,7 +55,7 @@ class OrderState:
     amount: float = 0.0
     price: float = 0.0
     exchange_order_id: Optional[str] = None  # Binance ID (e.g., "142114122")
-    status: str = "PENDING"  # PENDING → OPEN → FILLED/CANCELED
+    status: str = "PENDING"  # PENDING -> OPEN -> FILLED/CANCELED
     fee: float = 0.0
     filled_price: float = 0.0
     filled_at: Optional[float] = None
@@ -171,10 +171,10 @@ class PositionTracker:
     -----------------------
     Positions are tracked with capital blocking and confirmed via WebSocket events:
 
-    1. Position opened → Capital blocked
+    1. Position opened -> Capital blocked
     2. TP/SL orders placed on exchange
     3. WebSocket monitors order fills
-    4. On fill → confirm_close() called → Capital released
+    4. On fill -> confirm_close() called -> Capital released
 
     Usage Example:
     --------------
@@ -1020,6 +1020,7 @@ class PositionTracker:
             "state_source": "exchange_confirmed",
             "contributors": position.contributors,
             "session_id": self.session_id,
+            "healed": position.healed,  # Phase 61: Resilience Attribution
         }
 
         # Remover de pending si estaba

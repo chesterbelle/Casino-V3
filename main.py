@@ -755,6 +755,10 @@ async def main():
         # 0.8. Generate Session Report (PRIORITY - Precise Historian Data)
         logger.info("📊 Generating Session Report...")
         try:
+            # Phase 64: Ledger Reconciliation
+            # Ensuring we capture Funding/Fees that happened during the session
+            await croupier.reconcile_ledger_with_exchange()
+
             # Pass final wallet balance to calculate leakage/adjustment
             summary = croupier.get_session_summary(final_balance=final_balance_usdt)
 
@@ -763,9 +767,13 @@ async def main():
             losses = summary.get("losses", 0)
             win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
 
-            # Phase 32: Separated PnL metrics
-            clean_pnl = summary.get("clean_pnl", 0.0) or 0.0
-            clean_count = summary.get("clean_count", 0) or 0
+            # Phase 61: Intelligent Attribution
+            strategy_pnl = summary.get("strategy_pnl", 0.0) or 0.0
+            strategy_count = summary.get("strategy_count", 0) or 0
+
+            healed_pnl = summary.get("healed_pnl", 0.0) or 0.0
+            healed_count = summary.get("healed_count", 0) or 0
+
             error_pnl = summary.get("error_pnl", 0.0) or 0.0
             error_count = summary.get("error_count", 0) or 0
 
@@ -788,10 +796,31 @@ async def main():
             logger.info(f"   Start Balance: {start_bal:.2f} USDT")
             logger.info(f"   Final Balance: {final_bal_float if final_bal_float is not None else 'N/A'}")
             logger.info("   --------------------------------------")
-            # Phase 32: Clean trades = Strategy performance, Error trades = Execution issues
-            logger.info(f"   📈 Strategy PnL: {clean_pnl:+.4f} USDT ({clean_count} clean trades)")
-            logger.info(f"   🔧 Error Recovery: {error_pnl:+.4f} USDT ({error_count} error trades)")
-            logger.info(f"   🧹 Audit Adjust: {adjustment_str} (Ghosts/Fees/Funding)")
+            # Phase 61: Intelligent Breakdown
+            total_funding = summary.get("total_funding", 0.0) or 0.0
+
+            logger.info(f"   📈 Strategy PnL: {strategy_pnl:+.4f} USDT ({strategy_count} trades)")
+            if healed_count > 0:
+                logger.info(f"      ↳ 🛡️ Saved by Resilience: {healed_pnl:+.4f} USDT ({healed_count} healed)")
+
+            logger.info(f"   🔧 Error Leakage: {error_pnl:+.4f} USDT ({error_count} error trades)")
+
+            logger.info("   --------------------------------------")
+            logger.info("   🧾 Recorded Expenses (Database):")
+            logger.info(f"      • Fees Paid: {total_fees:.4f} USDT")
+            logger.info(f"      • Funding:   {total_funding:.4f} USDT")
+
+            logger.info("   --------------------------------------")
+            # Phase 63: Granularity
+            # "Audit Adjust" was ambiguous. "Unexplained Variance" is clearer.
+            # It represents (Account Delta) - (All Recorded PnL).
+            # If 0.00, it means DB perfectly matches Wallet.
+            # If negative/positive, it means Ghosts, Exchange Lag, or Unrecorded Liq/Funding.
+            variance_label = "✅ Perfect Sync" if abs(adjustment or 0) < 0.0001 else "⚠️ Unexplained Variance"
+            logger.info(f"   ❓ {variance_label}: {adjustment_str}")
+            if abs(adjustment or 0) > 0.0001:
+                logger.info("      (Possible Causes: Ghosts, Exchange Lag, Unrecorded Funding)")
+
             logger.info(f"   💰 Account Delta: {account_delta_str}")
             logger.info("   --------------------------------------")
             logger.info(f"   Total Fees Paid: {total_fees:.4f} USDT")

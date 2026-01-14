@@ -880,6 +880,27 @@ class Croupier(TimeIterator):
         """Deprecated in V4 - use Clock instead."""
         pass
 
+    async def reconcile_ledger_with_exchange(self):
+        """
+        Fetch Income History (Ledger) from exchange and reconcile with local DB.
+        Eliminates 'Unexplained Variance' by capturing Funding Fees and Adjustments.
+        """
+        self.logger.info("🏦 Starting Ledger Reconciliation (Bank Statement Match)...")
+        try:
+            # Fetch last 24h or last 1000 records
+            # start_time = None (Defaults to recent)
+            income_history = await self.adapter.fetch_income(income_type=None, limit=1000)
+
+            if income_history:
+                # Delegate to Historian
+                historian.reconcile_ledger(income_history)
+                self.logger.info("✅ Ledger Reconciliation Complete.")
+            else:
+                self.logger.info("ℹ️ No Income History records returned from exchange.")
+
+        except Exception as e:
+            self.logger.error(f"❌ Ledger Reconciliation Failed: {e}")
+
     def set_process_start_balance(self, balance: float):
         """Sets the exact balance at the start of this execution."""
         self.process_start_balance = float(balance)
@@ -906,8 +927,9 @@ class Croupier(TimeIterator):
 
         if final_bal_float is not None and self.process_start_balance > 0:
             account_delta = final_bal_float - self.process_start_balance
-            # Leakage = Actual change - Strategy PnL
-            # This accounts for ghosts, funding, and other untracked adjustments
+            # Leakage = Actual change - Strategy PnL (from historian)
+            # Strategy PnL in stats now includes healed trades (Phase 61)
+            # But Total Net PnL is the ground truth sum of all trades in DB
             leakage = account_delta - strategy_net_pnl
             verified = True
         else:

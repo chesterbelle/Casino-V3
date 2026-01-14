@@ -56,13 +56,20 @@ class TradeHistorian:
                 exit_reason TEXT,
                 timestamp TEXT,
                 bars_held INTEGER,
-                session_id TEXT
+                session_id TEXT,
+                healed BOOLEAN DEFAULT 0
             )
         """
         )
         # Schema Evolution: Add session_id if it doesn't exist
         try:
             conn.execute("ALTER TABLE trades ADD COLUMN session_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Already exists
+
+        # Phase 61: Schema Evolution for Resilience Attribution
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN healed BOOLEAN DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # Already exists
 
@@ -85,6 +92,7 @@ class TradeHistorian:
         - trade_id, symbol, side, entry_price, exit_price, notional,
         - pnl (gross), fee, funding, exit_reason, bars_held, session_id,
         - qty (optional, derived from notional if missing)
+        - healed (optional, bool)
         """
         try:
             trade_id = trade_data.get("trade_id")
@@ -119,13 +127,14 @@ class TradeHistorian:
                 qty = 0.00000001  # Token qty to prevent DB null/0 issues if it's a ghost trace
 
             session_id = trade_data.get("session_id")
+            healed = 1 if trade_data.get("healed") else 0
 
             with self._get_conn() as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         trade_id,
@@ -142,6 +151,7 @@ class TradeHistorian:
                         datetime.now().isoformat(),
                         trade_data.get("bars_held", 0),
                         session_id,
+                        healed,
                     ),
                 )
                 conn.commit()
@@ -150,6 +160,99 @@ class TradeHistorian:
             )
         except Exception as e:
             logger.error(f"❌ Historian: Error recording trade: {e}")
+
+    def reconcile_ledger(self, income_records: List[Dict[str, Any]]):
+        """
+        Reconciles Ledger (Income History) to capture missing Funding Fees.
+        Uses 'tranId' as the unique trade_id for funding records.
+        """
+        count = 0
+        total_restored = 0.0
+
+        with self._get_conn() as conn:
+            for record in income_records:
+                income_type = record.get("incomeType")
+                # Only target safe types that are definitely not duplicate trade PnL
+                # FUNDING_FEE: Periodic funding payments
+                # COMMISSION: Usually referral rebates or non-trade fees
+                # INSURANCE_CLEAR: Liquidation insurance clearance
+                # ADL_TRADE: Auto-Deleveraging (handled as trade usually, but safe to check)
+                if income_type not in ["FUNDING_FEE", "INSURANCE_CLEAR", "ADJUSTMENT", "COMMISSION"]:
+                    continue
+
+                # Skip COMMISSION if it's associated with a trade (has a valid tradeId/orderId)
+                # But typically funding commission is distinct.
+                # To be safe, we rely on tranId uniqueness.
+
+                tran_id = str(record.get("tranId"))
+
+                # Check existence
+                cursor = conn.execute("SELECT 1 FROM trades WHERE trade_id = ?", (tran_id,))
+                if cursor.fetchone():
+                    continue
+
+                # Prepare record
+                amount = float(record.get("income", 0.0))
+                symbol = record.get("symbol", "UNKNOWN")
+                # Timestamp from ms to ISO
+                ts_ms = record.get("time", 0)
+                timestamp = datetime.fromtimestamp(ts_ms / 1000.0).isoformat()
+
+                # Calculating columns
+                # Net PnL = Gross - Fee - Funding
+                # If Income = -5 (Cost):
+                #   Funding Case: funding=5, net_pnl=-5
+                #   Commission Case: fee=5, net_pnl=-5
+                #   Adjustment Case: gross=-5, net_pnl=-5
+
+                gross = 0.0
+                fee = 0.0
+                funding = 0.0
+
+                if income_type == "FUNDING_FEE":
+                    funding = -amount  # If amount is -5 (cost), funding is 5
+                elif income_type == "COMMISSION":
+                    fee = -amount
+                else:
+                    gross = amount
+
+                # Verify math
+                net_pnl = gross - fee - funding
+                # e.g. Funding -5: 0 - 0 - (5) = -5. Correct.
+
+                conn.execute(
+                    """
+                    INSERT INTO trades
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tran_id,
+                        symbol,
+                        "FLAT",  # side
+                        0.0,
+                        0.0,
+                        0.0,  # prices/qty
+                        fee,
+                        funding,
+                        gross,
+                        net_pnl,
+                        income_type,  # exit_reason
+                        timestamp,
+                        0,  # bars_held
+                        "LEDGER_SYNC",  # session_id
+                        1,  # healed (it's a system fix)
+                    ),
+                )
+                count += 1
+                total_restored += amount
+
+            conn.commit()
+
+        if count > 0:
+            logger.info(
+                f"💰 Ledger Reconciliation: Restored {count} records | Total Impact: {total_restored:+.4f} USDT"
+            )
 
     def update_trade_fee(self, trade_id: str, fee: float, exit_price: Optional[float] = None):
         """
@@ -262,14 +365,20 @@ class TradeHistorian:
                     SUM(funding) as total_funding,
                     SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
                     SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses,
-                    -- Phase 32: Clean trades (Strategy PnL)
-                    SUM(CASE WHEN exit_reason IN ('TP', 'SL', 'MANUAL') THEN net_pnl ELSE 0 END) as clean_pnl,
-                    SUM(CASE WHEN exit_reason IN ('TP', 'SL', 'MANUAL') THEN 1 ELSE 0 END) as clean_count,
-                    SUM(CASE WHEN exit_reason IN ('TP', 'SL', 'MANUAL') THEN fee ELSE 0 END) as clean_fees,
-                    -- Phase 32: Error recovery trades (Audit Adjust)
-                    SUM(CASE WHEN exit_reason NOT IN ('TP', 'SL', 'MANUAL') OR exit_reason IS NULL THEN net_pnl ELSE 0 END) as error_pnl,
-                    SUM(CASE WHEN exit_reason NOT IN ('TP', 'SL', 'MANUAL') OR exit_reason IS NULL THEN 1 ELSE 0 END) as error_count,
-                    SUM(CASE WHEN exit_reason NOT IN ('TP', 'SL', 'MANUAL') OR exit_reason IS NULL THEN fee ELSE 0 END) as error_fees
+
+                    -- Phase 61: Intelligent PnL Attribution
+                    -- Strategy PnL = Clean + Healed
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') OR healed=1) AND exit_reason NOT LIKE 'AUDIT_%' THEN net_pnl ELSE 0 END) as strategy_pnl,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') OR healed=1) AND exit_reason NOT LIKE 'AUDIT_%' THEN 1 ELSE 0 END) as strategy_count,
+
+                    -- Resilience PnL (Subset of Strategy) = Healed Trades
+                    SUM(CASE WHEN healed=1 THEN net_pnl ELSE 0 END) as healed_pnl,
+                    SUM(CASE WHEN healed=1 THEN 1 ELSE 0 END) as healed_count,
+
+                    -- Error/Leakage PnL = True Errors (Ghosts, Force Closes, Audits)
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') AND healed=0) OR exit_reason LIKE 'AUDIT_%') THEN net_pnl ELSE 0 END) as error_pnl,
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') AND healed=0) OR exit_reason LIKE 'AUDIT_%') THEN 1 ELSE 0 END) as error_count
+
                 FROM trades
             """
             if session_id:
@@ -291,12 +400,12 @@ class TradeHistorian:
                         "total_funding": 0.0,
                         "wins": 0,
                         "losses": 0,
-                        "clean_pnl": 0.0,
-                        "clean_count": 0,
-                        "clean_fees": 0.0,
+                        "strategy_pnl": 0.0,
+                        "strategy_count": 0,
+                        "healed_pnl": 0.0,
+                        "healed_count": 0,
                         "error_pnl": 0.0,
                         "error_count": 0,
-                        "error_fees": 0.0,
                     }
                 )
         except Exception as e:

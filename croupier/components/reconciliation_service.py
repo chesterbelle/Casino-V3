@@ -316,6 +316,8 @@ class ReconciliationService:
                 if pos.order and self.oco_manager:
                     try:
                         self.logger.info(f"🚑 Smart Healing: Attempting to repair naked position {pos.trade_id}...")
+                        # Phase 61: Mark as healed before restoration
+                        pos.healed = True
                         # Phase 57.4: Explicitly pass which legs are missing to force re-creation
                         healed = await self.oco_manager.restore_bracket(
                             pos, missing_tp=not has_tp, missing_sl=not has_sl
