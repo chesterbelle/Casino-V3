@@ -159,12 +159,26 @@ class BinanceNativeConnector(BaseConnector):
         """Get current timestamp in milliseconds with server offset."""
         return int(time.time() * 1000) + self._time_offset
 
-    def _sign_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Sign parameters with HMAC-SHA256."""
-        query_string = urlencode(params)
+    def _sign_params(self, params: Dict[str, Any]) -> str:
+        """
+        Sign parameters with HMAC-SHA256 and return URL-encoded string.
+
+        CRITICAL: We must ensure strict ordering and manual encoding to prevent
+        aiohttp from inadvertantly re-ordering parameters, which causes -1022 errors.
+        """
+        # 1. Sort parameters handling None values
+        sorted_params = dict(sorted([(k, v) for k, v in params.items() if v is not None]))
+
+        # 2. Encode to Query String
+        query_string = urlencode(sorted_params)
+
+        # 3. Calculate Signature
         signature = hmac.new(self._secret.encode("utf-8"), query_string.encode("utf-8"), hashlib.sha256).hexdigest()
-        params["signature"] = signature
-        return params
+
+        # 4. Append Signature
+        final_query_string = f"{query_string}&signature={signature}"
+
+        return final_query_string
 
     async def _request(
         self,
@@ -185,15 +199,22 @@ class BinanceNativeConnector(BaseConnector):
         if not self._http_session or self._http_session.closed:
             self.logger.warning("⚠️ HTTP session lost. Attempting lazy re-initialization...")
             connector = aiohttp.TCPConnector(limit=100, limit_per_host=20, use_dns_cache=True, ttl_dns_cache=300)
-            timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
-            self._http_session = aiohttp.ClientSession(connector=connector, timeout=timeout)
+            session_timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
+            self._http_session = aiohttp.ClientSession(connector=connector, timeout=session_timeout)
 
         url = f"{self._base_url}{endpoint}"
         params = params or {}
 
+        final_params = params
+
         if signed:
             params["timestamp"] = self._get_timestamp()
-            params = self._sign_params(params)
+            # _sign_params now returns a STRING (verified fix for -1022)
+            final_params = self._sign_params(params)
+        elif params:
+            # Basic encoding for non-signed (optional, but good practice)
+            # But let aiohttp handle non-signed usually, unless we want uniformity
+            pass
 
         headers = {"X-MBX-APIKEY": self._api_key} if self._api_key else {}
 
@@ -202,7 +223,7 @@ class BinanceNativeConnector(BaseConnector):
             self._execute_raw_request,
             method,
             url,
-            params,
+            final_params,
             headers,
             endpoint_type,
             timeout=timeout,
@@ -1464,15 +1485,13 @@ class BinanceNativeConnector(BaseConnector):
             symbol = pos.get("s")
             amount = float(pos.get("pa", 0))
 
-        # TODO: Dispatch event or update internal cache
-        if hasattr(self, "_account_update_callback") and self._account_update_callback:
-            asyncio.create_task(self._account_update_callback(update_data))
-
-            # For now, we log critical changes
+            # Logging Logic: Detect external closes/liquidations
             if amount == 0:
                 self.logger.info(f"📉 Position Closed (External/Liquidated): {symbol}")
 
-            # Ideally, we should sync this to PositionTracker if we had a direct link
+        # Dispatch event to Croupier/Reactor
+        if hasattr(self, "_account_update_callback") and self._account_update_callback:
+            asyncio.create_task(self._account_update_callback(update_data))
             # But PositionTracker relies on Order Updates.
             # If this update implies a liquidation, we might need to simulate an order update?
             # Or just rely on the upcoming ReconciliationService poll.
