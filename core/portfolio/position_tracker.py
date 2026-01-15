@@ -121,6 +121,7 @@ class OpenPosition:
     entry_fee: float = 0.0
     funding_accrued: float = 0.0
     contributors: List[str] = None
+    healed: bool = False
 
     # THE GOVERNANCE LOCK: Per-position concurrency control
     # Not included in repr to avoid noise

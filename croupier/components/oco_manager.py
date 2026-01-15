@@ -430,7 +430,15 @@ class OCOManager:
                     sl_order if "sl_order" in locals() else None,
                 )
             if position:
-                await self.tracker.remove_position(position.trade_id)
+                # Phase 69: Do NOT remove if main order filled.
+                # Let Auditor heal the "Naked" position instead of creating a "Ghost".
+                if "main_order" in locals() and main_order:
+                    self.logger.warning(
+                        f"🛡️ OCO Failed but Main Filled. Keeping {position.trade_id} for Auditor healing."
+                    )
+                    position.status = "ACTIVE"  # Ensure it is visible to Auditor
+                else:
+                    await self.tracker.remove_position(position.trade_id)
             raise OCOAtomicityError(f"Failed to create OCO bracket: {e}") from e
 
         finally:

@@ -726,18 +726,25 @@ class Croupier(TimeIterator):
             exchange_sl_id=oco_result["sl_order"].get("order_id"),
         )
 
-        # Add to tracker
-        self.position_tracker.open_positions.append(position)
-        self.position_tracker.total_trades_opened += 1
+        try:
+            # PHASE 69: Atomic-Style Registration (Memory first, then state/stats)
+            # Add to tracker immediately
+            self.position_tracker.open_positions.append(position)
 
-        # Update granular counters (Critical for Session Report)
-        if position.side == "LONG":
-            self.position_tracker.new_longs += 1
-        else:
-            self.position_tracker.new_shorts += 1
+            # Update granular counters
+            self.position_tracker.total_trades_opened += 1
+            if position.side == "LONG":
+                self.position_tracker.new_longs += 1
+            else:
+                self.position_tracker.new_shorts += 1
 
-        # Trigger state save
-        self.position_tracker._trigger_state_change()
+            # Trigger state save (non-blocking)
+            self.position_tracker._trigger_state_change()
+
+        except Exception as e:
+            self.logger.error(f"⚠️ Critical failure during position accounting: {e}")
+            # We DON'T remove it from open_positions here;
+            # better to have a tracked-but-uncounted position than a "Ghost".
 
         return position
 
@@ -915,6 +922,9 @@ class Croupier(TimeIterator):
                           If provided, calculates 'Leakage' (untracked pnl).
         """
         stats = historian.get_session_stats(session_id=self.position_tracker.session_id)
+
+        # Phase 68: Granular Error Reporting
+        stats["error_breakdown"] = historian.get_error_breakdown(session_id=self.position_tracker.session_id)
 
         # Calculate Transparency Metrics (Phase 30)
         strategy_net_pnl = stats.get("total_net_pnl", 0.0)

@@ -316,12 +316,17 @@ class ReconciliationService:
                 if pos.order and self.oco_manager:
                     try:
                         self.logger.info(f"🚑 Smart Healing: Attempting to repair naked position {pos.trade_id}...")
+
                         # Phase 61: Mark as healed before restoration
-                        pos.healed = True
+                        # Phase 69: Defensive attribute setting
+                        if hasattr(pos, "healed"):
+                            pos.healed = True
+
                         # Phase 57.4: Explicitly pass which legs are missing to force re-creation
                         healed = await self.oco_manager.restore_bracket(
                             pos, missing_tp=not has_tp, missing_sl=not has_sl
                         )
+
                         if healed:
                             self.logger.info(f"✨ Smart Healing Successful for {pos.trade_id}. Position saved.")
                             report["positions_fixed"] += 1
@@ -331,7 +336,7 @@ class ReconciliationService:
                                 f"⚠️ Smart Healing Failed for {pos.trade_id}. Proceeding to safety close."
                             )
                     except Exception as e:
-                        self.logger.error(f"❌ Smart Healing Error: {e}")
+                        self.logger.error(f"❌ Smart Healing Error: {e}", exc_info=True)
 
                 # Close on exchange immediately
                 matched_ex_pos = next(

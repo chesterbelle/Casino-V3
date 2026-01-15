@@ -705,6 +705,7 @@ async def main():
         # 0.6. Emergency Sweep / Close Positions (PRIORITY)
         logger.info("🧹 Performing final exchange sweep...")
         should_close = args.close_on_exit
+        sweep_report = {}
 
         try:
             # We use an unconstrained wait for this critical operation (Smart Exit)
@@ -718,7 +719,7 @@ async def main():
                 reason=exit_reason_str,
                 watchdog=cleanup_watchdog,  # Pass the watchdog to signal progress
             )
-            await sweep_task
+            sweep_report = await sweep_task
         except Exception as e:
             logger.error(f"❌ Error during emergency sweep: {e}")
         finally:
@@ -804,6 +805,16 @@ async def main():
                 logger.info(f"      ↳ 🛡️ Saved by Resilience: {healed_pnl:+.4f} USDT ({healed_count} healed)")
 
             logger.info(f"   🔧 Error Leakage: {error_pnl:+.4f} USDT ({error_count} error trades)")
+
+            # Phase 68: Granular Error Reporting
+            error_breakdown = summary.get("error_breakdown", {})
+            for reason, count in error_breakdown.items():
+                logger.info(f"      • {reason}: {count}")
+
+            # Report Draining Phase Closes
+            draining_closed = sweep_report.get("positions_closed", 0)
+            if draining_closed > 0:
+                logger.info(f"   🧹 Draining Phase: {draining_closed} positions closed")
 
             logger.info("   --------------------------------------")
             logger.info("   🧾 Recorded Expenses (Database):")

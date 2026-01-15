@@ -412,6 +412,28 @@ class TradeHistorian:
             logger.error(f"❌ Historian: Error getting stats: {e}")
             return {}
 
+    def get_error_breakdown(self, session_id: Optional[str] = None) -> Dict[str, int]:
+        """Returns a breakdown of error reasons (e.g. AUDIT_GHOST: 78)."""
+        try:
+            params = []
+            query = """
+                SELECT exit_reason, COUNT(*) as count
+                FROM trades
+                WHERE ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') AND healed=0) OR exit_reason LIKE 'AUDIT_%')
+            """
+            if session_id:
+                query += " AND session_id = ?"
+                params.append(session_id)
+
+            query += " GROUP BY exit_reason"
+
+            with self._get_conn() as conn:
+                cursor = conn.execute(query, params)
+                return {row[0]: row[1] for row in cursor.fetchall()}
+        except Exception as e:
+            logger.error(f"❌ Historian: Error getting breakdown: {e}")
+            return {}
+
     def get_detailed_report(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns a detailed report grouped by symbol, optionally filtered by session."""
         try:
