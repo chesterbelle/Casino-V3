@@ -5,6 +5,7 @@ from .logging_config import (
     clear_context,
     configure_logging,
     get_logger,
+    stop_logging_thread,
     unbind_context,
 )
 from .metrics import (
@@ -28,6 +29,7 @@ __all__ = [
     "bind_context",
     "unbind_context",
     "clear_context",
+    "stop_logging_thread",
     # Metrics
     "record_order_created",
     "record_order_filled",

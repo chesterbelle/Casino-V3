@@ -809,11 +809,11 @@ class Croupier(TimeIterator):
 
         # 2. Periodic Balance Sync (Every 5 mins)
         if int(timestamp) % 300 == 0:
-            await self._sync_balance()
+            asyncio.create_task(self._sync_balance())
 
         # 2.5. Periodic Funding Sync (Every 10 mins) - Phase 30
         if timestamp - self._last_funding_sync >= 600:
-            await self._sync_funding_fees()
+            asyncio.create_task(self._sync_funding_fees())
 
         # 3. Periodic Reconciliation (Every 60s) - Safety Net for Ghosts
         if int(timestamp) % 60 == 0:

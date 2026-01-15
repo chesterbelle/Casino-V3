@@ -49,6 +49,7 @@ from core.feed import StreamManager
 from core.observability import (
     configure_logging,
     start_metrics_server,
+    stop_logging_thread,
     stop_metrics_server,
     update_balance,
 )
@@ -387,6 +388,9 @@ async def main():
 
     if recovered:
         logger.info("✅ State recovered from previous session")
+        # Phase 72: Fix State Amnesia - Explicitly rehydrate tracker
+        croupier.position_tracker.restore_state(recovered.open_positions)
+        logger.info(f"🧬 Restored {len(recovered.open_positions)} positions to Croupier Tracker")
         # Reconciliation will happen in the subscription loop for MULTI
     else:
         logger.info("📝 Starting fresh session")
@@ -877,6 +881,7 @@ async def main():
         await watchdog.stop()
 
         logger.info("🏁 Cleanup complete. Goodbye.")
+        stop_logging_thread()
         logging.shutdown()
         lock.release()
         os._exit(0)

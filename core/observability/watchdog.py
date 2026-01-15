@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import sys
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
@@ -42,6 +44,8 @@ class WatchdogRegistry(TimeIterator):
         self.tasks: Dict[str, WatchedTask] = {}
         self.running = False
         self._initialized = True
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
 
     def register(
         self, name: str, timeout: float = 60.0, recovery_callback: Optional[Callable] = None, is_critical: bool = True
@@ -80,44 +84,65 @@ class WatchdogRegistry(TimeIterator):
         if self.running:
             return
         self.running = True
-        logger.info("🛡️ Watchdog monitor started.")
+        self._stop_event.clear()
+        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name="WatchdogMonitor")
+        self._monitor_thread.start()
+        logger.info("🛡️ Watchdog monitor started (Independent thread).")
 
     async def stop(self):
         """Stop the watchdog monitor."""
         self.running = False
+        self._stop_event.set()
+        if self._monitor_thread:
+            self._monitor_thread.join(timeout=1.0)
         logger.info("🛡️ Watchdog monitor stopped.")
 
     async def tick(self, timestamp: float) -> None:
         """
-        Check for stale tasks every 10 ticks.
+        Clock-driven tick.
+        In thread mode, this simply reports that the Clock is alive.
         """
-        if not self.running:
-            return
+        self.heartbeat("clock_reactor", "Clock loop active")
 
-        if int(timestamp) % 10 != 0:
-            return
+    def _monitor_loop(self):
+        """
+        Background loop running in a separate thread.
+        Monitors health of all registered tasks independently of the event loop.
+        """
+        # Register the clock reactor itself for monitoring
+        self.register("clock_reactor", timeout=10.0, is_critical=True)
 
-        now = timestamp
-        for name, task in list(self.tasks.items()):
-            elapsed = now - task.last_heartbeat
-            if elapsed > task.timeout:
-                msg = f"🚨 TASK STALL DETECTED: {name} | Last heartbeat: {elapsed:.2f}s ago"
-                if task.last_message:
-                    msg += f" | Last message: '{task.last_message}'"
+        while not self._stop_event.is_set():
+            try:
+                now = time.time()
+                for name, task in list(self.tasks.items()):
+                    elapsed = now - task.last_heartbeat
+                    if elapsed > task.timeout:
+                        msg = f"🚨 TASK STALL DETECTED: {name} | Last heartbeat: {elapsed:.2f}s ago"
+                        if task.last_message:
+                            msg += f" | Last message: '{task.last_message}'"
 
-                logger.error(msg)
-                if task.recovery_callback:
-                    try:
-                        logger.warning(f"🔄 Triggering recovery callback for {name}...")
-                        if asyncio.iscoroutinefunction(task.recovery_callback):
-                            await task.recovery_callback()
-                        else:
-                            task.recovery_callback()
-                    except Exception as e:
-                        logger.error(f"❌ Recovery callback failed for {name}: {e}")
+                        logger.error(msg)
+                        if task.recovery_callback:
+                            try:
+                                logger.warning(f"🔄 Triggering recovery callback for {name}...")
+                                # Note: Asynchronous callbacks might not run if the loop is dead
+                                if asyncio.iscoroutinefunction(task.recovery_callback):
+                                    logger.warning(
+                                        f"⚠️ Cannot execute coroutine callback for {name} from Watchdog thread if loop is hung!"
+                                    )
+                                else:
+                                    task.recovery_callback()
+                            except Exception as e:
+                                logger.error(f"❌ Recovery callback failed for {name}: {e}")
 
-                # Reset heartbeat to avoid alert storm
-                task.last_heartbeat = now
+                        # Reset heartbeat to avoid alert storm
+                        task.last_heartbeat = now
+            except Exception as e:
+                # Log to stderr directly if logger is also hung (unlikely but safe)
+                print(f"❌ Critical error in Watchdog thread: {e}", file=sys.stderr)
+
+            time.sleep(2.0)
 
     def get_status(self) -> Dict[str, Any]:
         """Return a report of all monitored tasks."""

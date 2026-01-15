@@ -9,8 +9,13 @@ Version: 2.0.0
 
 import logging
 import sys
+from logging.handlers import QueueHandler, QueueListener
+from queue import Queue
 
 import structlog
+
+# Global listener reference for shutdown
+_log_listener = None
 
 
 def configure_logging(log_level: str = "INFO", log_format: str = "console"):
@@ -54,10 +59,22 @@ def configure_logging(log_level: str = "INFO", log_format: str = "console"):
     file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] [%(funcName)s:%(lineno)d] %(message)s")
     file_handler.setFormatter(file_formatter)
 
-    # Add all handlers
-    root_logger.addHandler(console_handler)
-    root_logger.addHandler(human_handler)
-    root_logger.addHandler(file_handler)
+    # Create Queue for async logging
+    log_queue = Queue(-1)  # Unlimited size
+    queue_handler = QueueHandler(log_queue)
+
+    # 4. Global Queue Handler
+    # Instead of adding file/console handlers to root, we only add the QueueHandler.
+    # The actual writing happens in a separate thread via QueueListener.
+    root_logger.addHandler(queue_handler)
+
+    # Start the listener thread
+    global _log_listener
+    if _log_listener:
+        _log_listener.stop()
+
+    _log_listener = QueueListener(log_queue, console_handler, human_handler, file_handler, respect_handler_level=True)
+    _log_listener.start()
 
     # Suppress talkative third-party libraries globally in console (but keep in file)
     # We do this by setting their specific logger levels higher than DEBUG
@@ -138,3 +155,11 @@ def unbind_context(*keys):
 def clear_context():
     """Clear all context variables."""
     structlog.contextvars.clear_contextvars()
+
+
+def stop_logging_thread():
+    """Stop the background logging listener thread."""
+    global _log_listener
+    if _log_listener:
+        _log_listener.stop()
+        _log_listener = None

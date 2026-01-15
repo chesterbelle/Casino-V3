@@ -1216,6 +1216,14 @@ class PositionTracker:
         if not found_pos:
             return False
 
+        # Phase 72: Double Accounting Protection
+        # If position is already OFF_BOARDING (e.g. handled by Recon), just finalize removal without duplicating stats
+        if getattr(found_pos, "status", "") == "OFF_BOARDING":
+            logger.info(f"⏭️ Skipping Ghost Audit for {trade_id} (Already OFF_BOARDING). Proceeding to cleanup.")
+            self._unregister_all_aliases(found_pos)
+            await self.finalize_removal(trade_id)
+            return True
+
         # 1. GHOST AUDIT
         audit_fee = found_pos.entry_fee
         audit_pnl = 0.0
@@ -1380,6 +1388,57 @@ class PositionTracker:
         self.register_alias(sl_client_id, position)
         logger.debug(f"📌 Pre-registered bracket aliases: TP={tp_client_id}, SL={sl_client_id}")
 
+    def restore_state(self, positions: List[OpenPosition]) -> None:
+        """
+        Restores state from persistence and rehydrates internal indexes.
+        Critical for preventing 'Amnesia' on restart.
+        """
+        self.open_positions.clear()
+        self._alias_map.clear()
+        self._symbol_map.clear()
+
+        # Reset counters
+        self.total_trades_opened = 0
+        self.recovered_count = 0
+        self.new_longs = 0
+        self.new_shorts = 0
+
+        for pos in positions:
+            # 1. Add to main list
+            self.open_positions.append(pos)
+
+            # 2. Rehydrate Symbol Map (Critical for Reconciliation)
+            # Use normalize_symbol to ensure consistency
+            sym_norm = normalize_symbol(pos.symbol)
+            self._symbol_map[sym_norm].append(pos)
+
+            # 3. Rehydrate Alias Map (Critical for OCO/Updates)
+            self.register_alias(pos.trade_id, pos)
+
+            # Re-register orders if they exist
+            if pos.main_order:
+                self.register_order(pos, pos.main_order)
+            if pos.tp_order:
+                self.register_order(pos, pos.tp_order)
+            if pos.sl_order:
+                self.register_order(pos, pos.sl_order)
+
+            # Pre-register exchange IDs if we have them directly on pos object (legacy/hybrid)
+            if pos.exchange_tp_id:
+                self.register_alias(str(pos.exchange_tp_id), pos)
+            if pos.exchange_sl_id:
+                self.register_alias(str(pos.exchange_sl_id), pos)
+
+            # Update counters
+            self.total_trades_opened += 1
+            self.recovered_count += 1
+            if pos.side == "LONG":
+                self.new_longs += 1
+            else:
+                self.new_shorts += 1
+
+        logger.info(f"🧠 State Restored: Rehydrated {len(positions)} positions into memory.")
+
     def add_position(self, position: OpenPosition):
         """
         Manually inject a position (used for reconciliation/adoption).
@@ -1387,6 +1446,12 @@ class PositionTracker:
         """
         # 0. NORMALIZE SYMBOL
         position.symbol = normalize_symbol(position.symbol)
+
+        # Check if already exists
+        if self.get_position(position.trade_id):
+            logger.warning(f"⚠️ Position {position.trade_id} already exists. Skipping add.")
+            return
+
         self.open_positions.append(position)
         self.blocked_capital += position.margin_used
 

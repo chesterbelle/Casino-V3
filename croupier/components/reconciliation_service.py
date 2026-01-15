@@ -347,6 +347,8 @@ class ReconciliationService:
                     if await self.tracker.lock_for_closure(pos.trade_id):
                         try:
                             self.logger.warning(f"⛔ Closing NAKED position {pos.trade_id} on exchange for safety.")
+                            # Phase 72: Mark OFF_BOARDING to prevent double-accounting (RECON_FORCE + GHOST_REMOVAL)
+                            pos.status = "OFF_BOARDING"
                             await self._close_position_dict(matched_ex_pos)
                             report["positions_closed"] += 1
                         finally:
@@ -752,9 +754,12 @@ class ReconciliationService:
         if ex_size == 0:
             return True  # Treat empty exchange position as "exists" (don't need to adopt nothing)
 
+        # Phase 72: Robust Fuzzy Matching (Standardize separators)
+        ex_symbol_clean = ex_symbol.replace(":", "")
+
         for pos in local_positions:
-            local_symbol = normalize_symbol(pos.symbol)
-            if ex_symbol == local_symbol:
+            local_symbol = normalize_symbol(pos.symbol).replace("/", "").replace(":", "")
+            if ex_symbol_clean == local_symbol:
                 return True
         return False
 

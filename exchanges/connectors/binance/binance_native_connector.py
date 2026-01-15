@@ -209,6 +209,9 @@ class BinanceNativeConnector(BaseConnector):
 
         if signed:
             params["timestamp"] = self._get_timestamp()
+            # Phase 71: Increase recvWindow to handle reactor jitter/lag
+            if "recvWindow" not in params:
+                params["recvWindow"] = 10000
             # _sign_params now returns a STRING (verified fix for -1022)
             final_params = self._sign_params(params)
         elif params:
@@ -248,10 +251,18 @@ class BinanceNativeConnector(BaseConnector):
         req_timeout = aiohttp.ClientTimeout(total=timeout) if timeout else None
 
         try:
+            # Phase 69.1: Correctly handle signed string vs dict params
+            # If params is a string (already signed/encoded), pass it as such.
+            # aiohttp handles strings in params but we should be explicit or use 'data' if needed.
+            # Actually, for GET, it must stay in params.
+
             if method == "GET":
                 async with self._http_session.get(url, params=params, headers=headers, timeout=req_timeout) as resp:
                     return await self._handle_response(resp)
             elif method == "POST":
+                # For POST, if it's a signed string, it should go in the body or URL?
+                # Binance signed POST usually takes params in URL or body.
+                # We use URL params for consistency with GET signatures.
                 async with self._http_session.post(url, params=params, headers=headers, timeout=req_timeout) as resp:
                     return await self._handle_response(resp)
             elif method == "DELETE":
@@ -284,10 +295,10 @@ class BinanceNativeConnector(BaseConnector):
 
         # Phase 14: Auto-Resync on Time Error (-1021)
         if str(code) == "-1021" or "-1021" in str(msg):
-            self.logger.warning("⚠️ Timestamp Error detected (-1021). Triggering Auto-Resync...")
+            self.logger.warning("⚠️ Timestamp Error detected (-1021). Triggering IMMEDIATE Auto-Resync...")
             await self._sync_time()
-            # We raise the exception, and ErrorHandler (configured with RETRIABLE -1021) will retry.
-            # Since we just fixed the offset, the retry should work.
+            # We raise a specific message that ErrorHandler recognizes as retriable
+            raise Exception(f"(-1021) {msg}")
 
         raise Exception(f"({code}) {msg}")
 
