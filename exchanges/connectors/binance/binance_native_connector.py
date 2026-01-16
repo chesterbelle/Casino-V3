@@ -300,6 +300,15 @@ class BinanceNativeConnector(BaseConnector):
             # We raise a specific message that ErrorHandler recognizes as retriable
             raise Exception(f"(-1021) {msg}")
 
+        # Phase 75: Reactive Recovery on State Mismatch
+        # If we get "Unknown order" or "ReduceOnly rejected", it likely means we missed a fill/close event.
+        if str(code) in ("-2011", "-2022"):
+            self.logger.warning(
+                f"⚠️ State Mismatch ({code}). Connector might be deaf. Triggering IMMEDIATE User Stream Resync..."
+            )
+            # Fire and forget recovery task
+            asyncio.create_task(self._reconnect_user_data_stream())
+
         raise Exception(f"({code}) {msg}")
 
     # =========================================================
@@ -1508,16 +1517,25 @@ class BinanceNativeConnector(BaseConnector):
             # Or just rely on the upcoming ReconciliationService poll.
 
     async def _keepalive_loop(self) -> None:
-        """Keepalive loop for listen key."""
+        """
+        Proactive Rotation: Force a fresh connection every 55 minutes.
+        This prevents 'Zombie Streams' and 60m expiry issues.
+        """
         while True:
             try:
-                await asyncio.sleep(30 * 60)  # 30 minutes
-                await self._keepalive_listen_key()
-                self.logger.debug("🔑 Listen key refreshed")
+                # Sleep 55 minutes (just under the 60m expiry)
+                await asyncio.sleep(55 * 60)
+
+                self.logger.info("♻️ Proactive Rotation: Recycling User Stream...")
+                # Force a full reconnect of the User Stream
+                await self._reconnect_user_data_stream()
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.logger.error(f"❌ Keepalive failed: {e}")
+                self.logger.error(f"❌ Proactive Rotation failed: {e}")
+                # If rotation fails, wait a bit and try again to avoid tight loop
+                await asyncio.sleep(60)
 
     async def _reconnect_user_data_stream(self) -> None:
         """Reconnect user data stream."""
