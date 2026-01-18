@@ -386,7 +386,7 @@ async def main():
     logger.info("🔄 Attempting state recovery...")
     recovered = await state_manager.recover()
 
-    if recovered:
+    if recovered and not isinstance(recovered, bool):
         logger.info("✅ State recovered from previous session")
         # Phase 72: Fix State Amnesia - Explicitly rehydrate tracker
         croupier.position_tracker.restore_state(recovered.open_positions)

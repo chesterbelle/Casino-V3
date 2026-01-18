@@ -56,14 +56,20 @@ async def test_state_recovery():
     assert positions_by_sym[0].trade_id == trade_id
     logger.info(f"✅ Position in Symbol Map ({norm_sym}): PASS")
 
-    # C. Alias Map Index (Critical for OCO/Updates)
-    # Check Trade ID
-    assert tracker.get_position_by_id(trade_id) is not None
+    # C. Alias Map Index (Critical for OCO/Updates) - Phase 80: Partitioned by Symbol
+    # Check Trade ID (Positive Match)
+    assert tracker.get_position_by_id(trade_id, symbol=symbol) is not None
     logger.info("✅ Position index by Trade ID: PASS")
 
-    # Check Client IDs
-    assert tracker.get_position_by_id("CASINO_TP_123") is not None
+    # Check Client IDs (Positive Match)
+    assert tracker.get_position_by_id("CASINO_TP_123", symbol=symbol) is not None
     logger.info("✅ Position index by TP Client ID: PASS")
+
+    # D. Isolation Check (Negative Test)
+    # Check that ID lookup fails for a DIFFERENT symbol (The Anti-Hijack Test)
+    wrong_symbol = "BTC/USDT:USDT"
+    assert tracker.get_position_by_id("CASINO_TP_123", symbol=wrong_symbol) is None
+    logger.info(f"✅ Cross-symbol Isolation ({wrong_symbol}): PASS")
 
     # 4. Verify Add Position Safety (Adoption Check)
     # If we try to add it again (e.g. during recon), it should handle it gracefully

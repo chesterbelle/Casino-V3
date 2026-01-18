@@ -154,10 +154,24 @@ class ExchangeAdapter(NetworkIterator):
 
     async def fetch_active_symbols(self) -> List[str]:
         """
-        Discover all symbols with activity.
+        Discover all symbols with active volume.
         Delegates to connector.
         """
         return await self.connector.fetch_active_symbols()
+
+    def set_account_update_callback(self, callback) -> None:
+        """
+        Passthrough for account update callback (Liquidation Sheriff).
+        """
+        if hasattr(self.connector, "set_account_update_callback"):
+            self.connector.set_account_update_callback(callback)
+
+    def set_order_update_callback(self, callback) -> None:
+        """
+        Passthrough for order update callback.
+        """
+        if hasattr(self.connector, "set_order_update_callback"):
+            self.connector.set_order_update_callback(callback)
 
     """
     Adaptador agnóstico que envuelve lógica de negocio y delega comunicación a conectores.

@@ -1213,9 +1213,9 @@ class OCOManager:
                 position.exchange_tp_id = None
                 if position.tp_order:
                     # Unregister from tracker if it's there
-                    self.tracker.unregister_alias(position.tp_order.client_order_id)
+                    self.tracker.unregister_alias(position.tp_order.client_order_id, symbol=symbol)
                     if position.tp_order.exchange_order_id:
-                        self.tracker.unregister_alias(position.tp_order.exchange_order_id)
+                        self.tracker.unregister_alias(position.tp_order.exchange_order_id, symbol=symbol)
                     position.tp_order = None
 
             if missing_sl:
@@ -1224,9 +1224,9 @@ class OCOManager:
                 position.exchange_sl_id = None
                 if position.sl_order:
                     # Unregister from tracker if it's there
-                    self.tracker.unregister_alias(position.sl_order.client_order_id)
+                    self.tracker.unregister_alias(position.sl_order.client_order_id, symbol=symbol)
                     if position.sl_order.exchange_order_id:
-                        self.tracker.unregister_alias(position.sl_order.exchange_order_id)
+                        self.tracker.unregister_alias(position.sl_order.exchange_order_id, symbol=symbol)
                     position.sl_order = None
 
             # --- RESTORE TP ---

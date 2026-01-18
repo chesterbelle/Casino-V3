@@ -81,7 +81,9 @@ class Croupier(TimeIterator):
 
         # Phase 31: PositionTracker is now the single source of truth for order state
         # Initialize specialized components
-        self.order_executor = OrderExecutor(exchange_adapter, self.error_handler)
+        self.order_executor = OrderExecutor(
+            exchange_adapter, self.error_handler, position_tracker=self.position_tracker
+        )
         self.oco_manager = OCOManager(self.order_executor, self.position_tracker, exchange_adapter)
 
         # Legacy: Still keep reconciliation for Adopt/Cleanup logic, but without its own loop
@@ -102,6 +104,14 @@ class Croupier(TimeIterator):
 
         # Register callback for automatic cleanup when exchange hits TP/SL
         self.position_tracker.on_close_callback = self._on_position_closed_cleanup
+
+        # Phase 78.2: Connect Liquidation Sheriff (Account Updates)
+        # PositionTracker must listen to ACCOUNT_UPDATE to catch external liquidations
+        self.adapter.set_account_update_callback(self.position_tracker.handle_account_update)
+
+        # Phase 79.1: Connect Order Updates (Total Visibility)
+        # PositionTracker must listen to ORDER_TRADE_UPDATE to catch real-time fills
+        self.adapter.set_order_update_callback(self.position_tracker.handle_order_update)
 
         # Debounce for reconciliations
         self._reconciliation_tasks: Dict[str, float] = {}

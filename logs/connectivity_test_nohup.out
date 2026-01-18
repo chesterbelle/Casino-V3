@@ -1,0 +1,1190 @@
+nohup: no se tendrá en cuenta la entrada
+2026-01-16 15:21:48,543 | ErrorClassifier | INFO     | ✅ ErrorClassifier initialized
+2026-01-16 15:21:48,544 | BinanceNative   | INFO     | 🔌 Connecting to Binance Native (demo)...
+2026-01-16 15:21:48,937 | BinanceNative   | INFO     | ✅ Time Synced. Offset: 81ms
+2026-01-16 15:21:49,188 | BinanceNative   | INFO     | 🔄 Processing 667 markets from exchange info...
+2026-01-16 15:21:49,188 | BinanceNative   | INFO     | 🔍 Loaded Filters BTCUSDT: Step=0.001, MinNotional=100.0
+2026-01-16 15:21:49,188 | BinanceNative   | INFO     | 🔍 Loaded Filters ETHUSDT: Step=0.001, MinNotional=20.0
+2026-01-16 15:21:49,188 | BinanceNative   | INFO     | 🔍 Loaded Filters SOLUSDT: Step=1.0, MinNotional=5.0
+2026-01-16 15:21:49,189 | BinanceNative   | INFO     | ✅ Markets loaded: 566
+2026-01-16 15:21:49,406 | BinanceNative   | INFO     | ✅ WebSocket & Subscription Worker started
+2026-01-16 15:21:49,406 | BinanceNative   | INFO     | 🔌 Connecting to Market Data Stream...
+2026-01-16 15:21:50,282 | BinanceNative   | INFO     | ✅ Market Data Stream connected
+2026-01-16 15:21:50,753 | BinanceNative   | INFO     | 🔌 Connecting to User Data Stream...
+2026-01-16 15:21:51,580 | BinanceNative   | INFO     | ✅ User Data Stream connected
+2026-01-16 15:21:51,580 | BinanceNative   | INFO     | ✅ Binance Native Connector connected (100% Native)
+2026-01-16 15:21:51,581 | ConnStressTester | INFO     | ⏱️ Stress test started. Duration: 60.0 minutes.
+2026-01-16 15:21:51,581 | ConnStressTester | INFO     | 🚦 Starting traffic loop for LTCUSDT...
+2026-01-16 15:21:51,581 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:21:52,153 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591311581 @ 36.965
+2026-01-16 15:21:52,361 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591311581 | Status: open | Latency: 208.53ms
+2026-01-16 15:21:57,370 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591311581 (921804804)
+2026-01-16 15:21:57,578 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591311581 | Status: canceled | Latency: 208.33ms
+2026-01-16 15:22:07,585 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:22:07,822 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591327585 @ 36.965
+2026-01-16 15:22:08,030 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591327585 | Status: open | Latency: 208.00ms
+2026-01-16 15:22:13,033 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591327585 (921804977)
+2026-01-16 15:22:13,246 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591327585 | Status: canceled | Latency: 213.13ms
+2026-01-16 15:22:23,255 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:22:23,810 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591343254 @ 36.975
+2026-01-16 15:22:24,014 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591343254 | Status: open | Latency: 203.66ms
+2026-01-16 15:22:29,022 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591343254 (921805230)
+2026-01-16 15:22:29,579 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591343254 | Status: canceled | Latency: 557.18ms
+2026-01-16 15:22:39,590 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:22:39,989 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591359590 @ 37.005
+2026-01-16 15:22:40,197 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591359590 | Status: open | Latency: 208.16ms
+2026-01-16 15:22:45,210 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591359590 (921805406)
+2026-01-16 15:22:45,413 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591359590 | Status: canceled | Latency: 203.28ms
+2026-01-16 15:22:51,583 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 1.05m | Sent: 4 | WS Matches: 8 | Avg Latency: 251.28ms
+2026-01-16 15:22:55,422 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:22:55,823 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591375422 @ 36.99
+2026-01-16 15:22:56,031 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591375422 | Status: open | Latency: 207.50ms
+2026-01-16 15:23:01,043 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591375422 (921805611)
+2026-01-16 15:23:01,254 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591375422 | Status: canceled | Latency: 210.46ms
+2026-01-16 15:23:11,262 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:23:11,828 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591391261 @ 36.98
+2026-01-16 15:23:12,037 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591391261 | Status: open | Latency: 209.14ms
+2026-01-16 15:23:17,050 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591391261 (921805776)
+2026-01-16 15:23:17,606 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591391261 | Status: canceled | Latency: 555.95ms
+2026-01-16 15:23:27,616 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:23:27,855 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591407616 @ 37.105
+2026-01-16 15:23:28,058 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591407616 | Status: open | Latency: 202.86ms
+2026-01-16 15:23:33,066 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591407616 (921806024)
+2026-01-16 15:23:33,273 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591407616 | Status: canceled | Latency: 207.68ms
+2026-01-16 15:23:43,283 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:23:43,856 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591423283 @ 37.115
+2026-01-16 15:23:44,066 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591423283 | Status: open | Latency: 209.10ms
+2026-01-16 15:23:49,073 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591423283 (921806170)
+2026-01-16 15:23:49,282 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591423283 | Status: canceled | Latency: 208.31ms
+2026-01-16 15:23:51,585 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 2.05m | Sent: 8 | WS Matches: 16 | Avg Latency: 251.33ms
+2026-01-16 15:23:59,291 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:23:59,534 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591439291 @ 37.115
+2026-01-16 15:23:59,738 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591439291 | Status: open | Latency: 203.43ms
+2026-01-16 15:24:04,747 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591439291 (921806380)
+2026-01-16 15:24:04,948 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591439291 | Status: canceled | Latency: 200.47ms
+2026-01-16 15:24:14,956 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:24:15,362 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591454956 @ 37.11
+2026-01-16 15:24:15,568 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591454956 | Status: open | Latency: 205.61ms
+2026-01-16 15:24:20,573 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591454956 (921806541)
+2026-01-16 15:24:20,775 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591454956 | Status: canceled | Latency: 201.46ms
+2026-01-16 15:24:30,782 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:24:31,340 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591470782 @ 37.125
+2026-01-16 15:24:31,541 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591470782 | Status: open | Latency: 201.31ms
+2026-01-16 15:24:36,553 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591470782 (921806789)
+2026-01-16 15:24:36,762 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591470782 | Status: canceled | Latency: 209.25ms
+2026-01-16 15:24:46,773 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:24:47,635 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591486773 @ 37.095
+2026-01-16 15:24:47,844 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591486773 | Status: open | Latency: 208.29ms
+2026-01-16 15:24:51,586 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 3.05m | Sent: 12 | WS Matches: 23 | Avg Latency: 237.00ms
+2026-01-16 15:24:52,847 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591486773 (921806928)
+2026-01-16 15:24:53,060 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591486773 | Status: canceled | Latency: 213.44ms
+2026-01-16 15:25:03,063 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:25:03,623 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591503063 @ 37.1
+2026-01-16 15:25:03,831 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591503063 | Status: open | Latency: 208.31ms
+2026-01-16 15:25:08,840 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591503063 (921807091)
+2026-01-16 15:25:09,041 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591503063 | Status: canceled | Latency: 201.43ms
+2026-01-16 15:25:19,050 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:25:19,283 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591519050 @ 37.085
+2026-01-16 15:25:19,493 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591519050 | Status: open | Latency: 209.20ms
+2026-01-16 15:25:24,503 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591519050 (921807261)
+2026-01-16 15:25:24,710 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591519050 | Status: canceled | Latency: 207.27ms
+2026-01-16 15:25:34,720 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:25:35,125 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591534720 @ 37.12
+2026-01-16 15:25:35,333 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591534720 | Status: open | Latency: 208.06ms
+2026-01-16 15:25:40,343 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591534720 (921807475)
+2026-01-16 15:25:40,555 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591534720 | Status: canceled | Latency: 212.22ms
+2026-01-16 15:25:50,567 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:25:51,146 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591550567 @ 37.095
+2026-01-16 15:25:51,354 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591550567 | Status: open | Latency: 207.72ms
+2026-01-16 15:25:51,587 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 4.05m | Sent: 16 | WS Matches: 31 | Avg Latency: 229.64ms
+2026-01-16 15:25:56,366 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591550567 (921807623)
+2026-01-16 15:25:56,903 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591550567 | Status: canceled | Latency: 536.61ms
+2026-01-16 15:26:06,913 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:26:07,465 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591566913 @ 37.1
+2026-01-16 15:26:07,677 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591566913 | Status: open | Latency: 211.73ms
+2026-01-16 15:26:12,679 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591566913 (921807834)
+2026-01-16 15:26:12,888 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591566913 | Status: canceled | Latency: 208.76ms
+2026-01-16 15:26:22,896 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:26:23,128 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591582896 @ 37.095
+2026-01-16 15:26:23,339 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591582896 | Status: open | Latency: 210.96ms
+2026-01-16 15:26:28,346 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591582896 (921808022)
+2026-01-16 15:26:28,547 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591582896 | Status: canceled | Latency: 200.55ms
+2026-01-16 15:26:38,552 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:26:39,109 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591598552 @ 37.07
+2026-01-16 15:26:39,311 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591598552 | Status: open | Latency: 201.58ms
+2026-01-16 15:26:44,320 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591598552 (921808202)
+2026-01-16 15:26:44,528 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591598552 | Status: canceled | Latency: 207.68ms
+2026-01-16 15:26:51,589 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 5.05m | Sent: 19 | WS Matches: 38 | Avg Latency: 234.12ms
+2026-01-16 15:26:54,535 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:26:55,091 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591614535 @ 37.085
+2026-01-16 15:26:55,647 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591614535 | Status: open | Latency: 555.66ms
+2026-01-16 15:27:00,658 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591614535 (921808391)
+2026-01-16 15:27:00,866 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591614535 | Status: canceled | Latency: 208.13ms
+2026-01-16 15:27:10,868 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:27:11,256 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591630868 @ 37.07
+2026-01-16 15:27:11,464 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591630868 | Status: open | Latency: 207.81ms
+2026-01-16 15:27:16,473 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591630868 (921808581)
+2026-01-16 15:27:16,674 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591630868 | Status: canceled | Latency: 201.11ms
+2026-01-16 15:27:26,685 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:27:26,917 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591646685 @ 37.07
+2026-01-16 15:27:27,456 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591646685 | Status: open | Latency: 539.21ms
+2026-01-16 15:27:32,465 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591646685 (921808821)
+2026-01-16 15:27:32,674 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591646685 | Status: canceled | Latency: 208.75ms
+2026-01-16 15:27:42,676 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:27:43,604 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591662676 @ 37.07
+2026-01-16 15:27:43,812 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591662676 | Status: open | Latency: 207.33ms
+2026-01-16 15:27:48,818 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591662676 (921808984)
+2026-01-16 15:27:49,271 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591662676 | Status: canceled | Latency: 452.51ms
+2026-01-16 15:27:51,590 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 6.05m | Sent: 23 | WS Matches: 46 | Avg Latency: 249.50ms
+2026-01-16 15:27:59,275 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:27:59,515 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591679275 @ 37.07
+2026-01-16 15:27:59,721 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591679275 | Status: open | Latency: 205.97ms
+2026-01-16 15:28:04,730 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591679275 (921809169)
+2026-01-16 15:28:04,945 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591679275 | Status: canceled | Latency: 214.80ms
+2026-01-16 15:28:14,955 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:28:15,353 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591694955 @ 37.105
+2026-01-16 15:28:15,562 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591694955 | Status: open | Latency: 208.51ms
+2026-01-16 15:28:20,579 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591694955 (921809336)
+2026-01-16 15:28:20,786 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591694955 | Status: canceled | Latency: 206.70ms
+2026-01-16 15:28:30,794 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:28:31,354 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591710794 @ 37.1
+2026-01-16 15:28:31,563 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591710794 | Status: open | Latency: 209.13ms
+2026-01-16 15:28:36,568 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591710794 (921809577)
+2026-01-16 15:28:36,775 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591710794 | Status: canceled | Latency: 206.91ms
+2026-01-16 15:28:46,784 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:28:47,341 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591726784 @ 37.085
+2026-01-16 15:28:47,551 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591726784 | Status: open | Latency: 210.38ms
+2026-01-16 15:28:51,592 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 7.05m | Sent: 27 | WS Matches: 53 | Avg Latency: 244.14ms
+2026-01-16 15:28:52,560 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591726784 (921809692)
+2026-01-16 15:28:52,762 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591726784 | Status: canceled | Latency: 202.40ms
+2026-01-16 15:29:02,770 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:29:03,162 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591742770 @ 37.08
+2026-01-16 15:29:03,721 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591742770 | Status: open | Latency: 558.27ms
+2026-01-16 15:29:08,733 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591742770 (921809878)
+2026-01-16 15:29:09,289 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591742770 | Status: canceled | Latency: 555.87ms
+2026-01-16 15:29:19,300 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:29:19,877 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591759299 @ 37.075
+2026-01-16 15:29:20,091 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591759299 | Status: open | Latency: 213.34ms
+2026-01-16 15:29:25,090 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591759299 (921810059)
+2026-01-16 15:29:25,300 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591759299 | Status: canceled | Latency: 209.78ms
+2026-01-16 15:29:35,309 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:29:35,867 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591775309 @ 37.085
+2026-01-16 15:29:36,086 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591775309 | Status: open | Latency: 219.48ms
+2026-01-16 15:29:41,090 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591775309 (921810301)
+2026-01-16 15:29:41,298 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591775309 | Status: canceled | Latency: 208.22ms
+2026-01-16 15:29:51,304 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:29:51,594 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 8.05m | Sent: 30 | WS Matches: 60 | Avg Latency: 251.78ms
+2026-01-16 15:29:52,229 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591791304 @ 37.09
+2026-01-16 15:29:52,438 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591791304 | Status: open | Latency: 208.36ms
+2026-01-16 15:29:57,450 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591791304 (921810441)
+2026-01-16 15:29:57,651 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591791304 | Status: canceled | Latency: 201.36ms
+2026-01-16 15:30:07,664 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:30:08,069 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591807664 @ 37.08
+2026-01-16 15:30:08,278 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591807664 | Status: open | Latency: 208.80ms
+2026-01-16 15:30:13,286 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591807664 (921810650)
+2026-01-16 15:30:13,504 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591807664 | Status: canceled | Latency: 217.91ms
+2026-01-16 15:30:23,520 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:30:24,444 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591823520 @ 37.1
+2026-01-16 15:30:24,653 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591823520 | Status: open | Latency: 208.55ms
+2026-01-16 15:30:29,664 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591823520 (921810838)
+2026-01-16 15:30:29,875 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591823520 | Status: canceled | Latency: 210.74ms
+2026-01-16 15:30:39,883 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:30:40,288 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591839883 @ 37.095
+2026-01-16 15:30:40,496 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591839883 | Status: open | Latency: 207.67ms
+2026-01-16 15:30:45,506 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591839883 (921811058)
+2026-01-16 15:30:45,717 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591839883 | Status: canceled | Latency: 210.28ms
+2026-01-16 15:30:51,596 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 9.05m | Sent: 34 | WS Matches: 68 | Avg Latency: 246.77ms
+2026-01-16 15:30:55,726 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:30:56,273 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591855726 @ 37.095
+2026-01-16 15:30:56,490 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591855726 | Status: open | Latency: 216.74ms
+2026-01-16 15:31:01,503 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591855726 (921811213)
+2026-01-16 15:31:02,043 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591855726 | Status: canceled | Latency: 539.28ms
+2026-01-16 15:31:12,051 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:31:12,949 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591872051 @ 37.135
+2026-01-16 15:31:13,154 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591872051 | Status: open | Latency: 204.64ms
+2026-01-16 15:31:18,161 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591872051 (921811419)
+2026-01-16 15:31:18,369 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591872051 | Status: canceled | Latency: 208.51ms
+2026-01-16 15:31:28,380 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:31:28,955 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591888380 @ 37.115
+2026-01-16 15:31:29,164 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591888380 | Status: open | Latency: 208.55ms
+2026-01-16 15:31:34,173 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591888380 (921811619)
+2026-01-16 15:31:34,382 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591888380 | Status: canceled | Latency: 208.95ms
+2026-01-16 15:31:44,393 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:31:45,320 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591904393 @ 37.15
+2026-01-16 15:31:45,528 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591904393 | Status: open | Latency: 208.73ms
+2026-01-16 15:31:50,537 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591904393 (921811828)
+2026-01-16 15:31:51,097 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591904393 | Status: canceled | Latency: 559.96ms
+2026-01-16 15:31:51,597 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 10.05m | Sent: 38 | WS Matches: 76 | Avg Latency: 251.79ms
+2026-01-16 15:32:01,106 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:32:01,996 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591921106 @ 37.15
+2026-01-16 15:32:02,204 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591921106 | Status: open | Latency: 207.17ms
+2026-01-16 15:32:07,216 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591921106 (921812006)
+2026-01-16 15:32:07,424 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591921106 | Status: canceled | Latency: 207.37ms
+2026-01-16 15:32:17,436 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:32:17,842 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591937436 @ 37.155
+2026-01-16 15:32:18,052 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591937436 | Status: open | Latency: 209.64ms
+2026-01-16 15:32:23,062 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591937436 (921812216)
+2026-01-16 15:32:23,273 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591937436 | Status: canceled | Latency: 210.80ms
+2026-01-16 15:32:33,282 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:32:33,861 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591953282 @ 37.16
+2026-01-16 15:32:34,077 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591953282 | Status: open | Latency: 215.99ms
+2026-01-16 15:32:39,091 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591953282 (921812481)
+2026-01-16 15:32:39,298 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591953282 | Status: canceled | Latency: 207.18ms
+2026-01-16 15:32:49,306 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:32:49,883 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591969306 @ 37.17
+2026-01-16 15:32:50,091 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591969306 | Status: open | Latency: 207.39ms
+2026-01-16 15:32:51,599 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 11.05m | Sent: 42 | WS Matches: 83 | Avg Latency: 248.21ms
+2026-01-16 15:32:55,100 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591969306 (921812657)
+2026-01-16 15:32:55,308 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591969306 | Status: canceled | Latency: 207.95ms
+2026-01-16 15:33:05,326 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:33:05,566 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768591985326 @ 37.18
+2026-01-16 15:33:05,777 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591985326 | Status: open | Latency: 210.91ms
+2026-01-16 15:33:10,785 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768591985326 (921812858)
+2026-01-16 15:33:10,995 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768591985326 | Status: canceled | Latency: 209.89ms
+2026-01-16 15:33:17,899 | BinanceNative   | INFO     | 📉 Position Closed (External/Liquidated): LTCUSDT
+2026-01-16 15:33:21,005 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:33:21,411 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592001005 @ 37.19
+2026-01-16 15:33:21,619 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592001005 | Status: open | Latency: 208.01ms
+2026-01-16 15:33:26,631 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592001005 (921813066)
+2026-01-16 15:33:26,833 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592001005 | Status: canceled | Latency: 201.74ms
+2026-01-16 15:33:36,843 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:33:37,254 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592016843 @ 37.195
+2026-01-16 15:33:37,464 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592016843 | Status: open | Latency: 210.08ms
+2026-01-16 15:33:42,473 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592016843 (921813336)
+2026-01-16 15:33:42,682 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592016843 | Status: canceled | Latency: 209.17ms
+2026-01-16 15:33:51,601 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 12.05m | Sent: 45 | WS Matches: 90 | Avg Latency: 245.10ms
+2026-01-16 15:33:52,692 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:33:52,929 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592032692 @ 37.21
+2026-01-16 15:33:53,140 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592032692 | Status: open | Latency: 210.43ms
+2026-01-16 15:33:58,150 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592032692 (921813561)
+2026-01-16 15:33:58,353 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592032692 | Status: canceled | Latency: 202.86ms
+2026-01-16 15:34:08,363 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:34:08,751 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592048363 @ 37.22
+2026-01-16 15:34:08,962 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592048363 | Status: open | Latency: 210.34ms
+2026-01-16 15:34:13,972 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592048363 (921813798)
+2026-01-16 15:34:14,179 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592048363 | Status: canceled | Latency: 207.30ms
+2026-01-16 15:34:24,190 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:34:25,131 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592064190 @ 37.245
+2026-01-16 15:34:25,340 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592064190 | Status: open | Latency: 208.79ms
+2026-01-16 15:34:30,350 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592064190 (921814027)
+2026-01-16 15:34:30,560 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592064190 | Status: canceled | Latency: 209.96ms
+2026-01-16 15:34:40,569 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:34:40,973 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592080569 @ 37.26
+2026-01-16 15:34:41,181 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592080569 | Status: open | Latency: 207.33ms
+2026-01-16 15:34:46,190 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592080569 (921814271)
+2026-01-16 15:34:46,397 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592080569 | Status: canceled | Latency: 207.08ms
+2026-01-16 15:34:51,603 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 13.05m | Sent: 49 | WS Matches: 98 | Avg Latency: 242.07ms
+2026-01-16 15:34:56,406 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:34:56,648 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592096406 @ 37.265
+2026-01-16 15:34:56,856 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592096406 | Status: open | Latency: 207.62ms
+2026-01-16 15:35:01,866 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592096406 (921814403)
+2026-01-16 15:35:02,075 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592096406 | Status: canceled | Latency: 208.03ms
+2026-01-16 15:35:12,084 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:35:12,676 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592112084 @ 37.275
+2026-01-16 15:35:13,219 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592112084 | Status: open | Latency: 543.31ms
+2026-01-16 15:35:18,223 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592112084 (921814627)
+2026-01-16 15:35:18,761 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592112084 | Status: canceled | Latency: 537.48ms
+2026-01-16 15:35:28,771 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:35:29,352 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592128771 @ 37.28
+2026-01-16 15:35:29,910 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592128771 | Status: open | Latency: 557.96ms
+2026-01-16 15:35:34,919 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592128771 (921814887)
+2026-01-16 15:35:35,129 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592128771 | Status: canceled | Latency: 209.15ms
+2026-01-16 15:35:45,139 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:35:46,032 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592145139 @ 37.29
+2026-01-16 15:35:46,241 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592145139 | Status: open | Latency: 208.28ms
+2026-01-16 15:35:51,248 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592145139 (921815223)
+2026-01-16 15:35:51,453 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592145139 | Status: canceled | Latency: 204.93ms
+2026-01-16 15:35:51,604 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 14.05m | Sent: 53 | WS Matches: 106 | Avg Latency: 249.06ms
+2026-01-16 15:36:01,463 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:36:01,860 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592161463 @ 37.3
+2026-01-16 15:36:02,068 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592161463 | Status: open | Latency: 207.81ms
+2026-01-16 15:36:07,080 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592161463 (921815437)
+2026-01-16 15:36:07,639 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592161463 | Status: canceled | Latency: 558.92ms
+2026-01-16 15:36:17,651 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:36:18,545 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592177651 @ 37.335
+2026-01-16 15:36:19,072 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592177651 | Status: open | Latency: 526.69ms
+2026-01-16 15:36:24,078 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592177651 (921815629)
+2026-01-16 15:36:24,647 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592177651 | Status: canceled | Latency: 568.46ms
+2026-01-16 15:36:34,656 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:36:35,582 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592194656 @ 37.345
+2026-01-16 15:36:35,789 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592194656 | Status: open | Latency: 207.29ms
+2026-01-16 15:36:40,800 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592194656 (921815892)
+2026-01-16 15:36:41,341 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592194656 | Status: canceled | Latency: 540.74ms
+2026-01-16 15:36:51,349 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:36:51,605 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 15.05m | Sent: 56 | WS Matches: 112 | Avg Latency: 259.02ms
+2026-01-16 15:36:52,271 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592211349 @ 37.32
+2026-01-16 15:36:52,810 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592211349 | Status: open | Latency: 538.78ms
+2026-01-16 15:36:57,821 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592211349 (921816074)
+2026-01-16 15:36:58,378 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592211349 | Status: canceled | Latency: 556.96ms
+2026-01-16 15:37:08,393 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:37:09,317 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592228393 @ 37.285
+2026-01-16 15:37:09,876 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592228393 | Status: open | Latency: 558.84ms
+2026-01-16 15:37:14,884 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592228393 (921816273)
+2026-01-16 15:37:15,092 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592228393 | Status: canceled | Latency: 207.74ms
+2026-01-16 15:37:25,103 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:37:25,999 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592245103 @ 37.275
+2026-01-16 15:37:26,559 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592245103 | Status: open | Latency: 559.54ms
+2026-01-16 15:37:31,599 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592245103 (921816461)
+2026-01-16 15:37:31,808 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592245103 | Status: canceled | Latency: 208.92ms
+2026-01-16 15:37:41,823 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:37:42,750 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592261823 @ 37.255
+2026-01-16 15:37:42,958 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592261823 | Status: open | Latency: 207.52ms
+2026-01-16 15:37:47,970 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592261823 (921816692)
+2026-01-16 15:37:48,179 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592261823 | Status: canceled | Latency: 209.22ms
+2026-01-16 15:37:51,607 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 16.05m | Sent: 60 | WS Matches: 120 | Avg Latency: 267.15ms
+2026-01-16 15:37:58,192 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:37:59,118 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592278192 @ 37.24
+2026-01-16 15:37:59,327 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592278192 | Status: open | Latency: 208.74ms
+2026-01-16 15:38:04,338 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592278192 (921816836)
+2026-01-16 15:38:04,881 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592278192 | Status: canceled | Latency: 543.00ms
+2026-01-16 15:38:14,890 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:38:15,293 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592294890 @ 37.225
+2026-01-16 15:38:15,503 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592294890 | Status: open | Latency: 209.65ms
+2026-01-16 15:38:20,514 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592294890 (921817009)
+2026-01-16 15:38:20,722 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592294890 | Status: canceled | Latency: 208.02ms
+2026-01-16 15:38:30,731 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:38:31,633 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592310731 @ 37.185
+2026-01-16 15:38:32,200 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592310731 | Status: open | Latency: 567.12ms
+2026-01-16 15:38:37,209 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592310731 (921817218)
+2026-01-16 15:38:37,418 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592310731 | Status: canceled | Latency: 208.85ms
+2026-01-16 15:38:47,425 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:38:48,351 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592327425 @ 37.175
+2026-01-16 15:38:48,891 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592327425 | Status: open | Latency: 540.32ms
+2026-01-16 15:38:51,608 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 17.05m | Sent: 64 | WS Matches: 127 | Avg Latency: 271.99ms
+2026-01-16 15:38:53,903 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592327425 (921817443)
+2026-01-16 15:38:54,464 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592327425 | Status: canceled | Latency: 561.62ms
+2026-01-16 15:39:04,460 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:39:05,357 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592344460 @ 37.175
+2026-01-16 15:39:05,917 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592344460 | Status: open | Latency: 559.03ms
+2026-01-16 15:39:10,924 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592344460 (921817632)
+2026-01-16 15:39:11,481 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592344460 | Status: canceled | Latency: 557.17ms
+2026-01-16 15:39:21,496 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:39:22,435 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592361496 @ 37.175
+2026-01-16 15:39:22,647 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592361496 | Status: open | Latency: 211.29ms
+2026-01-16 15:39:27,657 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592361496 (921817794)
+2026-01-16 15:39:28,260 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592361496 | Status: canceled | Latency: 603.18ms
+2026-01-16 15:39:38,273 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:39:38,831 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592378273 @ 37.175
+2026-01-16 15:39:39,040 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592378273 | Status: open | Latency: 208.76ms
+2026-01-16 15:39:44,050 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592378273 (921818042)
+2026-01-16 15:39:44,252 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592378273 | Status: canceled | Latency: 202.04ms
+2026-01-16 15:39:51,610 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 18.05m | Sent: 67 | WS Matches: 134 | Avg Latency: 279.45ms
+2026-01-16 15:39:54,263 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:39:55,158 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592394263 @ 37.175
+2026-01-16 15:39:55,699 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592394263 | Status: open | Latency: 540.81ms
+2026-01-16 15:40:00,711 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592394263 (921818202)
+2026-01-16 15:40:01,262 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592394263 | Status: canceled | Latency: 550.68ms
+2026-01-16 15:40:11,262 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:40:12,154 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592411262 @ 37.175
+2026-01-16 15:40:12,356 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592411262 | Status: open | Latency: 202.19ms
+2026-01-16 15:40:17,366 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592411262 (921818430)
+2026-01-16 15:40:17,926 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592411262 | Status: canceled | Latency: 559.68ms
+2026-01-16 15:40:27,943 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:40:28,348 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592427943 @ 37.105
+2026-01-16 15:40:28,559 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592427943 | Status: open | Latency: 210.81ms
+2026-01-16 15:40:33,569 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592427943 (921818637)
+2026-01-16 15:40:34,126 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592427943 | Status: canceled | Latency: 557.32ms
+2026-01-16 15:40:44,142 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:40:45,078 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592444142 @ 36.99
+2026-01-16 15:40:45,297 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592444142 | Status: open | Latency: 219.10ms
+2026-01-16 15:40:50,300 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592444142 (921818940)
+2026-01-16 15:40:50,508 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592444142 | Status: canceled | Latency: 208.49ms
+2026-01-16 15:40:51,612 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 19.05m | Sent: 71 | WS Matches: 142 | Avg Latency: 285.18ms
+2026-01-16 15:41:00,523 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:41:01,471 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592460523 @ 36.975
+2026-01-16 15:41:02,030 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592460523 | Status: open | Latency: 558.50ms
+2026-01-16 15:41:07,042 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592460523 (921819134)
+2026-01-16 15:41:07,603 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592460523 | Status: canceled | Latency: 560.34ms
+2026-01-16 15:41:17,611 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:41:18,561 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592477611 @ 36.99
+2026-01-16 15:41:19,121 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592477611 | Status: open | Latency: 560.12ms
+2026-01-16 15:41:24,133 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592477611 (921819331)
+2026-01-16 15:41:24,343 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592477611 | Status: canceled | Latency: 210.32ms
+2026-01-16 15:41:34,350 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:41:34,945 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592494350 @ 36.975
+2026-01-16 15:41:35,493 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592494350 | Status: open | Latency: 547.93ms
+2026-01-16 15:41:40,500 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592494350 (921819558)
+2026-01-16 15:41:40,706 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592494350 | Status: canceled | Latency: 206.59ms
+2026-01-16 15:41:50,714 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:41:51,120 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592510714 @ 36.985
+2026-01-16 15:41:51,331 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592510714 | Status: open | Latency: 210.84ms
+2026-01-16 15:41:51,614 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 20.05m | Sent: 75 | WS Matches: 149 | Avg Latency: 290.94ms
+2026-01-16 15:41:56,342 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592510714 (921819772)
+2026-01-16 15:41:56,548 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592510714 | Status: canceled | Latency: 205.61ms
+2026-01-16 15:42:06,551 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:42:07,476 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592526551 @ 36.99
+2026-01-16 15:42:07,683 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592526551 | Status: open | Latency: 207.53ms
+2026-01-16 15:42:12,691 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592526551 (921819930)
+2026-01-16 15:42:12,900 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592526551 | Status: canceled | Latency: 208.28ms
+2026-01-16 15:42:22,906 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:42:23,794 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592542906 @ 36.995
+2026-01-16 15:42:24,351 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592542906 | Status: open | Latency: 557.06ms
+2026-01-16 15:42:29,363 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592542906 (921820122)
+2026-01-16 15:42:29,919 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592542906 | Status: canceled | Latency: 555.57ms
+2026-01-16 15:42:39,929 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:42:40,857 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592559929 @ 37.0
+2026-01-16 15:42:41,397 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592559929 | Status: open | Latency: 540.07ms
+2026-01-16 15:42:46,410 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592559929 (921820370)
+2026-01-16 15:42:46,971 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592559929 | Status: canceled | Latency: 561.47ms
+2026-01-16 15:42:51,615 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 21.05m | Sent: 78 | WS Matches: 156 | Avg Latency: 296.06ms
+2026-01-16 15:42:56,984 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:42:57,908 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592576984 @ 37.005
+2026-01-16 15:42:58,120 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592576984 | Status: open | Latency: 211.30ms
+2026-01-16 15:43:03,131 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592576984 (921820512)
+2026-01-16 15:43:03,691 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592576984 | Status: canceled | Latency: 559.45ms
+2026-01-16 15:43:13,700 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:43:14,258 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592593700 @ 36.995
+2026-01-16 15:43:14,460 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592593700 | Status: open | Latency: 201.35ms
+2026-01-16 15:43:19,470 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592593700 (921820713)
+2026-01-16 15:43:19,672 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592593700 | Status: canceled | Latency: 202.09ms
+2026-01-16 15:43:29,684 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:43:30,607 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592609684 @ 36.99
+2026-01-16 15:43:31,163 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592609684 | Status: open | Latency: 555.01ms
+2026-01-16 15:43:36,176 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592609684 (921820885)
+2026-01-16 15:43:36,731 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592609684 | Status: canceled | Latency: 555.81ms
+2026-01-16 15:43:46,745 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:43:47,639 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592626745 @ 36.995
+2026-01-16 15:43:47,847 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592626745 | Status: open | Latency: 207.72ms
+2026-01-16 15:43:51,617 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 22.05m | Sent: 82 | WS Matches: 163 | Avg Latency: 298.64ms
+2026-01-16 15:43:52,849 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592626745 (921821152)
+2026-01-16 15:43:53,058 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592626745 | Status: canceled | Latency: 208.51ms
+2026-01-16 15:44:03,063 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:44:03,959 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592643063 @ 37.01
+2026-01-16 15:44:04,499 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592643063 | Status: open | Latency: 539.99ms
+2026-01-16 15:44:09,510 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592643063 (921821273)
+2026-01-16 15:44:10,066 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592643063 | Status: canceled | Latency: 556.14ms
+2026-01-16 15:44:20,079 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:44:20,634 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592660079 @ 37.015
+2026-01-16 15:44:20,843 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592660079 | Status: open | Latency: 209.36ms
+2026-01-16 15:44:25,853 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592660079 (921821509)
+2026-01-16 15:44:26,393 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592660079 | Status: canceled | Latency: 540.05ms
+2026-01-16 15:44:36,403 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:44:37,331 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592676403 @ 37.025
+2026-01-16 15:44:37,548 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592676403 | Status: open | Latency: 216.92ms
+2026-01-16 15:44:42,563 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592676403 (921821728)
+2026-01-16 15:44:43,116 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592676403 | Status: canceled | Latency: 553.09ms
+2026-01-16 15:44:51,618 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 23.05m | Sent: 85 | WS Matches: 170 | Avg Latency: 302.95ms
+2026-01-16 15:44:53,125 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:44:54,018 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592693125 @ 37.03
+2026-01-16 15:44:54,578 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592693125 | Status: open | Latency: 560.50ms
+2026-01-16 15:44:59,590 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592693125 (921821930)
+2026-01-16 15:45:00,147 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592693125 | Status: canceled | Latency: 557.40ms
+2026-01-16 15:45:10,163 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:45:11,050 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592710163 @ 37.03
+2026-01-16 15:45:11,258 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592710163 | Status: open | Latency: 207.86ms
+2026-01-16 15:45:16,263 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592710163 (921822095)
+2026-01-16 15:45:16,803 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592710163 | Status: canceled | Latency: 540.00ms
+2026-01-16 15:45:26,820 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:45:27,224 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592726820 @ 37.02
+2026-01-16 15:45:27,432 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592726820 | Status: open | Latency: 207.50ms
+2026-01-16 15:45:32,440 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592726820 (921822295)
+2026-01-16 15:45:32,649 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592726820 | Status: canceled | Latency: 208.64ms
+2026-01-16 15:45:42,663 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:45:43,068 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592742663 @ 37.025
+2026-01-16 15:45:43,276 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592742663 | Status: open | Latency: 207.46ms
+2026-01-16 15:45:48,286 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592742663 (921822539)
+2026-01-16 15:45:48,845 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592742663 | Status: canceled | Latency: 558.67ms
+2026-01-16 15:45:51,620 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 24.05m | Sent: 89 | WS Matches: 178 | Avg Latency: 306.46ms
+2026-01-16 15:45:58,860 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:45:59,789 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592758860 @ 37.025
+2026-01-16 15:46:00,333 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592758860 | Status: open | Latency: 544.31ms
+2026-01-16 15:46:05,336 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592758860 (921822699)
+2026-01-16 15:46:05,897 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592758860 | Status: canceled | Latency: 560.78ms
+2026-01-16 15:46:15,910 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:46:16,837 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592775910 @ 37.025
+2026-01-16 15:46:17,046 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592775910 | Status: open | Latency: 209.69ms
+2026-01-16 15:46:22,055 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592775910 (921822920)
+2026-01-16 15:46:22,615 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592775910 | Status: canceled | Latency: 559.94ms
+2026-01-16 15:46:32,623 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:46:33,545 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592792622 @ 37.03
+2026-01-16 15:46:34,103 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592792622 | Status: open | Latency: 558.08ms
+2026-01-16 15:46:39,113 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592792622 (921823117)
+2026-01-16 15:46:39,323 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592792622 | Status: canceled | Latency: 209.28ms
+2026-01-16 15:46:49,339 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:46:49,753 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592809339 @ 37.03
+2026-01-16 15:46:49,956 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592809339 | Status: open | Latency: 202.36ms
+2026-01-16 15:46:51,622 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 25.05m | Sent: 93 | WS Matches: 185 | Avg Latency: 310.24ms
+2026-01-16 15:46:54,963 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592809339 (921823359)
+2026-01-16 15:46:55,171 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592809339 | Status: canceled | Latency: 207.48ms
+2026-01-16 15:47:05,188 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:47:06,111 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592825188 @ 37.035
+2026-01-16 15:47:06,655 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592825188 | Status: open | Latency: 543.48ms
+2026-01-16 15:47:11,656 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592825188 (921823486)
+2026-01-16 15:47:12,209 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592825188 | Status: canceled | Latency: 553.10ms
+2026-01-16 15:47:22,225 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:47:23,150 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592842225 @ 37.035
+2026-01-16 15:47:23,360 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592842225 | Status: open | Latency: 209.31ms
+2026-01-16 15:47:28,370 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592842225 (921823690)
+2026-01-16 15:47:28,577 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592842225 | Status: canceled | Latency: 207.58ms
+2026-01-16 15:47:38,590 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:47:39,485 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592858590 @ 37.02
+2026-01-16 15:47:39,692 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592858590 | Status: open | Latency: 207.14ms
+2026-01-16 15:47:44,698 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592858590 (921823911)
+2026-01-16 15:47:45,258 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592858590 | Status: canceled | Latency: 559.78ms
+2026-01-16 15:47:51,624 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 26.05m | Sent: 96 | WS Matches: 192 | Avg Latency: 311.89ms
+2026-01-16 15:47:55,266 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:47:56,191 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592875266 @ 37.01
+2026-01-16 15:47:56,399 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592875266 | Status: open | Latency: 207.53ms
+2026-01-16 15:48:01,410 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592875266 (921824107)
+2026-01-16 15:48:01,630 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592875266 | Status: canceled | Latency: 220.02ms
+2026-01-16 15:48:11,639 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:48:12,031 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592891639 @ 37.01
+2026-01-16 15:48:12,233 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592891639 | Status: open | Latency: 202.02ms
+2026-01-16 15:48:17,237 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592891639 (921824268)
+2026-01-16 15:48:17,777 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592891639 | Status: canceled | Latency: 540.14ms
+2026-01-16 15:48:27,793 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:48:28,728 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592907793 @ 37.015
+2026-01-16 15:48:29,285 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592907793 | Status: open | Latency: 556.42ms
+2026-01-16 15:48:34,294 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592907793 (921824485)
+2026-01-16 15:48:34,502 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592907793 | Status: canceled | Latency: 207.71ms
+2026-01-16 15:48:44,516 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:48:45,441 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592924516 @ 37.015
+2026-01-16 15:48:45,987 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592924516 | Status: open | Latency: 546.20ms
+2026-01-16 15:48:50,989 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592924516 (921824749)
+2026-01-16 15:48:51,570 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592924516 | Status: canceled | Latency: 580.44ms
+2026-01-16 15:48:51,625 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 27.05m | Sent: 100 | WS Matches: 200 | Avg Latency: 314.72ms
+2026-01-16 15:49:01,576 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:49:01,984 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592941576 @ 37.005
+2026-01-16 15:49:02,193 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592941576 | Status: open | Latency: 208.47ms
+2026-01-16 15:49:07,203 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592941576 (921824909)
+2026-01-16 15:49:07,741 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592941576 | Status: canceled | Latency: 537.96ms
+2026-01-16 15:49:17,752 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:49:18,147 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592957751 @ 37.01
+2026-01-16 15:49:18,350 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592957751 | Status: open | Latency: 202.34ms
+2026-01-16 15:49:23,360 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592957751 (921825109)
+2026-01-16 15:49:23,575 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592957751 | Status: canceled | Latency: 215.28ms
+2026-01-16 15:49:33,583 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:49:34,513 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592973583 @ 37.015
+2026-01-16 15:49:35,058 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592973583 | Status: open | Latency: 544.44ms
+2026-01-16 15:49:40,063 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592973583 (921825284)
+2026-01-16 15:49:40,265 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592973583 | Status: canceled | Latency: 201.66ms
+2026-01-16 15:49:50,274 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:49:50,838 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768592990274 @ 37.015
+2026-01-16 15:49:51,039 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592990274 | Status: open | Latency: 201.18ms
+2026-01-16 15:49:51,626 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 28.05m | Sent: 104 | WS Matches: 207 | Avg Latency: 314.27ms
+2026-01-16 15:49:56,051 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768592990274 (921825544)
+2026-01-16 15:49:56,256 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768592990274 | Status: canceled | Latency: 204.25ms
+2026-01-16 15:50:06,263 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:50:07,156 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593006263 @ 37.02
+2026-01-16 15:50:07,714 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593006263 | Status: open | Latency: 557.94ms
+2026-01-16 15:50:12,725 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593006263 (921825689)
+2026-01-16 15:50:13,292 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593006263 | Status: canceled | Latency: 566.79ms
+2026-01-16 15:50:23,300 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:50:23,874 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593023300 @ 37.025
+2026-01-16 15:50:24,082 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593023300 | Status: open | Latency: 208.12ms
+2026-01-16 15:50:29,093 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593023300 (921825895)
+2026-01-16 15:50:29,303 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593023300 | Status: canceled | Latency: 209.47ms
+2026-01-16 15:50:39,306 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:50:39,685 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593039306 @ 37.03
+2026-01-16 15:50:40,244 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593039306 | Status: open | Latency: 559.59ms
+2026-01-16 15:50:45,256 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593039306 (921826089)
+2026-01-16 15:50:45,818 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593039306 | Status: canceled | Latency: 562.10ms
+2026-01-16 15:50:51,627 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 29.05m | Sent: 107 | WS Matches: 214 | Avg Latency: 317.40ms
+2026-01-16 15:50:55,830 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:50:56,795 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593055830 @ 37.035
+2026-01-16 15:50:57,003 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593055830 | Status: open | Latency: 207.25ms
+2026-01-16 15:51:02,013 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593055830 (921826330)
+2026-01-16 15:51:02,221 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593055830 | Status: canceled | Latency: 208.01ms
+2026-01-16 15:51:12,229 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:51:13,124 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593072229 @ 37.035
+2026-01-16 15:51:13,328 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593072229 | Status: open | Latency: 204.14ms
+2026-01-16 15:51:18,333 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593072229 (921826477)
+2026-01-16 15:51:18,542 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593072229 | Status: canceled | Latency: 208.92ms
+2026-01-16 15:51:28,553 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:51:28,955 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593088553 @ 37.035
+2026-01-16 15:51:29,163 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593088553 | Status: open | Latency: 207.90ms
+2026-01-16 15:51:34,173 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593088553 (921826670)
+2026-01-16 15:51:34,377 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593088553 | Status: canceled | Latency: 204.51ms
+2026-01-16 15:51:44,387 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:51:45,289 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593104387 @ 37.05
+2026-01-16 15:51:45,846 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593104387 | Status: open | Latency: 556.79ms
+2026-01-16 15:51:50,853 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593104387 (921826932)
+2026-01-16 15:51:51,409 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593104387 | Status: canceled | Latency: 555.88ms
+2026-01-16 15:51:51,628 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 30.05m | Sent: 111 | WS Matches: 222 | Avg Latency: 316.56ms
+2026-01-16 15:52:01,420 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:52:02,387 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593121420 @ 37.06
+2026-01-16 15:52:02,596 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593121420 | Status: open | Latency: 208.86ms
+2026-01-16 15:52:07,610 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593121420 (921827112)
+2026-01-16 15:52:08,170 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593121420 | Status: canceled | Latency: 560.20ms
+2026-01-16 15:52:18,175 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:52:19,103 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593138175 @ 37.03
+2026-01-16 15:52:19,672 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593138175 | Status: open | Latency: 569.78ms
+2026-01-16 15:52:24,683 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593138175 (921827301)
+2026-01-16 15:52:25,240 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593138175 | Status: canceled | Latency: 557.31ms
+2026-01-16 15:52:35,250 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:52:36,172 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593155250 @ 37.025
+2026-01-16 15:52:36,379 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593155250 | Status: open | Latency: 206.76ms
+2026-01-16 15:52:41,391 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593155250 (921827509)
+2026-01-16 15:52:41,948 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593155250 | Status: canceled | Latency: 556.41ms
+2026-01-16 15:52:51,630 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 31.05m | Sent: 114 | WS Matches: 228 | Avg Latency: 319.89ms
+2026-01-16 15:52:51,955 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:52:52,849 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593171955 @ 37.04
+2026-01-16 15:52:53,053 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593171955 | Status: open | Latency: 203.16ms
+2026-01-16 15:52:58,062 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593171955 (921827777)
+2026-01-16 15:52:58,603 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593171955 | Status: canceled | Latency: 541.04ms
+2026-01-16 15:53:08,618 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:53:09,584 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593188618 @ 37.015
+2026-01-16 15:53:09,797 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593188618 | Status: open | Latency: 212.78ms
+2026-01-16 15:53:14,807 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593188618 (921827937)
+2026-01-16 15:53:15,365 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593188618 | Status: canceled | Latency: 557.17ms
+2026-01-16 15:53:25,383 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:53:26,277 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593205383 @ 37.02
+2026-01-16 15:53:26,486 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593205383 | Status: open | Latency: 209.09ms
+2026-01-16 15:53:31,488 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593205383 (921828141)
+2026-01-16 15:53:32,028 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593205383 | Status: canceled | Latency: 539.27ms
+2026-01-16 15:53:42,045 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:53:42,625 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593222045 @ 37.03
+2026-01-16 15:53:43,183 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593222045 | Status: open | Latency: 557.74ms
+2026-01-16 15:53:48,193 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593222045 (921828357)
+2026-01-16 15:53:48,750 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593222045 | Status: canceled | Latency: 556.78ms
+2026-01-16 15:53:51,631 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 32.05m | Sent: 118 | WS Matches: 236 | Avg Latency: 323.36ms
+2026-01-16 15:53:58,763 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:53:59,318 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593238763 @ 37.035
+2026-01-16 15:53:59,877 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593238763 | Status: open | Latency: 558.54ms
+2026-01-16 15:54:04,889 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593238763 (921828594)
+2026-01-16 15:54:05,419 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593238763 | Status: canceled | Latency: 530.05ms
+2026-01-16 15:54:15,423 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:54:16,349 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593255423 @ 37.05
+2026-01-16 15:54:16,560 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593255423 | Status: open | Latency: 210.77ms
+2026-01-16 15:54:21,566 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593255423 (921828729)
+2026-01-16 15:54:21,774 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593255423 | Status: canceled | Latency: 207.52ms
+2026-01-16 15:54:31,783 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:54:32,670 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593271782 @ 37.05
+2026-01-16 15:54:33,219 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593271782 | Status: open | Latency: 548.29ms
+2026-01-16 15:54:38,217 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593271782 (921828933)
+2026-01-16 15:54:38,424 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593271782 | Status: canceled | Latency: 206.78ms
+2026-01-16 15:54:48,433 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:54:49,364 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593288433 @ 37.065
+2026-01-16 15:54:49,923 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593288433 | Status: open | Latency: 559.06ms
+2026-01-16 15:54:51,633 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 33.05m | Sent: 122 | WS Matches: 243 | Avg Latency: 325.65ms
+2026-01-16 15:54:54,931 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593288433 (921829179)
+2026-01-16 15:54:55,490 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593288433 | Status: canceled | Latency: 558.76ms
+2026-01-16 15:55:05,506 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:55:06,435 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593305506 @ 37.065
+2026-01-16 15:55:06,639 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593305506 | Status: open | Latency: 203.36ms
+2026-01-16 15:55:11,647 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593305506 (921829327)
+2026-01-16 15:55:11,860 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593305506 | Status: canceled | Latency: 212.22ms
+2026-01-16 15:55:21,866 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:55:22,755 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593321866 @ 37.065
+2026-01-16 15:55:23,311 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593321866 | Status: open | Latency: 555.50ms
+2026-01-16 15:55:28,324 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593321866 (921829497)
+2026-01-16 15:55:28,862 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593321866 | Status: canceled | Latency: 538.06ms
+2026-01-16 15:55:38,870 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:55:39,768 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593338870 @ 37.06
+2026-01-16 15:55:40,323 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593338870 | Status: open | Latency: 555.00ms
+2026-01-16 15:55:45,333 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593338870 (921829704)
+2026-01-16 15:55:45,539 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593338870 | Status: canceled | Latency: 206.34ms
+2026-01-16 15:55:51,635 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 34.05m | Sent: 125 | WS Matches: 250 | Avg Latency: 327.85ms
+2026-01-16 15:55:55,551 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:55:56,471 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593355551 @ 37.06
+2026-01-16 15:55:57,006 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593355551 | Status: open | Latency: 534.54ms
+2026-01-16 15:56:02,016 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593355551 (921829958)
+2026-01-16 15:56:02,218 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593355551 | Status: canceled | Latency: 201.92ms
+2026-01-16 15:56:12,225 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:56:12,603 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593372225 @ 37.05
+2026-01-16 15:56:12,805 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593372225 | Status: open | Latency: 201.66ms
+2026-01-16 15:56:17,810 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593372225 (921830085)
+2026-01-16 15:56:18,369 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593372225 | Status: canceled | Latency: 558.89ms
+2026-01-16 15:56:28,377 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:56:28,764 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593388377 @ 37.065
+2026-01-16 15:56:28,981 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593388377 | Status: open | Latency: 216.89ms
+2026-01-16 15:56:33,990 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593388377 (921830262)
+2026-01-16 15:56:34,198 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593388377 | Status: canceled | Latency: 208.07ms
+2026-01-16 15:56:44,213 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:56:45,157 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593404213 @ 37.07
+2026-01-16 15:56:45,367 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593404213 | Status: open | Latency: 210.55ms
+2026-01-16 15:56:50,376 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593404213 (921830460)
+2026-01-16 15:56:50,584 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593404213 | Status: canceled | Latency: 207.98ms
+2026-01-16 15:56:51,636 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 35.05m | Sent: 129 | WS Matches: 258 | Avg Latency: 326.76ms
+2026-01-16 15:57:00,600 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:57:01,526 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593420600 @ 37.07
+2026-01-16 15:57:02,086 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593420600 | Status: open | Latency: 559.21ms
+2026-01-16 15:57:07,096 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593420600 (921830706)
+2026-01-16 15:57:07,636 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593420600 | Status: canceled | Latency: 539.51ms
+2026-01-16 15:57:17,642 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:57:18,566 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593437642 @ 37.075
+2026-01-16 15:57:18,773 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593437642 | Status: open | Latency: 207.03ms
+2026-01-16 15:57:23,776 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593437642 (921830855)
+2026-01-16 15:57:24,337 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593437642 | Status: canceled | Latency: 560.53ms
+2026-01-16 15:57:34,343 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:57:34,921 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593454343 @ 37.08
+2026-01-16 15:57:35,482 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593454343 | Status: open | Latency: 561.06ms
+2026-01-16 15:57:40,493 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593454343 (921831046)
+2026-01-16 15:57:41,031 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593454343 | Status: canceled | Latency: 538.18ms
+2026-01-16 15:57:51,039 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:57:51,637 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 36.05m | Sent: 132 | WS Matches: 264 | Avg Latency: 330.56ms
+2026-01-16 15:57:51,972 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593471039 @ 37.085
+2026-01-16 15:57:52,531 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593471039 | Status: open | Latency: 558.67ms
+2026-01-16 15:57:57,543 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593471039 (921831291)
+2026-01-16 15:57:57,752 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593471039 | Status: canceled | Latency: 208.61ms
+2026-01-16 15:58:07,760 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:58:08,165 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593487760 @ 37.085
+2026-01-16 15:58:08,373 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593487760 | Status: open | Latency: 208.50ms
+2026-01-16 15:58:13,385 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593487760 (921831445)
+2026-01-16 15:58:13,596 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593487760 | Status: canceled | Latency: 210.56ms
+2026-01-16 15:58:23,606 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:58:24,184 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593503606 @ 37.085
+2026-01-16 15:58:24,389 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593503606 | Status: open | Latency: 205.26ms
+2026-01-16 15:58:29,400 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593503606 (921831588)
+2026-01-16 15:58:29,607 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593503606 | Status: canceled | Latency: 207.76ms
+2026-01-16 15:58:39,617 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:58:39,860 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593519617 @ 37.085
+2026-01-16 15:58:40,064 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593519617 | Status: open | Latency: 203.35ms
+2026-01-16 15:58:45,073 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593519617 (921831783)
+2026-01-16 15:58:45,631 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593519617 | Status: canceled | Latency: 557.93ms
+2026-01-16 15:58:51,640 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 37.05m | Sent: 136 | WS Matches: 272 | Avg Latency: 329.52ms
+2026-01-16 15:58:55,640 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:58:56,566 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593535640 @ 37.085
+2026-01-16 15:58:56,775 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593535640 | Status: open | Latency: 208.27ms
+2026-01-16 15:59:01,796 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593535640 (921832018)
+2026-01-16 15:59:02,352 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593535640 | Status: canceled | Latency: 556.01ms
+2026-01-16 15:59:12,361 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:59:13,258 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593552361 @ 37.085
+2026-01-16 15:59:13,467 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593552361 | Status: open | Latency: 208.50ms
+2026-01-16 15:59:18,479 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593552361 (921832177)
+2026-01-16 15:59:18,689 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593552361 | Status: canceled | Latency: 209.83ms
+2026-01-16 15:59:28,700 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:59:29,616 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593568700 @ 37.09
+2026-01-16 15:59:30,175 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593568700 | Status: open | Latency: 558.78ms
+2026-01-16 15:59:35,186 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593568700 (921832353)
+2026-01-16 15:59:35,742 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593568700 | Status: canceled | Latency: 555.46ms
+2026-01-16 15:59:45,752 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 15:59:46,679 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593585752 @ 37.09
+2026-01-16 15:59:46,885 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593585752 | Status: open | Latency: 206.45ms
+2026-01-16 15:59:51,641 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 38.05m | Sent: 140 | WS Matches: 279 | Avg Latency: 330.22ms
+2026-01-16 15:59:51,893 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593585752 (921832555)
+2026-01-16 15:59:52,100 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593585752 | Status: canceled | Latency: 206.13ms
+2026-01-16 16:00:02,110 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:00:03,037 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593602110 @ 37.09
+2026-01-16 16:00:03,246 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593602110 | Status: open | Latency: 209.60ms
+2026-01-16 16:00:08,257 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593602110 (921832808)
+2026-01-16 16:00:08,813 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593602110 | Status: canceled | Latency: 556.31ms
+2026-01-16 16:00:18,827 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:00:19,760 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593618827 @ 37.095
+2026-01-16 16:00:19,969 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593618827 | Status: open | Latency: 209.19ms
+2026-01-16 16:00:24,983 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593618827 (921832951)
+2026-01-16 16:00:25,190 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593618827 | Status: canceled | Latency: 207.15ms
+2026-01-16 16:00:35,200 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:00:35,609 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593635199 @ 37.085
+2026-01-16 16:00:35,815 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593635199 | Status: open | Latency: 206.43ms
+2026-01-16 16:00:40,826 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593635199 (921833148)
+2026-01-16 16:00:41,383 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593635199 | Status: canceled | Latency: 556.26ms
+2026-01-16 16:00:51,391 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:00:51,642 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 39.05m | Sent: 143 | WS Matches: 286 | Avg Latency: 329.66ms
+2026-01-16 16:00:52,256 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593651391 @ 37.075
+2026-01-16 16:00:52,794 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593651391 | Status: open | Latency: 537.85ms
+2026-01-16 16:00:57,806 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593651391 (921833364)
+2026-01-16 16:00:58,366 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593651391 | Status: canceled | Latency: 559.82ms
+2026-01-16 16:01:08,380 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:01:09,306 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593668379 @ 37.055
+2026-01-16 16:01:09,508 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593668379 | Status: open | Latency: 201.38ms
+2026-01-16 16:01:14,516 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593668379 (921833565)
+2026-01-16 16:01:15,075 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593668379 | Status: canceled | Latency: 558.75ms
+2026-01-16 16:01:25,090 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:01:26,013 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593685089 @ 37.025
+2026-01-16 16:01:26,222 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593685089 | Status: open | Latency: 208.86ms
+2026-01-16 16:01:31,229 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593685089 (921833724)
+2026-01-16 16:01:31,768 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593685089 | Status: canceled | Latency: 538.02ms
+2026-01-16 16:01:41,783 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:01:42,173 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593701783 @ 37.03
+2026-01-16 16:01:42,377 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593701783 | Status: open | Latency: 203.43ms
+2026-01-16 16:01:47,382 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593701783 (921833915)
+2026-01-16 16:01:47,591 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593701783 | Status: canceled | Latency: 208.54ms
+2026-01-16 16:01:51,643 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 40.05m | Sent: 147 | WS Matches: 294 | Avg Latency: 330.95ms
+2026-01-16 16:01:57,604 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:01:58,505 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593717604 @ 36.97
+2026-01-16 16:01:58,715 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593717604 | Status: open | Latency: 209.97ms
+2026-01-16 16:02:03,721 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593717604 (921834176)
+2026-01-16 16:02:03,922 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593717604 | Status: canceled | Latency: 201.70ms
+2026-01-16 16:02:13,932 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:02:14,171 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593733932 @ 36.97
+2026-01-16 16:02:14,382 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593733932 | Status: open | Latency: 210.69ms
+2026-01-16 16:02:19,403 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593733932 (921834348)
+2026-01-16 16:02:19,607 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593733932 | Status: canceled | Latency: 203.84ms
+2026-01-16 16:02:29,620 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:02:30,549 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593749619 @ 36.965
+2026-01-16 16:02:31,090 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593749619 | Status: open | Latency: 540.86ms
+2026-01-16 16:02:36,101 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593749619 (921834550)
+2026-01-16 16:02:36,659 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593749619 | Status: canceled | Latency: 557.12ms
+2026-01-16 16:02:46,676 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:02:47,565 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593766676 @ 36.965
+2026-01-16 16:02:48,126 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593766676 | Status: open | Latency: 560.06ms
+2026-01-16 16:02:51,644 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 41.05m | Sent: 151 | WS Matches: 301 | Avg Latency: 331.51ms
+2026-01-16 16:02:53,134 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593766676 (921834791)
+2026-01-16 16:02:53,336 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593766676 | Status: canceled | Latency: 202.56ms
+2026-01-16 16:03:03,353 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:03:04,324 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593783353 @ 36.955
+2026-01-16 16:03:04,535 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593783353 | Status: open | Latency: 210.33ms
+2026-01-16 16:03:09,541 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593783353 (921835048)
+2026-01-16 16:03:10,098 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593783353 | Status: canceled | Latency: 556.74ms
+2026-01-16 16:03:20,113 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:03:21,036 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593800113 @ 36.955
+2026-01-16 16:03:21,246 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593800113 | Status: open | Latency: 209.27ms
+2026-01-16 16:03:26,253 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593800113 (921835208)
+2026-01-16 16:03:26,800 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593800113 | Status: canceled | Latency: 546.73ms
+2026-01-16 16:03:36,805 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:03:37,699 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593816805 @ 36.95
+2026-01-16 16:03:38,257 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593816805 | Status: open | Latency: 557.97ms
+2026-01-16 16:03:43,266 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593816805 (921835468)
+2026-01-16 16:03:43,823 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593816805 | Status: canceled | Latency: 556.53ms
+2026-01-16 16:03:51,646 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 42.05m | Sent: 154 | WS Matches: 308 | Avg Latency: 333.20ms
+2026-01-16 16:03:53,832 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:03:54,728 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593833832 @ 36.94
+2026-01-16 16:03:54,931 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593833832 | Status: open | Latency: 202.45ms
+2026-01-16 16:03:59,939 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593833832 (921835745)
+2026-01-16 16:04:00,497 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593833832 | Status: canceled | Latency: 557.68ms
+2026-01-16 16:04:10,514 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:04:10,922 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593850514 @ 36.93
+2026-01-16 16:04:11,132 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593850514 | Status: open | Latency: 209.97ms
+2026-01-16 16:04:16,141 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593850514 (921836020)
+2026-01-16 16:04:16,702 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593850514 | Status: canceled | Latency: 561.41ms
+2026-01-16 16:04:26,716 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:04:27,130 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593866716 @ 36.905
+2026-01-16 16:04:27,332 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593866716 | Status: open | Latency: 202.60ms
+2026-01-16 16:04:32,340 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593866716 (921836209)
+2026-01-16 16:04:32,886 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593866716 | Status: canceled | Latency: 546.18ms
+2026-01-16 16:04:42,896 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:04:43,484 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593882896 @ 36.865
+2026-01-16 16:04:43,694 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593882896 | Status: open | Latency: 209.61ms
+2026-01-16 16:04:48,696 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593882896 (921836493)
+2026-01-16 16:04:49,254 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593882896 | Status: canceled | Latency: 558.05ms
+2026-01-16 16:04:51,648 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 43.05m | Sent: 158 | WS Matches: 316 | Avg Latency: 334.41ms
+2026-01-16 16:04:59,266 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:05:00,201 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593899266 @ 36.86
+2026-01-16 16:05:00,756 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593899266 | Status: open | Latency: 555.29ms
+2026-01-16 16:05:05,767 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593899266 (921836820)
+2026-01-16 16:05:06,329 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593899266 | Status: canceled | Latency: 561.81ms
+2026-01-16 16:05:16,343 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:05:16,749 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593916343 @ 36.83
+2026-01-16 16:05:16,951 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593916343 | Status: open | Latency: 202.13ms
+2026-01-16 16:05:21,956 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593916343 (921837016)
+2026-01-16 16:05:22,515 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593916343 | Status: canceled | Latency: 558.32ms
+2026-01-16 16:05:32,522 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:05:33,451 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593932522 @ 36.825
+2026-01-16 16:05:33,660 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593932522 | Status: open | Latency: 208.36ms
+2026-01-16 16:05:38,669 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593932522 (921837173)
+2026-01-16 16:05:38,877 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593932522 | Status: canceled | Latency: 207.31ms
+2026-01-16 16:05:48,887 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:05:49,461 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593948886 @ 36.825
+2026-01-16 16:05:50,021 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593948886 | Status: open | Latency: 560.11ms
+2026-01-16 16:05:51,649 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 44.05m | Sent: 162 | WS Matches: 323 | Avg Latency: 335.99ms
+2026-01-16 16:05:55,029 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593948886 (921837366)
+2026-01-16 16:05:55,237 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593948886 | Status: canceled | Latency: 207.69ms
+2026-01-16 16:06:05,245 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:06:05,655 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593965245 @ 36.815
+2026-01-16 16:06:05,862 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593965245 | Status: open | Latency: 207.10ms
+2026-01-16 16:06:10,870 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593965245 (921837595)
+2026-01-16 16:06:11,428 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593965245 | Status: canceled | Latency: 557.78ms
+2026-01-16 16:06:21,434 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:06:22,363 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593981434 @ 36.81
+2026-01-16 16:06:22,565 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593981434 | Status: open | Latency: 201.67ms
+2026-01-16 16:06:27,577 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593981434 (921837740)
+2026-01-16 16:06:27,779 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593981434 | Status: canceled | Latency: 201.66ms
+2026-01-16 16:06:37,786 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:06:38,679 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768593997786 @ 36.825
+2026-01-16 16:06:39,220 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593997786 | Status: open | Latency: 540.19ms
+2026-01-16 16:06:44,229 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768593997786 (921837894)
+2026-01-16 16:06:44,766 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768593997786 | Status: canceled | Latency: 536.64ms
+2026-01-16 16:06:51,650 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 45.05m | Sent: 165 | WS Matches: 330 | Avg Latency: 336.30ms
+2026-01-16 16:06:54,776 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:06:55,169 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594014776 @ 36.83
+2026-01-16 16:06:55,699 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594014776 | Status: open | Latency: 529.70ms
+2026-01-16 16:07:00,703 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594014776 (921838107)
+2026-01-16 16:07:01,243 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594014776 | Status: canceled | Latency: 539.67ms
+2026-01-16 16:07:11,252 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:07:12,154 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594031252 @ 36.845
+2026-01-16 16:07:12,716 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594031252 | Status: open | Latency: 561.96ms
+2026-01-16 16:07:17,726 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594031252 (921838318)
+2026-01-16 16:07:18,284 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594031252 | Status: canceled | Latency: 557.30ms
+2026-01-16 16:07:28,290 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:07:29,217 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594048290 @ 36.92
+2026-01-16 16:07:29,776 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594048290 | Status: open | Latency: 558.89ms
+2026-01-16 16:07:34,786 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594048290 (921838808)
+2026-01-16 16:07:35,340 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594048290 | Status: canceled | Latency: 553.94ms
+2026-01-16 16:07:45,349 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:07:46,278 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594065349 @ 36.91
+2026-01-16 16:07:46,817 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594065349 | Status: open | Latency: 538.92ms
+2026-01-16 16:07:51,651 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 46.05m | Sent: 169 | WS Matches: 337 | Avg Latency: 340.71ms
+2026-01-16 16:07:51,824 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594065349 (921839015)
+2026-01-16 16:07:52,384 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594065349 | Status: canceled | Latency: 560.25ms
+2026-01-16 16:08:02,396 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:08:02,836 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594082396 @ 36.9
+2026-01-16 16:08:03,045 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594082396 | Status: open | Latency: 208.21ms
+2026-01-16 16:08:08,056 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594082396 (921839430)
+2026-01-16 16:08:08,262 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594082396 | Status: canceled | Latency: 205.98ms
+2026-01-16 16:08:18,275 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:08:18,839 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594098275 @ 36.89
+2026-01-16 16:08:19,044 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594098275 | Status: open | Latency: 204.26ms
+2026-01-16 16:08:24,053 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594098275 (921839582)
+2026-01-16 16:08:24,254 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594098275 | Status: canceled | Latency: 200.78ms
+2026-01-16 16:08:34,263 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:08:35,198 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594114263 @ 36.895
+2026-01-16 16:08:35,756 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594114263 | Status: open | Latency: 557.98ms
+2026-01-16 16:08:40,766 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594114263 (921839729)
+2026-01-16 16:08:41,305 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594114263 | Status: canceled | Latency: 539.18ms
+2026-01-16 16:08:51,315 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:08:51,652 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 47.05m | Sent: 172 | WS Matches: 344 | Avg Latency: 340.98ms
+2026-01-16 16:08:52,209 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594131315 @ 36.91
+2026-01-16 16:08:52,411 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594131315 | Status: open | Latency: 202.53ms
+2026-01-16 16:08:57,422 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594131315 (921839949)
+2026-01-16 16:08:57,625 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594131315 | Status: canceled | Latency: 203.26ms
+2026-01-16 16:09:07,636 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:09:08,570 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594147636 @ 36.905
+2026-01-16 16:09:09,127 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594147636 | Status: open | Latency: 556.98ms
+2026-01-16 16:09:14,136 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594147636 (921840175)
+2026-01-16 16:09:14,347 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594147636 | Status: canceled | Latency: 210.62ms
+2026-01-16 16:09:24,359 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:09:25,286 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594164359 @ 36.915
+2026-01-16 16:09:25,846 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594164359 | Status: open | Latency: 559.92ms
+2026-01-16 16:09:30,854 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594164359 (921840309)
+2026-01-16 16:09:31,062 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594164359 | Status: canceled | Latency: 207.61ms
+2026-01-16 16:09:41,077 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:09:41,969 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594181077 @ 36.92
+2026-01-16 16:09:42,171 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594181077 | Status: open | Latency: 202.38ms
+2026-01-16 16:09:47,183 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594181077 (921840483)
+2026-01-16 16:09:47,389 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594181077 | Status: canceled | Latency: 206.04ms
+2026-01-16 16:09:51,653 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 48.05m | Sent: 176 | WS Matches: 352 | Avg Latency: 339.90ms
+2026-01-16 16:09:57,403 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:09:58,292 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594197403 @ 36.925
+2026-01-16 16:09:58,500 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594197403 | Status: open | Latency: 207.03ms
+2026-01-16 16:10:03,504 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594197403 (921840712)
+2026-01-16 16:10:03,706 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594197403 | Status: canceled | Latency: 201.42ms
+2026-01-16 16:10:13,714 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:10:14,608 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594213714 @ 36.92
+2026-01-16 16:10:15,167 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594213714 | Status: open | Latency: 559.07ms
+2026-01-16 16:10:20,180 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594213714 (921840889)
+2026-01-16 16:10:20,736 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594213714 | Status: canceled | Latency: 555.97ms
+2026-01-16 16:10:30,744 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:10:31,644 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594230744 @ 36.935
+2026-01-16 16:10:32,202 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594230744 | Status: open | Latency: 557.75ms
+2026-01-16 16:10:37,209 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594230744 (921841049)
+2026-01-16 16:10:37,411 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594230744 | Status: canceled | Latency: 202.32ms
+2026-01-16 16:10:47,426 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:10:48,320 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594247426 @ 36.91
+2026-01-16 16:10:48,529 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594247426 | Status: open | Latency: 209.74ms
+2026-01-16 16:10:51,655 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 49.05m | Sent: 180 | WS Matches: 359 | Avg Latency: 340.22ms
+2026-01-16 16:10:53,536 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594247426 (921841270)
+2026-01-16 16:10:54,092 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594247426 | Status: canceled | Latency: 556.06ms
+2026-01-16 16:11:04,106 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:11:05,033 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594264106 @ 36.915
+2026-01-16 16:11:05,597 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594264106 | Status: open | Latency: 564.21ms
+2026-01-16 16:11:10,581 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594264106 (921841555)
+2026-01-16 16:11:11,120 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594264106 | Status: canceled | Latency: 538.48ms
+2026-01-16 16:11:21,136 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:11:22,033 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594281136 @ 36.91
+2026-01-16 16:11:22,578 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594281136 | Status: open | Latency: 545.18ms
+2026-01-16 16:11:27,583 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594281136 (921841706)
+2026-01-16 16:11:28,143 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594281136 | Status: canceled | Latency: 560.45ms
+2026-01-16 16:11:38,159 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:11:39,090 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594298159 @ 36.925
+2026-01-16 16:11:39,301 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594298159 | Status: open | Latency: 210.25ms
+2026-01-16 16:11:44,312 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594298159 (921841884)
+2026-01-16 16:11:44,851 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594298159 | Status: canceled | Latency: 539.14ms
+2026-01-16 16:11:51,656 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 50.05m | Sent: 183 | WS Matches: 366 | Avg Latency: 343.31ms
+2026-01-16 16:11:54,862 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:11:55,418 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594314862 @ 36.935
+2026-01-16 16:11:55,622 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594314862 | Status: open | Latency: 204.27ms
+2026-01-16 16:12:00,629 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594314862 (921842110)
+2026-01-16 16:12:01,187 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594314862 | Status: canceled | Latency: 557.61ms
+2026-01-16 16:12:11,195 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:12:12,122 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594331195 @ 36.935
+2026-01-16 16:12:12,325 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594331195 | Status: open | Latency: 202.71ms
+2026-01-16 16:12:17,336 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594331195 (921842344)
+2026-01-16 16:12:17,911 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594331195 | Status: canceled | Latency: 574.50ms
+2026-01-16 16:12:27,926 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:12:28,853 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594347926 @ 36.94
+2026-01-16 16:12:29,061 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594347926 | Status: open | Latency: 208.21ms
+2026-01-16 16:12:34,069 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594347926 (921842513)
+2026-01-16 16:12:34,627 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594347926 | Status: canceled | Latency: 557.50ms
+2026-01-16 16:12:44,643 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:12:45,036 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594364643 @ 36.945
+2026-01-16 16:12:45,240 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594364643 | Status: open | Latency: 203.45ms
+2026-01-16 16:12:50,247 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594364643 (921842694)
+2026-01-16 16:12:50,796 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594364643 | Status: canceled | Latency: 549.08ms
+2026-01-16 16:12:51,658 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 51.05m | Sent: 187 | WS Matches: 374 | Avg Latency: 344.14ms
+2026-01-16 16:13:00,806 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:13:01,702 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594380806 @ 36.95
+2026-01-16 16:13:01,917 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594380806 | Status: open | Latency: 215.38ms
+2026-01-16 16:13:06,926 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594380806 (921842946)
+2026-01-16 16:13:07,466 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594380806 | Status: canceled | Latency: 539.63ms
+2026-01-16 16:13:17,474 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:13:18,414 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594397474 @ 36.955
+2026-01-16 16:13:18,636 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594397474 | Status: open | Latency: 222.32ms
+2026-01-16 16:13:23,646 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594397474 (921843126)
+2026-01-16 16:13:24,184 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594397474 | Status: canceled | Latency: 537.72ms
+2026-01-16 16:13:34,193 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:13:34,753 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594414193 @ 36.955
+2026-01-16 16:13:34,956 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594414193 | Status: open | Latency: 202.85ms
+2026-01-16 16:13:39,973 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594414193 (921843321)
+2026-01-16 16:13:40,179 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594414193 | Status: canceled | Latency: 206.48ms
+2026-01-16 16:13:50,189 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:13:50,765 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594430189 @ 36.97
+2026-01-16 16:13:50,967 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594430189 | Status: open | Latency: 201.90ms
+2026-01-16 16:13:51,659 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 52.05m | Sent: 191 | WS Matches: 381 | Avg Latency: 343.40ms
+2026-01-16 16:13:55,979 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594430189 (921843559)
+2026-01-16 16:13:56,187 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594430189 | Status: canceled | Latency: 207.86ms
+2026-01-16 16:14:06,197 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:14:07,127 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594446197 @ 36.995
+2026-01-16 16:14:07,336 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594446197 | Status: open | Latency: 208.98ms
+2026-01-16 16:14:12,344 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594446197 (921843871)
+2026-01-16 16:14:12,554 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594446197 | Status: canceled | Latency: 209.58ms
+2026-01-16 16:14:22,563 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:14:23,489 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594462563 @ 37.02
+2026-01-16 16:14:23,699 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594462563 | Status: open | Latency: 210.03ms
+2026-01-16 16:14:28,713 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594462563 (921844048)
+2026-01-16 16:14:28,921 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594462563 | Status: canceled | Latency: 208.48ms
+2026-01-16 16:14:38,931 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:14:39,505 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594478931 @ 37.04
+2026-01-16 16:14:40,063 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594478931 | Status: open | Latency: 558.17ms
+2026-01-16 16:14:45,073 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594478931 (921844205)
+2026-01-16 16:14:45,280 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594478931 | Status: canceled | Latency: 207.52ms
+2026-01-16 16:14:51,661 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 53.05m | Sent: 194 | WS Matches: 388 | Avg Latency: 341.87ms
+2026-01-16 16:14:55,289 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:14:55,672 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594495289 @ 37.055
+2026-01-16 16:14:55,882 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594495289 | Status: open | Latency: 209.95ms
+2026-01-16 16:15:00,893 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594495289 (921844389)
+2026-01-16 16:15:01,105 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594495289 | Status: canceled | Latency: 211.99ms
+2026-01-16 16:15:11,112 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:15:11,667 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594511112 @ 37.07
+2026-01-16 16:15:11,870 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594511112 | Status: open | Latency: 202.22ms
+2026-01-16 16:15:16,882 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594511112 (921844670)
+2026-01-16 16:15:17,094 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594511112 | Status: canceled | Latency: 211.27ms
+2026-01-16 16:15:27,103 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:15:27,679 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594527103 @ 37.08
+2026-01-16 16:15:27,881 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594527103 | Status: open | Latency: 202.32ms
+2026-01-16 16:15:32,890 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594527103 (921844810)
+2026-01-16 16:15:33,092 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594527103 | Status: canceled | Latency: 202.01ms
+2026-01-16 16:15:43,102 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:15:43,713 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594543101 @ 37.085
+2026-01-16 16:15:44,252 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594543101 | Status: open | Latency: 538.13ms
+2026-01-16 16:15:49,264 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594543101 (921844962)
+2026-01-16 16:15:49,474 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594543101 | Status: canceled | Latency: 209.97ms
+2026-01-16 16:15:51,662 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 54.05m | Sent: 198 | WS Matches: 396 | Avg Latency: 339.99ms
+2026-01-16 16:15:59,483 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:16:00,408 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594559483 @ 37.06
+2026-01-16 16:16:00,618 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594559483 | Status: open | Latency: 209.52ms
+2026-01-16 16:16:05,627 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594559483 (921845187)
+2026-01-16 16:16:05,835 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594559483 | Status: canceled | Latency: 208.75ms
+2026-01-16 16:16:15,843 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:16:16,247 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594575843 @ 37.065
+2026-01-16 16:16:16,457 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594575843 | Status: open | Latency: 210.55ms
+2026-01-16 16:16:21,466 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594575843 (921845417)
+2026-01-16 16:16:21,675 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594575843 | Status: canceled | Latency: 208.98ms
+2026-01-16 16:16:31,676 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:16:32,063 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594591676 @ 37.045
+2026-01-16 16:16:32,266 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594591676 | Status: open | Latency: 202.89ms
+2026-01-16 16:16:37,276 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594591676 (921845558)
+2026-01-16 16:16:37,821 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594591676 | Status: canceled | Latency: 545.25ms
+2026-01-16 16:16:47,833 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:16:48,761 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594607833 @ 37.06
+2026-01-16 16:16:48,965 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594607833 | Status: open | Latency: 203.86ms
+2026-01-16 16:16:51,582 | BinanceNative   | INFO     | ♻️ Proactive Rotation: Recycling User Stream...
+2026-01-16 16:16:51,663 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 55.05m | Sent: 202 | WS Matches: 403 | Avg Latency: 338.52ms
+2026-01-16 16:16:53,973 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594607833 (921845730)
+2026-01-16 16:16:57,153 | BinanceNative   | INFO     | 🔌 Connecting to User Data Stream...
+2026-01-16 16:16:58,194 | BinanceNative   | INFO     | ✅ User Data Stream connected
+2026-01-16 16:17:04,545 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:17:05,439 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594624545 @ 37.06
+2026-01-16 16:17:05,654 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594624545 | Status: open | Latency: 215.15ms
+2026-01-16 16:17:10,661 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594624545 (921845962)
+2026-01-16 16:17:11,226 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594624545 | Status: canceled | Latency: 564.54ms
+2026-01-16 16:17:21,229 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:17:21,634 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594641229 @ 37.07
+2026-01-16 16:17:21,848 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594641229 | Status: open | Latency: 213.65ms
+2026-01-16 16:17:26,853 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594641229 (921846128)
+2026-01-16 16:17:27,063 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594641229 | Status: canceled | Latency: 210.40ms
+2026-01-16 16:17:37,066 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:17:37,994 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594657066 @ 37.08
+2026-01-16 16:17:38,539 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594657066 | Status: open | Latency: 544.40ms
+2026-01-16 16:17:43,543 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594657066 (921846258)
+2026-01-16 16:17:44,110 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594657066 | Status: canceled | Latency: 566.82ms
+2026-01-16 16:17:51,664 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 56.05m | Sent: 205 | WS Matches: 409 | Avg Latency: 339.22ms
+2026-01-16 16:17:54,113 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:17:54,691 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594674113 @ 37.085
+2026-01-16 16:17:55,243 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594674113 | Status: open | Latency: 551.57ms
+2026-01-16 16:18:00,239 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594674113 (921846445)
+2026-01-16 16:18:00,806 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594674113 | Status: canceled | Latency: 566.69ms
+2026-01-16 16:18:10,808 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:18:11,387 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594690808 @ 37.085
+2026-01-16 16:18:11,951 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594690808 | Status: open | Latency: 564.59ms
+2026-01-16 16:18:16,957 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594690808 (921846705)
+2026-01-16 16:18:17,510 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594690808 | Status: canceled | Latency: 552.51ms
+2026-01-16 16:18:27,516 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:18:28,090 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594707516 @ 37.09
+2026-01-16 16:18:28,653 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594707516 | Status: open | Latency: 563.54ms
+2026-01-16 16:18:33,655 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594707516 (921846880)
+2026-01-16 16:18:34,201 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594707516 | Status: canceled | Latency: 545.24ms
+2026-01-16 16:18:44,206 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:18:45,101 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594724206 @ 37.09
+2026-01-16 16:18:45,316 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594724206 | Status: open | Latency: 214.49ms
+2026-01-16 16:18:50,313 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594724206 (921847047)
+2026-01-16 16:18:50,884 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594724206 | Status: canceled | Latency: 571.22ms
+2026-01-16 16:18:51,665 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 57.05m | Sent: 209 | WS Matches: 417 | Avg Latency: 342.61ms
+2026-01-16 16:19:00,886 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:19:01,465 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594740886 @ 37.095
+2026-01-16 16:19:01,673 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594740886 | Status: open | Latency: 208.32ms
+2026-01-16 16:19:06,679 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594740886 (921847268)
+2026-01-16 16:19:07,244 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594740886 | Status: canceled | Latency: 565.15ms
+2026-01-16 16:19:17,249 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:19:18,183 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594757249 @ 37.105
+2026-01-16 16:19:18,398 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594757249 | Status: open | Latency: 215.36ms
+2026-01-16 16:19:23,403 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594757249 (921847578)
+2026-01-16 16:19:23,947 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594757249 | Status: canceled | Latency: 543.55ms
+2026-01-16 16:19:33,950 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:19:34,842 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594773950 @ 37.115
+2026-01-16 16:19:35,408 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594773950 | Status: open | Latency: 565.58ms
+2026-01-16 16:19:40,409 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594773950 (921847753)
+2026-01-16 16:19:40,624 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594773950 | Status: canceled | Latency: 214.36ms
+2026-01-16 16:19:50,626 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:19:51,552 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594790626 @ 37.115
+2026-01-16 16:19:51,666 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 58.05m | Sent: 213 | WS Matches: 423 | Avg Latency: 343.22ms
+2026-01-16 16:19:51,767 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594790626 | Status: open | Latency: 214.87ms
+2026-01-16 16:19:56,769 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594790626 (921847930)
+2026-01-16 16:19:57,313 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594790626 | Status: canceled | Latency: 543.14ms
+2026-01-16 16:20:07,323 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:20:07,904 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594807323 @ 37.115
+2026-01-16 16:20:08,118 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594807323 | Status: open | Latency: 213.88ms
+2026-01-16 16:20:13,120 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594807323 (921848143)
+2026-01-16 16:20:13,328 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594807323 | Status: canceled | Latency: 208.51ms
+2026-01-16 16:20:23,333 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:20:23,891 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594823333 @ 37.105
+2026-01-16 16:20:24,456 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594823333 | Status: open | Latency: 565.20ms
+2026-01-16 16:20:29,459 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594823333 (921848382)
+2026-01-16 16:20:30,005 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594823333 | Status: canceled | Latency: 545.36ms
+2026-01-16 16:20:40,008 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:20:40,931 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594840008 @ 37.1
+2026-01-16 16:20:41,499 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594840008 | Status: open | Latency: 567.74ms
+2026-01-16 16:20:46,502 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594840008 (921848514)
+2026-01-16 16:20:47,068 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594840008 | Status: canceled | Latency: 565.56ms
+2026-01-16 16:20:51,667 | ConnStressTester | INFO     | 📊 STATUS | Runtime: 59.05m | Sent: 216 | WS Matches: 431 | Avg Latency: 344.79ms
+2026-01-16 16:20:57,074 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:20:57,650 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594857074 @ 37.095
+2026-01-16 16:20:57,864 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594857074 | Status: open | Latency: 213.90ms
+2026-01-16 16:21:02,866 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594857074 (921848696)
+2026-01-16 16:21:03,118 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594857074 | Status: canceled | Latency: 251.92ms
+2026-01-16 16:21:13,119 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:21:14,045 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594873119 @ 37.085
+2026-01-16 16:21:14,612 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594873119 | Status: open | Latency: 566.69ms
+2026-01-16 16:21:19,614 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594873119 (921848943)
+2026-01-16 16:21:20,177 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594873119 | Status: canceled | Latency: 562.32ms
+2026-01-16 16:21:30,187 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:21:31,110 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594890187 @ 37.07
+2026-01-16 16:21:31,677 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594890187 | Status: open | Latency: 566.88ms
+2026-01-16 16:21:36,679 | ConnStressTester | INFO     | 🗑️ Cancelling Test Order: TEST_1768594890187 (921849125)
+2026-01-16 16:21:37,242 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594890187 | Status: canceled | Latency: 562.92ms
+2026-01-16 16:21:47,249 | BinanceNative   | INFO     | 📊 Fetching all symbols (Bulk Tickers REST)...
+2026-01-16 16:21:48,142 | ConnStressTester | INFO     | 📤 Sending Test Order: TEST_1768594907249 @ 37.07
+2026-01-16 16:21:48,712 | ConnStressTester | INFO     | ✅ WS Match: TEST_1768594907249 | Status: open | Latency: 570.13ms
+2026-01-16 16:21:51,582 | BinanceNative   | INFO     | 🔌 Closing Binance Native Connector...
+2026-01-16 16:21:51,583 | BinanceNative   | INFO     | 🛑 Subscription Worker stopping...
+2026-01-16 16:21:51,583 | ConnStressTester | INFO     | ========================================
+2026-01-16 16:21:51,583 | ConnStressTester | INFO     | 📊 CONNECTIVITY STRESS TEST REPORT
+2026-01-16 16:21:51,583 | ConnStressTester | INFO     | ========================================
+2026-01-16 16:21:51,583 | ConnStressTester | INFO     | ⏱️ Runtime: 60.05 min
+2026-01-16 16:21:51,583 | ConnStressTester | INFO     | 📩 Total WS Events: 448
+2026-01-16 16:21:51,584 | ConnStressTester | INFO     | 📤 Orders Sent/Cancelled: 220
+2026-01-16 16:21:51,584 | ConnStressTester | INFO     | ✅ WS Matches: 438
+2026-01-16 16:21:51,584 | ConnStressTester | INFO     | 📉 Est. Packet Loss: 0.45%
+2026-01-16 16:21:51,584 | ConnStressTester | INFO     | ⚡ Avg Latency: 346.80ms
+2026-01-16 16:21:51,584 | ConnStressTester | INFO     | Report saved to: logs/connectivity_report.json
+2026-01-16 16:21:51,584 | BinanceNative   | INFO     | 🛑 Subscription Worker stopping...

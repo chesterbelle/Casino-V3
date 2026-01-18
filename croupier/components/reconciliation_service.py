@@ -525,13 +525,13 @@ class ReconciliationService:
             sl_client_id = str(sl_order.get("clientOrderId", ""))
 
             if tp_exchange_id:
-                self.tracker.register_alias(tp_exchange_id, position)
+                self.tracker.register_alias(tp_exchange_id, position, symbol=symbol)
             if sl_exchange_id:
-                self.tracker.register_alias(sl_exchange_id, position)
+                self.tracker.register_alias(sl_exchange_id, position, symbol=symbol)
             if tp_client_id:
-                self.tracker.register_alias(tp_client_id, position)
+                self.tracker.register_alias(tp_client_id, position, symbol=symbol)
             if sl_client_id:
-                self.tracker.register_alias(sl_client_id, position)
+                self.tracker.register_alias(sl_client_id, position, symbol=symbol)
 
             self.logger.info(f"✅ Position adopted with aliases registered: {trade_id}")
             return True
@@ -795,10 +795,13 @@ class ReconciliationService:
             if not order_id:
                 continue
 
-            # PHASE 53: Use PositionTracker as Single Source of Truth
+            # PHASE 53: Use PositionTracker as Single Source of Truth - Phase 80: Partitioned by Symbol
             # Check if this order (by exchange ID or client ID) is associated with any tracked position
-            position_by_exchange_id = self.tracker.get_position_by_id(order_id)
-            position_by_client_id = self.tracker.get_position_by_id(client_order_id) if client_order_id else None
+            # We strictly check WITHIN the current reconciliation symbol to prevent cross-symbol hijack
+            position_by_exchange_id = self.tracker.get_position_by_id(order_id, symbol=symbol)
+            position_by_client_id = (
+                self.tracker.get_position_by_id(client_order_id, symbol=symbol) if client_order_id else None
+            )
 
             is_tracked = position_by_exchange_id is not None or position_by_client_id is not None
 

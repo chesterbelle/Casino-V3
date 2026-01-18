@@ -37,18 +37,20 @@ class OrderExecutor:
         })
     """
 
-    def __init__(self, exchange_adapter, error_handler=None, order_tracker=None):
+    def __init__(self, exchange_adapter, error_handler=None, order_tracker=None, position_tracker=None):
         """
         Initialize OrderExecutor.
 
         Args:
             exchange_adapter: ExchangeAdapter instance for order execution
             error_handler: Optional ErrorHandler (uses global if None)
-            order_tracker: Optional OrderTracker instance (for local tracking)
+            order_tracker: Optional OrderTracker instance (Legacy local tracking)
+            position_tracker: Optional PositionTracker (Legacy V3 State / alias registration)
         """
         self.adapter = exchange_adapter
         self.error_handler = error_handler or get_error_handler()
         self.order_tracker = order_tracker
+        self.position_tracker = position_tracker
         self.logger = logging.getLogger("OrderExecutor")
 
     def _ensure_client_order_id(self, order: Dict[str, Any], prefix: str = "ENTRY") -> None:
@@ -416,6 +418,15 @@ class OrderExecutor:
 
         # TIER 0: Market Close
         try:
+            # Phase 78.1: Pre-Register Alias (Silent Close Fix)
+            if self.position_tracker:
+                positions = self.position_tracker.get_positions_by_symbol(symbol)
+                for pos in positions:
+                    if pos.status != "CLOSED":
+                        self.position_tracker.register_alias(client_id, pos)
+                        self.logger.info(f"💾 Pre-Registered Close Alias: {client_id} -> {pos.trade_id}")
+                        break  # Only link to the first active position
+
             return await self.execute_market_order(
                 {
                     "symbol": symbol,
@@ -452,6 +463,14 @@ class OrderExecutor:
 
             self.logger.info(f"🔄 Smart Close T1: Aggressive LIMIT {close_side} @ {limit_price} (5%)")
 
+            # Phase 78.1: Pre-Register Alias for T1
+            if self.position_tracker:
+                positions = self.position_tracker.get_positions_by_symbol(symbol)
+                for pos in positions:
+                    if pos.status != "CLOSED":
+                        self.position_tracker.register_alias(client_id, pos)
+                        break
+
             return await self.execute_limit_order(
                 symbol=symbol, side=close_side, amount=amount, price=limit_price, params={"client_order_id": client_id}
             )
@@ -472,6 +491,14 @@ class OrderExecutor:
                 client_id = f"CASINO_FC2_{uuid.uuid4().hex[:12]}"
 
                 self.logger.info(f"🔄 Smart Close T2: Safe LIMIT {close_side} @ {limit_price} (1%)")
+
+                # Phase 78.1: Pre-Register Alias for T2
+                if self.position_tracker:
+                    positions = self.position_tracker.get_positions_by_symbol(symbol)
+                    for pos in positions:
+                        if pos.status != "CLOSED":
+                            self.position_tracker.register_alias(client_id, pos)
+                            break
 
                 return await self.execute_limit_order(
                     symbol=symbol,

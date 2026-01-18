@@ -245,9 +245,10 @@ class PositionTracker:
         self.new_longs = 0
         self.new_shorts = 0
 
-        # Architecture: Alias Map for O(1) Order ID Lookup
+        # Architecture: Alias Map for O(1) Order ID Lookup (Partitioned by Symbol)
         # Centralized index for O(1) lookup of any order ID (Client or Exchange) -> Position
-        self._alias_map: Dict[str, OpenPosition] = {}
+        # Partitioned by symbol to prevent cross-symbol order hijacks/collisions.
+        self._alias_map: Dict[str, Dict[str, OpenPosition]] = defaultdict(dict)
 
         # History of closed trades for detailed reporting
         self.history: List[Dict[str, Any]] = []  # Store closed trade results
@@ -287,32 +288,58 @@ class PositionTracker:
     # ALIAS MAP: Centralized Identity Management (Phase 44)
     # =========================================================
 
-    def register_alias(self, alias_id: str, position: OpenPosition) -> None:
+    def register_alias(self, alias_id: str, position: OpenPosition, symbol: Optional[str] = None) -> None:
         """
-        Maps an ID (Client or Exchange) to a Position.
+        Maps an ID (Client or Exchange) to a Position within a specific symbol context.
         Critical for O(1) lookups of WS events.
         """
         if not alias_id:
             return
-        self._alias_map[str(alias_id)] = position
-        # logger.debug(f"📇 Registered alias: {alias_id} -> {position.symbol}")
 
-    def unregister_alias(self, alias_id: str) -> None:
-        """Removes an ID from the map."""
+        target_symbol = normalize_symbol(symbol or position.symbol)
+        if not target_symbol:
+            logger.warning(f"⚠️ Cannot register alias {alias_id}: No symbol provided and position HAS NO SYMBOL")
+            return
+
+        self._alias_map[target_symbol][str(alias_id)] = position
+        # logger.debug(f"📇 Registered alias: {alias_id} -> {target_symbol}")
+
+    def unregister_alias(self, alias_id: str, symbol: Optional[str] = None) -> None:
+        """Removes an ID from the symbol-specific map."""
         if not alias_id:
             return
-        if str(alias_id) in self._alias_map:
-            del self._alias_map[str(alias_id)]
+
+        # If symbol is provided, only look there. If not, we have to look everywhere (legacy/safety)
+        if symbol:
+            target_symbol = normalize_symbol(symbol)
+            if alias_id in self._alias_map.get(target_symbol, {}):
+                del self._alias_map[target_symbol][str(alias_id)]
+        else:
+            # Fallback: sweep all symbols (less efficient, but safe for migration)
+            for sym_bucket in self._alias_map.values():
+                if str(alias_id) in sym_bucket:
+                    del sym_bucket[str(alias_id)]
             # logger.debug(f"🗑️ Unregistered alias: {alias_id}")
 
-    def get_position_by_id(self, order_id: str) -> Optional[OpenPosition]:
-        """Look up position by any known ID (Client or Exchange)."""
-        # 1. O(1) lookup (Alias Map)
-        pos = self._alias_map.get(str(order_id))
-        if pos:
-            return pos
+    def get_position_by_id(self, order_id: str, symbol: Optional[str] = None) -> Optional[OpenPosition]:
+        """Look up position by any known ID (Client or Exchange) with symbol context."""
+        if not order_id:
+            return None
 
-        # 2. Linear Fallback (Safety)
+        # 1. O(1) lookup within symbol bucket
+        if symbol:
+            target_symbol = normalize_symbol(symbol)
+            pos = self._alias_map.get(target_symbol, {}).get(str(order_id))
+            if pos:
+                return pos
+        else:
+            # Fallback: scan all buckets (O(S) where S is number of active symbols)
+            for sym_bucket in self._alias_map.values():
+                pos = sym_bucket.get(str(order_id))
+                if pos:
+                    return pos
+
+        # 2. Linear Fallback (Global Safety)
         for pos in self.open_positions:
             if pos.trade_id == order_id:
                 return pos
@@ -386,23 +413,24 @@ class PositionTracker:
 
     def _unregister_all_aliases(self, position: OpenPosition) -> None:
         """Removes all aliases associated with a position."""
-        self.unregister_alias(position.trade_id)
-        self.unregister_alias(position.main_order_id)
-        self.unregister_alias(position.tp_order_id)
-        self.unregister_alias(position.sl_order_id)
-        self.unregister_alias(position.exchange_tp_id)
-        self.unregister_alias(position.exchange_sl_id)
+        symbol = position.symbol
+        self.unregister_alias(position.trade_id, symbol=symbol)
+        self.unregister_alias(position.main_order_id, symbol=symbol)
+        self.unregister_alias(position.tp_order_id, symbol=symbol)
+        self.unregister_alias(position.sl_order_id, symbol=symbol)
+        self.unregister_alias(position.exchange_tp_id, symbol=symbol)
+        self.unregister_alias(position.exchange_sl_id, symbol=symbol)
 
         # Unregister from OrderState objects
         if position.main_order:
-            self.unregister_alias(position.main_order.client_order_id)
-            self.unregister_alias(position.main_order.exchange_order_id)
+            self.unregister_alias(position.main_order.client_order_id, symbol=symbol)
+            self.unregister_alias(position.main_order.exchange_order_id, symbol=symbol)
         if position.tp_order:
-            self.unregister_alias(position.tp_order.client_order_id)
-            self.unregister_alias(position.tp_order.exchange_order_id)
+            self.unregister_alias(position.tp_order.client_order_id, symbol=symbol)
+            self.unregister_alias(position.tp_order.exchange_order_id, symbol=symbol)
         if position.sl_order:
-            self.unregister_alias(position.sl_order.client_order_id)
-            self.unregister_alias(position.sl_order.exchange_order_id)
+            self.unregister_alias(position.sl_order.client_order_id, symbol=symbol)
+            self.unregister_alias(position.sl_order.exchange_order_id, symbol=symbol)
 
     # =========================================================
     # GOVERNANCE AUTHORITY: Centralized State Transitions
@@ -497,17 +525,23 @@ class PositionTracker:
         Register a specific order (TP/SL/Main) for O(1) lookup via Alias Map.
         Supersedes legacy usage of _positions_by_client_id.
         """
+        symbol = position.symbol
         if order.client_order_id:
-            self.register_alias(order.client_order_id, position)
+            self.register_alias(order.client_order_id, position, symbol=symbol)
         if order.exchange_order_id:
-            self.register_alias(str(order.exchange_order_id), position)
+            self.register_alias(str(order.exchange_order_id), position, symbol=symbol)
 
-    def unregister_order(self, client_order_id: Optional[str] = None, exchange_order_id: Optional[str] = None):
+    def unregister_order(
+        self,
+        client_order_id: Optional[str] = None,
+        exchange_order_id: Optional[str] = None,
+        symbol: Optional[str] = None,
+    ):
         """Remove order from lookup (called on position close)."""
         if client_order_id:
-            self.unregister_alias(client_order_id)
+            self.unregister_alias(client_order_id, symbol=symbol)
         if exchange_order_id:
-            self.unregister_alias(str(exchange_order_id))
+            self.unregister_alias(str(exchange_order_id), symbol=symbol)
 
     def register_bracket_alias(self, order_id: str, position: OpenPosition, order_type: str) -> None:
         """
@@ -524,8 +558,8 @@ class PositionTracker:
 
         order_id = str(order_id)
 
-        # 1. Register in Alias Map (Single Source of Truth)
-        self.register_alias(order_id, position)
+        # 1. Register in Alias Map (Single Source of Truth) - Phase 80: Partitioned by symbol
+        self.register_alias(order_id, position, symbol=position.symbol)
 
         # 2. Update Position Object Fields (in case caller hasn't yet, though it should)
         # This acts as a safety enforcement of consistency
@@ -554,16 +588,20 @@ class PositionTracker:
         client_id = event.get("client_order_id") or event.get("c") or event.get("clientOrderId")
         exchange_id = str(event.get("order_id") or event.get("id") or event.get("i") or event.get("orderId") or "")
 
-        # O(1) lookup via Alias Map (Phase 44)
-        position = self.get_position_by_id(client_id)
+        # Phase 80: Extract symbol for partitioned lookup
+        raw_symbol = event.get("symbol") or event.get("s")
+        symbol = normalize_symbol(raw_symbol)
+
+        # O(1) lookup via Alias Map (Phase 44) - Partitioned by Symbol (Phase 80)
+        position = self.get_position_by_id(client_id, symbol=symbol)
         if not position and exchange_id and exchange_id not in ("0", "", "None"):
-            position = self.get_position_by_id(exchange_id)
+            position = self.get_position_by_id(exchange_id, symbol=symbol)
 
         # Auto-Learning: Register Exchange ID if discovered for the first time
         if position and exchange_id and exchange_id not in ("0", "", "None"):
-            if not self.get_position_by_id(exchange_id):
-                self.register_alias(exchange_id, position)
-                logger.info(f"🧠 Alias Map learned: {exchange_id} -> {position.symbol}")
+            if not self.get_position_by_id(exchange_id, symbol=symbol):
+                self.register_alias(exchange_id, position, symbol=symbol)
+                logger.info(f"🧠 Alias Map learned: {exchange_id} ({symbol}) -> {position.symbol}")
 
         if not position:
             if client_id and "CASINO_" in str(client_id):
@@ -590,7 +628,7 @@ class PositionTracker:
                     # Keep client ID alias, but update primary ID
                     old_id = position.trade_id
                     position.trade_id = str(exchange_id)
-                    self.register_alias(str(exchange_id), position)
+                    self.register_alias(str(exchange_id), position, symbol=symbol)
                     logger.info(f"🔄 Swapped ID: {old_id} -> {position.trade_id}")
 
             # Recalculate entry based on actual fill
@@ -603,6 +641,57 @@ class PositionTracker:
             logger.info(f"✅ MAIN FILLED for {position.trade_id} via unified routing (@{fill_price})")
 
         return position.trade_id
+
+    async def handle_account_update(self, data: Dict[str, Any]):
+        """
+        Phase 78.2: Liquidation Sheriff.
+        Handle ACCOUNT_UPDATE events to catch external liquidations/closures
+        that do not trigger a standard ORDER_TRADE_UPDATE (silent deaths).
+        """
+        # 'a' contains update data, 'P' contains position updates
+        update_data = data.get("a", {})
+        positions_data = update_data.get("P", [])
+
+        for pos_data in positions_data:
+            symbol = pos_data.get("s")
+            amount = float(pos_data.get("pa", 0))
+
+            # If position amount is 0, it means it's closed (or flat).
+            if amount == 0:
+                # Sheriff Logic: Do we have an open position for this symbol?
+                # We normalize BOTH symbols to ensure "ZILUSDT" matches "ZIL/USDT".
+
+                # Check all active positions for this symbol
+                matching_positions = [
+                    p for p in self.open_positions if normalize_symbol(p.symbol) == normalize_symbol(symbol)
+                ]
+
+                if matching_positions:
+                    logger.warning(
+                        f"🤠 Liquidation Sheriff: Detected external closure for {symbol}. Closing {len(matching_positions)} positions."
+                    )
+
+                    for pos in matching_positions:
+                        # Calculated Estimated PnL (Worst Case: Liquidation)
+                        # If we are long, exit price is roughly liquidation level.
+                        exit_price = pos.liquidation_level or pos.entry_price  # Fallback
+
+                        # Calculate leakage-plugging PnL
+                        # PnL = (Exit - Entry) * Notional / Entry
+                        if pos.side == "LONG":
+                            pnl = (exit_price - pos.entry_price) * pos.notional / pos.entry_price
+                        else:
+                            pnl = (pos.entry_price - exit_price) * pos.notional / pos.entry_price
+
+                        # Force Close logic
+                        self.confirm_close(
+                            trade_id=pos.trade_id,
+                            exit_price=exit_price,
+                            exit_reason="LIQUIDATION",
+                            pnl=pnl,
+                            fee=0.0,  # Fees usually handled in separate events, but let's assume 0 for now
+                        )
+                        logger.info(f"⚰️ Buried Ghost Position {pos.trade_id} (PnL: {pnl:.4f})")
 
     def _handle_tp_filled(self, position: "OpenPosition", event: Dict[str, Any]):
         """Handle TP fill event - close position and cancel SL."""
@@ -819,21 +908,21 @@ class PositionTracker:
             if position not in self._symbol_map[sym_norm]:
                 self._symbol_map[sym_norm].append(position)
 
-            # --- Alias Map: Register Aliases (Phase 44) ---
-            self.register_alias(trade_id, position)
+            # --- Alias Map: Register Aliases (Phase 44) - Partitioned by Symbol (Phase 80) ---
+            self.register_alias(trade_id, position, symbol=symbol)
             if main_order_id:
-                self.register_alias(main_order_id, position)
+                self.register_alias(main_order_id, position, symbol=symbol)
             if tp_order_id:
-                self.register_alias(tp_order_id, position)
+                self.register_alias(tp_order_id, position, symbol=symbol)
             if sl_order_id:
-                self.register_alias(sl_order_id, position)
+                self.register_alias(sl_order_id, position, symbol=symbol)
             if exchange_tp_id:
-                self.register_alias(exchange_tp_id, position)
+                self.register_alias(exchange_tp_id, position, symbol=symbol)
             if exchange_sl_id:
-                self.register_alias(exchange_sl_id, position)
+                self.register_alias(exchange_sl_id, position, symbol=symbol)
 
             for contrib_id in position.contributors or []:
-                self.register_alias(contrib_id, position)
+                self.register_alias(contrib_id, position, symbol=symbol)
             # ----------------------------------------------
 
             self.blocked_capital += margin_used
@@ -1255,7 +1344,10 @@ class PositionTracker:
                 else:
                     logger.warning(f"⚠️ Ghost Audit: No exchange trades found for {trade_id}. Using internal estimates.")
             except Exception as e:
-                logger.error(f"❌ Ghost Audit Failed for {trade_id}: {e}")
+                # CRITICAL (Phase 77): If audit fails, do NOT remove the position.
+                # We want to retry in the next reconciliation cycle instead of losing data.
+                logger.error(f"❌ Ghost Audit Failed for {trade_id}: {e}. Keeping position in tracker for retry.")
+                return False
 
         # 2. RECORD IN HISTORIAN
         historian.record_external_closure(
@@ -1283,6 +1375,9 @@ class PositionTracker:
         # Audit stats
         self.total_errors += 1
         self.total_trades_closed += 1
+
+        # Phase 77: Ensure state is saved after marking as OFF_BOARDING
+        self._trigger_state_change()
 
         return True
 
@@ -1360,7 +1455,7 @@ class PositionTracker:
             created_at=time.time(),
         )
         position.main_order = main_order_state
-        self.register_alias(client_order_id, position)
+        self.register_alias(client_order_id, position, symbol=normalized_symbol)
         self.register_order(position, main_order_state)
         self.open_positions.append(position)
         self._symbol_map[normalized_symbol].append(position)
@@ -1384,9 +1479,10 @@ class PositionTracker:
         Phase 52: Closes the race condition gap for bracket orders.
         """
         # Pre-register aliases for O(1) lookup when WS events arrive
-        self.register_alias(tp_client_id, position)
-        self.register_alias(sl_client_id, position)
-        logger.debug(f"📌 Pre-registered bracket aliases: TP={tp_client_id}, SL={sl_client_id}")
+        symbol = position.symbol
+        self.register_alias(tp_client_id, position, symbol=symbol)
+        self.register_alias(sl_client_id, position, symbol=symbol)
+        logger.debug(f"📌 Pre-registered bracket aliases: TP={tp_client_id}, SL={sl_client_id} for {symbol}")
 
     def restore_state(self, positions: List[OpenPosition]) -> None:
         """
@@ -1412,8 +1508,8 @@ class PositionTracker:
             sym_norm = normalize_symbol(pos.symbol)
             self._symbol_map[sym_norm].append(pos)
 
-            # 3. Rehydrate Alias Map (Critical for OCO/Updates)
-            self.register_alias(pos.trade_id, pos)
+            # 3. Rehydrate Alias Map (Critical for OCO/Updates) - Phase 80: Partitioned by Symbol
+            self.register_alias(pos.trade_id, pos, symbol=sym_norm)
 
             # Re-register orders if they exist
             if pos.main_order:
@@ -1425,9 +1521,9 @@ class PositionTracker:
 
             # Pre-register exchange IDs if we have them directly on pos object (legacy/hybrid)
             if pos.exchange_tp_id:
-                self.register_alias(str(pos.exchange_tp_id), pos)
+                self.register_alias(str(pos.exchange_tp_id), pos, symbol=sym_norm)
             if pos.exchange_sl_id:
-                self.register_alias(str(pos.exchange_sl_id), pos)
+                self.register_alias(str(pos.exchange_sl_id), pos, symbol=sym_norm)
 
             # Update counters
             self.total_trades_opened += 1

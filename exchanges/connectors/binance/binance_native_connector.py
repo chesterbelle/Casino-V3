@@ -1704,17 +1704,28 @@ class BinanceNativeConnector(BaseConnector):
 
     def _process_markets(self, info: Dict) -> None:
         """Process exchange info to extract market data."""
+        self.logger.info(f"🔄 Processing {len(info['symbols'])} markets from exchange info...")
+
         for s in info["symbols"]:
+            if s["status"] != "TRADING":
+                continue
+
+            # Defaults
             tick_size = 0.01
             step_size = 0.001
-            min_notional = 20.0  # Testnet default, mainnet is typically 5.0
+            min_notional = 5.0
+
             for f in s.get("filters", []):
                 if f["filterType"] == "PRICE_FILTER":
                     tick_size = float(f["tickSize"])
                 elif f["filterType"] == "LOT_SIZE":
                     step_size = float(f["stepSize"])
                 elif f["filterType"] == "MIN_NOTIONAL":
-                    min_notional = float(f.get("notional", 20.0))
+                    # Binance Futures sometimes uses 'notional', sometimes 'minNotional'
+                    if "notional" in f:
+                        min_notional = float(f["notional"])
+                    elif "minNotional" in f:
+                        min_notional = float(f["minNotional"])
 
             self._markets[s["symbol"]] = {
                 "symbol": s["symbol"],
@@ -1724,6 +1735,10 @@ class BinanceNativeConnector(BaseConnector):
                 "base": s["baseAsset"],
                 "quote": s["quoteAsset"],
             }
+
+            # Debug log for problematic symbols
+            if s["symbol"] in ["SOLUSDT", "BTCUSDT", "ETHUSDT"]:
+                self.logger.info(f"🔍 Loaded Filters {s['symbol']}: Step={step_size}, MinNotional={min_notional}")
 
     def get_market_filters(self, symbol: str) -> Dict[str, Any]:
         """Get trading filters for a symbol (tickSize, stepSize, minNotional)."""
