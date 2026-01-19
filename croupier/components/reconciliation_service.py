@@ -573,7 +573,12 @@ class ReconciliationService:
                         exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
 
                         self.tracker.confirm_close(
-                            pos.trade_id, exit_price=price, exit_reason="TP (Recon)", pnl=pnl, fee=exit_fee
+                            pos.trade_id,
+                            exit_price=price,
+                            exit_reason="TP (Recon)",
+                            pnl=pnl,
+                            fee=exit_fee,
+                            healed=True,
                         )
                         return "Closed via TP (Confirmed)"
                 except Exception as e:
@@ -611,7 +616,12 @@ class ReconciliationService:
                         exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
 
                         self.tracker.confirm_close(
-                            pos.trade_id, exit_price=price, exit_reason="SL (Recon)", pnl=pnl, fee=exit_fee
+                            pos.trade_id,
+                            exit_price=price,
+                            exit_reason="SL (Recon)",
+                            pnl=pnl,
+                            fee=exit_fee,
+                            healed=True,
                         )
                         return "Closed via SL (Confirmed)"
                 except Exception as e:
@@ -688,6 +698,7 @@ class ReconciliationService:
                             exit_reason="TRADE_CONFIRMED",
                             pnl=pnl,
                             fee=fee_real,
+                            healed=True,
                         )
                         return f"Closed via Trade {last_trade.get('id')} (Deep Confirmed)"
 

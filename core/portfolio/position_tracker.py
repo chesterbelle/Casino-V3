@@ -645,11 +645,17 @@ class PositionTracker:
     async def handle_account_update(self, data: Dict[str, Any]):
         """
         Phase 78.2: Liquidation Sheriff.
+        Phase 81: Signature Fix (Defensive check for nested 'a' key).
         Handle ACCOUNT_UPDATE events to catch external liquidations/closures
         that do not trigger a standard ORDER_TRADE_UPDATE (silent deaths).
         """
-        # 'a' contains update data, 'P' contains position updates
-        update_data = data.get("a", {})
+        # Defensive check: Connector might pass the full event or just the payload 'a'
+        if "a" in data:
+            update_data = data["a"]
+        else:
+            # Assume data is already the 'a' payload (Standard behavior in unified routing)
+            update_data = data
+
         positions_data = update_data.get("P", [])
 
         for pos_data in positions_data:
@@ -1059,7 +1065,13 @@ class PositionTracker:
         return potential_closes
 
     def confirm_close(
-        self, trade_id: str, exit_price: float, exit_reason: str, pnl: float, fee: float = 0.0
+        self,
+        trade_id: str,
+        exit_price: float,
+        exit_reason: str,
+        pnl: float,
+        fee: float = 0.0,
+        healed: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Confirms position close with real exchange data.
@@ -1110,7 +1122,7 @@ class PositionTracker:
             "state_source": "exchange_confirmed",
             "contributors": position.contributors,
             "session_id": self.session_id,
-            "healed": position.healed,  # Phase 61: Resilience Attribution
+            "healed": 1 if (healed or getattr(position, "healed", False)) else 0,  # Phase 81
         }
 
         # Remover de pending si estaba
@@ -1317,6 +1329,7 @@ class PositionTracker:
         audit_fee = found_pos.entry_fee
         audit_pnl = 0.0
         audit_reason = "GHOST_REMOVAL"
+        exit_price = found_pos.entry_price
 
         if self.adapter:
             try:
@@ -1338,11 +1351,28 @@ class PositionTracker:
                     total_pnl = sum(float(t.get("realized_pnl", 0) or 0) for t in relevant_trades)
                     audit_fee += total_fee
                     audit_pnl = total_pnl
+                    # Use avg price of trades if possible, else stick to current logic
+                    if len(relevant_trades) > 0:
+                        exit_price = sum(float(t.get("price", 0)) for t in relevant_trades) / len(relevant_trades)
                     logger.info(
                         f"✅ Ghost Audit Success: Found {len(relevant_trades)} trades. Fee={audit_fee:.4f}, PnL={audit_pnl:.4f}"
                     )
                 else:
-                    logger.warning(f"⚠️ Ghost Audit: No exchange trades found for {trade_id}. Using internal estimates.")
+                    logger.warning(f"⚠️ Ghost Audit: No exchange trades found for {trade_id}. Using ticker fallback.")
+                    try:
+                        ticker_price = await self.adapter.get_current_price(found_pos.symbol)
+                        exit_price = ticker_price
+                        # Calculate estimated PnL: (Exit - Entry) * Qty * Direction
+                        direction = 1 if found_pos.side.upper() in ["LONG", "BUY"] else -1
+                        qty = found_pos.notional / found_pos.entry_price if found_pos.entry_price > 0 else 0
+                        audit_pnl = (exit_price - found_pos.entry_price) * qty * direction
+                        logger.info(
+                            f"📊 Ghost Audit: Ticker Fallback Price: {exit_price:.4f} | Est. PnL: {audit_pnl:+.4f}"
+                        )
+                    except Exception as pe:
+                        logger.warning(
+                            f"⚠️ Ghost Audit: Could not get ticker for {found_pos.symbol}: {pe}. Using entry price."
+                        )
             except Exception as e:
                 # CRITICAL (Phase 77): If audit fails, do NOT remove the position.
                 # We want to retry in the next reconciliation cycle instead of losing data.
@@ -1355,7 +1385,7 @@ class PositionTracker:
             side=found_pos.side,
             qty=found_pos.notional / found_pos.entry_price if found_pos.entry_price > 0 else 0,
             entry_price=found_pos.entry_price,
-            exit_price=found_pos.entry_price,
+            exit_price=exit_price,
             fee=audit_fee,
             funding=found_pos.funding_accrued,
             reason=audit_reason,

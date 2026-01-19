@@ -117,6 +117,7 @@ class BinanceNativeConnector(BaseConnector):
         self._last_tickers_refresh = 0  # Timestamp for REST ticker cache
         self._ticker_lock = asyncio.Lock()  # Prevent Thundering Herd
         self._time_sync_lock = asyncio.Lock()  # Phase 46.1: Prevent redundant time syncs
+        self._user_stream_reconnect_lock = asyncio.Lock()  # Phase 47: Dedup reconnection storms
 
         # Phase 24: Global Circuit Breaker name for REST Market Data (Pressure Relief)
         self._market_data_breaker_name = "rest_market_data"
@@ -124,6 +125,9 @@ class BinanceNativeConnector(BaseConnector):
         # Recovery State
         self._consecutive_restart_failures = 0
         self._max_simple_restarts = 3
+
+        # Phase 38: Proactive background time sync
+        self._proactive_sync_task: Optional[asyncio.Task] = None
 
         if not self._api_key or not self._secret:
             self.logger.warning(f"⚠️ Missing API Keys for mode {self._mode}. Operations requiring auth will fail.")
@@ -373,6 +377,10 @@ class BinanceNativeConnector(BaseConnector):
             if self._enable_websocket and self._api_key and self._secret:
                 await self._start_user_data_stream()
 
+            # Start proactive time sync (Phase 38)
+            if not self._proactive_sync_task or self._proactive_sync_task.done():
+                self._proactive_sync_task = asyncio.create_task(self._proactive_sync_loop())
+
             self._connected = True
             self.logger.info("✅ Binance Native Connector connected (100% Native)")
 
@@ -412,6 +420,22 @@ class BinanceNativeConnector(BaseConnector):
             except Exception as e:
                 self.logger.error(f"❌ Time sync exception: {e}")
 
+    async def _proactive_sync_loop(self) -> None:
+        """
+        Background task to proactively sync time every 30 minutes.
+        Prevents -1021 errors before they occur by keeping offset fresh.
+        """
+        while True:
+            try:
+                # Initial wait to let connection settle
+                await asyncio.sleep(1800)  # 30 minutes
+                await self._sync_time()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ Error in proactive sync loop: {e}")
+                await asyncio.sleep(60)  # Retry fairly soon on error
+
     async def close(self) -> None:
         """Close all connections."""
         self.logger.info("🔌 Closing Binance Native Connector...")
@@ -422,6 +446,7 @@ class BinanceNativeConnector(BaseConnector):
             self._subscription_worker_task,
             self._user_data_task,
             self._keepalive_task,
+            self._proactive_sync_task,
         ]:
             if task and not task.done():
                 task.cancel()
@@ -1538,13 +1563,27 @@ class BinanceNativeConnector(BaseConnector):
                 await asyncio.sleep(60)
 
     async def _reconnect_user_data_stream(self) -> None:
-        """Reconnect user data stream."""
-        if self._user_data_ws:
-            try:
-                await self._user_data_ws.close()
-            except Exception:
-                pass
-        await self._start_user_data_stream()
+        """
+        Reconnect user data stream with deduplication lock.
+
+        Phase 47: Prevents reconnection storms when multiple -2011/-2022 errors
+        trigger simultaneous reconnect attempts, exhausting rate limits.
+        """
+        # Fast path: If reconnection is already in progress, skip
+        if self._user_stream_reconnect_lock.locked():
+            self.logger.debug("🔒 User stream reconnection already in progress, skipping duplicate request.")
+            return
+
+        async with self._user_stream_reconnect_lock:
+            self.logger.info("🔄 Reconnecting User Data Stream (deduplicated)...")
+
+            if self._user_data_ws:
+                try:
+                    await self._user_data_ws.close()
+                except Exception:
+                    pass
+
+            await self._start_user_data_stream()
 
     def _handle_order_update(self, data: Dict) -> None:
         """Handle order update from user data stream."""

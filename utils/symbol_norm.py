@@ -8,6 +8,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1024)
 def normalize_symbol(symbol: str) -> str:
     """
     Normalizes a trading symbol to a standard BASE/QUOTE format.

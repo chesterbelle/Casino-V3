@@ -345,7 +345,14 @@ class TradeHistorian:
             return None
 
     # Phase 32: Clean exit reasons for Strategy PnL vs Error Recovery
-    CLEAN_EXIT_REASONS = ("TP", "SL", "MANUAL")
+    # Phase 81: Expanded to include Reconciliation and Drain reasons
+    CLEAN_EXIT_REASONS = (
+        "TP",
+        "SL",
+        "MANUAL",
+        "TIMEOUT",
+        "TIME_EXIT",
+    )
 
     def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -369,7 +376,7 @@ class TradeHistorian:
                     -- Phase 61: Intelligent PnL Attribution
                     -- Strategy PnL = Clean + Healed
                     SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') OR healed=1) AND exit_reason NOT LIKE 'AUDIT_%' THEN net_pnl ELSE 0 END) as strategy_pnl,
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') OR healed=1) AND exit_reason NOT LIKE 'AUDIT_%' THEN 1 ELSE 0 END) as strategy_count,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') OR healed=1) AND exit_reason NOT LIKE 'ADAUDIT_%' THEN 1 ELSE 0 END) as strategy_count,
 
                     -- Resilience PnL (Subset of Strategy) = Healed Trades
                     SUM(CASE WHEN healed=1 THEN net_pnl ELSE 0 END) as healed_pnl,

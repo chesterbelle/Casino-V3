@@ -314,6 +314,9 @@ class OCOManager:
                 tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
                 sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
 
+                # Phase 52/82: Pre-register bracket IDs to prevent "WS Event UNMATCHED" race
+                self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
+
                 # Step 4: Create TP order with client_order_id (Phase 56: Anti-Hang Timeout)
                 tp_order = await asyncio.wait_for(
                     self._create_tp_order(symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id),
@@ -545,8 +548,16 @@ class OCOManager:
                     if position.exchange_tp_id:
                         await self.cancel_order(position.exchange_tp_id, symbol)
 
+                    # Generate new client ID for correlation (Phase 82)
+                    tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
+
+                    # Phase 52/82: Pre-register ID to prevent "WS Event UNMATCHED" race
+                    self.tracker.register_alias(tp_client_id, position, symbol=symbol)
+
                     # Create new TP
-                    tp_order = await self._create_tp_order(symbol, position.side, amount, new_tp_price)
+                    tp_order = await self._create_tp_order(
+                        symbol, position.side, amount, new_tp_price, client_order_id=tp_client_id
+                    )
                     tp_id = tp_order.get("order_id") or tp_order.get("id")
 
                     # Phase 55: Atomic Handover to Tracker (Fix Race Condition)
@@ -566,8 +577,16 @@ class OCOManager:
                     if position.exchange_sl_id:
                         await self.cancel_order(position.exchange_sl_id, symbol)
 
+                    # Generate new client ID for correlation (Phase 82)
+                    sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+
+                    # Phase 52/82: Pre-register ID to prevent "WS Event UNMATCHED" race
+                    self.tracker.register_alias(sl_client_id, position, symbol=symbol)
+
                     # Create new SL
-                    sl_order = await self._create_sl_order(symbol, position.side, amount, new_sl_price)
+                    sl_order = await self._create_sl_order(
+                        symbol, position.side, amount, new_sl_price, client_order_id=sl_client_id
+                    )
                     sl_id = sl_order.get("order_id") or sl_order.get("id")
 
                     # Phase 55: Atomic Handover to Tracker (Fix Race Condition)

@@ -15,6 +15,7 @@ Version: 3.0.0
 import asyncio
 import logging
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from config import trading as trading_config
@@ -71,12 +72,13 @@ class Croupier(TimeIterator):
         # Backward compatibility: some components expect exchange_adapter
         self.exchange_adapter = exchange_adapter
         self.logger = logging.getLogger("Croupier")
+        self.session_id = f"sess_{uuid.uuid4().hex[:8]}"
 
         # Initialize core components
         self.error_handler = get_error_handler()
         self.balance_manager = BalanceManager(initial_balance)
         self.position_tracker = PositionTracker(
-            max_concurrent_positions=max_concurrent_positions, adapter=exchange_adapter
+            max_concurrent_positions=max_concurrent_positions, adapter=exchange_adapter, session_id=self.session_id
         )
 
         # Phase 31: PositionTracker is now the single source of truth for order state
