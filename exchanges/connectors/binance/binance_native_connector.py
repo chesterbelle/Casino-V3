@@ -305,13 +305,21 @@ class BinanceNativeConnector(BaseConnector):
             raise Exception(f"(-1021) {msg}")
 
         # Phase 75: Reactive Recovery on State Mismatch
-        # If we get "Unknown order" or "ReduceOnly rejected", it likely means we missed a fill/close event.
-        if str(code) in ("-2011", "-2022"):
+        # -2011 = Unknown order (might be deaf to fills) → Reconnect WS
+        if str(code) == "-2011":
             self.logger.warning(
                 f"⚠️ State Mismatch ({code}). Connector might be deaf. Triggering IMMEDIATE User Stream Resync..."
             )
-            # Fire and forget recovery task
             asyncio.create_task(self._reconnect_user_data_stream())
+            raise Exception(f"({code}) {msg}")
+
+        # Phase 82: -2022 = Position already closed by TP/SL → NOT a connectivity issue
+        # Raise semantic exception, do NOT reconnect WS (prevents cascade)
+        if str(code) == "-2022":
+            from core.exceptions import PositionAlreadyClosedError
+
+            self.logger.info("📉 Position already closed on exchange (ReduceOnly rejected)")
+            raise PositionAlreadyClosedError(f"({code}) {msg}")
 
         raise Exception(f"({code}) {msg}")
 

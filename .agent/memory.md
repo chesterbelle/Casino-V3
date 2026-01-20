@@ -40,6 +40,11 @@
 .venv/bin/python -m utils.validators.multi_symbol_validator --mode demo --size 500
 ```
 
+### Chaos Test (Event Integrity)
+```bash
+.venv/bin/python -m utils.validators.multi_symbol_chaos_tester --mode demo --duration 600 --max-ops 30
+```
+
 ## Critical Success Metrics
 - **Error Recovery = $0.00** (zero error trades)
 - **Audit Adjust < $1.00** (minimal accounting drift)

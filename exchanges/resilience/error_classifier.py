@@ -40,6 +40,9 @@ class ErrorCategory(Enum):
     GRACEFUL_SHUTDOWN = "graceful_shutdown"  # Expected error during shutdown
     PERMANENT = "permanent"  # Otros errores permanentes
 
+    # Semantic (not errors, but information)
+    POSITION_ALREADY_CLOSED = "position_already_closed"  # Position closed by TP/SL
+
     # Errores desconocidos
     UNKNOWN = "unknown"
 
@@ -175,8 +178,8 @@ class ErrorClassifier:
         (r"-2013", ErrorCategory.INVALID_ORDER),  # Binance: Order does not exist
         (r"-4003", ErrorCategory.INVALID_ORDER),  # Quantity less than minQty
         (r"-4164", ErrorCategory.INVALID_ORDER),  # Binance: Notional too small (validation, not retry)
-        (r"-2022", ErrorCategory.INVALID_ORDER),  # Binance: ReduceOnly rejected (connector handles sync)
-        (r"-4118", ErrorCategory.INVALID_ORDER),  # Binance: ReduceOnly failed (connector handles sync)
+        (r"-2022", ErrorCategory.POSITION_ALREADY_CLOSED),  # Binance: Position already closed by TP/SL
+        (r"-4118", ErrorCategory.POSITION_ALREADY_CLOSED),  # Binance: ReduceOnly failed (same semantics)
         # Insufficient funds
         (r"insufficient.*funds", ErrorCategory.INSUFFICIENT_FUNDS),
         (r"insufficient.*balance", ErrorCategory.INSUFFICIENT_FUNDS),
@@ -328,6 +331,10 @@ class ErrorClassifier:
             # Expected during shutdown - don't log as error, allow process to exit
             self.logger.info(f"🔌 Shutdown-related: {message[:60]}")
             action = ErrorAction.FAIL  # Don't retry, just exit cleanly
+        elif category == ErrorCategory.POSITION_ALREADY_CLOSED:
+            # Position was closed by TP/SL - this is information, not an error
+            self.logger.info(f"📉 Position already closed: {message[:60]}")
+            action = ErrorAction.FAIL  # Caller should handle as success
         else:
             action = ErrorAction.FAIL
 

@@ -535,6 +535,34 @@ class Croupier(TimeIterator):
                     symbol=position.symbol, side=position.side, amount=amount
                 )
             except Exception as e:
+                # Phase 82: Handle position already closed by TP/SL gracefully
+                from core.exceptions import PositionAlreadyClosedError
+
+                if isinstance(e, PositionAlreadyClosedError):
+                    self.logger.info(
+                        f"✅ Position {trade_id} was already closed (TP/SL hit). Confirming closure in tracker."
+                    )
+                    # Get current price for PnL estimation
+                    try:
+                        exit_price = await self.adapter.get_current_price(position.symbol)
+                    except Exception:
+                        exit_price = position.entry_price  # Neutral fallback
+
+                    # Calculate approximate PnL
+                    if position.side == "LONG":
+                        pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+                    else:
+                        pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+
+                    self.position_tracker.confirm_close(
+                        trade_id=trade_id,
+                        exit_price=exit_price,
+                        exit_reason="TP_SL_HIT",  # Semantic marker
+                        pnl=pnl,
+                        fee=0.0,
+                    )
+                    return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
+
                 self.logger.error(f"❌ Failed to close position {trade_id} via Executor: {e}")
                 raise e
 

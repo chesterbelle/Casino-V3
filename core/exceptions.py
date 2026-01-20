@@ -58,6 +58,17 @@ class PositionError(TradingError):
     pass
 
 
+class PositionAlreadyClosedError(PositionError):
+    """
+    Raised when attempting to close a position that was already closed.
+
+    This is NOT a failure - it indicates the position was closed by TP/SL
+    before the manual close request. The caller should handle this as success.
+    """
+
+    pass
+
+
 class SensorError(CasinoError):
     """Raised when sensor operations fail."""
 
