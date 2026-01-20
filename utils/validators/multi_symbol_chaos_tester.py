@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import random
+import signal
 import sys
 import time
 import uuid
@@ -31,19 +32,27 @@ logger = logging.getLogger("ChaosTester")
 
 
 class MultiSymbolChaosTester(MultiSymbolValidator):
-    def __init__(self, duration_sec=600, **kwargs):
+    def __init__(self, duration_sec=600, max_ops_per_symbol=50, **kwargs):
         super().__init__(**kwargs)
         self.duration_sec = duration_sec
+        self.max_ops_per_symbol = max_ops_per_symbol  # Prevent unbounded loops
         self.total_operations = 0
         self.unmatched_events = 0
         self.error_trades = 0
+        self._shutdown_event = asyncio.Event()
 
     async def run_chaos_loop(self, symbol: str):
-        """Infinite loop of randomized trades for a specific symbol."""
+        """Time-bounded loop of randomized trades for a specific symbol."""
         logger.info(f"🔥 Starting Chaos Loop for {symbol}")
         end_time = time.time() + self.duration_sec
+        ops_count = 0
 
-        while time.time() < end_time:
+        while time.time() < end_time and ops_count < self.max_ops_per_symbol:
+            # Check for graceful shutdown signal
+            if self._shutdown_event.is_set():
+                logger.info(f"🛑 [{symbol}] Shutdown signal received, exiting loop.")
+                break
+            ops_count += 1
             try:
                 # 1. Open Position
                 logger.debug(f"[{symbol}] Opening chaos position...")
@@ -116,15 +125,26 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
             # We can't easily hook into logger in real-time here without complex handlers,
             # so we'll rely on the final Historian report and log inspection.
 
-            logger.info(f"🚀 LAUNCHING CHAOS TEST: {len(self.symbols)} symbols for {self.duration_sec}s")
+            logger.info(
+                f"🚀 LAUNCHING CHAOS TEST: {len(self.symbols)} symbols for {self.duration_sec}s (max {self.max_ops_per_symbol} ops/symbol)"
+            )
 
-            tasks = [self.run_chaos_loop(s) for s in self.symbols]
+            tasks = [asyncio.create_task(self.run_chaos_loop(s)) for s in self.symbols]
 
-            # Run the tasks for the specified duration
+            # Run with hard timeout (duration + 30s grace for cleanup)
+            hard_timeout = self.duration_sec + 30
             try:
-                await asyncio.gather(*tasks)
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=hard_timeout)
+            except asyncio.TimeoutError:
+                logger.warning(f"⏰ Hard timeout ({hard_timeout}s) reached. Cancelling remaining tasks...")
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
             except asyncio.CancelledError:
-                pass
+                logger.info("🛑 Chaos test cancelled by user.")
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
 
             # Final Audit
             logger.info("🧹 Chaos phase complete. Proceeding to Global Integrity Audit...")
@@ -169,6 +189,7 @@ async def main():
     parser.add_argument("--mode", default="demo", help="Exchange mode")
     parser.add_argument("--size", type=float, default=200.0, help="Position size in USDT")
     parser.add_argument("--duration", type=int, default=600, help="Test duration in seconds")
+    parser.add_argument("--max-ops", type=int, default=50, help="Max operations per symbol (prevents runaway)")
 
     args = parser.parse_args()
 
@@ -178,7 +199,21 @@ async def main():
     setup_logging()
 
     symbols_list = args.symbols.split(",")
-    tester = MultiSymbolChaosTester(symbols=symbols_list, mode=args.mode, size=args.size, duration_sec=args.duration)
+    tester = MultiSymbolChaosTester(
+        symbols=symbols_list,
+        mode=args.mode,
+        size=args.size,
+        duration_sec=args.duration,
+        max_ops_per_symbol=args.max_ops,
+    )
+
+    # Signal handler for graceful shutdown
+    def handle_signal(signum, frame):
+        logger.warning(f"⚠️ Received signal {signum}. Initiating graceful shutdown...")
+        tester._shutdown_event.set()
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
 
     success = await tester.run_all()
     sys.exit(0 if success else 1)
