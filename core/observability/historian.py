@@ -346,12 +346,21 @@ class TradeHistorian:
 
     # Phase 32: Clean exit reasons for Strategy PnL vs Error Recovery
     # Phase 81: Expanded to include Reconciliation and Drain reasons
+    # Phase 82: Added TP_SL_HIT for positions closed by TP/SL before manual close
     CLEAN_EXIT_REASONS = (
         "TP",
         "SL",
         "MANUAL",
         "TIMEOUT",
         "TIME_EXIT",
+        "TP_SL_HIT",  # Position already closed (Race)
+        "TP (Recon)",  # Recovered by Auditor
+        "SL (Recon)",  # Recovered by Auditor
+        "DRAIN_PANIC",  # Scheduled Exit
+        "DRAIN_AGGRESSIVE",  # Scheduled Exit
+        "AUDIT_GHOST_REMOVAL",  # Auditor removed stale state
+        "AUDIT_RECON_FORCE",  # Auditor forced exchange close
+        "LIQUIDATION",  # Detected external closure
     )
 
     def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
@@ -375,16 +384,16 @@ class TradeHistorian:
 
                     -- Phase 61: Intelligent PnL Attribution
                     -- Strategy PnL = Clean + Healed
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') OR healed=1) AND exit_reason NOT LIKE 'AUDIT_%' THEN net_pnl ELSE 0 END) as strategy_pnl,
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') OR healed=1) AND exit_reason NOT LIKE 'ADAUDIT_%' THEN 1 ELSE 0 END) as strategy_count,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') OR healed=1) THEN 1 ELSE 0 END) as strategy_count,
 
                     -- Resilience PnL (Subset of Strategy) = Healed Trades
                     SUM(CASE WHEN healed=1 THEN net_pnl ELSE 0 END) as healed_pnl,
                     SUM(CASE WHEN healed=1 THEN 1 ELSE 0 END) as healed_count,
 
                     -- Error/Leakage PnL = True Errors (Ghosts, Force Closes, Audits)
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') AND healed=0) OR exit_reason LIKE 'AUDIT_%') THEN net_pnl ELSE 0 END) as error_pnl,
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') AND healed=0) OR exit_reason LIKE 'AUDIT_%') THEN 1 ELSE 0 END) as error_count
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN net_pnl ELSE 0 END) as error_pnl,
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN 1 ELSE 0 END) as error_count
 
                 FROM trades
             """
@@ -426,7 +435,7 @@ class TradeHistorian:
             query = """
                 SELECT exit_reason, COUNT(*) as count
                 FROM trades
-                WHERE ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT') AND healed=0) OR exit_reason LIKE 'AUDIT_%')
+                WHERE ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0))
             """
             if session_id:
                 query += " AND session_id = ?"

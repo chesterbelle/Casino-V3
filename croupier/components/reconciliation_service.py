@@ -236,6 +236,12 @@ class ReconciliationService:
                 except (ValueError, TypeError):
                     pass
 
+                # Phase 82: Prevent race condition with OCOManager/Manual Close
+                # If the position was already closed while we were iterating, skip it
+                if not self.tracker.get_position(pos.trade_id):
+                    self.logger.debug(f"⏭️ Position {pos.trade_id} vanished during reconciliation (Already handled)")
+                    continue
+
                 # ... investigate ghost ...
                 self.logger.debug(f"👻 Ghost position found in tracker: {pos.trade_id} (not on exchange)")
                 investigation_result = await self._investigate_ghost(pos, symbol)
@@ -641,7 +647,8 @@ class ReconciliationService:
             # HARDENED: Add defensive checks for malformed trade data
             try:
                 # Fetch recent trades for this symbol
-                trades = await self.adapter.fetch_my_trades(symbol, limit=20)
+                # Phase 82: Increased limit to 100 to handle high-density chaos test runs
+                trades = await self.adapter.fetch_my_trades(symbol, limit=100)
 
                 # Check for any CLOSING trade after position entry
                 entry_time = getattr(pos, "entry_timestamp", 0)

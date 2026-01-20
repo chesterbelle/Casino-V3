@@ -684,10 +684,13 @@ class PositionTracker:
 
                         # Calculate leakage-plugging PnL
                         # PnL = (Exit - Entry) * Notional / Entry
-                        if pos.side == "LONG":
-                            pnl = (exit_price - pos.entry_price) * pos.notional / pos.entry_price
+                        if pos.entry_price > 0:
+                            if pos.side == "LONG":
+                                pnl = (exit_price - pos.entry_price) * pos.notional / pos.entry_price
+                            else:
+                                pnl = (pos.entry_price - exit_price) * pos.notional / pos.entry_price
                         else:
-                            pnl = (pos.entry_price - exit_price) * pos.notional / pos.entry_price
+                            pnl = 0.0
 
                         # Force Close logic
                         self.confirm_close(

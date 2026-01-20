@@ -148,7 +148,7 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
 
             # Final Audit
             logger.info("🧹 Chaos phase complete. Proceeding to Global Integrity Audit...")
-            await asyncio.sleep(5)  # Let events settle
+            await asyncio.sleep(15)  # Let events settle and auditor finish healing
 
             integrity_passed = await self.test_global_integrity()
 

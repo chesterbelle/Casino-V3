@@ -423,6 +423,31 @@ class OCOManager:
             }
 
         except Exception as e:
+            # Phase 82: Handle position already closed by TP/SL/Chaos race gracefully
+            from core.exceptions import PositionAlreadyClosedError
+
+            if isinstance(e, PositionAlreadyClosedError) or "Position closed before" in str(e):
+                self.logger.info(
+                    f"✅ Position {position.trade_id if position else 'unknown'} was already closed during OCO creation."
+                )
+                if position:
+                    # Confirm closure semantically to stop the ghost
+                    self.tracker.confirm_close(
+                        trade_id=position.trade_id,
+                        exit_price=position.entry_price,  # Neutral
+                        exit_reason="TP_SL_HIT",
+                        pnl=0.0,
+                        fee=0.0,
+                    )
+                return {
+                    "main_order": main_order if "main_order" in locals() else None,
+                    "tp_order": None,
+                    "sl_order": None,
+                    "fill_price": fill_price if "fill_price" in locals() else 0.0,
+                    "status": "already_closed",
+                    "position": position,
+                }
+
             # Cleanup on failure
             self.logger.error(f"❌ OCO bracket creation failed: {e!r}")
             if "main_order" in locals() and main_order:
@@ -848,9 +873,11 @@ class OCOManager:
                                     break
 
                         if not current_pos or current_pos == 0:
-                            self.logger.error(f"❌ Position for {symbol} is CLOSED. Aborting TP creation.")
-                            # Raise specific error to stop retries
-                            raise OCOAtomicityError(f"Position closed before TP creation: {e}")
+                            self.logger.info(f"✅ Position for {symbol} is already CLOSED. Aborting TP creation.")
+                            # Raise specific error to stop retries and trigger graceful OCO exit
+                            from core.exceptions import PositionAlreadyClosedError
+
+                            raise PositionAlreadyClosedError(f"Position closed before TP creation: {e}")
 
                         if current_pos != amount:
                             self.logger.warning(
@@ -956,8 +983,10 @@ class OCOManager:
                                     break
 
                         if not current_pos or current_pos == 0:
-                            self.logger.error(f"❌ Position for {symbol} is CLOSED. Aborting SL creation.")
-                            raise OCOAtomicityError(f"Position closed before SL creation: {e}")
+                            self.logger.info(f"✅ Position for {symbol} is already CLOSED. Aborting SL creation.")
+                            from core.exceptions import PositionAlreadyClosedError
+
+                            raise PositionAlreadyClosedError(f"Position closed before SL creation: {e}")
 
                         if current_pos != amount:
                             self.logger.warning(
