@@ -765,6 +765,13 @@ class OCOManager:
             # Phase 45: Delegate to centralized OrderExecutor
             return await self.executor.cancel_order(order_id, symbol)
         except Exception as e:
+            # Phase 83: Handle OrderNotFoundError (e.g. -2011)
+            from core.exceptions import OrderNotFoundError
+
+            if isinstance(e, OrderNotFoundError):
+                self.logger.info(f"ℹ️ Cancel check: Order {order_id} not found (-2011). Assuming already closed/filled.")
+                return True
+
             self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
             raise e
 

@@ -116,6 +116,10 @@ def parse_args():
         help="Stop execution after N minutes (default: Run indefinitely)",
     )
 
+    parser.add_argument(
+        "--drain-duration", type=int, default=None, help="Duration of drain phase in minutes (overrides config)"
+    )
+
     # Removed --max-positions: Player applies its own logic (default 1 per symbol)
 
     parser.add_argument("--wallet", type=str, help="Wallet address (overrides env)")
@@ -594,10 +598,14 @@ async def main():
                 elapsed_min = (time.time() - start_time) / 60
 
                 # A. Drain Phase (Soft Timeout)
-                if elapsed_min >= (args.timeout - trading_config.DRAIN_PHASE_MINUTES):
+                drain_duration = (
+                    args.drain_duration if args.drain_duration is not None else trading_config.DRAIN_PHASE_MINUTES
+                )
+
+                if elapsed_min >= (args.timeout - drain_duration):
                     if not croupier.is_drain_mode:
                         logger.warning(
-                            f"🕒 Entering DRAIN PHASE ({trading_config.DRAIN_PHASE_MINUTES}m remaining). "
+                            f"🕒 Entering DRAIN PHASE ({drain_duration}m remaining). "
                             "Stopping new entries and narrowing TPs..."
                         )
                         croupier.set_drain_mode(True)

@@ -69,6 +69,15 @@ class PositionAlreadyClosedError(PositionError):
     pass
 
 
+class OrderNotFoundError(ExchangeError):
+    """
+    Raised when an order is not found on the exchange (e.g. -2011).
+    This often happens when cancelling an already filled or cancelled order.
+    """
+
+    pass
+
+
 class SensorError(CasinoError):
     """Raised when sensor operations fail."""
 

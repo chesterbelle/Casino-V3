@@ -42,6 +42,7 @@ class ErrorCategory(Enum):
 
     # Semantic (not errors, but information)
     POSITION_ALREADY_CLOSED = "position_already_closed"  # Position closed by TP/SL
+    ORDER_NOT_FOUND = "order_not_found"  # Unknown order (-2011)
 
     # Errores desconocidos
     UNKNOWN = "unknown"
@@ -174,7 +175,7 @@ class ErrorClassifier:
         (r"-1111", ErrorCategory.INVALID_ORDER),  # Precision is over max limit
         (r"-1116", ErrorCategory.INVALID_ORDER),  # Invalid orderType
         (r"-1117", ErrorCategory.INVALID_ORDER),  # Invalid side
-        (r"-2011", ErrorCategory.INVALID_ORDER),  # Binance: Unknown order sent (cancel failed)
+        (r"-2011", ErrorCategory.ORDER_NOT_FOUND),  # Binance: Unknown order sent (cancel failed)
         (r"-2013", ErrorCategory.INVALID_ORDER),  # Binance: Order does not exist
         (r"-4003", ErrorCategory.INVALID_ORDER),  # Quantity less than minQty
         (r"-4164", ErrorCategory.INVALID_ORDER),  # Binance: Notional too small (validation, not retry)
@@ -335,6 +336,10 @@ class ErrorClassifier:
             # Position was closed by TP/SL - this is information, not an error
             self.logger.info(f"📉 Position already closed: {message[:60]}")
             action = ErrorAction.FAIL  # Caller should handle as success
+        elif category == ErrorCategory.ORDER_NOT_FOUND:
+            # Order likely filled or cancelled already - information level
+            self.logger.info(f"🔍 Order not found: {message[:60]}")
+            action = ErrorAction.FAIL  # Caller may trigger sync
         else:
             action = ErrorAction.FAIL
 

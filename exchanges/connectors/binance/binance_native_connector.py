@@ -305,13 +305,13 @@ class BinanceNativeConnector(BaseConnector):
             raise Exception(f"(-1021) {msg}")
 
         # Phase 75: Reactive Recovery on State Mismatch
-        # -2011 = Unknown order (might be deaf to fills) → Reconnect WS
+        # -2011 = Unknown order (might be deaf to fills) → Business Logic Handled
         if str(code) == "-2011":
-            self.logger.warning(
-                f"⚠️ State Mismatch ({code}). Connector might be deaf. Triggering IMMEDIATE User Stream Resync..."
-            )
-            asyncio.create_task(self._reconnect_user_data_stream())
-            raise Exception(f"({code}) {msg}")
+            from core.exceptions import OrderNotFoundError
+
+            # Phase 83: Disable forced reconnect to prevent reconnection storms and blind spots
+            self.logger.warning(f"⚠️ State Mismatch ({code}). Handled as Business Logic (No WS Reset).")
+            raise OrderNotFoundError(f"({code}) {msg}")
 
         # Phase 82: -2022 = Position already closed by TP/SL → NOT a connectivity issue
         # Raise semantic exception, do NOT reconnect WS (prevents cascade)
