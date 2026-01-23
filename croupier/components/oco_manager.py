@@ -287,9 +287,14 @@ class OCOManager:
             # Update position with confirmed data
             leverage = order.get("leverage", 1)  # Ensure leverage is defined in this scope
             position.entry_price = fill_price
+            position.entry_price = fill_price
             position.entry_fee = entry_fee
             position.tp_level = tp_price
             position.sl_level = sl_price
+
+            # Phase 85: Latency Telemetry
+            position.t2_submit_ts = main_order.get("t2_submit_ts")
+            position.t3_ack_ts = main_order.get("t3_ack_ts")
 
             if leverage > 0:
 

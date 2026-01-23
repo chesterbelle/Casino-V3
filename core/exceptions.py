@@ -108,6 +108,16 @@ class PerformanceError(CasinoError):
     pass
 
 
+class TransientCommunicationError(ExchangeError):
+    """
+    Raised when communication with the exchange fails due to a transient issue
+    (network lag, timeout, time synchronization error).
+    The operation should be retried later.
+    """
+
+    pass
+
+
 # Convenience functions for error creation
 def create_validation_error(field: str, value: Any, reason: str) -> ValidationError:
     """Create a validation error with standardized format."""

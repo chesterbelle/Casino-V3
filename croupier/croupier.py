@@ -119,6 +119,27 @@ class Croupier(TimeIterator):
         self._reconciliation_tasks: Dict[str, float] = {}
         self._reconcile_lock = asyncio.Lock()
 
+        # Phase 84: Accounting Settlement
+        # Track pending closures to prevent premature shutdown before PnL is recorded
+        self._pending_closures: set = set()
+
+    @property
+    def is_settled(self) -> bool:
+        """
+        Returns True if the Croupier is fully settled (safe to shutdown).
+        1. No open positions in tracker.
+        2. No pending close operations waiting for confirmation.
+        """
+        active_positions = len(self.position_tracker.open_positions)
+        pending_closes = len(self._pending_closures)
+
+        is_settled = (active_positions == 0) and (pending_closes == 0)
+
+        if not is_settled:
+            self.logger.debug(f"⏳ Croupier Settlement: Pos={active_positions}, PendingCloses={pending_closes}")
+
+        return is_settled
+
     def set_drain_mode(self, enabled: bool):
         """Enable or disable drain mode (no new entries, narrow exits)."""
         self.is_drain_mode = enabled
@@ -325,14 +346,33 @@ class Croupier(TimeIterator):
                                     )
                                     self.logger.info(f"✅ Closed remainder: {sym} {size}")
 
-                                    # Record Closure
-                                    # ... (Simplified for brevity, logic remains same but cleaner) ...
-                                    # We skip the heavy historization logic here to keep the replacement clean,
-                                    # assumming the original fee logic was working but overwhelmed.
-                                    # IMPORTANT: To avoid deleting the fee logic, I must include it or assume
-                                    # the user accepts a simplified version.
-                                    # Actually, I should preserve the fee logic block if possible,
-                                    # but for 'emergency_sweep', simplicity and speed (with throttling) is key.
+                                    # Record Closure (Phase 87: Zero-Leakage)
+                                    try:
+                                        # Estimate PnL (Neutral) or fetch current price
+                                        exit_price = 0.0
+                                        try:
+                                            ticker = await self.adapter.fetch_ticker(sym)
+                                            exit_price = float(ticker.get("last", 0))
+                                        except Exception:
+                                            pass
+
+                                        # Record in Historian so variance is explained
+                                        historian.record_trade(
+                                            {
+                                                "trade_id": f"AUDIT_{int(time.time()*1000)}",
+                                                "symbol": sym,
+                                                "side": "SHORT" if close_side == "sell" else "LONG",
+                                                "action": "CLOSE",
+                                                "amount": size,
+                                                "price": exit_price,
+                                                "pnl": 0.0,  # Will be adjusted by Ledger Reconciler later
+                                                "fee": 0.0,
+                                                "exit_reason": "AUDIT_SWEEP_CLOSE",
+                                                "session_id": self.session_id,
+                                            }
+                                        )
+                                    except Exception as hist_err:
+                                        self.logger.error(f"⚠️ Failed to record audit closure for {sym}: {hist_err}")
 
                                     report["positions_closed"] += 1
                                     await asyncio.sleep(0.2)  # Throttle closures
@@ -490,11 +530,15 @@ class Croupier(TimeIterator):
             self.logger.debug(f"⏭️ Skipping close_position: {trade_id} is busy or already CLOSING")
             return {"status": "skipped", "reason": "already_closing"}
 
+        # Phase 84: Track pending closure for Settlement
+        self._pending_closures.add(trade_id)
+
         # At this point, the position status is "CLOSING" and we hold the governance lock
         # We RE-FETCH position to ensure we have the locked object
         position = self.position_tracker.get_position(trade_id)
         if not position:
             self.position_tracker.unlock(trade_id)  # Safety
+            self._pending_closures.discard(trade_id)
             raise ValueError(f"Position vanished after locking: {trade_id}")
 
         self.logger.info(f"📤 Closing position: {trade_id} | {position.symbol} {position.side}")
@@ -618,6 +662,9 @@ class Croupier(TimeIterator):
         Callback triggered by PositionTracker when a position is removed.
         Used to cleanup bracket orders if the position was closed by the exchange (TP/SL).
         """
+        # Phase 84: Mark closure as settled (PnL recorded)
+        self._pending_closures.discard(trade_id)
+
         # We start an async task for cleanup to avoid blocking the tracker
         import asyncio
 

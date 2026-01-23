@@ -18,6 +18,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from core.error_handling import RetryConfig, get_error_handler
+from core.exceptions import TransientCommunicationError
 from core.observability.historian import historian
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
@@ -244,14 +245,25 @@ class ReconciliationService:
 
                 # ... investigate ghost ...
                 self.logger.debug(f"👻 Ghost position found in tracker: {pos.trade_id} (not on exchange)")
-                investigation_result = await self._investigate_ghost(pos, symbol)
-                if investigation_result:
-                    report["positions_closed"] += 1
-                else:
-                    self.logger.warning(f"⚠️ Investigation inconclusive for {pos.trade_id}. Removing as Error.")
-                    if await self.tracker.remove_position(pos.trade_id):
-                        report["ghosts_removed"] += 1
-                        report["issues_found"].append(f"ghost_removed:{pos.trade_id}")
+                try:
+                    investigation_result = await self._investigate_ghost(pos, symbol)
+                    if investigation_result:
+                        report["positions_closed"] += 1
+                    else:
+                        self.logger.warning(f"⚠️ Investigation inconclusive for {pos.trade_id}. Removing as Error.")
+                        if await self.tracker.remove_position(pos.trade_id):
+                            report["ghosts_removed"] += 1
+                            report["issues_found"].append(f"ghost_removed:{pos.trade_id}")
+                except TransientCommunicationError as t_err:
+                    self.logger.warning(
+                        f"🕒 Aborting ghost cleanup for {pos.trade_id} due to transient error: {t_err}. "
+                        "Will retry in next cycle."
+                    )
+                    continue  # Skip removal, keep in tracker for next pass
+                except Exception as e:
+                    self.logger.error(f"❌ Critical error during ghost investigation for {pos.trade_id}: {e}")
+                    # Safety removal if it's not a known transient error?
+                    # For now, let's be conservative and NOT remove if it crashes.
                 continue
 
             # Corrupt check
@@ -710,6 +722,10 @@ class ReconciliationService:
                         return f"Closed via Trade {last_trade.get('id')} (Deep Confirmed)"
 
             except Exception as e:
+                err_str = str(e).lower()
+                # Phase 89: Escalate transient errors so they can be retried in the next reconciliation cycle
+                if any(p in err_str for p in ["-1021", "timeout", "timed out", "network error", "connection reset"]):
+                    raise TransientCommunicationError(f"Transient error during deep search: {e}")
                 self.logger.warning(f"Deep search failed: {e}")
 
             return None  # Inconclusive

@@ -215,7 +215,7 @@ class BinanceNativeConnector(BaseConnector):
             params["timestamp"] = self._get_timestamp()
             # Phase 71: Increase recvWindow to handle reactor jitter/lag
             if "recvWindow" not in params:
-                params["recvWindow"] = 10000
+                params["recvWindow"] = 15000
             # _sign_params now returns a STRING (verified fix for -1022)
             final_params = self._sign_params(params)
         elif params:
@@ -430,13 +430,13 @@ class BinanceNativeConnector(BaseConnector):
 
     async def _proactive_sync_loop(self) -> None:
         """
-        Background task to proactively sync time every 30 minutes.
+        Background task to proactively sync time every 5 minutes.
         Prevents -1021 errors before they occur by keeping offset fresh.
         """
         while True:
             try:
-                # Initial wait to let connection settle
-                await asyncio.sleep(1800)  # 30 minutes
+                # Proactive sync every 5 minutes (Phase 89)
+                await asyncio.sleep(300)
                 await self._sync_time()
             except asyncio.CancelledError:
                 break
@@ -975,22 +975,45 @@ class BinanceNativeConnector(BaseConnector):
 
         if order_type.upper() in ALGO_ORDER_TYPES and not force_main_api:
             try:
-                return await self._create_algo_order(args, timeout=timeout)
+                # Phase 85: Latency Telemetry for Algo Orders
+                t2_submit_ts = time.time()
+                result = await self._create_algo_order(args, timeout=timeout)
+                t3_ack_ts = time.time()
+
+                result["t2_submit_ts"] = t2_submit_ts
+                result["t3_ack_ts"] = t3_ack_ts
+                return result
             except Exception as e:
                 # Intercept -4118, -2022, and -4164 for Algo orders too
                 error_msg = str(e)
                 if any(code in error_msg for code in ["-4118", "-2022", "-4164"]) and is_reduce_only:
                     self.logger.warning(f"⚠️ ReduceOnly Algo Sync Lag detected ({error_msg}) for {symbol}. Syncing...")
                     if await self._wait_for_position_sync(symbol):
-                        return await self._create_algo_order(args, timeout=timeout)
+                        # Retry with same instrumentation
+                        t2_submit_ts = time.time()
+                        result = await self._create_algo_order(args, timeout=timeout)
+                        t3_ack_ts = time.time()
+                        result["t2_submit_ts"] = t2_submit_ts
+                        result["t3_ack_ts"] = t3_ack_ts
+                        return result
                 raise
 
         # Regular order
         try:
+            # Phase 85: Latency Telemetry - Request Start
+            t2_submit_ts = time.time()
+
             response = await self._request(
                 "POST", "/fapi/v1/order", args, signed=True, endpoint_type="orders", timeout=timeout
             )
-            return self._normalize_order(response)
+
+            # Phase 85: Latency Telemetry - Request End
+            t3_ack_ts = time.time()
+
+            result = self._normalize_order(response)
+            result["t2_submit_ts"] = t2_submit_ts
+            result["t3_ack_ts"] = t3_ack_ts
+            return result
         except Exception as e:
             # Handle the "Speed Paradox" errors (ReduceOnly Failed because position not propagated yet)
             error_msg = str(e)

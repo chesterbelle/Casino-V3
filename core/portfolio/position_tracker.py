@@ -123,6 +123,12 @@ class OpenPosition:
     contributors: List[str] = None
     healed: bool = False
 
+    # Phase 85: Latency Telemetry
+    t0_signal_ts: Optional[float] = None
+    t2_submit_ts: Optional[float] = None
+    t3_ack_ts: Optional[float] = None
+    t4_fill_ts: Optional[float] = None
+
     # THE GOVERNANCE LOCK: Per-position concurrency control
     # Not included in repr to avoid noise
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -638,6 +644,11 @@ class PositionTracker:
             if fill_price > 0:
                 position.entry_price = fill_price
 
+            # Phase 85: Capture T4 Fill Timestamp
+            # Prefer Transaction Time (T) or Event Time (E) from WS
+            raw_ts = event.get("T") or event.get("E")
+            position.t4_fill_ts = float(raw_ts) / 1000.0 if raw_ts else time.time()
+
             logger.info(f"✅ MAIN FILLED for {position.trade_id} via unified routing (@{fill_price})")
 
         return position.trade_id
@@ -1126,6 +1137,11 @@ class PositionTracker:
             "contributors": position.contributors,
             "session_id": self.session_id,
             "healed": 1 if (healed or getattr(position, "healed", False)) else 0,  # Phase 81
+            # Phase 85: Latency Telemetry
+            "t0_signal_ts": getattr(position, "t0_signal_ts", None),
+            "t2_submit_ts": getattr(position, "t2_submit_ts", None),
+            "t4_fill_ts": getattr(position, "t4_fill_ts", None),
+            "slippage_pct": 0.0,  # TODO: Calculate if decision price available
         }
 
         # Remover de pending si estaba
@@ -1478,6 +1494,7 @@ class PositionTracker:
             order=order_params,
             main_order_id=client_order_id,
             status="OPENING",
+            t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
         )
         main_order_state = OrderState(
             client_order_id=client_order_id,

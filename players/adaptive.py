@@ -28,8 +28,10 @@ class DecisionEvent(Event):
         tp_pct: float = None,
         sl_pct: float = None,
         selected_sensor: str = None,
+        t0_timestamp: float = None,
     ):
         super().__init__(type=EventType.DECISION, timestamp=time.time())
+        self.t0_timestamp = t0_timestamp
         self.symbol = symbol
         self.side = side
         self.bet_size = bet_size
@@ -145,6 +147,7 @@ class AdaptivePlayer:
             tp_pct=tp_pct,
             sl_pct=sl_pct,
             selected_sensor=event.selected_sensor,
+            t0_timestamp=getattr(event, "t0_timestamp", None),
         )
         decision.decision_id = decision_id  # Add unique ID
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")

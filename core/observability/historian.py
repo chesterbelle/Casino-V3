@@ -73,6 +73,15 @@ class TradeHistorian:
         except sqlite3.OperationalError:
             pass  # Already exists
 
+        # Phase 85: Schema Evolution for Latency Telemetry
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN t0_signal_ts REAL")
+            conn.execute("ALTER TABLE trades ADD COLUMN t2_submit_ts REAL")
+            conn.execute("ALTER TABLE trades ADD COLUMN t4_fill_ts REAL")
+            conn.execute("ALTER TABLE trades ADD COLUMN slippage_pct REAL")
+        except sqlite3.OperationalError:
+            pass  # Already exists
+
         conn.commit()
 
     @contextmanager
@@ -133,8 +142,8 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t2_submit_ts, t4_fill_ts, slippage_pct)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         trade_id,
@@ -152,6 +161,10 @@ class TradeHistorian:
                         trade_data.get("bars_held", 0),
                         session_id,
                         healed,
+                        trade_data.get("t0_signal_ts"),
+                        trade_data.get("t2_submit_ts"),
+                        trade_data.get("t4_fill_ts"),
+                        trade_data.get("slippage_pct"),
                     ),
                 )
                 conn.commit()

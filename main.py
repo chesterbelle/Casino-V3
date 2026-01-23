@@ -737,6 +737,30 @@ async def main():
         finally:
             cleanup_watchdog.heartbeat()  # Final heartbeat after sweep
 
+        # Phase 84: Settlement Phase
+        # Wait for "Pending Closes" to be confirmed by Exchange so PnL is recorded in DB.
+        # This prevents "Unexplained Variance" in the final audit.
+        if should_close:
+            logger.info("⏳ Settle Phase: Waiting for PnL confirmation...")
+            settle_start = time.time()
+            min_wait = 3.0  # Phase 87: Minimum wait for exchange data propagation
+
+            # Wait up to 30s for pending closures to clear
+            while (not croupier.is_settled or (time.time() - settle_start < min_wait)) and (
+                time.time() - settle_start < 30
+            ):
+                await asyncio.sleep(0.5)
+                cleanup_watchdog.heartbeat()  # Keep watchdog happy
+
+                # Log progress every 5 seconds
+                elapsed = time.time() - settle_start
+                if int(elapsed) % 5 == 0 and int(elapsed * 2) % 2 == 0:
+                    active_pos = len(croupier.position_tracker.open_positions)
+                    pending_closes = len(getattr(croupier, "_pending_closures", []))
+                    logger.info(f"⏳ Settling... (Active: {active_pos}, Pending: {pending_closes})")
+
+            logger.info(f"✅ Settlement complete ({time.time() - settle_start:.1f}s). All trades accounted.")
+
         # 0.7. Final Balance Handover
         final_balance_usdt = "N/A"
         final_bal_float = None

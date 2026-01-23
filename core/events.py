@@ -129,6 +129,7 @@ class AggregatedSignalEvent(Event):
     total_signals: int
     metadata: Optional[Dict[str, Any]] = None
     strategy_name: Optional[str] = None
+    t0_timestamp: Optional[float] = None  # Phase 85: Latency Telemetry (Signal Time)
 
     def __post_init__(self):
         self.type = EventType.AGGREGATED_SIGNAL

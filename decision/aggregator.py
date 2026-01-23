@@ -394,6 +394,7 @@ class SignalAggregatorV3:
                 **(selected["signal"].metadata or {}),
             },
             strategy_name=strategy_name,
+            t0_timestamp=selected["signal"].timestamp,  # Phase 85: Carry forward signal timestamp
         )
 
         asyncio.create_task(self.engine.dispatch(aggregated))
