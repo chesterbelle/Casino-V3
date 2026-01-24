@@ -644,6 +644,12 @@ class PositionTracker:
             if fill_price > 0:
                 position.entry_price = fill_price
 
+                # Phase 90: Populate notional for accurate PnL calculation
+                # Without this, _handle_tp_filled and _handle_sl_filled report $0 PnL
+                amount = float(position.order.get("amount", 0) if position.order else 0)
+                if amount > 0:
+                    position.notional = fill_price * amount
+
             # Phase 85: Capture T4 Fill Timestamp
             # Prefer Transaction Time (T) or Event Time (E) from WS
             raw_ts = event.get("T") or event.get("E")
