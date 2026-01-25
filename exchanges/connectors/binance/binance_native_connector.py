@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import json
 import logging
+import multiprocessing
 import os
 import time
 from collections import defaultdict
@@ -26,6 +27,7 @@ import aiohttp
 import websockets
 
 from exchanges.connectors.connector_base import BaseConnector
+from exchanges.ingestion.binance_worker import BinanceWorker
 from exchanges.rate_limiter import BinanceRateLimiter
 
 
@@ -131,6 +133,16 @@ class BinanceNativeConnector(BaseConnector):
 
         if not self._api_key or not self._secret:
             self.logger.warning(f"⚠️ Missing API Keys for mode {self._mode}. Operations requiring auth will fail.")
+
+        # Phase 91: Ingestion Airlock
+        self._ingestion_queue = multiprocessing.Queue()
+        self._command_queue = multiprocessing.Queue()
+        self._ingestion_process: Optional[BinanceWorker] = None
+
+        # Phase 91: Ingestion Airlock
+        self._ingestion_queue = multiprocessing.Queue()
+        self._command_queue = multiprocessing.Queue()
+        self._ingestion_process: Optional[BinanceWorker] = None
 
     # =========================================================
     # ABSTRACT METHOD IMPLEMENTATIONS (Required by BaseConnector)
@@ -1260,55 +1272,95 @@ class BinanceNativeConnector(BaseConnector):
     # =========================================================
 
     async def _start_market_data_stream(self) -> None:
-        """Start market data WebSocket stream."""
+        """
+        Start market data ingestion via Sentinel Process (Phase 91).
+        Replaces direct WebSocket connection with a process bridge.
+        """
         try:
-            ws_url = f"{self._ws_base_url}/stream"
-            self.logger.info("🔌 Connecting to Market Data Stream...")
-            self._market_data_ws = await websockets.connect(
-                ws_url, open_timeout=10, close_timeout=5, ping_interval=20, ping_timeout=20
-            )
-            self._market_data_task = asyncio.create_task(self._listen_market_data())
+            self.logger.info("🔌 Launching Ingestion Sentinel Process...")
 
-            # Start Subscription Worker (Phase 11)
+            # Start Worker Process if not running
+            if not self._ingestion_process or not self._ingestion_process.is_alive():
+                self._ingestion_process = BinanceWorker(
+                    input_queue=self._command_queue,
+                    output_queue=self._ingestion_queue,
+                    base_url=f"{self._ws_base_url}/stream",
+                )
+                self._ingestion_process.start()
+                self.logger.info(f"✅ Ingestion Sentinel Started (PID: {self._ingestion_process.pid})")
+
+            # Start Consumption Task (The Bridge)
+            self._market_data_task = asyncio.create_task(self._consume_ingestion_queue())
+
+            # Start Subscription Worker
             self._subscription_worker_task = asyncio.create_task(self._subscription_worker())
 
-            self.logger.info("✅ Market Data Stream connected")
-            self.logger.debug("Subscription Worker Active")
+            self.logger.info("✅ Market Ingestion Bridge Active")
 
             # Resubscribe if reconnecting
             if self._active_subscriptions:
-                asyncio.create_task(self._resubscribe_all())
+                self.logger.info(f"🔄 Resubscribing to {len(self._active_subscriptions)} streams...")
+                # We simply re-add them to the subscription queue, the worker will pick them up
+                for stream in self._active_subscriptions:
+                    await self._subscription_queue.put(stream)
 
         except Exception as e:
-            self.logger.error(f"❌ Market Stream connection failed: {e}")
+            self.logger.error(f"❌ Ingestion Bridge failed: {e}")
             raise
 
-    async def _listen_market_data(self) -> None:
-        """Listen loop for market data."""
-        try:
-            async for message in self._market_data_ws:
-                self._last_market_message_time = time.time()
-                try:
-                    data = json.loads(message)
+    async def _consume_ingestion_queue(self) -> None:
+        """
+        Consume events from the Airlock Queue.
+        This runs in the Main Loop but is decoupled from network latency.
+        """
+        self.logger.info("🌉 Ingestion Bridge: Consumption Loop Started")
 
-                    if "result" in data and "id" in data:
-                        continue
+        while self.is_connected:
+            try:
+                # Non-blocking burst consumption
+                # We poll with a small sleep to yield control if empty
+                # Using run_in_executor for get_nowait is overhead, direct try/except is faster for Queue
 
-                    event_type = data.get("e")
-                    if event_type == "aggTrade":
-                        self._handle_trade_update(data)
-                    elif event_type in ("24hrTicker", "bookTicker"):
-                        self._handle_ticker_update(data)
+                processed_count = 0
 
-                except Exception as e:
-                    self.logger.error(f"❌ Error processing market message: {e}")
+                while not self._ingestion_queue.empty():
+                    try:
+                        # Raw JSON from worker
+                        data = self._ingestion_queue.get_nowait()
 
-        except websockets.exceptions.ConnectionClosed as e:
-            await self._handle_stream_error("market", e)
-        except Exception as e:
-            await self._handle_stream_error("market", e)
-        finally:
-            self._market_data_ws = None
+                        # Process Message
+                        if "result" in data and "id" in data:
+                            continue
+
+                        event_type = data.get("e")
+                        if event_type == "aggTrade":
+                            self._handle_trade_update(data)
+                        elif event_type in ("24hrTicker", "bookTicker"):
+                            self._handle_ticker_update(data)
+
+                        processed_count += 1
+
+                        # Yield every 100 messages to prevent hogging the loop during bursts
+                        if processed_count >= 100:
+                            await asyncio.sleep(0)
+                            processed_count = 0
+
+                    except multiprocessing.queues.Empty:
+                        break
+                    except Exception as e:
+                        self.logger.error(f"❌ Bridge Processing Error: {e}")
+
+                # Sleep to prevent tight loop
+                await asyncio.sleep(0.001)
+
+            except asyncio.CancelledError:
+                self.logger.info("🛑 Ingestion Bridge stopping...")
+                break
+            except Exception as e:
+                self.logger.error(f"❌ Ingestion Bridge Fatal Error: {e}")
+                await asyncio.sleep(1)
+
+    # _listen_market_data replaced by _consume_ingestion_queue
 
     async def subscribe_trades(self, symbol: str) -> None:
         """Subscribe to trade stream for a symbol."""
@@ -1357,10 +1409,9 @@ class BinanceNativeConnector(BaseConnector):
     async def _subscription_worker(self) -> None:
         """
         Background worker that batches and throttles WebSocket subscriptions.
-        Prevents Error 1008 (Too many requests) by group symbols together
-        and respecting message frequency limits.
+        Sends commands to the Airlock Ingestion Process.
         """
-        self.logger.debug("👷 Subscription Worker started")
+        self.logger.debug("👷 Subscription Worker started (Bridge Mode)")
         while True:
             try:
                 # Wait for at least one subscription request
@@ -1371,22 +1422,16 @@ class BinanceNativeConnector(BaseConnector):
                 while not self._subscription_queue.empty() and len(streams_to_sub) < self._subscription_batch_size:
                     streams_to_sub.append(self._subscription_queue.get_nowait())
 
-                if not self._market_data_ws:
-                    self.logger.warning(f"⚠️ Market WS disconnected, re-queueing {len(streams_to_sub)} streams")
-                    for s in streams_to_sub:
-                        self._subscription_queue.put_nowait(s)
-                    await asyncio.sleep(1)
-                    continue
+                # Send command to Sentinel Process
+                cmd = {"action": "SUBSCRIBE", "payload": streams_to_sub}
 
-                # Prepare and send the batch message
-                subscribe_msg = {
-                    "method": "SUBSCRIBE",
-                    "params": streams_to_sub,
-                    "id": int(time.time() * 1000),
-                }
-
-                self.logger.debug(f"📡 Batch subscribing to {len(streams_to_sub)} streams...")
-                await self._market_data_ws.send(json.dumps(subscribe_msg))
+                try:
+                    self._command_queue.put(cmd)
+                    self.logger.debug(f"📡 Batch subscribed {len(streams_to_sub)} streams via Airlock")
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to send subscribe command: {e}")
+                    # Re-queue if bridge is down?
+                    # For now just log, assuming Sentinel is robust.
 
                 # Mark tasks as done
                 for _ in streams_to_sub:

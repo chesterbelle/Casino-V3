@@ -568,36 +568,49 @@ class ReconciliationService:
             if pos.tp_order_id:
                 try:
                     tp_order = await self.adapter.fetch_order(pos.tp_order_id, symbol)
-                    if tp_order and tp_order.get("status") in ["closed", "expired"]:
-                        # FILLED (or Expired FOK) means WIN
-                        amount = float(tp_order.get("amount", 0))
-                        price = float(tp_order.get("price", 0) or tp_order.get("average", 0))
-                        # If price is 0 (e.g. expired without fill info), infer from last price or entry?
-                        # Safe fallback to entry if 0 to avoid huge PnL spikes, or better: use last ticker?
-                        # For now, if 0, we can't calculate PnL accurately.
+                    status = tp_order.get("status")
+                    filled = float(tp_order.get("filled", 0))
+
+                    # Logic Fix (Phase 91): Only count as TP win if actually filled
+                    if status in ["closed", "expired"] and filled > 0:
+                        amount = filled
+                        price = float(tp_order.get("average", 0) or tp_order.get("price", 0))
+
+                        # Deep Audit: If we have fill but no price (rare), fetch trades
                         if price == 0:
-                            price = pos.tp_level  # Assume hit TP level if we don't have fill price
+                            self.logger.warning(f"🕵️ Deep Audit triggering for {pos.trade_id} (Filled {filled} @ $0)")
+                            trades = await self.adapter.fetch_my_trades(symbol, params={"orderId": pos.tp_order_id})
+                            if trades:
+                                total_val = sum(t["price"] * t["amount"] for t in trades)
+                                total_qty = sum(t["amount"] for t in trades)
+                                if total_qty > 0:
+                                    price = total_val / total_qty
 
-                        # Confirm close as WIN (EXIT_REASON: RECONCI_WIN)
-                        # We manually trigger confirm_close on tracker
-                        pnl = (
-                            (price - pos.entry_price) * amount
-                            if pos.side == "LONG"
-                            else (pos.entry_price - price) * amount
-                        )
+                        if price > 0:
+                            # Confirm close as WIN (EXIT_REASON: TP (Recon))
+                            # We manually trigger confirm_close on tracker
+                            pnl = (
+                                (price - pos.entry_price) * amount
+                                if pos.side == "LONG"
+                                else (pos.entry_price - price) * amount
+                            )
 
-                        # Extract fee from order if available
-                        fee_info = tp_order.get("fee", {})
-                        exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
+                            # Extract fee from order if available
+                            fee_info = tp_order.get("fee", {})
+                            exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
 
-                        self.tracker.confirm_close(
-                            pos.trade_id,
-                            exit_price=price,
-                            exit_reason="TP (Recon)",
-                            pnl=pnl,
-                            fee=exit_fee,
-                            healed=True,
-                        )
+                            self.tracker.confirm_close(
+                                pos.trade_id,
+                                exit_price=price,
+                                exit_reason="TP (Recon)",
+                                pnl=pnl,
+                                fee=exit_fee,
+                                healed=True,
+                            )
+                            self.logger.info(f"👻 Ghost {pos.trade_id} RESOLVED: TP Order Filled (Deep Audit Verified)")
+                            return "TP_FILLED"
+                    elif status == "expired" and filled == 0:
+                        self.logger.info(f"ℹ️ TP Order {pos.tp_order_id} expired empty. Not the cause of closure.")
                         return "Closed via TP (Confirmed)"
                 except Exception as e:
                     if "-2013" in str(e):
