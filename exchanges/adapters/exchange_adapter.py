@@ -287,6 +287,15 @@ class ExchangeAdapter(NetworkIterator):
         # Default safety fallback
         return {"tickSize": 0.01, "stepSize": 0.01, "minNotional": 10.0}
 
+    def get_min_notional(self, symbol: str = None) -> float:
+        """
+        Get minimum notional value for a symbol.
+        Restored in Phase 93 to satisfy MultiAssetManager contract.
+        Delegates to get_market_filters.
+        """
+        filters = self.get_market_filters(symbol)
+        return filters.get("minNotional", 10.0)
+
     async def watch_order_book(self, symbol: str = None, limit: int = 20) -> Dict[str, Any]:
         """
         Watch order book using WebSocket (if supported).

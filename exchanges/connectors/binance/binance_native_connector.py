@@ -1391,7 +1391,7 @@ class BinanceNativeConnector(BaseConnector):
             return await self._ticker_queues[unified_symbol].get()
         except Exception as e:
             self.logger.warning(f"⚠️ Ticker queue failed for {unified_symbol}: {e}")
-            return await self.fetch_ticker(symbol)
+            return None
 
     async def watch_trades(self, symbol: str) -> Dict[str, Any]:
         """Watch trades for a symbol (Blocking)."""

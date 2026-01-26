@@ -220,10 +220,16 @@ class MultiAssetManager:
                                 f"❌ Rejected {symbol}: Stream Liveness Failed "
                                 f"(no ticker received in {stream_liveness_timeout}s)"
                             )
+                            # Phase 93: Cleanup subscription for failed liveness
+                            if hasattr(self.adapter.connector, "unsubscribe_ticker"):
+                                await self.adapter.connector.unsubscribe_ticker(target_symbol)
                             continue
 
                 except Exception as e:
                     logger.warning(f"❌ Rejected {symbol}: Failed to validate market depth/liquidity ({e})")
+                    # Phase 93: Cleanup subscription on exception
+                    if hasattr(self.adapter.connector, "unsubscribe_ticker"):
+                        await self.adapter.connector.unsubscribe_ticker(target_symbol)
                     continue  # STRICT: No fallback, skip this symbol
 
                 # D. Store precision profile
