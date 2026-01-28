@@ -134,15 +134,15 @@ class BinanceNativeConnector(BaseConnector):
         if not self._api_key or not self._secret:
             self.logger.warning(f"⚠️ Missing API Keys for mode {self._mode}. Operations requiring auth will fail.")
 
-        # Phase 91: Ingestion Airlock
+        # Phase 91: Ingestion Airlock (Market Data)
         self._ingestion_queue = multiprocessing.Queue()
         self._command_queue = multiprocessing.Queue()
         self._ingestion_process: Optional[BinanceWorker] = None
 
-        # Phase 91: Ingestion Airlock
-        self._ingestion_queue = multiprocessing.Queue()
-        self._command_queue = multiprocessing.Queue()
-        self._ingestion_process: Optional[BinanceWorker] = None
+        # Phase 91.1: User Data Airlock (Private Data)
+        self._user_ingestion_queue = multiprocessing.Queue()
+        self._user_command_queue = multiprocessing.Queue()
+        self._user_ingestion_process: Optional[BinanceWorker] = None
 
     # =========================================================
     # ABSTRACT METHOD IMPLEMENTATIONS (Required by BaseConnector)
@@ -917,9 +917,13 @@ class BinanceNativeConnector(BaseConnector):
         try:
             order = await self._request("GET", "/fapi/v1/order", params, signed=True, endpoint_type="orders")
             return self._normalize_order(order)
-        except Exception:
-            # Try as algo order
-            return await self._fetch_algo_order(order_id, symbol)
+        except Exception as e:
+            # If -2013 (Order does not exist), it might be an algo order
+            error_msg = str(e)
+            if "-2013" in error_msg:
+                self.logger.info(f"🔍 Order {order_id} not found in regular orders. Attempting Algo fetch...")
+                return await self._fetch_algo_order(order_id, symbol)
+            raise
 
     async def create_order(
         self,
@@ -1311,48 +1315,18 @@ class BinanceNativeConnector(BaseConnector):
 
     async def _consume_ingestion_queue(self) -> None:
         """
-        Consume events from the Airlock Queue.
+        Consume events from both Market and User Airlock Queues.
         This runs in the Main Loop but is decoupled from network latency.
         """
         self.logger.info("🌉 Ingestion Bridge: Consumption Loop Started")
 
         while self.is_connected:
             try:
-                # Heartbeat: The bridge is active/looping
-                self._last_market_message_time = time.time()
+                # 1. Market Data Burst
+                await self._process_queue_burst(self._ingestion_queue, "market")
 
-                # Non-blocking burst consumption
-                # We poll with a small sleep to yield control if empty
-                # Using run_in_executor for get_nowait is overhead, direct try/except is faster for Queue
-
-                processed_count = 0
-
-                while not self._ingestion_queue.empty():
-                    try:
-                        # Raw JSON from worker
-                        data = self._ingestion_queue.get_nowait()
-
-                        # Process Message
-                        if "result" in data and "id" in data:
-                            continue
-
-                        event_type = data.get("e")
-                        if event_type == "aggTrade":
-                            self._handle_trade_update(data)
-                        elif event_type in ("24hrTicker", "bookTicker"):
-                            self._handle_ticker_update(data)
-
-                        processed_count += 1
-
-                        # Yield every 100 messages to prevent hogging the loop during bursts
-                        if processed_count >= 100:
-                            await asyncio.sleep(0)
-                            processed_count = 0
-
-                    except multiprocessing.queues.Empty:
-                        break
-                    except Exception as e:
-                        self.logger.error(f"❌ Bridge Processing Error: {e}")
+                # 2. User Data Burst (Airlock Phase 91.1)
+                await self._process_queue_burst(self._user_ingestion_queue, "user")
 
                 # Sleep to prevent tight loop
                 await asyncio.sleep(0.001)
@@ -1363,6 +1337,52 @@ class BinanceNativeConnector(BaseConnector):
             except Exception as e:
                 self.logger.error(f"❌ Ingestion Bridge Fatal Error: {e}")
                 await asyncio.sleep(1)
+
+    async def _process_queue_burst(self, queue: multiprocessing.Queue, source: str) -> None:
+        """Process a burst of messages from a specific queue."""
+        processed_count = 0
+        while not queue.empty():
+            try:
+                data = queue.get_nowait()
+
+                # Heartbeat tracking
+                if source == "market":
+                    self._last_market_message_time = time.time()
+                else:
+                    self._last_user_message_time = time.time()
+
+                # Process Message
+                if "result" in data and "id" in data:
+                    continue
+
+                event_type = data.get("e")
+
+                # Market Data Routing
+                if event_type == "aggTrade":
+                    self._handle_trade_update(data)
+                elif event_type in ("24hrTicker", "bookTicker", "@ticker", "ticker"):
+                    self._handle_ticker_update(data)
+
+                # User Data Routing (Airlock Phase 91.1)
+                elif event_type == "ORDER_TRADE_UPDATE":
+                    self._handle_order_update(data)
+                elif event_type == "ACCOUNT_UPDATE":
+                    self._handle_account_update(data)
+                elif event_type == "STRATEGY_UPDATE":
+                    self._handle_strategy_update(data)
+                elif event_type == "listenKeyExpired":
+                    self.logger.warning("🔑 ListenKey Expired! Reconnecting...")
+                    asyncio.create_task(self._reconnect_user_data_stream())
+
+                processed_count += 1
+                if processed_count >= 100:
+                    await asyncio.sleep(0)
+                    processed_count = 0
+
+            except multiprocessing.queues.Empty:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ Bridge Processing Error ({source}): {e}")
 
     # _listen_market_data replaced by _consume_ingestion_queue
 
@@ -1555,49 +1575,33 @@ class BinanceNativeConnector(BaseConnector):
         await self._request("PUT", "/fapi/v1/listenKey", signed=True, endpoint_type="account")
 
     async def _start_user_data_stream(self) -> None:
-        """Start user data WebSocket stream."""
+        """
+        Start user data WebSocket stream via Sentinel Process (Phase 91.1).
+        Replaces direct websockets usage in the main loop to prevent hangs.
+        """
         try:
             self._listen_key = await self._create_listen_key()
             ws_url = f"{self._ws_base_url}/{self._listen_key}"
 
-            self.logger.info("🔌 Connecting to User Data Stream...")
-            self._user_data_ws = await websockets.connect(
-                ws_url, open_timeout=10, close_timeout=5, ping_interval=20, ping_timeout=20
-            )
-            self._user_data_task = asyncio.create_task(self._listen_user_data())
-            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
-            self.logger.info("✅ User Data Stream connected")
+            self.logger.info("🔌 Launching User Data Sentinel Process...")
+
+            if not self._user_ingestion_process or not self._user_ingestion_process.is_alive():
+                self._user_ingestion_process = BinanceWorker(
+                    input_queue=self._user_command_queue,
+                    output_queue=self._user_ingestion_queue,
+                    base_url=ws_url,
+                )
+                self._user_ingestion_process.start()
+                self.logger.info(f"✅ User Data Sentinel Started (PID: {self._user_ingestion_process.pid})")
+
+            if not self._keepalive_task or self._keepalive_task.done():
+                self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+            self.logger.info("✅ User Data Airlock Active")
 
         except Exception as e:
-            self.logger.error(f"❌ User Stream failed: {e}")
+            self.logger.error(f"❌ User Airlock failed: {e}")
             raise
-
-    async def _listen_user_data(self) -> None:
-        """Listen loop for user data."""
-        try:
-            async for message in self._user_data_ws:
-                self._last_user_message_time = time.time()
-                try:
-                    data = json.loads(message)
-                    event = data.get("e")
-
-                    if event == "ORDER_TRADE_UPDATE":
-                        self._handle_order_update(data)
-                    elif event == "ACCOUNT_UPDATE":
-                        self._handle_account_update(data)
-                    elif event == "STRATEGY_UPDATE":
-                        self._handle_strategy_update(data)
-                    elif event == "listenKeyExpired":
-                        self.logger.warning("🔑 ListenKey Expired! Reconnecting...")
-                        await self._reconnect_user_data_stream()
-
-                except Exception as e:
-                    self.logger.error(f"❌ User msg error: {e}")
-
-        except Exception as e:
-            await self._handle_stream_error("user", e)
-        finally:
-            self._user_data_ws = None
 
     def _handle_account_update(self, data: Dict) -> None:
         """Handle ACCOUNT_UPDATE from User Data Stream."""
@@ -1655,13 +1659,18 @@ class BinanceNativeConnector(BaseConnector):
             return
 
         async with self._user_stream_reconnect_lock:
-            self.logger.info("🔄 Reconnecting User Data Stream (deduplicated)...")
+            self.logger.info("🔄 Reconnecting User Data Stream (deduplicated Airlock)...")
 
-            if self._user_data_ws:
+            if self._user_ingestion_process and self._user_ingestion_process.is_alive():
                 try:
-                    await self._user_data_ws.close()
+                    self.logger.info("🛑 Stopping existing User Data Worker...")
+                    self._user_ingestion_process.terminate()
+                    self._user_ingestion_process.join(timeout=1)
                 except Exception:
                     pass
+
+            self._user_ingestion_process = None
+            self._listen_key = None
 
             await self._start_user_data_stream()
 
@@ -1885,10 +1894,12 @@ class BinanceNativeConnector(BaseConnector):
 
     def _normalize_order(self, o: Dict) -> Dict[str, Any]:
         """Normalize regular order response."""
+        order_id = str(o.get("orderId", ""))
+        client_order_id = o.get("clientOrderId", "")
         return {
-            "id": str(o.get("orderId", "")),
-            "order_id": str(o.get("orderId", "")),
-            "client_order_id": o.get("clientOrderId", ""),
+            "id": order_id,
+            "order_id": order_id,
+            "client_order_id": client_order_id,
             "symbol": o.get("symbol", ""),
             "status": self._normalize_order_status(o.get("status", "")),
             "price": float(o.get("price", 0)),
@@ -1904,11 +1915,14 @@ class BinanceNativeConnector(BaseConnector):
 
     def _normalize_algo_order(self, o: Dict) -> Dict[str, Any]:
         """Normalize algo order from list query."""
-        order_id = o.get("clientAlgoId") or str(o.get("algoId", ""))
+        algo_id = str(o.get("algoId", ""))
+        client_algo_id = o.get("clientAlgoId", "")
         return {
-            "id": order_id,
-            "order_id": order_id,
-            "algo_id": str(o.get("algoId", "")),
+            "id": algo_id,
+            "order_id": algo_id,
+            "client_order_id": client_algo_id,
+            "algo_id": algo_id,
+            "client_algo_id": client_algo_id,
             "symbol": o.get("symbol", ""),
             "status": o.get("algoStatus", "").lower(),
             "price": float(o.get("triggerPrice", 0) or 0),
@@ -1923,15 +1937,12 @@ class BinanceNativeConnector(BaseConnector):
 
     def _normalize_algo_order_response(self, response: Dict, original_args: Dict) -> Dict[str, Any]:
         """Normalize algo order creation response."""
-        order_id = (
-            response.get("clientAlgoId")
-            or str(response.get("algoOrderId", ""))
-            or str(response.get("algoId", ""))
-            or f"ALGO_{int(time.time() * 1000)}"
-        )
+        algo_id = str(response.get("algoId") or response.get("algoOrderId") or "")
+        client_algo_id = response.get("clientAlgoId") or original_args.get("newClientOrderId", "")
         return {
-            "id": order_id,
-            "order_id": order_id,
+            "id": algo_id,
+            "order_id": algo_id,
+            "client_order_id": client_algo_id,
             "symbol": response.get("symbol", original_args.get("symbol")),
             "status": "open",
             "price": float(response.get("triggerPrice", original_args.get("stopPrice", 0)) or 0),

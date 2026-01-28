@@ -113,7 +113,14 @@ class Croupier(TimeIterator):
 
         # Phase 79.1: Connect Order Updates (Total Visibility)
         # PositionTracker must listen to ORDER_TRADE_UPDATE to catch real-time fills
-        self.adapter.set_order_update_callback(self.position_tracker.handle_order_update)
+        # OCOManager must also listen to resolve futures immediately (Phase 91.2 Fix)
+        def _on_order_update_wrapper(data: Dict):
+            # 1. Update PositionTracker (Primary)
+            self.position_tracker.handle_order_update(data)
+            # 2. Update OCOManager (Secondary - for bracket fill confirmation)
+            asyncio.create_task(self.oco_manager.on_order_update(data))
+
+        self.adapter.set_order_update_callback(_on_order_update_wrapper)
 
         # Debounce for reconciliations
         self._reconciliation_tasks: Dict[str, float] = {}

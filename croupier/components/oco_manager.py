@@ -855,11 +855,14 @@ class OCOManager:
                         },
                     )
                 else:
-                    return await self.executor.execute_limit_order(
+                    # Phase 99 Fix: Use TAKE_PROFIT_MARKET instead of LIMIT to avoid locking position balance
+                    # and causing (-2022) ReduceOnly rejection when placing SL.
+                    return await self.executor.execute_stop_order(
                         symbol=symbol,
                         side=tp_side,
                         amount=amount,
-                        price=tp_price,
+                        stop_price=tp_price,
+                        order_type="TAKE_PROFIT_MARKET",
                         params={"reduceOnly": True, "client_order_id": client_order_id},
                     )
 
@@ -897,11 +900,13 @@ class OCOManager:
                             )
                             amount = current_pos
                             # Retry immediately with new amount
-                            return await self.executor.execute_limit_order(
+                            # Phase 99 Fix: Use TAKE_PROFIT_MARKET for retry as well
+                            return await self.executor.execute_stop_order(
                                 symbol=symbol,
                                 side=tp_side,
                                 amount=amount,
-                                price=tp_price,
+                                stop_price=tp_price,
+                                order_type="TAKE_PROFIT_MARKET",
                                 params={"reduceOnly": True, "client_order_id": client_order_id},
                             )
 
