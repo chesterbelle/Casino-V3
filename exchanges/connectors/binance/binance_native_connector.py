@@ -1322,11 +1322,12 @@ class BinanceNativeConnector(BaseConnector):
 
         while self.is_connected:
             try:
-                # 1. Market Data Burst
-                await self._process_queue_burst(self._ingestion_queue, "market")
-
-                # 2. User Data Burst (Airlock Phase 91.1)
+                # 1. User Data Burst (CRITICAL - Airlock Phase 101)
+                # Process user events first to ensure zero-latency state transitions
                 await self._process_queue_burst(self._user_ingestion_queue, "user")
+
+                # 2. Market Data Burst (Segmented to prevent starvation)
+                await self._process_queue_burst(self._ingestion_queue, "market")
 
                 # Sleep to prevent tight loop
                 await asyncio.sleep(0.001)
@@ -1374,10 +1375,14 @@ class BinanceNativeConnector(BaseConnector):
                     self.logger.warning("🔑 ListenKey Expired! Reconnecting...")
                     asyncio.create_task(self._reconnect_user_data_stream())
 
+                # Segmentation (Airlock Phase 101)
+                # Market data is limited to 100 per burst to prevent main loop starvation.
+                # User data (critical) is NOT limited to ensure atomic processing of state changes.
                 processed_count += 1
-                if processed_count >= 100:
+                if source == "market" and processed_count >= 100:
                     await asyncio.sleep(0)
                     processed_count = 0
+                # Note: For user events, we drain the entire queue without force-yielding.
 
             except multiprocessing.queues.Empty:
                 break
