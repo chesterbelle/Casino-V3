@@ -1550,7 +1550,6 @@ class BinanceNativeConnector(BaseConnector):
         # Phase 37: Push-based event dispatch (preferred)
         if self._tick_event_callback:
             asyncio.create_task(self._tick_event_callback(ticker_data))
-            return  # Skip queue when using push model
 
         # Legacy: Push to queue (pull-based fallback)
         try:
@@ -1759,7 +1758,10 @@ class BinanceNativeConnector(BaseConnector):
         else:
             # Standard Mode: Check if local websocket object exists
             market_closed = self._market_data_ws is None
-        user_closed = self._user_data_ws is None and self._api_key is not None
+        if self._user_ingestion_process:
+            user_closed = not self._user_ingestion_process.is_alive() and self._api_key is not None
+        else:
+            user_closed = self._user_data_ws is None and self._api_key is not None
 
         if market_stale or market_closed:
             self.logger.warning(
