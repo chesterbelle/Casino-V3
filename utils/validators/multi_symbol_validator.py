@@ -181,13 +181,20 @@ class MultiSymbolValidator:
             # Phase 42: Manual Amount Calculation for Master Sizing
             ticker = await self.connector.fetch_ticker(symbol)
             current_price = float(ticker["last"])
-            amount = self.size / current_price
+            # Ensure size is enough for at least 1 contract (especially for SOL on testnet)
+            test_size = self.size
+            if symbol == "SOLUSDT":
+                test_size = max(test_size, current_price * 1.1)  # 1.1 SOL to be safe
+
+            amount = float(self.multi_adapter.amount_to_precision(symbol, test_size / current_price))
+            logger.info(f"🔍 [{symbol}] Calculated amount: {amount} (Raw: {test_size / current_price})")
 
             order = {
                 "symbol": symbol,
                 "side": "LONG",
                 "size": self.size,
                 "amount": amount,
+                "qty": amount,
                 "take_profit": 0.05,  # +5%
                 "stop_loss": 0.05,  # -5%
                 "trade_id": f"multi_{symbol}_{int(time.time())}",

@@ -43,6 +43,7 @@ Al finalizar, revisar:
 
 ## Criterio de Éxito
 - [x] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
+- [x] **Event Integrity = 100% (0 "WS Event UNMATCHED")** ← NUEVO
 - [ ] Audit Adjust < $1.00
 - [ ] >50 trades ejecutados
 - [ ] Tracker vacío después de --close-on-exit
