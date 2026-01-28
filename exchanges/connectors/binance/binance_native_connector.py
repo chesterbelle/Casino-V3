@@ -975,9 +975,10 @@ class BinanceNativeConnector(BaseConnector):
         ALGO_ORDER_TYPES = {"STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TRAILING_STOP_MARKET", "OCO"}
 
         # Verify if we should force Main API (when closePosition is used)
-        force_main_api = params.get("closePosition") or params.get(
-            "reduceOnly"
-        )  # reduceOnly works on both, but closePosition only on Main
+        # Phase 95 Fix: Revert Phase 46 regression.
+        # reduceOnly is supported by Algo API and should NOT force Main API.
+        # Only closePosition (exclusive to Main API) forces the switch.
+        force_main_api = params.get("closePosition")
         if params.get("closePosition"):
             force_main_api = True
 
@@ -1284,7 +1285,7 @@ class BinanceNativeConnector(BaseConnector):
                 self._ingestion_process = BinanceWorker(
                     input_queue=self._command_queue,
                     output_queue=self._ingestion_queue,
-                    base_url=f"{self._ws_base_url}/stream",
+                    base_url=self._ws_base_url,
                 )
                 self._ingestion_process.start()
                 self.logger.info(f"✅ Ingestion Sentinel Started (PID: {self._ingestion_process.pid})")
@@ -1317,6 +1318,9 @@ class BinanceNativeConnector(BaseConnector):
 
         while self.is_connected:
             try:
+                # Heartbeat: The bridge is active/looping
+                self._last_market_message_time = time.time()
+
                 # Non-blocking burst consumption
                 # We poll with a small sleep to yield control if empty
                 # Using run_in_executor for get_nowait is overhead, direct try/except is faster for Queue
@@ -1739,7 +1743,13 @@ class BinanceNativeConnector(BaseConnector):
 
         now = time.time()
         market_stale = now - self._last_market_message_time > 60  # 60s to allow subscription setup
-        market_closed = self._market_data_ws is None
+
+        # Airlock Mode: Check if Sentinel Process is alive
+        if self._ingestion_process:
+            market_closed = not self._ingestion_process.is_alive()
+        else:
+            # Standard Mode: Check if local websocket object exists
+            market_closed = self._market_data_ws is None
         user_closed = self._user_data_ws is None and self._api_key is not None
 
         if market_stale or market_closed:
