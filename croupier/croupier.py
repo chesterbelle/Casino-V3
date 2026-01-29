@@ -171,6 +171,8 @@ class Croupier(TimeIterator):
 
         async def _apply_with_limit(pos):
             async with sem:
+                # Tag position with phase for reporting
+                pos.lifecycle_phase = f"DRAIN_{phase}"
                 await self.exit_manager.apply_dynamic_exit(pos, phase)
 
         tasks = [_apply_with_limit(pos) for pos in active_positions]

@@ -133,6 +133,9 @@ class OpenPosition:
     # Not included in repr to avoid noise
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
+    # Phase 102: Lifecycle attribution for reporting
+    lifecycle_phase: str = "ACTIVE"
+
     # State Machine Status
     # OPENING: In process of creating TP/SL orders (Audit should wait)
     # ACTIVE: Fully established with TP/SL (Audit should enforce)
@@ -1149,6 +1152,7 @@ class PositionTracker:
             "state_source": "exchange_confirmed",
             "contributors": position.contributors,
             "session_id": self.session_id,
+            "lifecycle_phase": getattr(position, "lifecycle_phase", "ACTIVE"),
             "healed": 1 if (healed or getattr(position, "healed", False)) else 0,  # Phase 81
             # Phase 85: Latency Telemetry
             "t0_signal_ts": getattr(position, "t0_signal_ts", None),

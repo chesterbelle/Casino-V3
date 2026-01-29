@@ -833,10 +833,19 @@ async def main():
             logger.info(f"   Start Balance: {start_bal:.2f} USDT")
             logger.info(f"   Final Balance: {final_bal_float if final_bal_float is not None else 'N/A'}")
             logger.info("   --------------------------------------")
+
+            # Phase 102: Alpha Attribution
+            active_pnl = summary.get("active_pnl", 0.0) or 0.0
+            active_count = summary.get("active_count", 0) or 0
+            drain_pnl = summary.get("drain_pnl", 0.0) or 0.0
+            drain_count = summary.get("drain_count", 0) or 0
             # Phase 61: Intelligent Breakdown
             total_funding = summary.get("total_funding", 0.0) or 0.0
 
             logger.info(f"   📈 Strategy PnL: {strategy_pnl:+.4f} USDT ({strategy_count} trades)")
+            logger.info(f"      ↳ 🚀 Active Strategy: {active_pnl:+.4f} USDT ({active_count} trades)")
+            logger.info(f"      ↳ 🕒 Draining Phase: {drain_pnl:+.4f} USDT ({drain_count} trades)")
+
             if healed_count > 0:
                 logger.info(f"      ↳ 🛡️ Saved by Resilience: {healed_pnl:+.4f} USDT ({healed_count} healed)")
 

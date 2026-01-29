@@ -57,7 +57,8 @@ class TradeHistorian:
                 timestamp TEXT,
                 bars_held INTEGER,
                 session_id TEXT,
-                healed BOOLEAN DEFAULT 0
+                healed BOOLEAN DEFAULT 0,
+                lifecycle_phase TEXT DEFAULT 'ACTIVE'
             )
         """
         )
@@ -79,6 +80,12 @@ class TradeHistorian:
             conn.execute("ALTER TABLE trades ADD COLUMN t2_submit_ts REAL")
             conn.execute("ALTER TABLE trades ADD COLUMN t4_fill_ts REAL")
             conn.execute("ALTER TABLE trades ADD COLUMN slippage_pct REAL")
+        except sqlite3.OperationalError:
+            pass  # Already exists
+
+        # Phase 102: Lifecycle attribution for reporting
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN lifecycle_phase TEXT DEFAULT 'ACTIVE'")
         except sqlite3.OperationalError:
             pass  # Already exists
 
@@ -142,8 +149,8 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t2_submit_ts, t4_fill_ts, slippage_pct)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         trade_id,
@@ -165,6 +172,7 @@ class TradeHistorian:
                         trade_data.get("t2_submit_ts"),
                         trade_data.get("t4_fill_ts"),
                         trade_data.get("slippage_pct"),
+                        trade_data.get("lifecycle_phase", "ACTIVE"),
                     ),
                 )
                 conn.commit()
@@ -395,6 +403,12 @@ class TradeHistorian:
                     SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
                     SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses,
 
+                    -- Alpha Attribution (Phase 102)
+                    SUM(CASE WHEN lifecycle_phase = 'ACTIVE' THEN net_pnl ELSE 0 END) as active_pnl,
+                    SUM(CASE WHEN lifecycle_phase = 'ACTIVE' THEN 1 ELSE 0 END) as active_count,
+                    SUM(CASE WHEN lifecycle_phase LIKE 'DRAIN_%' THEN net_pnl ELSE 0 END) as drain_pnl,
+                    SUM(CASE WHEN lifecycle_phase LIKE 'DRAIN_%' THEN 1 ELSE 0 END) as drain_count,
+
                     -- Phase 61: Intelligent PnL Attribution
                     -- Strategy PnL = Clean + Healed
                     SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl,
@@ -435,6 +449,10 @@ class TradeHistorian:
                         "healed_count": 0,
                         "error_pnl": 0.0,
                         "error_count": 0,
+                        "active_pnl": 0.0,
+                        "active_count": 0,
+                        "drain_pnl": 0.0,
+                        "drain_count": 0,
                     }
                 )
         except Exception as e:
