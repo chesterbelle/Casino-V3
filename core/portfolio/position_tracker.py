@@ -449,6 +449,8 @@ class PositionTracker:
         position = self.get_position(trade_id)
         if not position:
             return False
+
+        # Lock governance for closure
         import traceback
 
         for frame in traceback.extract_stack()[::-1]:
@@ -1113,6 +1115,11 @@ class PositionTracker:
 
         if not position:
             logger.warning(f"⚠️ No se encontró posición para confirmar: {trade_id}")
+            return None
+
+        # Idempotency Check: Prevent double-recording if already closed/off-boarding
+        if position.status == "OFF_BOARDING":
+            logger.debug(f"⚠️ confirm_close ignored for {trade_id}: Already OFF_BOARDING")
             return None
 
         # Crear resultado CONFIRMADO con datos REALES

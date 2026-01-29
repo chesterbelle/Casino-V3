@@ -1323,11 +1323,11 @@ class BinanceNativeConnector(BaseConnector):
         while self.is_connected:
             try:
                 # 1. User Data Burst (CRITICAL - Airlock Phase 101)
-                # Process user events first to ensure zero-latency state transitions
-                await self._process_queue_burst(self._user_ingestion_queue, "user")
+                # Drain small bursts and yield to check BOTH queues fairly during floods
+                await self._process_queue_burst(self._user_ingestion_queue, "user", max_processed=50)
 
-                # 2. Market Data Burst (Segmented to prevent starvation)
-                await self._process_queue_burst(self._ingestion_queue, "market")
+                # 2. Market Data Burst (Segmented to prevent user starvation)
+                await self._process_queue_burst(self._ingestion_queue, "market", max_processed=100)
 
                 # Sleep to prevent tight loop
                 await asyncio.sleep(0.001)
@@ -1339,10 +1339,10 @@ class BinanceNativeConnector(BaseConnector):
                 self.logger.error(f"❌ Ingestion Bridge Fatal Error: {e}")
                 await asyncio.sleep(1)
 
-    async def _process_queue_burst(self, queue: multiprocessing.Queue, source: str) -> None:
+    async def _process_queue_burst(self, queue: multiprocessing.Queue, source: str, max_processed: int = 100) -> None:
         """Process a burst of messages from a specific queue."""
         processed_count = 0
-        while not queue.empty():
+        while processed_count < max_processed and not queue.empty():
             try:
                 data = queue.get_nowait()
 
