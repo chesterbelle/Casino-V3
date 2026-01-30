@@ -656,21 +656,15 @@ class BaseConnector(ABC):
         """
         raise NotImplementedError(f"{self.exchange_name} connector does not implement fetch_ticker")
 
+    @abstractmethod
     async def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
+        """Fetch order book for a symbol."""
+        pass
+
+    @abstractmethod
+    def get_load_factor(self) -> float:
         """
-        Fetch order book for a symbol.
-
-        This is an optional method with a default implementation that raises NotImplementedError.
-        Connectors can override this if the exchange supports order book data.
-
-        Args:
-            symbol: Trading pair symbol
-            limit: Depth of order book
-
-        Returns:
-            Order book dictionary
-
-        Raises:
-            NotImplementedError: If not implemented by the connector
+        Returns the current exchange load factor (0.0 to 1.0).
+        Based on rate limits and weight consumption.
         """
-        raise NotImplementedError(f"{self.exchange_name} connector does not implement fetch_order_book")
+        pass

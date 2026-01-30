@@ -26,6 +26,7 @@ from urllib.parse import urlencode
 import aiohttp
 import websockets
 
+from core.observability.latency_monitor import LatencyMonitor
 from exchanges.connectors.connector_base import BaseConnector
 from exchanges.ingestion.binance_worker import BinanceWorker
 from exchanges.rate_limiter import BinanceRateLimiter
@@ -144,6 +145,19 @@ class BinanceNativeConnector(BaseConnector):
         self._user_command_queue = multiprocessing.Queue()
         self._user_ingestion_process: Optional[BinanceWorker] = None
 
+        # Phase 102: Industrial Resilience - Latency Monitor
+        self._latency_monitor = LatencyMonitor()
+
+    @property
+    def is_congested(self) -> bool:
+        """Returns True if the exchange or network is congested."""
+        return self._latency_monitor.is_congested
+
+    @property
+    def latency_stats(self) -> Dict[str, Any]:
+        """Returns statistical overview of recent latencies."""
+        return self._latency_monitor.get_stats()
+
     # =========================================================
     # ABSTRACT METHOD IMPLEMENTATIONS (Required by BaseConnector)
     # =========================================================
@@ -162,6 +176,10 @@ class BinanceNativeConnector(BaseConnector):
     def enable_websocket(self) -> bool:
         """Return if WebSocket is enabled."""
         return self._enable_websocket
+
+    def get_load_factor(self) -> float:
+        """Returns current exchange load factor based on weight."""
+        return self._rate_limiter.get_load_factor()
 
     def normalize_symbol(self, symbol: str) -> str:
         """Normalize symbol to exchange format."""
@@ -273,20 +291,29 @@ class BinanceNativeConnector(BaseConnector):
             # Actually, for GET, it must stay in params.
 
             if method == "GET":
+                start_time = time.time()
                 async with self._http_session.get(url, params=params, headers=headers, timeout=req_timeout) as resp:
-                    return await self._handle_response(resp)
+                    res = await self._handle_response(resp)
+                    self._latency_monitor.record_latency((time.time() - start_time) * 1000)
+                    return res
             elif method == "POST":
-                # For POST, if it's a signed string, it should go in the body or URL?
-                # Binance signed POST usually takes params in URL or body.
-                # We use URL params for consistency with GET signatures.
+                start_time = time.time()
                 async with self._http_session.post(url, params=params, headers=headers, timeout=req_timeout) as resp:
-                    return await self._handle_response(resp)
+                    res = await self._handle_response(resp)
+                    self._latency_monitor.record_latency((time.time() - start_time) * 1000)
+                    return res
             elif method == "DELETE":
+                start_time = time.time()
                 async with self._http_session.delete(url, params=params, headers=headers, timeout=req_timeout) as resp:
-                    return await self._handle_response(resp)
+                    res = await self._handle_response(resp)
+                    self._latency_monitor.record_latency((time.time() - start_time) * 1000)
+                    return res
             elif method == "PUT":
+                start_time = time.time()
                 async with self._http_session.put(url, params=params, headers=headers, timeout=req_timeout) as resp:
-                    return await self._handle_response(resp)
+                    res = await self._handle_response(resp)
+                    self._latency_monitor.record_latency((time.time() - start_time) * 1000)
+                    return res
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
         except aiohttp.ClientError as e:
@@ -295,6 +322,14 @@ class BinanceNativeConnector(BaseConnector):
 
     async def _handle_response(self, resp: aiohttp.ClientResponse) -> Dict[str, Any]:
         """Handle API response and errors."""
+        # Phase 102: Industrial Resilience - Extract Rate Limit Weight
+        weight_header = resp.headers.get("X-MBX-USED-WEIGHT-1M")
+        if weight_header:
+            try:
+                self._rate_limiter.update_weight(int(weight_header))
+            except (ValueError, TypeError):
+                pass
+
         text = await resp.text()
 
         if resp.status == 200:
@@ -1358,10 +1393,16 @@ class BinanceNativeConnector(BaseConnector):
 
                 event_type = data.get("e")
 
+                # Phase 91: Pulse Logging (Bridge)
+                if processed_count % 50 == 0:
+                    self.logger.debug(f"🌉 Bridge: Processed {processed_count} {source} events")
+
                 # Market Data Routing
                 if event_type == "aggTrade":
+                    self.logger.debug(f"💎 Bridge: Trade event for {data.get('s')}")
                     self._handle_trade_update(data)
                 elif event_type in ("24hrTicker", "bookTicker", "@ticker", "ticker"):
+                    self.logger.debug(f"📈 Bridge: Ticker update for {data.get('s')}")
                     self._handle_ticker_update(data)
 
                 # User Data Routing (Airlock Phase 91.1)

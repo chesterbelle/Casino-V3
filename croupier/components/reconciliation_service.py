@@ -141,7 +141,18 @@ class ReconciliationService:
             exchange_symbols = {
                 normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
             }
-            all_symbols = local_symbols | exchange_symbols | open_orders_symbols
+
+            # Phase 102: Industrial Resilience - Balance Reconciliation
+            if self.croupier and hasattr(self.croupier, "balance_manager"):
+                try:
+                    balance_data = await self.adapter.connector.fetch_balance()
+                    new_balance = balance_data.get("total", {}).get("USDT", 0.0)
+                    if new_balance > 0:
+                        self.logger.info(f"[SYNC] 💰 Reconciling balance: {new_balance:.2f} USDT")
+                        self.croupier.balance_manager.set_balance(new_balance)
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Failed to reconcile balance: {e}")
+
             all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
             # PHASE 58: Parallelize reconciliation to prevent loop lag
@@ -845,18 +856,28 @@ class ReconciliationService:
             # PHASE 53: Use PositionTracker as Single Source of Truth - Phase 80: Partitioned by Symbol
             # Check if this order (by exchange ID or client ID) is associated with any tracked position
             # We strictly check WITHIN the current reconciliation symbol to prevent cross-symbol hijack
-            position_by_exchange_id = self.tracker.get_position_by_id(order_id, symbol=symbol)
-            position_by_client_id = (
-                self.tracker.get_position_by_id(client_order_id, symbol=symbol) if client_order_id else None
-            )
+            position = self.tracker.get_position_by_id(order_id, symbol=symbol)
+            if not position:
+                position = self.tracker.get_position_by_id(client_order_id, symbol=symbol) if client_order_id else None
 
-            is_tracked = position_by_exchange_id is not None or position_by_client_id is not None
+            # Phase 57.6: Strict Identity Matching
+            # An order is only legitimate if it is specifically one of the CURRENT legs
+            is_tracked = False
+            if position:
+                current_ids = {
+                    str(position.trade_id),
+                    str(position.exchange_tp_id),
+                    str(position.tp_order_id),
+                    str(position.exchange_sl_id),
+                    str(position.sl_order_id),
+                }
+                if str(order_id) in current_ids or (client_order_id and str(client_order_id) in current_ids):
+                    is_tracked = True
 
             # If order is tracked AND the position exists on exchange, it's legitimate
             if is_tracked:
                 # Double-check: If the associated position exists on exchange, order is NOT orphan
-                pos = position_by_exchange_id or position_by_client_id
-                if pos and self._exists_in_exchange(pos, exchange_positions):
+                if position and self._exists_in_exchange(position, exchange_positions):
                     continue  # Legitimate order, skip
 
             # If there's a position on exchange but we don't track this order, be careful

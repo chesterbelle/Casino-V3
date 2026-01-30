@@ -393,9 +393,9 @@ class OCOManager:
                 position.tp_order = tp_order_state
                 position.sl_order = sl_order_state
 
-                # Phase 31: Register for O(1) lookup by client_order_id
-                self.tracker.register_order(position, tp_order_state)
-                self.tracker.register_order(position, sl_order_state)
+                # Phase 55: Atomic Handover to Tracker (Fix Race Condition)
+                self.tracker.register_bracket_alias(tp_order_id, position, "TP", client_id=tp_client_id)
+                self.tracker.register_bracket_alias(sl_order_id, position, "SL", client_id=sl_client_id)
 
                 # Finalize position state (Phase 51: Atomic Promotion)
                 if position.status == "OPENING":
@@ -591,7 +591,7 @@ class OCOManager:
                     tp_id = tp_order.get("order_id") or tp_order.get("id")
 
                     # Phase 55: Atomic Handover to Tracker (Fix Race Condition)
-                    self.tracker.register_bracket_alias(tp_id, position, "TP")
+                    self.tracker.register_bracket_alias(tp_id, position, "TP", client_id=tp_client_id)
 
                     # Update state (redundant but safe)
                     position.tp_order_id = tp_order.get("client_order_id") or tp_id
@@ -620,7 +620,7 @@ class OCOManager:
                     sl_id = sl_order.get("order_id") or sl_order.get("id")
 
                     # Phase 55: Atomic Handover to Tracker (Fix Race Condition)
-                    self.tracker.register_bracket_alias(sl_id, position, "SL")
+                    self.tracker.register_bracket_alias(sl_id, position, "SL", client_id=sl_client_id)
 
                     # Update state (redundant but safe)
                     position.sl_order_id = sl_order.get("client_order_id") or sl_id

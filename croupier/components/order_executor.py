@@ -16,6 +16,9 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from core.error_handling import RetryConfig, get_error_handler
+from core.exceptions import ExchangeError
+
+from .depth_profiler import DepthProfiler
 
 
 class OrderExecutor:
@@ -52,6 +55,11 @@ class OrderExecutor:
         self.order_tracker = order_tracker
         self.position_tracker = position_tracker
         self.logger = logging.getLogger("OrderExecutor")
+
+        # Phase 102: Execution Quality - Depth Profiling
+        self.depth_profiler = DepthProfiler(exchange_adapter)
+        self.max_slippage_pct = 0.005  # 0.5% default threshold
+        self.fragmentation_threshold_pct = 0.002  # 0.2% start fragmenting
 
     def _ensure_client_order_id(self, order: Dict[str, Any], prefix: str = "ENTRY") -> None:
         """
@@ -144,6 +152,36 @@ class OrderExecutor:
         # Ensure Semantic ID (Default to ENTRY for market orders)
         self._ensure_client_order_id(order, prefix="ENTRY")
 
+        # Phase 102: Active Latency Telemetry - Safe Mode
+        if self.adapter.is_congested:
+            params = order.get("params", {})
+            if not params.get("reduceOnly", False):
+                self.logger.warning(f"🛡️ SAFE MODE ACTIVE: Rejecting new entry for {order['symbol']} due to congestion.")
+                stats = getattr(self.adapter.connector, "latency_stats", {})
+                avg_lat = stats.get("avg_latency", 0)
+                raise ExchangeError(f"Safe Mode Active: High Latency ({avg_lat:.2f}ms)")
+
+        # Phase 102: Industrial Resilience - Execution Quality Analysis
+        analysis = await self.depth_profiler.analyze_execution(order["symbol"], order["side"], order["amount"])
+
+        slippage = analysis.get("slippage_pct", 0)
+        self.logger.info(f"📊 Market Impact Analysis: {order['symbol']} | Ext. Slippage: {slippage:.4%}")
+
+        if slippage > self.max_slippage_pct:
+            # Check if this is a close order (Emergency/Stop) or entry
+            is_close = order.get("params", {}).get("reduceOnly") is True
+            if is_close:
+                self.logger.warning(f"⚠️ High Slippage ({slippage:.2%}) on CLOSE order. Proceeding with caution...")
+            else:
+                self.logger.warning(
+                    f"🚨 Slippage Too High ({slippage:.2%} > {self.max_slippage_pct:.2%}). Fragmenting execution..."
+                )
+                return await self._execute_fragmented_market_order(order)
+
+        elif slippage > self.fragmentation_threshold_pct:
+            self.logger.info(f"⚖️ Moderate Slippage ({slippage:.4%}). Using fragmented execution for optimal fill.")
+            return await self._execute_fragmented_market_order(order)
+
         # Execute with retry
         retry_cfg = retry_config or RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
 
@@ -220,9 +258,14 @@ class OrderExecutor:
         self, symbol: str, side: str, amount: float, price: float, params: Dict = None
     ) -> Dict[str, Any]:
         """
-
         Execute a limit order with retry logic.
         """
+        # Phase 102: Active Latency Telemetry - Safe Mode
+        if self.adapter.is_congested:
+            if not (params or {}).get("reduceOnly", False):
+                self.logger.warning(f"🛡️ SAFE MODE ACTIVE: Rejecting limit entry for {symbol}")
+                raise ExchangeError("Safe Mode Active: High Latency")
+
         # Round amount and price to exchange precision
         amount = float(self.adapter.amount_to_precision(symbol, amount))
         price = float(self.adapter.price_to_precision(symbol, price))
@@ -537,3 +580,52 @@ class OrderExecutor:
     def _log_execution(self, result: Dict[str, Any], order_type: str) -> None:
         """Log successful execution."""
         self.logger.info(f"✅ {order_type} order executed: {result.get('order_id')} | Status: {result.get('status')}")
+
+    async def _execute_fragmented_market_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
+        """Phase 102: Fragmented Execution - Breaks large orders into chunks."""
+        symbol = order["symbol"]
+        # side = order["side"]
+        total_amount = order["amount"]
+
+        # Split into 3 chunks for now (Industrial Standard approach: Time-Weighted Average Price)
+        # In a real HFT bot, we'd use dynamic chunk sizing, but 3 chunks is a safe baseline.
+        num_chunks = 3
+        chunk_amount = float(self.adapter.amount_to_precision(symbol, total_amount / num_chunks))
+
+        if chunk_amount <= 0:
+            self.logger.warning(f"⚠️ Chunk size too small for {symbol}. Executing as single order.")
+            # Restore execution without fragmentation to avoid recursion
+            return await self.error_handler.execute_with_breaker(
+                f"exchange_orders_{symbol}", self.adapter.execute_order, order
+            )
+
+        self.logger.info(f"🧩 Fragmenting order: {total_amount} -> {num_chunks} chunks of {chunk_amount}")
+
+        results = []
+        remaining = total_amount
+
+        for i in range(num_chunks):
+            # Last chunk takes the remainder
+            current_chunk = chunk_amount if i < num_chunks - 1 else remaining
+
+            if current_chunk <= 0:
+                break
+
+            chunk_order = order.copy()
+            chunk_order["amount"] = current_chunk
+            # Ensure unique ID for each chunk
+            self._ensure_client_order_id(chunk_order, prefix=f"FRAG_{i}")
+
+            self.logger.info(f"📤 Executing Frag {i+1}/{num_chunks}: {current_chunk} {symbol}")
+            res = await self.adapter.execute_order(chunk_order)
+            results.append(res)
+
+            remaining -= current_chunk
+            # Small delay between chunks to let book recover
+            if i < num_chunks - 1:
+                await asyncio.sleep(0.5)
+
+        # Aggregate results (take the first successful one for ID/status, but log all)
+        # In V3 architecture, the Croupier/PositionTracker will pick up individual fills
+        # so we just return the final result structure.
+        return results[-1] if results else {"error": "fragmentation_failed"}

@@ -105,16 +105,17 @@ class BinanceWorker(multiprocessing.Process):
 
     async def _read_socket(self, ws: aiohttp.ClientWebSocketResponse):
         """Read loop from WebSocket."""
+        loop = asyncio.get_running_loop()
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.TEXT:
                 try:
                     data = msg.json()
-                    # Push to main process (non-blocking if queue has space)
-                    # Use put_nowait to crash early if queue is full (backpressure signal)
-                    # or handle full queue gracefully?
-                    # For critical financial data, we prefer latest data, BUT trade events must be reliable.
-                    # Queue should be large enough.
-                    self.output_queue.put(data)
+                    # Phase 91: Pulse Logging (Internal)
+                    if self.msg_count % 100 == 0:
+                        logger.debug(f"📥 Received message {self.msg_count}")
+
+                    # Push to main process (non-blocking via executor)
+                    await loop.run_in_executor(None, self.output_queue.put, data)
                     self.msg_count += 1
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
@@ -124,18 +125,16 @@ class BinanceWorker(multiprocessing.Process):
 
     async def _process_commands(self):
         """Read commands from main process via input_queue."""
-        # Since Queue.get() is blocking and not async-friendly, we use a run_in_executor
-        # or polling. Polling is safer for simple multiprocessing queue adaptability.
         loop = asyncio.get_running_loop()
 
         while self.running:
             try:
-                # Use executor to avoid blocking the asyncio loop with Queue.get
-                # We fetch with a short timeout to yield control back to asyncio
                 cmd = await loop.run_in_executor(None, self._queue_get_timeout)
-
                 if cmd:
+                    logger.info(f"📥 Received Command: {cmd.get('action')}")
                     await self._handle_command(cmd)
+                else:
+                    await asyncio.sleep(0.05)  # Yield if empty
             except Exception as e:
                 logger.error(f"Command processing error: {e}")
                 await asyncio.sleep(0.1)

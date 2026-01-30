@@ -129,6 +129,8 @@ class MultiAssetManager:
                     continue
 
                 # B. Load precision data from Exchange
+                # Phase 102: Adaptive Throttling
+                await self._check_rate_limit_throttle()
                 step_size = await self._get_step_size(target_symbol)
                 tick_size = await self._get_tick_size(target_symbol)
 
@@ -442,6 +444,8 @@ class MultiAssetManager:
                     if not hasattr(self.adapter, "fetch_order_book"):
                         continue
 
+                    # Phase 102: Adaptive Throttling
+                    await self._check_rate_limit_throttle()
                     try:
                         # Fetch price first (needed for depth check)
                         ticker = await self.adapter.fetch_ticker(symbol)
@@ -478,3 +482,16 @@ class MultiAssetManager:
             except Exception as e:
                 logger.error(f"🐶 Watchdog main loop error: {e}")
                 await asyncio.sleep(60)  # Pause on error
+
+    async def _check_rate_limit_throttle(self):
+        """Phase 102: Industrial Resilience - Adaptive Throttling."""
+        if not hasattr(self.adapter, "get_load_factor"):
+            return
+
+        load = self.adapter.get_load_factor()
+        if load > 0.8:
+            # 80-90% -> 1s delay
+            # 90-100% -> 3s delay
+            delay = 3.0 if load > 0.9 else 1.0
+            logger.warning(f"⚠️ Exchange load high ({load:.2%}). Throttling Flytest for {delay}s...")
+            await asyncio.sleep(delay)

@@ -93,6 +93,10 @@ class VirtualExchangeConnector(BaseConnector):
     def is_connected(self) -> bool:
         return self._connected
 
+    def get_load_factor(self) -> float:
+        """Virtual exchange always has 0 load."""
+        return 0.0
+
     @property
     def ready(self) -> bool:
         return self._ready

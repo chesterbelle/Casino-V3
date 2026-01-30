@@ -126,10 +126,11 @@ class ConnectivityStressTester:
             try:
                 duration = time.time() - self.start_time
                 avg_lat = sum(self.latency_samples) / len(self.latency_samples) if self.latency_samples else 0
+                load_factor = self.connector.get_load_factor()
                 logger.info(
                     f"📊 STATUS | Runtime: {duration/60:.2f}m | "
                     f"Sent: {self.orders_executed} | WS Matches: {self.orders_matched} | "
-                    f"Avg Latency: {avg_lat:.2f}ms"
+                    f"Avg Latency: {avg_lat:.2f}ms | Exchange Load: {load_factor:.2%}"
                 )
             except Exception as e:
                 logger.error(f"❌ Error in audit loop: {e}")

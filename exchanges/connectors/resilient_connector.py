@@ -790,3 +790,7 @@ class ResilientConnector(BaseConnector):
     def is_connected(self) -> bool:
         """Check if connector is connected."""
         return self._connected and self._connector.is_connected
+
+    def get_load_factor(self) -> float:
+        """Delegate load factor to underlying connector."""
+        return self._connector.get_load_factor()

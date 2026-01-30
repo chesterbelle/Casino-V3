@@ -20,7 +20,7 @@ def super_normalize(symbol: str) -> str:
     return s
 
 
-async def audit():
+async def audit(cancel_all: bool = False):
     # Load .env manually
     if os.path.exists(".env"):
         with open(".env", "r") as f:
@@ -42,6 +42,20 @@ async def audit():
     logger.info("Fetching raw positions and orders from exchange...")
     raw_positions = await connector.fetch_positions()
     raw_orders = await connector.fetch_open_orders(None)
+
+    if cancel_all:
+        logger.info(f"💣 CANCEL ALL requested. Found {len(raw_orders)} orders.")
+        for o in raw_orders:
+            try:
+                symbol = o["symbol"]
+                oid = o["id"]
+                logger.info(f"   🔥 Cancelling {symbol} order {oid}...")
+                await connector.cancel_order(oid, symbol)
+            except Exception as e:
+                logger.error(f"   ❌ Failed to cancel {oid}: {e}")
+        logger.info("✅ All orders processed.")
+        await connector.close()
+        return
 
     # 2. Group by UNIQUE KEY (Symbol + ID) to prevent collisions
     # This is the FIX for the 'missing orders' bug
@@ -133,7 +147,45 @@ async def audit():
     logger.info(f"  Broken OCOs:           {orphans}")
     logger.info(f"  Zombies:               {zombies}")
     logger.info("-" * 50)
+    await connector.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(audit())
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cancel-all", action="store_true", help="Cancel all open orders on exchange")
+    parser.add_argument("--close-all", action="store_true", help="Market close all open positions on exchange")
+    args = parser.parse_args()
+
+    if args.close_all:
+
+        async def close_all():
+            from exchanges.connectors.binance.binance_native_connector import (
+                BinanceNativeConnector,
+            )
+
+            c = BinanceNativeConnector(mode="demo")
+            await c.connect()
+            positions = await c.fetch_positions()
+            for p in positions:
+                amt = float(p.get("contracts", 0))
+                if amt != 0:
+                    symbol = p["symbol"]
+                    side = "SELL" if amt > 0 else "BUY"
+                    logger.info(f"🔥 Closing {symbol} position: {amt} {side}")
+                    try:
+                        await c.create_order(
+                            symbol=symbol,
+                            side=side,
+                            amount=abs(amt),
+                            order_type="MARKET",
+                            params={"reduceOnly": "true"},
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Failed to close {symbol}: {e}")
+            await c.close()
+
+        asyncio.run(close_all())
+    else:
+        asyncio.run(audit(cancel_all=args.cancel_all))

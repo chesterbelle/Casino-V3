@@ -293,6 +293,7 @@ async def main():
     logger.info(f"💰 Initial Balance: {initial_balance:.2f} USDT")
 
     croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance)
+    await croupier.start()
 
     # 3.1 Subscribe components to exchange and logic events
     engine.subscribe(EventType.AGGREGATED_SIGNAL, croupier.exit_manager.on_signal)
@@ -564,6 +565,9 @@ async def main():
     clock.add_iterator(croupier)  # Orchestrator
     clock.add_iterator(watchdog)  # Health Monitor
 
+    # Start the Clock Reactor
+    clock_task = asyncio.create_task(clock.start())
+
     # Subscribe to ticker & trades for ALL active symbols
     for sym in active_symbols:
         logger.info(f"📡 Subscribing to {sym}...")
@@ -571,9 +575,6 @@ async def main():
         await data_feed.subscribe_trades(sym)
         # Spread the initial task creation load
         await asyncio.sleep(0.5)
-
-    # Start the Clock Reactor
-    clock_task = asyncio.create_task(clock.start())
 
     logger.info("✅ Casino-V4 Reactor Running | Press Ctrl+C to stop")
     if args.timeout:
@@ -894,8 +895,10 @@ async def main():
         logger.info("🛑 Stopping Clock Reactor...")
         try:
             await clock.stop()
+            # Phase 102: Industrial Resilience - Stop Croupier services
+            await croupier.stop()
         except Exception as e:
-            logger.error(f"❌ Error stopping clock: {e}")
+            logger.error(f"❌ Error stopping clock/croupier: {e}")
 
         # 2. Sync final state before closing positions
         logger.info("💾 Syncing final state...")

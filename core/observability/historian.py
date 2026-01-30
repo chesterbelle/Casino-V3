@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import os
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -10,7 +12,7 @@ logger = logging.getLogger("TradeHistorian")
 
 class TradeHistorian:
     """
-    Persistent trade historian using SQLite.
+    Persistent trade historian using SQLite with non-blocking writes.
     Tracks every trade with precision accounting (Fees, Funding, Net PnL).
     """
 
@@ -21,6 +23,10 @@ class TradeHistorian:
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
         self._ensure_data_dir()
         self._init_db()
+
+        # Phase 104: Non-blocking DB operations
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="HistorianDB")
+        self._loop = None
 
     def _ensure_data_dir(self):
         """Ensures the directory for the database exists."""
@@ -100,16 +106,33 @@ class TradeHistorian:
             with sqlite3.connect(self.db_path) as conn:
                 yield conn
 
+    def _get_loop(self):
+        """Get or initialize the current event loop."""
+        if not self._loop:
+            try:
+                self._loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # If no loop is running in this thread, we can't do much async
+                return None
+        return self._loop
+
+    def _run_async(self, fn, *args):
+        """Offloads a blocking function to the thread pool."""
+        loop = self._get_loop()
+        if loop and loop.is_running():
+            return loop.run_in_executor(self._executor, fn, *args)
+        else:
+            # Fallback for sync contexts or startup/shutdown where loop is not ready
+            return fn(*args)
+
     def record_trade(self, trade_data: Dict[str, Any]):
         """
-        Records a completed trade into the database.
-
-        Expected trade_data keys:
-        - trade_id, symbol, side, entry_price, exit_price, notional,
-        - pnl (gross), fee, funding, exit_reason, bars_held, session_id,
-        - qty (optional, derived from notional if missing)
-        - healed (optional, bool)
+        Records a completed trade into the database. (Non-blocking)
         """
+        return self._run_async(self._record_trade_sync, trade_data)
+
+    def _record_trade_sync(self, trade_data: Dict[str, Any]):
+        """Internal synchronous recording logic."""
         try:
             trade_id = trade_data.get("trade_id")
             if not trade_id:
@@ -184,9 +207,12 @@ class TradeHistorian:
 
     def reconcile_ledger(self, income_records: List[Dict[str, Any]]):
         """
-        Reconciles Ledger (Income History) to capture missing Funding Fees.
-        Uses 'tranId' as the unique trade_id for funding records.
+        Reconciles Ledger (Income History) to capture missing Funding Fees. (Non-blocking)
         """
+        return self._run_async(self._reconcile_ledger_sync, income_records)
+
+    def _reconcile_ledger_sync(self, income_records: List[Dict[str, Any]]):
+        """Internal synchronous reconciliation logic."""
         count = 0
         total_restored = 0.0
 
@@ -277,9 +303,12 @@ class TradeHistorian:
 
     def update_trade_fee(self, trade_id: str, fee: float, exit_price: Optional[float] = None):
         """
-        Updates the fee (and optionally exit_price) for an existing trade record.
-        Automatically recalculates net_pnl.
+        Updates the fee (and optionally exit_price) for an existing trade record. (Non-blocking)
         """
+        return self._run_async(self._update_trade_fee_sync, trade_id, fee, exit_price)
+
+    def _update_trade_fee_sync(self, trade_id: str, fee: float, exit_price: Optional[float] = None):
+        """Internal synchronous update logic."""
         try:
             with self._get_conn() as conn:
                 conn.row_factory = sqlite3.Row

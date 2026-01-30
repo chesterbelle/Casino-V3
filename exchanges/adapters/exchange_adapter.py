@@ -689,6 +689,11 @@ class ExchangeAdapter(NetworkIterator):
         """Get exchange name."""
         return self.connector.exchange_name
 
+    @property
+    def is_congested(self) -> bool:
+        """Returns True if the underlying connector reports network congestion."""
+        return getattr(self.connector, "is_congested", False)
+
     async def disconnect(self) -> None:
         """
         Desconecta el adaptador y su conector subyacente.

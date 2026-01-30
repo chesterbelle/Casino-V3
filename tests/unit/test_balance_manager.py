@@ -10,7 +10,7 @@ def test_balance_manager_apply_and_get():
     assert bm.get_balance() == 1049.0
     assert bm.get_equity() == 1049.0
 
-    bm.update_balance(-49.0)
+    bm.add_balance_delta(-49.0)
     assert bm.get_balance() == 1000.0
     assert bm.can_open_position(1000.0) is True
     assert bm.can_open_position(1000.1) is False

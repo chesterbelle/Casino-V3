@@ -554,30 +554,52 @@ class PositionTracker:
         if exchange_order_id:
             self.unregister_alias(str(exchange_order_id), symbol=symbol)
 
-    def register_bracket_alias(self, order_id: str, position: OpenPosition, order_type: str) -> None:
+    def register_bracket_alias(
+        self, order_id: str, position: OpenPosition, order_type: str, client_id: Optional[str] = None
+    ) -> None:
         """
         Register a new TP/SL order alias atomically.
         Used by OCOManager to ensure Tracker is consistent BEFORE liberating the modification lock.
 
-        Args:
-            order_id: The new exchange order ID.
-            position: The OpenPosition object.
-            order_type: 'TP' or 'SL'.
+        Phase 57: Now proactively unregisters the PREVIOUS ID to prevent Alias Pollution.
         """
         if not order_id or not position:
             return
 
         order_id = str(order_id)
+        sym = position.symbol
 
-        # 1. Register in Alias Map (Single Source of Truth) - Phase 80: Partitioned by symbol
-        self.register_alias(order_id, position, symbol=position.symbol)
-
-        # 2. Update Position Object Fields (in case caller hasn't yet, though it should)
-        # This acts as a safety enforcement of consistency
+        # 1. Proactive Identity Cleanup: Unregister old ID from maps before setting new one
         if order_type == "TP":
+            old_ex_id = position.exchange_tp_id
+            old_cl_id = position.tp_order_id
+            if old_ex_id and str(old_ex_id) != order_id:
+                self.unregister_alias(old_ex_id, symbol=sym)
+            if old_cl_id and str(old_cl_id) != order_id and old_cl_id != client_id:
+                self.unregister_alias(old_cl_id, symbol=sym)
+
             position.exchange_tp_id = order_id
+            if client_id:
+                position.tp_order_id = client_id
+
         elif order_type == "SL":
+            old_ex_id = position.exchange_sl_id
+            old_cl_id = position.sl_order_id
+            if old_ex_id and str(old_ex_id) != order_id:
+                self.unregister_alias(old_ex_id, symbol=sym)
+            if old_cl_id and str(old_cl_id) != order_id and old_cl_id != client_id:
+                self.unregister_alias(old_cl_id, symbol=sym)
+
             position.exchange_sl_id = order_id
+            if client_id:
+                position.sl_order_id = client_id
+
+        # 2. Register exchange ID Alias
+        self.register_alias(order_id, position, symbol=sym)
+
+        # 3. Register client ID Alias (if not already done)
+        if client_id:
+            self.register_alias(client_id, position, symbol=sym)
 
         logger.info(f"⚡ Atomic Alias Registered: {order_type} {order_id} -> {position.symbol}")
         self._trigger_state_change()

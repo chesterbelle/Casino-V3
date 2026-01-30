@@ -77,6 +77,10 @@ class HyperliquidNativeConnector(BaseConnector):
     def is_connected(self) -> bool:
         return self._connected
 
+    def get_load_factor(self) -> float:
+        """Returns current exchange load factor."""
+        return self._rate_limiter.get_load_factor()
+
     @property
     def enable_websocket(self) -> bool:
         return self._enable_websocket

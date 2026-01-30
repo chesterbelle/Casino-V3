@@ -59,12 +59,14 @@ class BalanceManager:
         self.balance = new_balance
         self.equity = new_balance
 
-    def update_balance(self, delta: float):
+    def add_balance_delta(self, delta: float):
         """
-        Actualiza el balance con un delta (positivo o negativo).
+        Updates the balance with a delta (positive or negative).
+        USE THIS ONLY when adding/subtracting a relative change (e.g. Funding).
+        For synchronization with exchange absolute values, use set_balance().
 
         Args:
-            delta: Cambio en el balance (puede ser negativo)
+            delta: Change in the balance (can be negative)
         """
         self.balance += delta
         self.equity = self.balance

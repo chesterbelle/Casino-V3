@@ -28,6 +28,7 @@ from core.portfolio.balance_manager import BalanceManager
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
+from .components.drift_auditor import DriftAuditor
 from .components.exit_manager import ExitManager
 from .components.oco_manager import OCOManager
 from .components.order_executor import OrderExecutor
@@ -94,6 +95,12 @@ class Croupier(TimeIterator):
         )
 
         self.exit_manager = ExitManager(self)
+
+        # Phase 102: Industrial Resilience - Drift Auditor
+        self.drift_auditor = DriftAuditor(
+            exchange_adapter, self.position_tracker, self.reconciliation, self.balance_manager
+        )
+
         self.process_start_balance: float = 0.0
         self.is_drain_mode: bool = False
         self._drain_in_progress: bool = False  # Task guard for drain status updates
@@ -126,7 +133,6 @@ class Croupier(TimeIterator):
         self._reconciliation_tasks: Dict[str, float] = {}
         self._reconcile_lock = asyncio.Lock()
 
-        # Phase 84: Accounting Settlement
         # Track pending closures to prevent premature shutdown before PnL is recorded
         self._pending_closures: set = set()
 
@@ -891,10 +897,14 @@ class Croupier(TimeIterator):
     async def start(self) -> None:
         """Start components."""
         self.logger.info("🛡️ Croupier Reactor Started")
+        # Phase 102: Industrial Resilience - Start Drift Auditor
+        await self.drift_auditor.start()
 
     async def stop(self) -> None:
         """Stop components."""
         self.logger.info("🛑 Croupier Reactor Stopped")
+        # Phase 102: Industrial Resilience - Stop Drift Auditor
+        await self.drift_auditor.stop()
 
     async def tick(self, timestamp: float) -> None:
         """

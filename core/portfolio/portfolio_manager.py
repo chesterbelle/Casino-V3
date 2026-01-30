@@ -163,7 +163,7 @@ class PortfolioManager:
             raise ValueError(f"Insufficient funds: need ${size:,.2f}, have ${self.get_balance():,.2f}")
 
         # Reservar fondos (reducir balance disponible)
-        self.balance_manager.update_balance(-size)
+        self.balance_manager.add_balance_delta(-size)
 
         # Registrar posición
         self.positions[trade_id] = {
@@ -225,7 +225,7 @@ class PortfolioManager:
         del self.positions[trade_id]
 
         # Liberar fondos (devolver el tamaño de la posición) y aplicar PnL
-        self.balance_manager.update_balance(position["size"])  # Devolver fondos reservados
+        self.balance_manager.add_balance_delta(position["size"])  # Devolver fondos reservados
         self.balance_manager.apply_pnl(pnl, fee)  # Aplicar resultado neto
 
         result = "WIN" if pnl > 0 else "LOSS"

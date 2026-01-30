@@ -62,6 +62,11 @@ class ExchangeRateLimiter:
             "default": AsyncLimiter(default_per_second, 1.0),
         }
 
+        # Phase 102: Industrial Resilience - Weight Tracking
+        self._used_weight: int = 0
+        self._weight_limit: int = 1200  # Default Binance Futures limit
+        self._last_weight_update = time.time()
+
         # Track request counts
         self._request_counts: Dict[str, int] = {
             "orders": 0,
@@ -118,7 +123,20 @@ class ExchangeRateLimiter:
             "rates": {
                 endpoint: count / elapsed if elapsed > 0 else 0 for endpoint, count in self._request_counts.items()
             },
+            "load_factor": self.get_load_factor(),
+            "used_weight": self._used_weight,
         }
+
+    def update_weight(self, used_weight: int):
+        """Update the used weight from exchange headers."""
+        self._used_weight = used_weight
+        self._last_weight_update = time.time()
+
+    def get_load_factor(self) -> float:
+        """Returns the current load factor (0.0 to 1.0)."""
+        if self._weight_limit <= 0:
+            return 0.0
+        return min(1.0, self._used_weight / self._weight_limit)
 
     def reset_stats(self):
         """Reset statistics."""
