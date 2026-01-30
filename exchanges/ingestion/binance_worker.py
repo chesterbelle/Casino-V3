@@ -110,6 +110,11 @@ class BinanceWorker(multiprocessing.Process):
             if msg.type == aiohttp.WSMsgType.TEXT:
                 try:
                     data = msg.json()
+                    # Phase 102: Airlock Telemetry (Add transit metadata)
+                    # Use float for high resolution
+                    data["_worker_ts"] = time.time()
+                    data["_worker_pid"] = os.getpid()
+
                     # Phase 91: Pulse Logging (Internal)
                     if self.msg_count % 100 == 0:
                         logger.debug(f"📥 Received message {self.msg_count}")

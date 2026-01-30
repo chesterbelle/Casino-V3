@@ -136,12 +136,12 @@ class BinanceNativeConnector(BaseConnector):
             self.logger.warning(f"⚠️ Missing API Keys for mode {self._mode}. Operations requiring auth will fail.")
 
         # Phase 91: Ingestion Airlock (Market Data)
-        self._ingestion_queue = multiprocessing.Queue()
+        self._ingestion_queue = multiprocessing.Queue(maxsize=10000)
         self._command_queue = multiprocessing.Queue()
         self._ingestion_process: Optional[BinanceWorker] = None
 
         # Phase 91.1: User Data Airlock (Private Data)
-        self._user_ingestion_queue = multiprocessing.Queue()
+        self._user_ingestion_queue = multiprocessing.Queue(maxsize=5000)
         self._user_command_queue = multiprocessing.Queue()
         self._user_ingestion_process: Optional[BinanceWorker] = None
 
@@ -1010,16 +1010,25 @@ class BinanceNativeConnector(BaseConnector):
 
         # Route to Algo API for conditional orders (Mandatory since Dec 2024 update)
         # EXCEPTION: closePosition=True is only supported by the Main API (/fapi/v1/order)
-        # Algo API does not support closePosition and will fail with missing quantity.
+        # However, many conditional orders FAIL on Main API with -4120.
         ALGO_ORDER_TYPES = {"STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TRAILING_STOP_MARKET", "OCO"}
 
-        # Verify if we should force Main API (when closePosition is used)
-        # Phase 95 Fix: Revert Phase 46 regression.
-        # reduceOnly is supported by Algo API and should NOT force Main API.
-        # Only closePosition (exclusive to Main API) forces the switch.
-        force_main_api = params.get("closePosition")
-        if params.get("closePosition"):
-            force_main_api = True
+        # Phase 102 Fix: If it's an Algo order, PREFER Algo API even if closePosition was requested.
+        # We convert closePosition -> reduceOnly because Algo API requires quantity.
+        use_algo_api = order_type.upper() in ALGO_ORDER_TYPES
+        force_main_api = False
+
+        if use_algo_api:
+            if params.get("closePosition"):
+                self.logger.info(
+                    f"🔄 Converting closePosition to reduceOnly for Algo Order {order_type} to avoid -4120"
+                )
+                # Restore quantity which might have been popped at line 1008
+                args["quantity"] = formatted_amount
+                args.pop("closePosition", None)
+                args["reduceOnly"] = "true"
+        else:
+            force_main_api = params.get("closePosition") is True or str(params.get("closePosition")).lower() == "true"
 
         # Ensure stopPrice is added for ALL conditional orders, regardless of API used
         if params.get("stopPrice"):
@@ -1358,14 +1367,16 @@ class BinanceNativeConnector(BaseConnector):
         while self.is_connected:
             try:
                 # 1. User Data Burst (CRITICAL - Airlock Phase 101)
-                # Drain small bursts and yield to check BOTH queues fairly during floods
-                await self._process_queue_burst(self._user_ingestion_queue, "user", max_processed=50)
+                user_processed = await self._process_queue_burst(self._user_ingestion_queue, "user", max_processed=50)
 
                 # 2. Market Data Burst (Segmented to prevent user starvation)
-                await self._process_queue_burst(self._ingestion_queue, "market", max_processed=100)
+                market_processed = await self._process_queue_burst(self._ingestion_queue, "market", max_processed=100)
 
-                # Sleep to prevent tight loop
-                await asyncio.sleep(0.001)
+                # Phase 102 Optimization: Fast-yield if we are busy, sleep if idle
+                if user_processed == 0 and market_processed == 0:
+                    await asyncio.sleep(0.001)
+                else:
+                    await asyncio.sleep(0)
 
             except asyncio.CancelledError:
                 self.logger.info("🛑 Ingestion Bridge stopping...")
@@ -1374,12 +1385,19 @@ class BinanceNativeConnector(BaseConnector):
                 self.logger.error(f"❌ Ingestion Bridge Fatal Error: {e}")
                 await asyncio.sleep(1)
 
-    async def _process_queue_burst(self, queue: multiprocessing.Queue, source: str, max_processed: int = 100) -> None:
+    async def _process_queue_burst(self, queue: multiprocessing.Queue, source: str, max_processed: int = 100) -> int:
         """Process a burst of messages from a specific queue."""
         processed_count = 0
         while processed_count < max_processed and not queue.empty():
             try:
                 data = queue.get_nowait()
+
+                # Phase 102: Airlock Telemetry (Transit Latency)
+                worker_ts = data.get("_worker_ts")
+                if worker_ts:
+                    transit_latency = (time.time() - worker_ts) * 1000  # ms
+                    if transit_latency > 500:  # Log only significant delays
+                        self.logger.warning(f"🐢 High Airlock Latency ({source}): {transit_latency:.2f}ms")
 
                 # Heartbeat tracking
                 if source == "market":
@@ -1394,8 +1412,10 @@ class BinanceNativeConnector(BaseConnector):
                 event_type = data.get("e")
 
                 # Phase 91: Pulse Logging (Bridge)
+                # Phase 102: Enhanced pulse with queue size
                 if processed_count % 50 == 0:
-                    self.logger.debug(f"🌉 Bridge: Processed {processed_count} {source} events")
+                    q_size = queue.qsize() if hasattr(queue, "qsize") else "?"
+                    self.logger.debug(f"🌉 Bridge: Processed {processed_count} {source} events | Q_Size: {q_size}")
 
                 # Market Data Routing
                 if event_type == "aggTrade":
@@ -1421,14 +1441,16 @@ class BinanceNativeConnector(BaseConnector):
                 # User data (critical) is NOT limited to ensure atomic processing of state changes.
                 processed_count += 1
                 if source == "market" and processed_count >= 100:
-                    await asyncio.sleep(0)
-                    processed_count = 0
-                # Note: For user events, we drain the entire queue without force-yielding.
+                    # Return and let _consume_ingestion_queue yield
+                    return processed_count
+                # Note: For user events, we drain up to max_processed without intermediate sleeps.
 
             except multiprocessing.queues.Empty:
                 break
             except Exception as e:
                 self.logger.error(f"❌ Bridge Processing Error ({source}): {e}")
+
+        return processed_count
 
     # _listen_market_data replaced by _consume_ingestion_queue
 
