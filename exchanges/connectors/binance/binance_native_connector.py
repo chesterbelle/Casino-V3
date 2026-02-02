@@ -25,6 +25,7 @@ from urllib.parse import urlencode
 
 import aiohttp
 import websockets
+import yarl
 
 from core.observability.latency_monitor import LatencyMonitor
 from exchanges.connectors.connector_base import BaseConnector
@@ -144,6 +145,10 @@ class BinanceNativeConnector(BaseConnector):
         self._user_ingestion_queue = multiprocessing.Queue(maxsize=5000)
         self._user_command_queue = multiprocessing.Queue()
         self._user_ingestion_process: Optional[BinanceWorker] = None
+
+        # Phase 102: Industrial Resilience - Running flag decoupled from is_connected
+        # This allows the bridge to process subscription results DURING connect()
+        self._bridge_active = False
 
         # Phase 102: Industrial Resilience - Latency Monitor
         self._latency_monitor = LatencyMonitor()
@@ -290,27 +295,52 @@ class BinanceNativeConnector(BaseConnector):
             # aiohttp handles strings in params but we should be explicit or use 'data' if needed.
             # Actually, for GET, it must stay in params.
 
+            # Phase 69.1 Fix: Bypass aiohttp param handling for signed requests
+            # aiohttp/yarl re-sort parameters alphabetically (signature moves to middle), invalidating it.
+            # We must construct a yarl.URL with encoded=True to force exact query string order.
+
+            final_url = url
+            final_params = params
+
+            if isinstance(params, str):
+                if "?" in url:
+                    full_url_str = f"{url}&{params}"
+                else:
+                    full_url_str = f"{url}?{params}"
+
+                # Force yarl to treat this as already encoded and NOT re-sort/re-encode
+                final_url = yarl.URL(full_url_str, encoded=True)
+                final_params = None
+
             if method == "GET":
                 start_time = time.time()
-                async with self._http_session.get(url, params=params, headers=headers, timeout=req_timeout) as resp:
+                async with self._http_session.get(
+                    final_url, params=final_params, headers=headers, timeout=req_timeout
+                ) as resp:
                     res = await self._handle_response(resp)
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "POST":
                 start_time = time.time()
-                async with self._http_session.post(url, params=params, headers=headers, timeout=req_timeout) as resp:
+                async with self._http_session.post(
+                    final_url, params=final_params, headers=headers, timeout=req_timeout
+                ) as resp:
                     res = await self._handle_response(resp)
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "DELETE":
                 start_time = time.time()
-                async with self._http_session.delete(url, params=params, headers=headers, timeout=req_timeout) as resp:
+                async with self._http_session.delete(
+                    final_url, params=final_params, headers=headers, timeout=req_timeout
+                ) as resp:
                     res = await self._handle_response(resp)
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "PUT":
                 start_time = time.time()
-                async with self._http_session.put(url, params=params, headers=headers, timeout=req_timeout) as resp:
+                async with self._http_session.put(
+                    final_url, params=final_params, headers=headers, timeout=req_timeout
+                ) as resp:
                     res = await self._handle_response(resp)
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
@@ -494,6 +524,8 @@ class BinanceNativeConnector(BaseConnector):
     async def close(self) -> None:
         """Close all connections."""
         self.logger.info("🔌 Closing Binance Native Connector...")
+        self._bridge_active = False
+        self._connected = False
 
         # Cancel WebSocket tasks
         for task in [
@@ -1364,7 +1396,8 @@ class BinanceNativeConnector(BaseConnector):
         """
         self.logger.info("🌉 Ingestion Bridge: Consumption Loop Started")
 
-        while self.is_connected:
+        self._bridge_active = True
+        while self._bridge_active:
             try:
                 # 1. User Data Burst (CRITICAL - Airlock Phase 101)
                 user_processed = await self._process_queue_burst(self._user_ingestion_queue, "user", max_processed=50)
@@ -1388,7 +1421,7 @@ class BinanceNativeConnector(BaseConnector):
     async def _process_queue_burst(self, queue: multiprocessing.Queue, source: str, max_processed: int = 100) -> int:
         """Process a burst of messages from a specific queue."""
         processed_count = 0
-        while processed_count < max_processed and not queue.empty():
+        while processed_count < max_processed:
             try:
                 data = queue.get_nowait()
 

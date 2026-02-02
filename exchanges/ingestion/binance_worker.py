@@ -115,11 +115,10 @@ class BinanceWorker(multiprocessing.Process):
                     data["_worker_ts"] = time.time()
                     data["_worker_pid"] = os.getpid()
 
-                    # Phase 91: Pulse Logging (Internal)
-                    if self.msg_count % 100 == 0:
-                        logger.debug(f"📥 Received message {self.msg_count}")
-
                     # Push to main process (non-blocking via executor)
+                    # Use run_in_executor to avoid blocking the loop if queue is full
+                    # But if queue is full, we drop packets? No, queue.put blocks.
+                    # run_in_executor(None, queue.put, ...) executes in thread pool.
                     await loop.run_in_executor(None, self.output_queue.put, data)
                     self.msg_count += 1
                 except Exception as e:
@@ -127,6 +126,8 @@ class BinanceWorker(multiprocessing.Process):
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 logger.error(f"WebSocket Error: {ws.exception()}")
                 break
+            else:
+                logger.info(f"📥 Received non-text message: {msg.type}")
 
     async def _process_commands(self):
         """Read commands from main process via input_queue."""

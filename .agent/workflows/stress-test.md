@@ -42,11 +42,13 @@ Al finalizar, revisar:
 ```
 
 ## Criterio de Éxito
-- [x] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
-- [x] **Event Integrity = 100% (0 "WS Event UNMATCHED")** ← NUEVO
-- [ ] Audit Adjust < $1.00
-- [ ] >50 trades ejecutados
-- [ ] Tracker vacío después de --close-on-exit
+- [ ] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
+- [ ] **Event Integrity = 100%** (0 logs de `WS Event UNMATCHED`)
+- [ ] **API Stability = 100%** (0 logs de error `(-4120)`)
+- [ ] **Airlock Latency = 100%** (0 warnings de `🐢 High Airlock Latency`)
+- [ ] **Audit Adjust < $1.00**
+- [ ] **Volume > 50 trades** ejecutados
+- [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
 
 ## Si Falla
 1. Revisar logs buscando `ERROR|Exception`
