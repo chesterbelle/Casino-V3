@@ -9,7 +9,9 @@ from typing import Dict, List, Optional, Set
 import aiohttp
 
 # Configure minimal logging for the worker
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | WORKER:%(process)d | %(levelname)s | %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s | WORKER:%(process)d:%(name)s | %(levelname)s | %(message)s"
+)
 logger = logging.getLogger("BinanceWorker")
 
 
@@ -34,11 +36,13 @@ class BinanceWorker(multiprocessing.Process):
         input_queue: multiprocessing.Queue,
         output_queue: multiprocessing.Queue,
         base_url: str = "wss://fstream.binance.com/ws",
+        worker_id: str = "Shard-0",
     ):
-        super().__init__(name="BinanceIngestionWorker")
+        super().__init__(name=f"Binance-{worker_id}")
         self.input_queue = input_queue
         self.output_queue = output_queue
         self.base_url = base_url
+        self.worker_id = worker_id
 
         # State
         self.running = True
@@ -52,7 +56,7 @@ class BinanceWorker(multiprocessing.Process):
         # Reset signal handlers to default behavior
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-        logger.info(f"🚀 Sentinel Worker Started (PID: {os.getpid()})")
+        logger.info(f"🚀 {self.worker_id} Started (PID: {os.getpid()})")
 
         # Run isolated asyncio loop
         try:

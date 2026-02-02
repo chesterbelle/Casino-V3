@@ -126,6 +126,12 @@ def parse_args():
     parser.add_argument("--key", type=str, help="Private key (overrides env)")
     parser.add_argument("--max-symbols", type=int, help="Limit number of symbols for MULTI mode (Test)")
 
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Enable Terminal User Interface (Dashboard)",
+    )
+
     return parser.parse_args()
 
 
@@ -292,7 +298,7 @@ async def main():
     initial_balance = initial_balance_data.get("total", {}).get("USDT", 10000.0)
     logger.info(f"💰 Initial Balance: {initial_balance:.2f} USDT")
 
-    croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance)
+    croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance, enable_ui=args.ui)
     await croupier.start()
 
     # 3.1 Subscribe components to exchange and logic events
@@ -417,6 +423,9 @@ async def main():
 
         # Get target list (could be from config)
         targets = multi_manager.get_multi_config()
+        if args.max_symbols:
+            targets = targets[: args.max_symbols]
+            logger.info(f"📉 Limiting Flytest to Top {args.max_symbols} Symbols")
 
         # Run Flytest (now returns tuple with precision profile)
         # Use actual bet_size to calculate if trades meet min notional

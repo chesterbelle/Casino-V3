@@ -144,6 +144,7 @@ class OrderManager:
             "t0_signal_ts": getattr(event, "t0_timestamp", None),  # Phase 85: Signal Latency
             "ghost": False,
             "contributors": [getattr(event, "selected_sensor", "Unknown")],
+            "trace_id": getattr(event, "trace_id", None),
         }
 
         # Store for outcome tracking (include sensor_id if available)

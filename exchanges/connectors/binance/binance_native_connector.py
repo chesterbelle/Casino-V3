@@ -136,10 +136,17 @@ class BinanceNativeConnector(BaseConnector):
         if not self._api_key or not self._secret:
             self.logger.warning(f"⚠️ Missing API Keys for mode {self._mode}. Operations requiring auth will fail.")
 
-        # Phase 91: Ingestion Airlock (Market Data)
-        self._ingestion_queue = multiprocessing.Queue(maxsize=10000)
-        self._command_queue = multiprocessing.Queue()
-        self._ingestion_process: Optional[BinanceWorker] = None
+        # Phase 91: Ingestion Airlock (Market Data) -> SHARDED Phase 1
+        self._num_shards = 4
+        self._shards_out_queues = [multiprocessing.Queue(maxsize=10000) for _ in range(self._num_shards)]
+        self._shards_in_queues = [multiprocessing.Queue() for _ in range(self._num_shards)]
+        self._shards_processes = []
+        self._shards_tasks = []
+
+        # Legacy placeholder for backward compatibility
+        self._ingestion_queue = self._shards_out_queues[0]
+        self._command_queue = self._shards_in_queues[0]
+        self._ingestion_process = None
 
         # Phase 91.1: User Data Airlock (Private Data)
         self._user_ingestion_queue = multiprocessing.Queue(maxsize=5000)
@@ -147,6 +154,12 @@ class BinanceNativeConnector(BaseConnector):
         self._user_ingestion_process: Optional[BinanceWorker] = None
 
         # Phase 102: Industrial Resilience - Running flag decoupled from is_connected
+        self._bridge_active = False
+
+        # Phase 103: TUI Telemetry
+        self._shard_telemetry = defaultdict(lambda: {"latency": 0.0, "count": 0, "last_msg": 0.0, "last_rate": 0.0})
+        self._telemetry_task: Optional[asyncio.Task] = None
+        self._start_time = time.time()
         # This allows the bridge to process subscription results DURING connect()
         self._bridge_active = False
 
@@ -1352,26 +1365,63 @@ class BinanceNativeConnector(BaseConnector):
     # WEBSOCKET - Market Data
     # =========================================================
 
+    async def _calculate_telemetry_rates(self) -> None:
+        """Calculate throughput rates for the dashboard."""
+        prev_counts = {}
+        while True:
+            try:
+                await asyncio.sleep(1)
+                for source, metrics in self._shard_telemetry.items():
+                    curr_count = metrics["count"]
+                    prev_count = prev_counts.get(source, 0)
+                    metrics["last_rate"] = curr_count - prev_count
+                    prev_counts[source] = curr_count
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Telemetry rate calculation error: {e}")
+
     async def _start_market_data_stream(self) -> None:
         """
         Start market data ingestion via Sentinel Process (Phase 91).
         Replaces direct WebSocket connection with a process bridge.
         """
         try:
-            self.logger.info("🔌 Launching Ingestion Sentinel Process...")
+            # Phase 103: Precise Cleanup before Restart
+            for task in self._shards_tasks:
+                if not task.done():
+                    task.cancel()
+            self._shards_tasks = []
 
-            # Start Worker Process if not running
-            if not self._ingestion_process or not self._ingestion_process.is_alive():
-                self._ingestion_process = BinanceWorker(
-                    input_queue=self._command_queue,
-                    output_queue=self._ingestion_queue,
-                    base_url=self._ws_base_url,
-                )
-                self._ingestion_process.start()
-                self.logger.info(f"✅ Ingestion Sentinel Started (PID: {self._ingestion_process.pid})")
+            for process in self._shards_processes:
+                if process.is_alive():
+                    process.terminate()
+            self._shards_processes = []
+
+            self.logger.info(f"🔌 Launching {self._num_shards} Ingestion Shards...")
 
             # Start Consumption Task (The Bridge)
-            self._market_data_task = asyncio.create_task(self._consume_ingestion_queue())
+            # Spawn Shards
+            for i in range(self._num_shards):
+                worker_id = f"Shard-{i}"
+                worker = BinanceWorker(
+                    input_queue=self._shards_in_queues[i],
+                    output_queue=self._shards_out_queues[i],
+                    base_url=self._ws_base_url,
+                    worker_id=worker_id,
+                )
+                worker.daemon = True
+                worker.start()
+                self._shards_processes.append(worker)
+
+            # Spawn Ingestion Bridge (Parallel Consumption)
+            self._shards_tasks = [asyncio.create_task(self._consume_shard_loop(i)) for i in range(self._num_shards)]
+
+            # High Priority User Data Task
+            self._market_data_task = asyncio.create_task(self._consume_user_data_loop())
+
+            # Start Telemetry Worker
+            self._telemetry_task = asyncio.create_task(self._calculate_telemetry_rates())
 
             # Start Subscription Worker
             self._subscription_worker_task = asyncio.create_task(self._subscription_worker())
@@ -1389,34 +1439,62 @@ class BinanceNativeConnector(BaseConnector):
             self.logger.error(f"❌ Ingestion Bridge failed: {e}")
             raise
 
-    async def _consume_ingestion_queue(self) -> None:
-        """
-        Consume events from both Market and User Airlock Queues.
-        This runs in the Main Loop but is decoupled from network latency.
-        """
-        self.logger.info("🌉 Ingestion Bridge: Consumption Loop Started")
+    def _get_shard_index(self, symbol: str) -> int:
+        """Deterministic routing of symbol to shard."""
+        if not symbol:
+            return 0
+        # Simple hash-based routing
+        import hashlib
+
+        h = hashlib.md5(symbol.encode()).hexdigest()
+        return int(h, 16) % self._num_shards
+
+    async def _consume_shard_loop(self, shard_index: int) -> None:
+        """Dedicated loop for consuming a specific market data shard."""
+        self.logger.info(f"🌉 Ingestion Bridge: Shard-{shard_index} Loop Started")
+
+        queue = self._shards_out_queues[shard_index]
+        source = f"market-{shard_index}"
 
         self._bridge_active = True
         while self._bridge_active:
             try:
-                # 1. User Data Burst (CRITICAL - Airlock Phase 101)
-                user_processed = await self._process_queue_burst(self._user_ingestion_queue, "user", max_processed=50)
+                processed = await self._process_queue_burst(queue, source, max_processed=100)
 
-                # 2. Market Data Burst (Segmented to prevent user starvation)
-                market_processed = await self._process_queue_burst(self._ingestion_queue, "market", max_processed=100)
-
-                # Phase 102 Optimization: Fast-yield if we are busy, sleep if idle
-                if user_processed == 0 and market_processed == 0:
-                    await asyncio.sleep(0.001)
+                if processed == 0:
+                    await asyncio.sleep(0.005)  # Market shards can be slightly less aggressive
                 else:
                     await asyncio.sleep(0)
 
             except asyncio.CancelledError:
-                self.logger.info("🛑 Ingestion Bridge stopping...")
                 break
             except Exception as e:
-                self.logger.error(f"❌ Ingestion Bridge Fatal Error: {e}")
+                self.logger.error(f"❌ Shard-{shard_index} Bridge Error: {e}")
                 await asyncio.sleep(1)
+
+    async def _consume_user_data_loop(self) -> None:
+        """Dedicated high-priority loop for User Data (Trades/Orders)."""
+        self.logger.info("🌉 Ingestion Bridge: USER DATA Loop Started")
+
+        queue = self._user_ingestion_queue
+
+        self._bridge_active = True
+        while self._bridge_active:
+            try:
+                processed = await self._process_queue_burst(queue, "user", max_processed=50)
+
+                if processed == 0:
+                    await asyncio.sleep(0.001)  # User data is critical, fast polling
+                else:
+                    await asyncio.sleep(0)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ User Data Bridge Error: {e}")
+                await asyncio.sleep(1)
+
+    # Legacy _consume_ingestion_queue removed in Phase 1 Refactor
 
     async def _process_queue_burst(self, queue: multiprocessing.Queue, source: str, max_processed: int = 100) -> int:
         """Process a burst of messages from a specific queue."""
@@ -1432,8 +1510,15 @@ class BinanceNativeConnector(BaseConnector):
                     if transit_latency > 500:  # Log only significant delays
                         self.logger.warning(f"🐢 High Airlock Latency ({source}): {transit_latency:.2f}ms")
 
-                # Heartbeat tracking
-                if source == "market":
+                # Phase 103: Shard Telemetry
+                t = self._shard_telemetry[source]
+                t["last_msg"] = time.time()
+                t["count"] += 1
+                if worker_ts:
+                    t["latency"] = (time.time() - worker_ts) * 1000
+
+                # Heartbeat tracking (Legacy/Global)
+                if source.startswith("market"):
                     self._last_market_message_time = time.time()
                 else:
                     self._last_user_message_time = time.time()
@@ -1534,9 +1619,9 @@ class BinanceNativeConnector(BaseConnector):
     async def _subscription_worker(self) -> None:
         """
         Background worker that batches and throttles WebSocket subscriptions.
-        Sends commands to the Airlock Ingestion Process.
+        Sends commands to the specific Shard Ingestion Process.
         """
-        self.logger.debug("👷 Subscription Worker started (Bridge Mode)")
+        self.logger.debug("👷 Subscription Worker started (Multi-Shard Bridge Mode)")
         while True:
             try:
                 # Wait for at least one subscription request
@@ -1547,16 +1632,22 @@ class BinanceNativeConnector(BaseConnector):
                 while not self._subscription_queue.empty() and len(streams_to_sub) < self._subscription_batch_size:
                     streams_to_sub.append(self._subscription_queue.get_nowait())
 
-                # Send command to Sentinel Process
-                cmd = {"action": "SUBSCRIBE", "payload": streams_to_sub}
+                # Group by Shard (Routing Phase 1)
+                shard_buckets = defaultdict(list)
+                for stream in streams_to_sub:
+                    # stream format e.g. 'btcusdt@aggTrade'
+                    symbol_part = stream.split("@")[0]
+                    shard_idx = self._get_shard_index(symbol_part)
+                    shard_buckets[shard_idx].append(stream)
 
-                try:
-                    self._command_queue.put(cmd)
-                    self.logger.debug(f"📡 Batch subscribed {len(streams_to_sub)} streams via Airlock")
-                except Exception as e:
-                    self.logger.error(f"❌ Failed to send subscribe command: {e}")
-                    # Re-queue if bridge is down?
-                    # For now just log, assuming Sentinel is robust.
+                # Dispatch to each shard
+                for shard_idx, streams in shard_buckets.items():
+                    cmd = {"action": "SUBSCRIBE", "payload": streams}
+                    try:
+                        self._shards_in_queues[shard_idx].put(cmd)
+                        self.logger.debug(f"📡 Shard-{shard_idx}: Batch subscribed {len(streams)} streams")
+                    except Exception as e:
+                        self.logger.error(f"❌ Shard-{shard_idx}: Failed to send subscribe command: {e}")
 
                 # Mark tasks as done
                 for _ in streams_to_sub:
@@ -1690,6 +1781,7 @@ class BinanceNativeConnector(BaseConnector):
                     input_queue=self._user_command_queue,
                     output_queue=self._user_ingestion_queue,
                     base_url=ws_url,
+                    worker_id="User-Data",
                 )
                 self._user_ingestion_process.start()
                 self.logger.info(f"✅ User Data Sentinel Started (PID: {self._user_ingestion_process.pid})")
@@ -1853,12 +1945,16 @@ class BinanceNativeConnector(BaseConnector):
         now = time.time()
         market_stale = now - self._last_market_message_time > 60  # 60s to allow subscription setup
 
-        # Airlock Mode: Check if Sentinel Process is alive
-        if self._ingestion_process:
+        # Airlock Mode: Check if Sentinel Process(es) are alive
+        if self._shards_processes:
+            # All shards must be alive
+            market_closed = any(not p.is_alive() for p in self._shards_processes)
+        elif self._ingestion_process:
             market_closed = not self._ingestion_process.is_alive()
         else:
             # Standard Mode: Check if local websocket object exists
             market_closed = self._market_data_ws is None
+
         if self._user_ingestion_process:
             user_closed = not self._user_ingestion_process.is_alive() and self._api_key is not None
         else:
@@ -1866,7 +1962,7 @@ class BinanceNativeConnector(BaseConnector):
 
         if market_stale or market_closed:
             self.logger.warning(
-                f"⚠️ Market Stream Health Fail | Stale: {market_stale}, Closed: {market_closed}. Restarting stream only..."
+                f"⚠️ Market Stream Health Fail | Stale: {market_stale}, Closed: {market_closed} (Shards: {len(self._shards_processes)}). Restarting stream..."
             )
             # Surgical restart: only the market stream
             try:

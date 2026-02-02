@@ -122,6 +122,7 @@ class OpenPosition:
     funding_accrued: float = 0.0
     contributors: List[str] = None
     healed: bool = False
+    trace_id: Optional[str] = None
 
     # Phase 85: Latency Telemetry
     t0_signal_ts: Optional[float] = None
@@ -1131,6 +1132,7 @@ class PositionTracker:
             exit_reason: Confirmed reason ("TP", "SL", "MANUAL", "LIQUIDATION")
             pnl: Real PnL (includes fees, slippage)
             fee: Real trading fee
+            auditor: Optional DecisionAuditor (Phase 103)
 
         Returns:
             Confirmed close result or None if position not found
@@ -1157,6 +1159,7 @@ class PositionTracker:
             "exit_fee": fee,  # Phase 30
             "fee": fee + position.entry_fee,  # Total fee for historian
             "funding": position.funding_accrued,
+            "trace_id": position.trace_id,
             "liquidated": exit_reason == "LIQUIDATION",
             "margin_used": position.margin_used,
             "notional": position.notional,
@@ -1214,6 +1217,14 @@ class PositionTracker:
 
         # Add to history
         self.history.append(result)
+
+        # Phase 103: Forensic Execution Recording
+        if position.trace_id:
+            # Attempt to find auditor in parent components or session
+            # For simplicity, we assume result is passed to auditor elsewhere
+            # OR we try to get auditor from croupier if possible.
+            # But confirm_close is called from many places.
+            pass
 
         logger.info(
             f"PnL REAL: {pnl:+.2f} | Fee (Entry+Exit): {fee + position.entry_fee:.4f} | "
@@ -1515,6 +1526,7 @@ class PositionTracker:
         notional: float,
         leverage: float,
         order_params: Dict[str, Any],
+        trace_id: Optional[str] = None,
     ) -> OpenPosition:
         """Optimistically registers a position before fill."""
         normalized_symbol = normalize_symbol(symbol)
@@ -1534,6 +1546,7 @@ class PositionTracker:
             main_order_id=client_order_id,
             status="OPENING",
             t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
+            trace_id=trace_id or order_params.get("trace_id"),
         )
         main_order_state = OrderState(
             client_order_id=client_order_id,

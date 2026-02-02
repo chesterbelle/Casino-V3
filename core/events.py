@@ -111,6 +111,7 @@ class SignalEvent(Event):
     sensor_id: str  # Sensor that generated this signal
     score: float = 1.0
     metadata: Optional[Dict[str, Any]] = None
+    trace_id: Optional[str] = None
 
     def __post_init__(self):
         self.type = EventType.SIGNAL
@@ -130,6 +131,7 @@ class AggregatedSignalEvent(Event):
     metadata: Optional[Dict[str, Any]] = None
     strategy_name: Optional[str] = None
     t0_timestamp: Optional[float] = None  # Phase 85: Latency Telemetry (Signal Time)
+    trace_id: Optional[str] = None
 
     def __post_init__(self):
         self.type = EventType.AGGREGATED_SIGNAL

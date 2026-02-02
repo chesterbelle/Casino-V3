@@ -212,6 +212,7 @@ class OCOManager:
                 notional=order.get("notional", 0),
                 leverage=order.get("leverage", 1),
                 order_params=order,
+                trace_id=order.get("trace_id"),
             )
 
             # Step 1: Execute main market order

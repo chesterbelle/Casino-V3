@@ -17,6 +17,7 @@ from typing import Dict, List
 
 from config.strategies import get_sensor_type, get_strategy_for_sensor
 from core.events import AggregatedSignalEvent, EventType, SignalEvent
+from core.observability.decision_auditor import DecisionAuditor
 
 from .sensor_tracker import SensorTracker
 
@@ -46,6 +47,9 @@ class SignalAggregatorV3:
 
         # Initialize sensor tracker
         self.tracker = SensorTracker()
+
+        # Phase 103: Forensic Traceability
+        self.auditor = DecisionAuditor()
 
         # Subscribe to SIGNAL events
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
@@ -395,6 +399,28 @@ class SignalAggregatorV3:
             },
             strategy_name=strategy_name,
             t0_timestamp=selected["signal"].timestamp,  # Phase 85: Carry forward signal timestamp
+            trace_id=getattr(selected["signal"], "trace_id", None) or f"trc_{int(time.time()*1000)}",
+        )
+
+        logger.info(
+            f"📡 Aggregated Signal: {consensus_side} | {symbol} | Confidence: {confidence:.2f} | "
+            f"Trace: {aggregated.trace_id}"
+        )
+
+        # 8. AUDIT TRAIL LOGGING (Phase 103)
+        self.auditor.record_decision(
+            symbol=symbol,
+            action=consensus_side,
+            score=confidence,
+            reason=f"Consensus {len(winner_signals)}/{len(signals)} | Margin {margin:.2f} | Trigger {selected['sensor_id']} ({selected['score']:.2f})",
+            snapshot={
+                "sigma_long": sigma_long,
+                "sigma_short": sigma_short,
+                "total_voters": len(signals),
+                "htf_consensus": htf_context,
+                "winner_sensors": [s["sensor_id"] for s in winner_signals],
+            },
+            trace_id=aggregated.trace_id,
         )
 
         asyncio.create_task(self.engine.dispatch(aggregated))

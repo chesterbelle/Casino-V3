@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from config import trading as trading_config
 from core.error_handling import get_error_handler
 from core.interfaces import TimeIterator
+from core.observability.decision_auditor import DecisionAuditor
 from core.observability.historian import historian
 
 # Phase 31: OrderTracker removed - PositionTracker is now the single source of truth
@@ -33,6 +34,7 @@ from .components.exit_manager import ExitManager
 from .components.oco_manager import OCOManager
 from .components.order_executor import OrderExecutor
 from .components.reconciliation_service import ReconciliationService
+from .ui.dashboard import IndustrialDashboard
 
 
 class Croupier(TimeIterator):
@@ -59,7 +61,9 @@ class Croupier(TimeIterator):
         })
     """
 
-    def __init__(self, exchange_adapter, initial_balance: float, max_concurrent_positions: int = 10):
+    def __init__(
+        self, exchange_adapter, initial_balance: float, max_concurrent_positions: int = 10, enable_ui: bool = False
+    ):
         """
         Initialize Croupier orchestrator.
 
@@ -96,10 +100,21 @@ class Croupier(TimeIterator):
 
         self.exit_manager = ExitManager(self)
 
-        # Phase 102: Industrial Resilience - Drift Auditor
+        # Phase 103: Forensic Traceability
+        self.auditor = DecisionAuditor()
+
         self.drift_auditor = DriftAuditor(
             exchange_adapter, self.position_tracker, self.reconciliation, self.balance_manager
         )
+
+        # Phase 103: Industrial Dashboard
+        self.enable_ui = enable_ui
+        self.dashboard: Optional[IndustrialDashboard] = None
+        self._ui_task: Optional[asyncio.Task] = None
+
+        if self.enable_ui:
+            self.dashboard = IndustrialDashboard(self.session_id)
+            self._ui_task = asyncio.create_task(self._ui_update_loop())
 
         self.process_start_balance: float = 0.0
         self.is_drain_mode: bool = False
@@ -680,6 +695,11 @@ class Croupier(TimeIterator):
         # Phase 84: Mark closure as settled (PnL recorded)
         self._pending_closures.discard(trade_id)
 
+        # Phase 103: Forensic Traceability
+        trace_id = result.get("trace_id")
+        if trace_id:
+            self.auditor.record_execution(trace_id, result)
+
         # We start an async task for cleanup to avoid blocking the tracker
         import asyncio
 
@@ -1145,3 +1165,58 @@ class Croupier(TimeIterator):
 
         except Exception as e:
             self.logger.warning(f"⚠️ Background enrichment failed for {trade_id}: {e}")
+
+    async def _ui_update_loop(self):
+        """Background task to feed the Industrial Dashboard."""
+        self.logger.info("📊 UI Update Loop Started")
+
+        if self.dashboard:
+            self.dashboard.start()
+
+        while self.enable_ui and self.dashboard:
+            try:
+                self.logger.debug("📊 Pulse: Updating Dashboard State")
+                # 1. Update Ingestion Health
+                # Check connector telemetry
+                connector = getattr(self.adapter, "connector", None)
+                if connector and hasattr(connector, "_shard_telemetry"):
+                    telemetry = connector._shard_telemetry
+                    for shard_id, metrics in telemetry.items():
+                        # Determine status
+                        status = "ALIVE" if time.time() - metrics["last_msg"] < 5 else "STALLED"
+
+                        self.dashboard.update_shard(
+                            shard_id,
+                            {"status": status, "latency": metrics["latency"], "msg_rate": metrics.get("last_rate", 0)},
+                        )
+
+                # 2. Update Circuit Breakers
+                if connector and hasattr(connector, "error_handler"):
+                    breakers = getattr(connector.error_handler, "_circuit_breakers", {})
+                    self.dashboard.update_state("breakers", {name: b.state.value for name, b in breakers.items()})
+
+                # 3. Update PnL & Stats
+                stats = self.get_session_summary()
+                symbols_perf = {}
+                for trade in self.position_tracker.history:
+                    sym = trade.get("symbol", "UNKNOWN")
+                    if sym not in symbols_perf:
+                        symbols_perf[sym] = {"pnl": 0.0, "count": 0}
+                    symbols_perf[sym]["pnl"] += trade.get("pnl", 0.0)
+                    symbols_perf[sym]["count"] += 1
+
+                self.dashboard.update_pnl(stats.get("total_pnl", 0.0), stats.get("total_trades", 0), symbols_perf)
+
+                # 4. Update Audit Trail (Phase 103)
+                if hasattr(self, "auditor"):
+                    self.dashboard.update_audit(self.auditor.recent_decisions)
+
+                self.dashboard.update_state("status", "RUNNING")
+                self.dashboard.refresh()
+
+            except Exception as e:
+                self.logger.error(f"❌ Dashboard Update Error: {e}")
+
+            await asyncio.sleep(1)
+
+    # ... rest of the file ...
