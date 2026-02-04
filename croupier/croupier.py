@@ -34,7 +34,6 @@ from .components.exit_manager import ExitManager
 from .components.oco_manager import OCOManager
 from .components.order_executor import OrderExecutor
 from .components.reconciliation_service import ReconciliationService
-from .ui.dashboard import IndustrialDashboard
 
 
 class Croupier(TimeIterator):
@@ -61,9 +60,7 @@ class Croupier(TimeIterator):
         })
     """
 
-    def __init__(
-        self, exchange_adapter, initial_balance: float, max_concurrent_positions: int = 10, enable_ui: bool = False
-    ):
+    def __init__(self, exchange_adapter, initial_balance: float, max_concurrent_positions: int = 10):
         """
         Initialize Croupier orchestrator.
 
@@ -106,15 +103,6 @@ class Croupier(TimeIterator):
         self.drift_auditor = DriftAuditor(
             exchange_adapter, self.position_tracker, self.reconciliation, self.balance_manager
         )
-
-        # Phase 103: Industrial Dashboard
-        self.enable_ui = enable_ui
-        self.dashboard: Optional[IndustrialDashboard] = None
-        self._ui_task: Optional[asyncio.Task] = None
-
-        if self.enable_ui:
-            self.dashboard = IndustrialDashboard(self.session_id)
-            self._ui_task = asyncio.create_task(self._ui_update_loop())
 
         self.process_start_balance: float = 0.0
         self.is_drain_mode: bool = False
@@ -923,6 +911,7 @@ class Croupier(TimeIterator):
     async def stop(self) -> None:
         """Stop components."""
         self.logger.info("🛑 Croupier Reactor Stopped")
+
         # Phase 102: Industrial Resilience - Stop Drift Auditor
         await self.drift_auditor.stop()
 
@@ -1025,8 +1014,12 @@ class Croupier(TimeIterator):
             income_history = await self.adapter.fetch_income(income_type=None, limit=1000)
 
             if income_history:
-                # Delegate to Historian
-                historian.reconcile_ledger(income_history)
+                # Delegate to Historian (Phase 110: Pass session_start_ts for isolation)
+                historian.reconcile_ledger(
+                    income_history,
+                    session_id=self.position_tracker.session_id,
+                    min_timestamp=self.position_tracker.session_start_ts,
+                )
                 self.logger.info("✅ Ledger Reconciliation Complete.")
             else:
                 self.logger.info("ℹ️ No Income History records returned from exchange.")
@@ -1047,6 +1040,7 @@ class Croupier(TimeIterator):
             final_balance: Optional real wallet balance at end of session.
                           If provided, calculates 'Leakage' (untracked pnl).
         """
+        self.logger.debug(f"📊 Fetching Session Stats for ID: {self.position_tracker.session_id}")
         stats = historian.get_session_stats(session_id=self.position_tracker.session_id)
 
         # Phase 68: Granular Error Reporting
@@ -1165,58 +1159,5 @@ class Croupier(TimeIterator):
 
         except Exception as e:
             self.logger.warning(f"⚠️ Background enrichment failed for {trade_id}: {e}")
-
-    async def _ui_update_loop(self):
-        """Background task to feed the Industrial Dashboard."""
-        self.logger.info("📊 UI Update Loop Started")
-
-        if self.dashboard:
-            self.dashboard.start()
-
-        while self.enable_ui and self.dashboard:
-            try:
-                self.logger.debug("📊 Pulse: Updating Dashboard State")
-                # 1. Update Ingestion Health
-                # Check connector telemetry
-                connector = getattr(self.adapter, "connector", None)
-                if connector and hasattr(connector, "_shard_telemetry"):
-                    telemetry = connector._shard_telemetry
-                    for shard_id, metrics in telemetry.items():
-                        # Determine status
-                        status = "ALIVE" if time.time() - metrics["last_msg"] < 5 else "STALLED"
-
-                        self.dashboard.update_shard(
-                            shard_id,
-                            {"status": status, "latency": metrics["latency"], "msg_rate": metrics.get("last_rate", 0)},
-                        )
-
-                # 2. Update Circuit Breakers
-                if connector and hasattr(connector, "error_handler"):
-                    breakers = getattr(connector.error_handler, "_circuit_breakers", {})
-                    self.dashboard.update_state("breakers", {name: b.state.value for name, b in breakers.items()})
-
-                # 3. Update PnL & Stats
-                stats = self.get_session_summary()
-                symbols_perf = {}
-                for trade in self.position_tracker.history:
-                    sym = trade.get("symbol", "UNKNOWN")
-                    if sym not in symbols_perf:
-                        symbols_perf[sym] = {"pnl": 0.0, "count": 0}
-                    symbols_perf[sym]["pnl"] += trade.get("pnl", 0.0)
-                    symbols_perf[sym]["count"] += 1
-
-                self.dashboard.update_pnl(stats.get("total_pnl", 0.0), stats.get("total_trades", 0), symbols_perf)
-
-                # 4. Update Audit Trail (Phase 103)
-                if hasattr(self, "auditor"):
-                    self.dashboard.update_audit(self.auditor.recent_decisions)
-
-                self.dashboard.update_state("status", "RUNNING")
-                self.dashboard.refresh()
-
-            except Exception as e:
-                self.logger.error(f"❌ Dashboard Update Error: {e}")
-
-            await asyncio.sleep(1)
 
     # ... rest of the file ...

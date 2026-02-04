@@ -235,6 +235,7 @@ class PositionTracker:
             session_id: ID de la sesión actual (para Historian)
         """
         self.session_id = session_id
+        self.session_start_ts = time.time()  # Phase 110: Session Isolation
         self.open_positions: List[OpenPosition] = []
         self.blocked_capital: float = 0.0
         self.max_concurrent_positions = max_concurrent_positions

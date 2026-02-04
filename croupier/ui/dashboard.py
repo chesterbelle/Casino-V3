@@ -35,8 +35,14 @@ class IndustrialDashboard:
             "recent_trades": [],  # List of dicts
             "symbols_perf": {},  # symbol: {pnl, count}
             "audit_trail": [],  # List of most recent decisions
-            "last_log": "System Ready",
+            "logs": [],  # List of strings (last 20)
         }
+
+    def add_log(self, record: str):
+        with self._lock:
+            self.state["logs"].append(record)
+            if len(self.state["logs"]) > 20:
+                self.state["logs"].pop(0)
 
     def update_state(self, key: str, value: any):
         with self._lock:
@@ -62,12 +68,12 @@ class IndustrialDashboard:
             self._live.stop()
 
     def start(self):
-        self._live = Live(self._generate_layout(), refresh_per_second=4, screen=False)
+        self._live = Live(self._generate_layout(), refresh_per_second=4, screen=True)
         self._live.start()
 
     def _generate_layout(self) -> Layout:
         layout = Layout()
-        layout.split_column(Layout(name="header", size=3), Layout(name="body"), Layout(name="footer", size=3))
+        layout.split_column(Layout(name="header", size=3), Layout(name="body"), Layout(name="footer", ratio=1))
         layout["body"].split_row(
             Layout(name="left", ratio=1), Layout(name="center", ratio=2), Layout(name="right", ratio=1.5)
         )
@@ -79,9 +85,18 @@ class IndustrialDashboard:
         layout["breakers"].update(self._make_breakers_panel())
         layout["center"].update(self._make_pnl_panel())
         layout["right"].update(self._make_audit_panel())
-        layout["footer"].update(Panel(Text(f"LOG: {self.state['last_log']}", style="dim"), box=box.MINIMAL))
+        layout["footer"].update(self._make_log_panel())
 
         return layout
+
+    def _make_log_panel(self) -> Panel:
+        with self._lock:
+            # Join logs with newlines
+            log_content = "\n".join(self.state["logs"])
+
+        return Panel(
+            Text(log_content, style="white"), title="[bold]Live Logs[/bold]", box=box.MINIMAL, border_style="dim"
+        )
 
     def _make_header(self) -> Panel:
         uptime = str(datetime.now() - datetime.fromtimestamp(self.start_time)).split(".")[0]

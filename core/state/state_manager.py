@@ -81,7 +81,11 @@ class StateManager:
             initial_balance: Initial balance for new session
         """
         # Initialize state
-        self.persistent_state.initialize_state(initial_balance)
+        state = self.persistent_state.initialize_state(initial_balance)
+
+        # Sync immediately (Phase 110: Session Isolation)
+        self.position_tracker.session_id = state.session_id
+        self.position_tracker.session_start_ts = state.start_time
 
         # Start auto-save
         await self.persistent_state.start()
@@ -166,6 +170,10 @@ class StateManager:
 
             # Sync balance
             self.balance_manager.set_balance(state.current_balance)
+
+            # Sync session info (Phase 110)
+            self.position_tracker.session_id = state.session_id
+            self.position_tracker.session_start_ts = state.start_time
 
             # Sync stats
             self.position_tracker.set_stats(

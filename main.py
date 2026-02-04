@@ -298,7 +298,7 @@ async def main():
     initial_balance = initial_balance_data.get("total", {}).get("USDT", 10000.0)
     logger.info(f"💰 Initial Balance: {initial_balance:.2f} USDT")
 
-    croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance, enable_ui=args.ui)
+    croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance)
     await croupier.start()
 
     # 3.1 Subscribe components to exchange and logic events
@@ -406,6 +406,16 @@ async def main():
     else:
         logger.info("📝 Starting fresh session")
         await state_manager.start(initial_balance)
+
+    # Phase 110: Ground Truth Snapshot (Isolation & Traceability)
+    from datetime import datetime
+
+    logger.info("==========================================")
+    logger.info("📍 GROUND TRUTH SNAPSHOT (Session Start)")
+    logger.info(f"   Balance:    {initial_balance:.2f} USDT")
+    logger.info(f"   Session ID: {croupier.position_tracker.session_id}")
+    logger.info(f"   Start Time: {datetime.fromtimestamp(croupier.position_tracker.session_start_ts).isoformat()}")
+    logger.info("==========================================")
 
     # 11. Multi-Asset Flytest & Startup
     # =========================================================
@@ -858,6 +868,13 @@ async def main():
 
             if healed_count > 0:
                 logger.info(f"      ↳ 🛡️ Saved by Resilience: {healed_pnl:+.4f} USDT ({healed_count} healed)")
+
+            legacy_pnl = summary.get("legacy_pnl", 0.0) or 0.0
+            legacy_count = summary.get("legacy_count", 0) or 0
+            if legacy_count > 0:
+                logger.info(
+                    f"      ↳ 🏛️ Legacy Audit: {legacy_pnl:+.4f} USDT ({legacy_count} items - Excluded from Strategy)"
+                )
 
             logger.info(f"   🔧 Error Leakage: {error_pnl:+.4f} USDT ({error_count} error trades)")
 

@@ -205,13 +205,25 @@ class TradeHistorian:
         except Exception as e:
             logger.error(f"❌ Historian: Error recording trade: {e}")
 
-    def reconcile_ledger(self, income_records: List[Dict[str, Any]]):
+    def reconcile_ledger(
+        self,
+        income_records: List[Dict[str, Any]],
+        session_id: Optional[str] = None,
+        min_timestamp: Optional[float] = None,
+    ):
         """
         Reconciles Ledger (Income History) to capture missing Funding Fees. (Non-blocking)
-        """
-        return self._run_async(self._reconcile_ledger_sync, income_records)
 
-    def _reconcile_ledger_sync(self, income_records: List[Dict[str, Any]]):
+        Phase 110: Supports min_timestamp to avoid polluting active session stats with legacy records.
+        """
+        return self._run_async(self._reconcile_ledger_sync, income_records, session_id, min_timestamp)
+
+    def _reconcile_ledger_sync(
+        self,
+        income_records: List[Dict[str, Any]],
+        session_id: Optional[str] = None,
+        min_timestamp: Optional[float] = None,
+    ):
         """Internal synchronous reconciliation logic."""
         count = 0
         total_restored = 0.0
@@ -220,16 +232,8 @@ class TradeHistorian:
             for record in income_records:
                 income_type = record.get("incomeType")
                 # Only target safe types that are definitely not duplicate trade PnL
-                # FUNDING_FEE: Periodic funding payments
-                # COMMISSION: Usually referral rebates or non-trade fees
-                # INSURANCE_CLEAR: Liquidation insurance clearance
-                # ADL_TRADE: Auto-Deleveraging (handled as trade usually, but safe to check)
                 if income_type not in ["FUNDING_FEE", "INSURANCE_CLEAR", "ADJUSTMENT", "COMMISSION"]:
                     continue
-
-                # Skip COMMISSION if it's associated with a trade (has a valid tradeId/orderId)
-                # But typically funding commission is distinct.
-                # To be safe, we rely on tranId uniqueness.
 
                 tran_id = str(record.get("tranId"))
 
@@ -238,26 +242,29 @@ class TradeHistorian:
                 if cursor.fetchone():
                     continue
 
+                # Phase 110: Time-Fence Isolation
+                ts_ms = record.get("time", 0)
+                record_ts = ts_ms / 1000.0
+
+                # Determine session attribution
+                actual_session = session_id or "LEDGER_SYNC"
+                if min_timestamp and record_ts < min_timestamp:
+                    # Capture it for Truth, but exclude from active strategy reporting
+                    actual_session = "LEGACY_AUDIT"
+
                 # Prepare record
                 amount = float(record.get("income", 0.0))
                 symbol = record.get("symbol", "UNKNOWN")
                 # Timestamp from ms to ISO
-                ts_ms = record.get("time", 0)
-                timestamp = datetime.fromtimestamp(ts_ms / 1000.0).isoformat()
+                timestamp = datetime.fromtimestamp(record_ts).isoformat()
 
                 # Calculating columns
-                # Net PnL = Gross - Fee - Funding
-                # If Income = -5 (Cost):
-                #   Funding Case: funding=5, net_pnl=-5
-                #   Commission Case: fee=5, net_pnl=-5
-                #   Adjustment Case: gross=-5, net_pnl=-5
-
                 gross = 0.0
                 fee = 0.0
                 funding = 0.0
 
                 if income_type == "FUNDING_FEE":
-                    funding = -amount  # If amount is -5 (cost), funding is 5
+                    funding = -amount
                 elif income_type == "COMMISSION":
                     fee = -amount
                 else:
@@ -265,7 +272,6 @@ class TradeHistorian:
 
                 # Verify math
                 net_pnl = gross - fee - funding
-                # e.g. Funding -5: 0 - 0 - (5) = -5. Correct.
 
                 conn.execute(
                     """
@@ -287,7 +293,7 @@ class TradeHistorian:
                         income_type,  # exit_reason
                         timestamp,
                         0,  # bars_held
-                        "LEDGER_SYNC",  # session_id
+                        actual_session,
                         1,  # healed (it's a system fix)
                     ),
                 )
@@ -461,7 +467,7 @@ class TradeHistorian:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(query, params)
                 row = cursor.fetchone()
-                return (
+                stats = (
                     dict(row)
                     if row and row["count"] > 0
                     else {
@@ -484,6 +490,17 @@ class TradeHistorian:
                         "drain_count": 0,
                     }
                 )
+
+                # Phase 110: Legacy Noise Detection
+                # Capture records that were found on exchange but belong to previous timeframes
+                legacy_cursor = conn.execute(
+                    "SELECT COUNT(*) as count, SUM(net_pnl) as pnl FROM trades WHERE session_id = 'LEGACY_AUDIT'"
+                )
+                legacy_row = legacy_cursor.fetchone()
+                stats["legacy_count"] = legacy_row["count"] or 0
+                stats["legacy_pnl"] = legacy_row["pnl"] or 0.0
+
+                return stats
         except Exception as e:
             logger.error(f"❌ Historian: Error getting stats: {e}")
             return {}
