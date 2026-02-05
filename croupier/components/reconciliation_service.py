@@ -307,15 +307,15 @@ class ReconciliationService:
                     pass
 
             # Phase 54: Use PositionTracker as Single Source of Truth for bracket validation
-            open_order_ids = {str(o.get("id")) for o in open_orders}
-            open_client_ids = {str(o.get("clientOrderId")) for o in open_orders}
+            open_order_ids = {str(o.get("order_id") or o.get("id")) for o in open_orders}
+            open_client_ids = {str(o.get("client_order_id")) for o in open_orders if o.get("client_order_id")}
             has_tp, has_sl = self.tracker.has_valid_bracket(pos.trade_id, open_order_ids, open_client_ids)
 
             if not has_tp or not has_sl:
                 # --- CONCURRENCY GRACE PERIOD (Phase 34) ---
                 # If a TP/SL order is missing from exchange data, check if it was recently updated/created locally.
                 # This prevents "Naked" closure due to exchange REST indexing lag without adding execution lag.
-                grace_period = 5.0  # seconds
+                grace_period = 20.0  # seconds (Phase 120: Increased for MULTI REST lag)
                 now = time.time()
 
                 tp_recent = False
@@ -548,10 +548,10 @@ class ReconciliationService:
             self.tracker.add_position(position)
 
             # Phase 54: Register TP/SL IDs in Alias Map for orphan detection
-            tp_exchange_id = str(tp_order.get("id", ""))
-            sl_exchange_id = str(sl_order.get("id", ""))
-            tp_client_id = str(tp_order.get("clientOrderId", ""))
-            sl_client_id = str(sl_order.get("clientOrderId", ""))
+            tp_exchange_id = str(tp_order.get("order_id") or tp_order.get("id", ""))
+            sl_exchange_id = str(sl_order.get("order_id") or sl_order.get("id", ""))
+            tp_client_id = str(tp_order.get("client_order_id", ""))
+            sl_client_id = str(sl_order.get("client_order_id", ""))
 
             if tp_exchange_id:
                 self.tracker.register_alias(tp_exchange_id, position, symbol=symbol)
@@ -882,6 +882,18 @@ class ReconciliationService:
 
             # If there's a position on exchange but we don't track this order, be careful
             # It might be a newly created order that hasn't been registered yet
+            # Phase 141: Robust Grace Period (60s) for "Young" Orphans
+            # This prevents race conditions where RecService sees the order via REST before OCOManager registers it.
+            try:
+                order_time = int(order.get("time", 0) or order.get("updateTime", 0) or order.get("timestamp", 0))
+                if order_time > 0:
+                    age_ms = (time.time() * 1000) - order_time
+                    if age_ms < 60000:  # 60 seconds
+                        # self.logger.debug(f"⏳ Skipping young orphan: {order_id} (Age: {age_ms/1000:.1f}s)")
+                        continue
+            except Exception:
+                pass
+
             if not orphaned_reset and has_exchange_position and client_order_id and "CASINO_" in client_order_id:
                 # This is likely our own order that's in-flight; skip for safety
                 self.logger.debug(f"⏳ Skipping potential in-flight order: {order_id} ({client_order_id})")

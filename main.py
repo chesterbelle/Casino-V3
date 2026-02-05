@@ -603,6 +603,7 @@ async def main():
     startup_state["complete"] = True
 
     start_time = time.time()
+    drain_start_ts = None
     exit_reason_str = "SHUTDOWN"
 
     try:
@@ -629,6 +630,7 @@ async def main():
                             "Stopping new entries and narrowing TPs..."
                         )
                         croupier.set_drain_mode(True)
+                        drain_start_ts = time.time()
 
                     # Progressive Exit Update
                     remaining = args.timeout - elapsed_min
@@ -847,9 +849,16 @@ async def main():
 
             start_bal = summary.get("start_balance", 0.0)
 
+            # Phase 120: Duration Breakdown
+            session_end_ts = time.time()
+            total_duration = (session_end_ts - start_time) / 60
+            active_dur = (drain_start_ts - start_time) / 60 if drain_start_ts else total_duration
+            drain_dur = (session_end_ts - drain_start_ts) / 60 if drain_start_ts else 0
+
             logger.info("==========================================")
             logger.info("🏁 SESSION SUMMARY (Persistent Historian)")
             logger.info(f"   Reason: {exit_reason_str}")
+            logger.info(f"   Duration: {total_duration:.1f}m (Active: {active_dur:.1f}m | Draining: {drain_dur:.1f}m)")
             logger.info(f"   Start Balance: {start_bal:.2f} USDT")
             logger.info(f"   Final Balance: {final_bal_float if final_bal_float is not None else 'N/A'}")
             logger.info("   --------------------------------------")
@@ -867,7 +876,10 @@ async def main():
             logger.info(f"      ↳ 🕒 Draining Phase: {drain_pnl:+.4f} USDT ({drain_count} trades)")
 
             if healed_count > 0:
-                logger.info(f"      ↳ 🛡️ Saved by Resilience: {healed_pnl:+.4f} USDT ({healed_count} healed)")
+                healed_rate = (healed_count / strategy_count * 100) if strategy_count > 0 else 0
+                logger.info(
+                    f"      ↳ 🛡️ Saved by Resilience: {healed_pnl:+.4f} USDT ({healed_count} healed | Rate: {healed_rate:.1f}%)"
+                )
 
             legacy_pnl = summary.get("legacy_pnl", 0.0) or 0.0
             legacy_count = summary.get("legacy_count", 0) or 0
@@ -883,10 +895,10 @@ async def main():
             for reason, count in error_breakdown.items():
                 logger.info(f"      • {reason}: {count}")
 
-            # Report Draining Phase Closes
+            # Report Draining Phase Closes (Forced Cleanups)
             draining_closed = sweep_report.get("positions_closed", 0)
             if draining_closed > 0:
-                logger.info(f"   🧹 Draining Phase: {draining_closed} positions closed")
+                logger.info(f"   🧹 Forced Cleanup: {draining_closed} positions killed at timeout")
 
             logger.info("   --------------------------------------")
             logger.info("   🧾 Recorded Expenses (Database):")

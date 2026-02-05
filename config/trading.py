@@ -104,11 +104,10 @@ FLYTEST_DEPTH_CHECK_PCT = 0.01
 MULTI_ASSET_TARGETS = [
     "BTC/USDT",
     "ETH/USDT",
-    "BCH/USDT",
     "XRP/USDT",
-    "EOS/USDT",
+    "BCH/USDT",
     "LTC/USDT",
-    "TRX/USDT",
+    "EOS/USDT",
     "ETC/USDT",
     "LINK/USDT",
     "XLM/USDT",

@@ -58,6 +58,7 @@ class MultiAssetManager:
 
         valid_symbols = []
         precision_profile = {}
+        rejections = {}  # reason -> count
 
         # Pre-fetch all tickers and book tickers for efficiency
         logger.info("📊 Pre-fetching market data for validation...")
@@ -122,10 +123,12 @@ class MultiAssetManager:
                         logger.warning(f"⚠️ Could not fetch dynamic min_notional for {target_symbol}: {e}")
 
                 if alloc_per_pos < min_req:
+                    reason = "Min Notional"
                     logger.warning(
-                        f"❌ Rejected {target_symbol}: Calculated Notional ({alloc_per_pos:.2f}) < "
+                        f"❌ Rejected {target_symbol}: {reason} ({alloc_per_pos:.2f}) < "
                         f"Exchange Min Notional ({min_req:.2f})"
                     )
+                    rejections[reason] = rejections.get(reason, 0) + 1
                     continue
 
                 # B. Load precision data from Exchange
@@ -153,25 +156,27 @@ class MultiAssetManager:
 
                     # C1. Volume Check
                     if quote_vol < min_vol:
-                        logger.warning(
-                            f"❌ Rejected {target_symbol}: Low 24h Volume (${quote_vol:,.0f} < ${min_vol:,.0f})"
-                        )
+                        reason = "Low 24h Volume"
+                        logger.warning(f"❌ Rejected {target_symbol}: {reason} (${quote_vol:,.0f} < ${min_vol:,.0f})")
+                        rejections[reason] = rejections.get(reason, 0) + 1
                         continue
 
                     # C2. Spread Check
                     if bid > 0 and ask > 0:
                         spread_pct = (ask - bid) / ((ask + bid) / 2)
                         if spread_pct > max_spread_pct:
-                            logger.warning(
-                                f"❌ Rejected {symbol}: Wide Spread ({spread_pct:.2%} > {max_spread_pct:.2%})"
-                            )
+                            reason = "Wide Spread"
+                            logger.warning(f"❌ Rejected {symbol}: {reason} ({spread_pct:.2%} > {max_spread_pct:.2%})")
+                            rejections[reason] = rejections.get(reason, 0) + 1
                             continue
 
                         # Use midpoint as reference price if last is missing
                         if price == 0:
                             price = (bid + ask) / 2
                     else:
-                        logger.warning(f"❌ Rejected {symbol}: Invalid Order Book (Empty Bid/Ask)")
+                        reason = "Invalid Order Book"
+                        logger.warning(f"❌ Rejected {symbol}: {reason} (Empty Bid/Ask)")
+                        rejections[reason] = rejections.get(reason, 0) + 1
                         continue
 
                     # C3. LOT_SIZE check
@@ -179,10 +184,12 @@ class MultiAssetManager:
                     min_tradeable_value = min_qty * price
 
                     if alloc_per_pos < min_tradeable_value:
+                        reason = "Below Min Tradeable"
                         logger.warning(
-                            f"❌ Rejected {symbol}: Bet ({alloc_per_pos:.2f}) < Min Tradeable "
+                            f"❌ Rejected {symbol}: {reason} Bet ({alloc_per_pos:.2f}) < Min Tradeable "
                             f"({min_tradeable_value:.2f} = {min_qty} × ${price:.2f})"
                         )
+                        rejections[reason] = rejections.get(reason, 0) + 1
                         continue
 
                     # C4. PRICE_FILTER (tick_size) check
@@ -209,6 +216,8 @@ class MultiAssetManager:
                         is_deep_enough = self._check_depth_sufficiency(symbol, alloc_per_pos, order_book, price)
 
                         if not is_deep_enough:
+                            reason = "Shallow Liquidity"
+                            rejections[reason] = rejections.get(reason, 0) + 1
                             continue  # Logged inside the method
 
                     # C7. Stream Liveness Check (Phase 37)
@@ -218,10 +227,11 @@ class MultiAssetManager:
                     if stream_liveness_timeout > 0:
                         is_live = await self._check_stream_liveness(target_symbol, stream_liveness_timeout)
                         if not is_live:
+                            reason = "Stream Liveness Failed"
                             logger.warning(
-                                f"❌ Rejected {symbol}: Stream Liveness Failed "
-                                f"(no ticker received in {stream_liveness_timeout}s)"
+                                f"❌ Rejected {symbol}: {reason} " f"(no ticker received in {stream_liveness_timeout}s)"
                             )
+                            rejections[reason] = rejections.get(reason, 0) + 1
                             # Phase 93: Cleanup subscription for failed liveness
                             if hasattr(self.adapter.connector, "unsubscribe_ticker"):
                                 await self.adapter.connector.unsubscribe_ticker(target_symbol)
@@ -258,6 +268,10 @@ class MultiAssetManager:
         self.precision_profile = precision_profile
 
         logger.info(f"🏁 Flytest Complete: {len(valid_symbols)}/{len(target_symbols)} symbols qualified.")
+        if rejections:
+            logger.info("📊 Rejection Summary:")
+            for reason, count in sorted(rejections.items(), key=lambda x: x[1], reverse=True):
+                logger.info(f"   • {reason}: {count}")
         return valid_symbols, precision_profile
 
     async def _get_step_size(self, symbol: str) -> float:

@@ -2123,7 +2123,7 @@ class BinanceNativeConnector(BaseConnector):
             "algo_id": algo_id,
             "client_algo_id": client_algo_id,
             "symbol": o.get("symbol", ""),
-            "status": o.get("algoStatus", "").lower(),
+            "status": self._normalize_order_status(o.get("algoStatus", "")),
             "price": float(o.get("triggerPrice", 0) or 0),
             "amount": float(o.get("quantity", 0) or 0),
             "filled": 0.0,
