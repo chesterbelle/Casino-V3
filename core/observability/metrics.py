@@ -84,6 +84,25 @@ websocket_reconnections_total = Counter(
     ["exchange", "reason"],
 )
 
+# Resilience
+resilience_healing_events_total = Counter(
+    "resilience_healing_events_total",
+    "Total number of self-correcting healing events",
+    ["symbol", "reason"],
+)
+
+resilience_orphan_cancels_total = Counter(
+    "resilience_orphan_cancels_total",
+    "Total number of orphan orders cancelled",
+    ["symbol"],
+)
+
+resilience_orphan_skips_total = Counter(
+    "resilience_orphan_skips_total",
+    "Total number of orphan orders skipped (not cancelled)",
+    ["symbol", "reason"],
+)
+
 # ============================================================================
 # GAUGES (can go up and down)
 # ============================================================================
@@ -176,6 +195,12 @@ reconciliation_duration_seconds = Histogram(
     "reconciliation_duration_seconds",
     "Position reconciliation duration in seconds",
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+)
+
+reconciliation_batch_size = Histogram(
+    "reconciliation_batch_size",
+    "Number of symbols processed in a reconciliation batch",
+    buckets=[1, 5, 10, 20, 50, 100],
 )
 
 # Trade metrics

@@ -30,6 +30,7 @@ class IndustrialDashboard:
             "status": "INITIALIZING",
             "shards": {},  # id: {status, msg_rate, latency}
             "breakers": {},  # name: status
+            "resilience": {},  # healing, orphans, skips
             "pnl": 0.0,
             "trades_count": 0,
             "recent_trades": [],  # List of dicts
@@ -63,6 +64,10 @@ class IndustrialDashboard:
         with self._lock:
             self.state["audit_trail"] = decisions[-10:]  # Keep last 10
 
+    def update_resilience(self, metrics: Dict):
+        with self._lock:
+            self.state["resilience"] = metrics
+
     def stop(self):
         if self._live:
             self._live.stop()
@@ -77,12 +82,13 @@ class IndustrialDashboard:
         layout["body"].split_row(
             Layout(name="left", ratio=1), Layout(name="center", ratio=2), Layout(name="right", ratio=1.5)
         )
-        layout["left"].split_column(Layout(name="health"), Layout(name="breakers"))
+        layout["left"].split_column(Layout(name="health"), Layout(name="breakers"), Layout(name="resilience"))
 
         # Refresh the content
         layout["header"].update(self._make_header())
         layout["health"].update(self._make_health_table())
         layout["breakers"].update(self._make_breakers_panel())
+        layout["resilience"].update(self._make_resilience_panel())
         layout["center"].update(self._make_pnl_panel())
         layout["right"].update(self._make_audit_panel())
         layout["footer"].update(self._make_log_panel())
@@ -132,6 +138,7 @@ class IndustrialDashboard:
         return Panel(table, title="[bold]System Health[/bold]", border_style="blue")
 
     def _make_breakers_panel(self) -> Panel:
+        # Existing logic...
         grid = Table.grid(expand=True)
         grid.add_column(style="bold")
         grid.add_column(justify="right")
@@ -143,6 +150,24 @@ class IndustrialDashboard:
                 grid.add_row(f" {name}", Text(status_text, style=status_style))
 
         return Panel(grid, title="[bold]Circuit Breakers[/bold]", border_style="yellow")
+
+    def _make_resilience_panel(self) -> Panel:
+        grid = Table.grid(expand=True)
+        grid.add_column(style="bold")
+        grid.add_column(justify="right")
+
+        with self._lock:
+            res = self.state.get("resilience", {})
+            healing = res.get("healing", 0)
+            orphans = res.get("orphans", 0)
+            skips = res.get("skips", 0)
+
+            h_style = "green" if healing == 0 else "yellow" if healing < 5 else "red"
+            grid.add_row(" Healing Events", Text(str(healing), style=h_style))
+            grid.add_row(" Orphans Killed", Text(str(orphans), style="bold red" if orphans > 0 else "dim"))
+            grid.add_row(" Orphans Saved", Text(str(skips), style="bold green"))
+
+        return Panel(grid, title="[bold]Resilience Health[/bold]", border_style="magenta")
 
     def _make_pnl_panel(self) -> Panel:
         # PnL Summary Header

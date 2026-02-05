@@ -20,6 +20,11 @@ from typing import Any, Dict, List, Optional
 from core.error_handling import RetryConfig, get_error_handler
 from core.exceptions import TransientCommunicationError
 from core.observability.historian import historian
+from core.observability.metrics import (
+    resilience_healing_events_total,
+    resilience_orphan_cancels_total,
+    resilience_orphan_skips_total,
+)
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
@@ -358,6 +363,7 @@ class ReconciliationService:
 
                         if healed:
                             self.logger.info(f"✨ Smart Healing Successful for {pos.trade_id}. Position saved.")
+                            resilience_healing_events_total.labels(symbol=symbol, reason="smart_healing").inc()
                             report["positions_fixed"] += 1
                             continue  # Skip closure
                         else:
@@ -890,6 +896,7 @@ class ReconciliationService:
                     age_ms = (time.time() * 1000) - order_time
                     if age_ms < 60000:  # 60 seconds
                         # self.logger.debug(f"⏳ Skipping young orphan: {order_id} (Age: {age_ms/1000:.1f}s)")
+                        resilience_orphan_skips_total.labels(symbol=symbol, reason="grace_period").inc()
                         continue
             except Exception:
                 pass
@@ -897,6 +904,7 @@ class ReconciliationService:
             if not orphaned_reset and has_exchange_position and client_order_id and "CASINO_" in client_order_id:
                 # This is likely our own order that's in-flight; skip for safety
                 self.logger.debug(f"⏳ Skipping potential in-flight order: {order_id} ({client_order_id})")
+                resilience_orphan_skips_total.labels(symbol=symbol, reason="in_flight_heuristic").inc()
                 continue
 
             # This order is truly orphaned
@@ -908,6 +916,7 @@ class ReconciliationService:
                 # Phase 45: Delegate to OrderExecutor
                 if self.croupier and self.croupier.order_executor:
                     await self.croupier.order_executor.cancel_order(order_id, symbol)
+                    resilience_orphan_cancels_total.labels(symbol=symbol).inc()
                     cancelled_count += 1
                 else:
                     # Fallback to direct call if for some reason Croupier is missing executor

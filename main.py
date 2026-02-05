@@ -54,7 +54,12 @@ from core.observability import (
     update_balance,
 )
 from core.observability.loop_monitor import LoopMonitor
-from core.observability.metrics import bot_info
+from core.observability.metrics import (
+    bot_info,
+    resilience_healing_events_total,
+    resilience_orphan_cancels_total,
+    resilience_orphan_skips_total,
+)
 from core.observability.watchdog import watchdog
 from core.sensor_manager import SensorManager
 from croupier.croupier import Croupier
@@ -606,6 +611,18 @@ async def main():
     drain_start_ts = None
     exit_reason_str = "SHUTDOWN"
 
+    # Phase 150: UI Initialization
+    dashboard = None
+    if args.ui:
+        try:
+            from croupier.ui.dashboard import IndustrialDashboard
+
+            dashboard = IndustrialDashboard(session_id=croupier.session_id)
+            dashboard.start()
+            logger.info("🖥️ Dashboard UI started")
+        except Exception as e:
+            logger.error(f"❌ Failed to start Dashboard: {e}")
+
     try:
         while engine.running and not stop_event.is_set():
             # Report main loop heartbeat
@@ -613,6 +630,43 @@ async def main():
 
             # Use short sleep to keep main active but light
             await asyncio.sleep(1.0)
+
+            # Phase 150: Dashboard Updates
+            if dashboard:
+                try:
+                    # 1. Resilience
+                    # Helper to sum all samples in a metric (ignoring labels for total count)
+                    def get_metric_sum(metric):
+                        total = 0.0
+                        for m in metric.collect():
+                            for s in m.samples:
+                                total += s.value
+                        return int(total)
+
+                    res_metrics = {
+                        "healing": get_metric_sum(resilience_healing_events_total),
+                        "orphans": get_metric_sum(resilience_orphan_cancels_total),
+                        "skips": get_metric_sum(resilience_orphan_skips_total),
+                    }
+                    dashboard.update_resilience(res_metrics)
+
+                    # 2. PnL & Trades
+                    stats = croupier.position_tracker.get_stats()
+                    dashboard.update_pnl(
+                        pnl=stats.get("realized_pnl", 0.0) + stats.get("unrealized_pnl", 0.0),
+                        trades=stats.get("closed_trades", 0),
+                        symbols_perf={},  # TODO: Populate symbol breakdown later
+                    )
+
+                    # 3. Breakers
+                    # Fixed: Use proper API to get circuit breaker stats (Phase 150)
+                    error_stats = error_handler.get_error_stats()
+                    breakers = {name: data["state"] for name, data in error_stats["circuit_breakers"].items()}
+                    dashboard.update_state("breakers", breakers)
+
+                    dashboard.refresh()
+                except Exception as e:
+                    logger.error(f"⚠️ Dashboard update error: {e}")
 
             # Check timeout
             if args.timeout:
@@ -664,6 +718,10 @@ async def main():
 
         # Stop the Clock Reactor moved to END of cleanup
         # await clock.stop()
+
+        if dashboard:
+            dashboard.stop()
+            logger.info("🖥️ Dashboard UI stopped")
 
         # --- HEARTBEAT WATCHDOG ---
         class HeartbeatWatchdog:
