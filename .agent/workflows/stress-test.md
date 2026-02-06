@@ -50,6 +50,11 @@ Al finalizar, revisar:
 - [ ] **Volume > 50 trades** ejecutados
 - [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
 
+## Resilience Performance (Phase 160)
+- [ ] **Healing Efficiency > 90%** (`Healed / (Healed + Force-Closed)`)
+- [ ] **Orphan Hygiene < 2%** (`Orphans Killed / Total Trades`)
+- [ ] **False Positive Orphans = 0** (`Orphans Saved` count should align with high-load bursts, but 0 young orphans should be killed)
+
 ## Si Falla
 1. Revisar logs buscando `ERROR|Exception`
 2. Identificar qué tipo de error causó los trades de "Error Recovery"

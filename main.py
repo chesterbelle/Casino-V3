@@ -894,6 +894,23 @@ async def main():
             error_pnl = summary.get("error_pnl", 0.0) or 0.0
             error_count = summary.get("error_count", 0) or 0
 
+            # Phase 160: Extract Resilience metrics for final report
+            def get_metric_sum(metric):
+                total = 0.0
+                try:
+                    for m in metric.collect():
+                        for s in m.samples:
+                            # IMPORTANT: Prometheus counters include a '_created' sample with Unix timestamp
+                            # We must exclude it to get the actual count value.
+                            if not s.name.endswith("_created"):
+                                total += s.value
+                except Exception:
+                    pass
+                return int(total)
+
+            orphan_kills = get_metric_sum(resilience_orphan_cancels_total)
+            orphan_skips = get_metric_sum(resilience_orphan_skips_total)
+
             # Legacy: total_net_pnl for backward compatibility
             strategy_net_pnl = summary.get("total_net_pnl", 0.0)
 
@@ -957,6 +974,30 @@ async def main():
             draining_closed = sweep_report.get("positions_closed", 0)
             if draining_closed > 0:
                 logger.info(f"   🧹 Forced Cleanup: {draining_closed} positions killed at timeout")
+
+            # Phase 160: Resilience Efficiency Report
+            logger.info("   --------------------------------------")
+            logger.info("   🛡️ RESILIENCE PERFORMANCE (Phase 160)")
+
+            # Healing Efficiency: Healed / (Healed + Closed)
+            # Only count forced closes that were "naked" (ghosts_removed + positions_closed from summary)
+            forced_closes = draining_closed + summary.get("ghosts_removed", 0) + summary.get("positions_closed", 0)
+            healing_efficiency = (
+                (healed_count / (healed_count + forced_closes) * 100) if (healed_count + forced_closes) > 0 else 100.0
+            )
+
+            logger.info(
+                f"      • Healing Efficiency: {healing_efficiency:.1f}% ({healed_count} saved vs {forced_closes} killed)"
+            )
+
+            # Orphan Hygiene: Kills / Strategy Trades
+            orphan_hygiene = (orphan_kills / strategy_count * 100) if strategy_count > 0 else 0.0
+            logger.info(f"      • Orphan Hygiene: {orphan_hygiene:.2f}% ({orphan_kills} killed)")
+
+            # Grace Period Savings: Skips / (Skips + Kills)
+            total_orphan_attempts = orphan_skips + orphan_kills
+            savings_rate = (orphan_skips / total_orphan_attempts * 100) if total_orphan_attempts > 0 else 0.0
+            logger.info(f"      • Race Prevention: {savings_rate:.1f}% ({orphan_skips} saved by grace period)")
 
             logger.info("   --------------------------------------")
             logger.info("   🧾 Recorded Expenses (Database):")
