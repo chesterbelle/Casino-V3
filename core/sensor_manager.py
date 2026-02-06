@@ -267,7 +267,8 @@ class SensorManager:
             score=signal_data.get("score", 1.0),
             metadata=metadata,
         )
-        logger.info(f"📡 Signal Detected: {sensor_name}@{signal_tf} -> {signal_data['side']} [{target_symbol}]")
+        # Phase 180: Silent Sensors (Switch to DEBUG to reduce minute-boundary log burst)
+        logger.debug(f"📡 Signal Detected: {sensor_name}@{signal_tf} -> {signal_data['side']} [{target_symbol}]")
         await self.engine.dispatch(event)
 
     def stop(self):

@@ -1,12 +1,8 @@
-"""
-Candle Maker Component.
-Aggregates ticks into candles and emits CandleEvents.
-Multi-Symbol Safe: Each symbol has its own candle state.
-"""
-
 import asyncio
 import logging
+import os
 import time
+from concurrent.futures import ProcessPoolExecutor
 from typing import Dict
 
 from .events import EventType, FootprintCandleEvent, TickEvent
@@ -14,83 +10,15 @@ from .events import EventType, FootprintCandleEvent, TickEvent
 logger = logging.getLogger(__name__)
 
 
-class CandleMaker:
+def calculate_footprint_stats_worker(profile: dict, total_volume: float):
     """
-    Subscribes to TICK events and emits CANDLE events.
-    Multi-Symbol Safe: Maintains separate candle state per symbol.
+    Worker function for calculating POC, VAH, VAL from profile.
+    Runs in a separate process to avoid blocking the main event loop.
     """
+    if not profile or total_volume == 0:
+        return 0.0, 0.0, 0.0
 
-    def __init__(self, engine, timeframe_seconds=60):
-        self.engine = engine
-        self.timeframe = timeframe_seconds
-        # Multi-symbol safe: Dict[symbol, candle_data]
-        self.current_candles: Dict[str, dict] = {}
-        self.last_candle_times: Dict[str, int] = {}
-
-        # Subscribe to Ticks
-        self.engine.subscribe(EventType.TICK, self.on_tick)
-
-    async def on_tick(self, tick: TickEvent):
-        """Process incoming tick (multi-symbol safe)."""
-        symbol = tick.symbol
-
-        # Calculate candle start time (floor to minute)
-        tick_time = int(tick.timestamp)
-        candle_start_time = tick_time - (tick_time % self.timeframe)
-
-        # Get current candle for THIS symbol
-        current_candle = self.current_candles.get(symbol)
-        last_candle_time = self.last_candle_times.get(symbol, 0)
-
-        # If we have a current candle for this symbol and we moved to a new minute
-        if current_candle and candle_start_time > last_candle_time:
-            # Emit the closed candle
-            await self._emit_candle(current_candle)
-            # Reset for new candle
-            current_candle = None
-            self.current_candles[symbol] = None
-
-        # Initialize new candle if needed
-        if not current_candle:
-            current_candle = {
-                "timestamp": candle_start_time,
-                "symbol": symbol,
-                "open": tick.price,
-                "high": tick.price,
-                "low": tick.price,
-                "close": tick.price,
-                "volume": tick.volume,
-                "profile": {},  # Price -> {bid: 0, ask: 0}
-                "delta": 0.0,
-            }
-            self.current_candles[symbol] = current_candle
-            self.last_candle_times[symbol] = candle_start_time
-        else:
-            # Update current candle
-            current_candle["high"] = max(current_candle["high"], tick.price)
-            current_candle["low"] = min(current_candle["low"], tick.price)
-            current_candle["close"] = tick.price
-            current_candle["volume"] += tick.volume
-
-        # Update Footprint Profile
-        price_level = tick.price  # In real impl, round to tick size
-        if price_level not in current_candle["profile"]:
-            current_candle["profile"][price_level] = {"bid": 0.0, "ask": 0.0}
-
-        if tick.side == "BID":
-            current_candle["profile"][price_level]["bid"] += tick.volume
-            current_candle["delta"] -= tick.volume
-        elif tick.side == "ASK":
-            current_candle["profile"][price_level]["ask"] += tick.volume
-            current_candle["delta"] += tick.volume
-
-    def _calculate_footprint_stats(self, profile: dict, total_volume: float):
-        """
-        Calculate POC, VAH, VAL from profile.
-        """
-        if not profile or total_volume == 0:
-            return 0.0, 0.0, 0.0
-
+    try:
         # 1. Find POC (Price with max volume)
         sorted_levels = sorted(profile.items(), key=lambda x: x[0])  # Sort by price
         max_vol = -1
@@ -136,7 +64,6 @@ class CandleMaker:
                 break
 
             # Expand to side with more volume (dual auction theory)
-            # Or expand both if equal (rare)
             if vol_up > vol_down:
                 current_vol += vol_up
                 up_idx += 1
@@ -148,12 +75,100 @@ class CandleMaker:
         vah = levels_vol[up_idx][0]
 
         return poc_price, vah, val
+    except Exception as e:
+        logger.error(f"Error in footprint worker: {e}")
+        return 0.0, 0.0, 0.0
+
+
+class CandleMaker:
+    """
+    Subscribes to TICK events and emits CANDLE events.
+    Multi-Symbol Safe: Maintains separate candle state per symbol.
+    """
+
+    def __init__(self, engine, timeframe_seconds=60):
+        self.engine = engine
+        self.timeframe = timeframe_seconds
+        # Multi-symbol safe: Dict[symbol, candle_data]
+        self.current_candles: Dict[str, dict] = {}
+        self.last_candle_times: Dict[str, int] = {}
+
+        # Phase 180: Parallel Footprint Calculation
+        # Use a small pool to offload intensive sort/math operations
+        self._executor = ProcessPoolExecutor(
+            max_workers=max(2, (os.cpu_count() or 4) // 4), thread_name_prefix="FootprintWorker"
+        )
+
+        # Subscribe to Ticks
+        self.engine.subscribe(EventType.TICK, self.on_tick)
+
+    async def on_tick(self, tick: TickEvent):
+        """Process incoming tick (multi-symbol safe)."""
+        symbol = tick.symbol
+
+        # Calculate candle start time (floor to minute)
+        tick_time = int(tick.timestamp)
+        candle_start_time = tick_time - (tick_time % self.timeframe)
+
+        # Get current candle for THIS symbol
+        current_candle = self.current_candles.get(symbol)
+        last_candle_time = self.last_candle_times.get(symbol, 0)
+
+        # If we have a current candle for this symbol and we moved to a new minute
+        if current_candle and candle_start_time > last_candle_time:
+            # Emit the closed candle (Phase 180: Background processing)
+            asyncio.create_task(self._emit_candle(current_candle))
+            # Reset for new candle
+            current_candle = None
+            self.current_candles[symbol] = None
+
+        # Initialize new candle if needed
+        if not current_candle:
+            current_candle = {
+                "timestamp": candle_start_time,
+                "symbol": symbol,
+                "open": tick.price,
+                "high": tick.price,
+                "low": tick.price,
+                "close": tick.price,
+                "volume": tick.volume,
+                "profile": {},  # Price -> {bid: 0, ask: 0}
+                "delta": 0.0,
+            }
+            self.current_candles[symbol] = current_candle
+            self.last_candle_times[symbol] = candle_start_time
+        else:
+            # Update current candle
+            current_candle["high"] = max(current_candle["high"], tick.price)
+            current_candle["low"] = min(current_candle["low"], tick.price)
+            current_candle["close"] = tick.price
+            current_candle["volume"] += tick.volume
+
+        # Update Footprint Profile
+        price_level = tick.price  # In real impl, round to tick size
+        if price_level not in current_candle["profile"]:
+            current_candle["profile"][price_level] = {"bid": 0.0, "ask": 0.0}
+
+        if tick.side == "BID":
+            current_candle["profile"][price_level]["bid"] += tick.volume
+            current_candle["delta"] -= tick.volume
+        elif tick.side == "ASK":
+            current_candle["profile"][price_level]["ask"] += tick.volume
+            current_candle["delta"] += tick.volume
 
     async def _emit_candle(self, candle_data: dict):
-        """Emit a closed candle event."""
-
-        # Calculate advanced stats
-        poc, vah, val = self._calculate_footprint_stats(candle_data["profile"], candle_data["volume"])
+        """Emit a closed candle event with background footprint calculation."""
+        # Calculate advanced stats in executor (Phase 180)
+        loop = asyncio.get_running_loop()
+        try:
+            # Offload heavy sort and VA calculation to process pool
+            # This prevents 42 simultaneous candle closures from blocking the main loop
+            poc, vah, val = await loop.run_in_executor(
+                self._executor, calculate_footprint_stats_worker, candle_data["profile"], candle_data["volume"]
+            )
+        except Exception as e:
+            logger.error(f"❌ Footprint Calculation Failed for {candle_data['symbol']}: {e}")
+            poc, vah, val = 0.0, 0.0, 0.0
 
         event = FootprintCandleEvent(
             type=EventType.CANDLE,
@@ -174,6 +189,11 @@ class CandleMaker:
         logger.info(
             f"🕯️ Candle Closed: {candle_data['symbol']} {event.close} | Vol: {event.volume} | Delta: {event.delta:.2f} | POC: {poc}"
         )
-        # Use create_task to prevent blocking the tick processing loop
-        # This is CRITICAL for multi-symbol performance to allow parallel OCO creation
-        asyncio.create_task(self.engine.dispatch(event))
+
+        # Dispatch to engine
+        await self.engine.dispatch(event)
+
+    def stop(self):
+        """Shutdown the executor."""
+        if hasattr(self, "_executor"):
+            self._executor.shutdown(wait=False)

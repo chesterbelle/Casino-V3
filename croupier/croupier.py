@@ -922,16 +922,18 @@ class Croupier(TimeIterator):
         """
         # Phase 31: OrderTracker removed - PositionTracker handles order state
 
-        # 2. Periodic Balance Sync (Every 5 mins)
-        if int(timestamp) % 300 == 0:
+        # 2. Periodic Balance Sync (Every 5 mins) - Offset by 30s to avoid candle boundary
+        if int(timestamp) % 300 == 30:
             asyncio.create_task(self._sync_balance())
 
         # 2.5. Periodic Funding Sync (Every 10 mins) - Phase 30
         if timestamp - self._last_funding_sync >= 600:
+            # We don't need a strict modulo here, but let's ensure it doesn't always hit :00
             asyncio.create_task(self._sync_funding_fees())
 
         # 3. Periodic Reconciliation (Every 60s) - Safety Net for Ghosts
-        if int(timestamp) % 60 == 0:
+        # Phase 180: Offset by 15s to avoid colliding with 42 candle closures at :00
+        if int(timestamp) % 60 == 15:
             # We use reconcile_positions(None) to reconcile ALL symbols
             # This is lightweight if tracking matches exchange, heavy if detachment found.
             asyncio.create_task(self.reconcile_positions(None))

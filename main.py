@@ -326,7 +326,7 @@ async def main():
 
     # 5. Initialize Candle Maker (Tick → Candle)
     # Fixed 1m (60s) heartbeat for multi-timeframe aggregator compatibility
-    CandleMaker(engine, timeframe_seconds=60)
+    candle_maker = CandleMaker(engine, timeframe_seconds=60)
 
     # 6. Initialize Sensor Manager (Candle → Signal)
     sensor_manager = SensorManager(engine)
@@ -1034,6 +1034,12 @@ async def main():
             await clock.stop()
             # Phase 102: Industrial Resilience - Stop Croupier services
             await croupier.stop()
+
+            # Phase 180: Throughput Optimization - Stop Process Pools
+            if "sensor_manager" in locals():
+                sensor_manager.stop()
+            if "candle_maker" in locals():
+                candle_maker.stop()
         except Exception as e:
             logger.error(f"❌ Error stopping clock/croupier: {e}")
 
