@@ -95,9 +95,7 @@ class CandleMaker:
 
         # Phase 180: Parallel Footprint Calculation
         # Use a small pool to offload intensive sort/math operations
-        self._executor = ProcessPoolExecutor(
-            max_workers=max(2, (os.cpu_count() or 4) // 4), thread_name_prefix="FootprintWorker"
-        )
+        self._executor = ProcessPoolExecutor(max_workers=max(2, (os.cpu_count() or 4) // 4))
 
         # Subscribe to Ticks
         self.engine.subscribe(EventType.TICK, self.on_tick)
