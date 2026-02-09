@@ -803,9 +803,12 @@ class ReconciliationService:
         for ex_pos in exchange_positions:
             ex_symbol = normalize_symbol(ex_pos.get("symbol", "")).replace("/", "")
             ex_size = abs(float(ex_pos.get("contracts", 0) or ex_pos.get("size", 0) or ex_pos.get("amount", 0) or 0))
-            # Basic match: Symbol + Size > 0. Could verify side too.
-            if ex_symbol == local_symbol_norm and ex_size > 0:
-                return True
+            # Phase 232: Dust Tolerance (0.005 units/contracts)
+            # If the residual is too small to be tradable, treated as non-existent to allow tracker cleanup.
+            if ex_symbol == local_symbol_norm:
+                self.logger.debug(f"🔍 Recon Check: {ex_symbol} | Size: {ex_size} | Tol: 0.005")
+                if ex_size > 0.005:
+                    return True
         return False
 
     def _exists_in_tracker(self, exchange_pos: Dict, local_positions: List) -> bool:

@@ -1,0 +1,15 @@
+
+📊 SESSION SUMMARY REPORT
+==========================
+Total Trades: 111
+Net PnL:      -7.6710 USDT
+Gross PnL:    -5.5756 USDT
+Total Fees:   1.0920 USDT
+Win Rate:     35.14% (39W / 72L)
+--------------------------
+⏱️  LATENCY TELEMETRY
+Internal (Avg): 931.7 ms
+Internal (Max): 3108.2 ms
+External (Avg): 528.3 ms
+External (Max): 2183.8 ms
+==========================

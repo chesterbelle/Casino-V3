@@ -148,22 +148,23 @@ class MultiSymbolValidator:
         logger.info("🧹 Force cleanup for all target symbols...")
         for symbol in self.symbols:
             try:
-                # 1. Close positions for this specific symbol
+                # 1. Cancel all open orders for this symbol first (to unlock reduceOnly)
+                open_orders = await self.connector.fetch_open_orders(symbol)
+                for order in open_orders:
+                    logger.info(f"   Cancelling {symbol} order: {order['id']}")
+                    await self.connector.cancel_order(order["id"], symbol)
+
+                # 2. Close positions for this specific symbol
                 positions = await self.connector.fetch_positions([symbol])
                 for pos in positions:
-                    size = abs(float(pos.get("size", 0)))
+                    # Binance Native returns 'contracts' for amount. Fallback to 'size' for cross-adapter safety.
+                    size = abs(float(pos.get("contracts") or pos.get("size") or 0))
                     if size > 0:
                         side = "sell" if pos.get("side") == "LONG" else "buy"
                         logger.info(f"   Closing {symbol} position: {pos.get('side')} {size}")
                         await self.connector.create_order(
                             symbol=symbol, order_type="market", side=side, amount=size, params={"reduceOnly": "true"}
                         )
-
-                # 2. Cancel all open orders for this symbol
-                open_orders = await self.connector.fetch_open_orders(symbol)
-                for order in open_orders:
-                    logger.info(f"   Cancelling {symbol} order: {order['id']}")
-                    await self.connector.cancel_order(order["id"], symbol)
 
             except Exception as e:
                 logger.warning(f"⚠️ Cleanup error for {symbol}: {e}")
@@ -346,7 +347,8 @@ class MultiSymbolValidator:
 
                 ex_pos = await self.connector.fetch_positions([symbol])
                 for p in ex_pos:
-                    if abs(float(p.get("size", 0))) > 0.0001:
+                    size = abs(float(p.get("contracts") or p.get("size") or 0))
+                    if size > 0.005:
                         logger.error(f"❌ exchange not clean: {symbol} still has an open position!")
                         return False
             logger.info("✅ Exchange is clean for all tested symbols")
@@ -395,7 +397,7 @@ class MultiSymbolValidator:
 async def main():
     parser = argparse.ArgumentParser(description="Multi-Symbol Stress Test Validator")
     parser.add_argument(
-        "--symbols", default="LTCUSDT,BTCUSDT,ETHUSDT", help="Comma separated symbols (e.g. LTCUSDT,BTCUSDT)"
+        "--symbols", default="LTCUSDT,DOGEUSDT,ETHUSDT", help="Comma separated symbols (e.g. LTCUSDT,DOGEUSDT)"
     )
     parser.add_argument("--mode", default="demo", choices=["demo", "live"], help="Exchange mode")
     parser.add_argument("--size", type=float, default=500.0, help="Position size fraction")

@@ -9,10 +9,17 @@ from typing import Dict, List, Optional, Set
 import aiohttp
 
 # Configure minimal logging for the worker
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s | WORKER:%(process)d:%(name)s | %(levelname)s | %(message)s"
-)
 logger = logging.getLogger("BinanceWorker")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    # Console (mirrored to parent)
+    ch = logging.StreamHandler()
+    ch.setFormatter(logging.Formatter("%(asctime)s | WORKER:%(process)d:%(name)s | %(levelname)s | %(message)s"))
+    logger.addHandler(ch)
+    # Dedicated debug file
+    fh = logging.FileHandler("logs/workers.log", mode="a")
+    fh.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+    logger.addHandler(fh)
 
 
 class BinanceWorker(multiprocessing.Process):
@@ -120,11 +127,14 @@ class BinanceWorker(multiprocessing.Process):
                     data["_worker_pid"] = os.getpid()
 
                     # Push to main process (non-blocking via executor)
-                    # Use run_in_executor to avoid blocking the loop if queue is full
-                    # But if queue is full, we drop packets? No, queue.put blocks.
-                    # run_in_executor(None, queue.put, ...) executes in thread pool.
-                    await loop.run_in_executor(None, self.output_queue.put, data)
-                    self.msg_count += 1
+                    # Use timed put to avoid indefinite blocking of worker thread
+                    try:
+                        await loop.run_in_executor(None, self.output_queue.put, data, 0.5)
+                        self.msg_count += 1
+                    except Exception:
+                        # Log only occasionally to prevent spam
+                        if self.msg_count % 100 == 0:
+                            logger.warning(f"⚠️ [{self.worker_id}] Output queue full, dropping message")
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
             elif msg.type == aiohttp.WSMsgType.ERROR:

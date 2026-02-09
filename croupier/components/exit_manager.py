@@ -155,13 +155,36 @@ class ExitManager:
 
         try:
             # 1. Move TP to Entry (Breakeven + Fees cover)
-            # 1.002 to cover fee + slight profit
             if position.side == "LONG":
                 new_tp = position.entry_price * 1.002
-                new_sl = position.entry_price * 0.995  # -0.5% stop
+                # Phase 210: Active Defense - Tighten SL to -0.5% MAX
+                max_loss_price = position.entry_price * 0.995
+                current_sl = position.sl_level
+                # If current SL is lower (worse) than max loss, tighten it.
+                if current_sl < max_loss_price:
+                    new_sl = max_loss_price
+                else:
+                    new_sl = current_sl
+
+                # If position is profitable, move SL to Breakeven
+                # (We rely on _check_breakeven to handle this normally, but force it here for drain)
+                if position.entry_price < (position.last_price or 0):
+                    new_sl = max(new_sl, position.entry_price * 1.001)
+
             else:
                 new_tp = position.entry_price * 0.998
-                new_sl = position.entry_price * 1.005  # -0.5% stop
+                # Phase 210: Active Defense - Tighten SL to -0.5% MAX
+                max_loss_price = position.entry_price * 1.005
+                current_sl = position.sl_level
+                # If current SL is higher (worse) than max loss, tighten it.
+                if current_sl > max_loss_price:
+                    new_sl = max_loss_price
+                else:
+                    new_sl = current_sl
+
+                # If profitable (Entry > Current), move SL to Breakeven
+                if position.entry_price > (position.last_price or 0) and (position.last_price or 0) > 0:
+                    new_sl = min(new_sl, position.entry_price * 0.999)
 
             # Update TP
             await self.croupier.modify_tp(
@@ -171,7 +194,7 @@ class ExitManager:
                 old_tp_order_id=position.tp_order_id,
             )
 
-            # Update SL (Only if tighter than current)
+            # Update SL (Only if tighter)
             update_sl = False
             if position.side == "LONG" and new_sl > position.sl_level:
                 update_sl = True
@@ -179,7 +202,7 @@ class ExitManager:
                 update_sl = True
 
             if update_sl:
-                await self._update_sl(position, new_sl, "Defensive Drain")
+                await self._update_sl(position, new_sl, "Defensive Drain (Active)")
 
         except Exception as e:
             self.logger.error(f"❌ Failed to apply defensive exit: {e}")

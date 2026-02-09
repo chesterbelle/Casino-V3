@@ -354,7 +354,18 @@ class ExchangeAdapter(NetworkIterator):
         self.logger.info(f"🔍 get_current_price | requested_symbol={symbol} | adapter_symbol={self.symbol}")
 
         try:
-            # Obtener ticker del exchange (async)
+            # Phase 230: Fast-Track Optimization (Cache First)
+            cached_price = self.get_cached_price(symbol)
+            if cached_price and cached_price > 0:
+                # Check if cache is stale (Price lookup only needs ticker)
+                if hasattr(self.connector, "is_cache_stale") and not self.connector.is_cache_stale(
+                    symbol, check_order_book=False
+                ):
+                    self.logger.info(f"💾 Using cached price for {symbol}: {cached_price}")
+                    return cached_price
+
+            # Fallback to REST
+            self.logger.info(f"🌐 Cache miss/stale for {symbol}, fetching ticker via REST...")
             ticker = await self.connector.fetch_ticker(symbol)
             current_price = ticker.get("last")
 
@@ -375,6 +386,27 @@ class ExchangeAdapter(NetworkIterator):
         except Exception as e:
             self.logger.error(f"❌ Error getting current price for {symbol}: {e}")
             raise ValueError(f"Cannot get current price for {symbol}: {e}")
+
+    def get_cached_price(self, symbol: str = None) -> Optional[float]:
+        """Get last price from connector cache (Phase 230)."""
+        symbol = symbol or self.symbol
+        if hasattr(self.connector, "get_cached_price"):
+            return self.connector.get_cached_price(symbol)
+        return None
+
+    def get_cached_order_book(self, symbol: str = None) -> Optional[Dict]:
+        """Get last order book from connector cache (Phase 230)."""
+        symbol = symbol or self.symbol
+        if hasattr(self.connector, "get_cached_order_book"):
+            return self.connector.get_cached_order_book(symbol)
+        return None
+
+    def is_cache_stale(self, symbol: str = None, threshold_ms: int = 1500) -> bool:
+        """Check if cached data is older than threshold (Phase 230)."""
+        symbol = symbol or self.symbol
+        if hasattr(self.connector, "is_cache_stale"):
+            return self.connector.is_cache_stale(symbol, threshold_ms)
+        return True
 
     @property
     def supports_native_oco(self) -> bool:

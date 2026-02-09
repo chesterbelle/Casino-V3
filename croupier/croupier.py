@@ -259,38 +259,39 @@ class Croupier(TimeIterator):
             # STEP 0: Gracefully close TRACKED positions first (Counts towards stats/PnL)
             if close_positions and self.position_tracker.open_positions:
                 tracked_positions = list(self.position_tracker.open_positions)
-                self.logger.info(f"🛡️ Gracefully closing {len(tracked_positions)} tracked positions (Throttled)...")
+                self.logger.info(f"🛡️ Gracefully closing {len(tracked_positions)} tracked positions (Parallel)...")
 
-                # Phase 33: Rate Limit Closure
-                # Max 5 per minute = 1 every 12 seconds? No, that's too slow for shutdown.
-                # Let's target 1 every 0.5s to be safe but fast enough (120/min).
-                # The User Config DRAIN_MAX_CLOSE_RATE is mainly for "Early Draining".
-                # For Emergency Sweep, we just need to avoid the -1021 burst.
-                # 0.2s delay = 5 requests/sec = OK.
+                # Phase 200: Concurrent Draining Optimization
+                # Use a semaphore to allow 5 concurrent closes per batch
+                # This drastically reduces draining time for 42 symbols (e.g. 8s -> 1.5s)
+                sem = asyncio.Semaphore(5)
 
-                for i, pos in enumerate(tracked_positions):
-                    # Only close positions for the requested symbols
-                    pos_symbol = normalize_symbol(pos.symbol)
-                    if symbols:
-                        norm_symbols = [normalize_symbol(s) for s in symbols]
-                        if pos_symbol not in norm_symbols:
-                            continue
+                async def close_with_sem(pos, idx, total):
+                    async with sem:
+                        try:
+                            self.logger.info(
+                                f"📉 Closing tracked position {pos.trade_id} ({pos.symbol}) [{idx+1}/{total}]"
+                            )
+                            await self.close_position(pos.trade_id, exit_reason=reason, position_obj=pos)
+                            report["positions_closed"] += 1
+                        except Exception as e:
+                            self.logger.error(f"❌ Failed to close {pos.trade_id}: {e}")
+                        finally:
+                            if watchdog:
+                                watchdog.heartbeat()
+                            # Small stagger to prevent exact millisecond collision
+                            await asyncio.sleep(0.05)
 
-                    try:
-                        self.logger.info(
-                            f"📉 Closing tracked position {pos.trade_id} ({pos.symbol}) [{i+1}/{len(tracked_positions)}]"
-                        )
-                        await self.close_position(pos.trade_id, exit_reason=reason, position_obj=pos)
-                        report["positions_closed"] += 1
+                # Launch all close tasks
+                tasks = [close_with_sem(pos, i, len(tracked_positions)) for i, pos in enumerate(tracked_positions)]
 
-                        if watchdog:
-                            watchdog.heartbeat()
+                # Filter by symbol if requested
+                if symbols:
+                    norm_symbols = [normalize_symbol(s) for s in symbols]
+                    tasks = [t for t, p in zip(tasks, tracked_positions) if normalize_symbol(p.symbol) in norm_symbols]
 
-                        # Prevent API Storm
-                        await asyncio.sleep(0.2)
-
-                    except Exception as e:
-                        self.logger.error(f"❌ Failed to close {pos.trade_id}: {e}")
+                if tasks:
+                    await asyncio.gather(*tasks)
 
             # --- OPTIMIZED BRUTE FORCE SWEEP (Catch ghosts/orphans/remainders) ---
             # We use a loop for the "Smart Exit" to ensure everything is really closed.
@@ -785,6 +786,8 @@ class Croupier(TimeIterator):
 
     def can_open_position(self, margin_required: float) -> bool:
         """Check if we can open a new position."""
+        if self.is_drain_mode:
+            return False
         return self.balance_manager.can_open_position(margin_required)
 
     def is_pending(self, symbol: str) -> bool:

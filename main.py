@@ -592,11 +592,13 @@ async def main():
     # Start the Clock Reactor
     clock_task = asyncio.create_task(clock.start())
 
-    # Subscribe to ticker & trades for ALL active symbols
+    # Subscribe to ticker, trades & depth for ALL active symbols
     for sym in active_symbols:
         logger.info(f"📡 Subscribing to {sym}...")
         await data_feed.subscribe_ticker(sym)
         await data_feed.subscribe_trades(sym)
+        # Phase 230: Enable depth cache for fast execution
+        await data_feed.subscribe_depth(sym)
         # Spread the initial task creation load
         await asyncio.sleep(0.5)
 

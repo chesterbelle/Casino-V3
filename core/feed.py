@@ -197,6 +197,16 @@ class StreamManager:
         else:
             logger.info(f"📝 Queued trades subscription: {norm_symbol}")
 
+    async def subscribe_depth(self, symbol: str, levels: int = 5):
+        """
+        Specialized subscription for Fast-Track Execution depth cache (Phase 230).
+        This does NOT start a loop; it tells the connector to start caching depth.
+        """
+        norm_symbol = normalize_symbol(symbol)
+        if hasattr(self.adapter, "connector") and hasattr(self.adapter.connector, "subscribe_depth"):
+            await self.adapter.connector.subscribe_depth(symbol, levels)
+            logger.info(f"📡 Depth Caching Enabled for {norm_symbol} (levels={levels})")
+
     async def unsubscribe_all(self, symbol: str):
         """
         Unsubscribe from all streams for a symbol.

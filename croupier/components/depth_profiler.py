@@ -18,70 +18,70 @@ class DepthProfiler:
 
     async def analyze_execution(self, symbol: str, side: str, amount: float, limit: int = 20) -> Dict[str, Any]:
         """
-        Analyzes the potential impact of a market order.
-
-        Args:
-            symbol: Trading pair
-            side: 'buy' (consuming asks) or 'sell' (consuming bids)
-            amount: Quantity to execute
-            limit: Order book depth to fetch
-
-        Returns:
-            Dict with:
-                avg_price: Estimated average execution price
-                slippage_pct: Estimated slippage relative to best bid/ask
-                best_price: Current best bid/ask
-                total_notional: Cost in quote currency
-                is_safe: True if slippage < 1% (configurable)
+        Analyzes the potential impact of a market order (REST-based).
         """
         try:
             book = await self.adapter.fetch_order_book(symbol, limit=limit)
-
-            # side='buy' -> we consume ASKS (lowest price first)
-            # side='sell' -> we consume BIDS (highest price first)
-            levels = book.get("asks" if side == "buy" else "bids", [])
-
-            if not levels:
-                self.logger.warning(f"⚠️ Empty order book for {symbol}")
-                return {"is_safe": False, "error": "empty_book"}
-
-            best_price = float(levels[0][0])
-            remaining_amount = amount
-            total_cost = 0.0
-
-            for price, qty in levels:
-                price = float(price)
-                qty = float(qty)
-
-                fill = min(remaining_amount, qty)
-                total_cost += fill * price
-                remaining_amount -= fill
-
-                if remaining_amount <= 0:
-                    break
-
-            if remaining_amount > 0:
-                self.logger.warning(
-                    f"💀 Insufficient depth for {symbol}: {amount} requested, {amount - remaining_amount} available in top {limit} levels"
-                )
-                # Estimate remaining at 5% worse price for safety metric
-                total_cost += remaining_amount * (best_price * (1.05 if side == "buy" else 0.95))
-
-            avg_price = total_cost / amount
-            slippage = abs(avg_price - best_price) / best_price
-
-            return {
-                "avg_price": avg_price,
-                "best_price": best_price,
-                "slippage_pct": slippage,
-                "total_notional": total_cost,
-                "is_safe": slippage < 0.01,  # Default 1% threshold
-                "depth_consumed": amount - max(0, remaining_amount),
-            }
-
+            return self._analyze_book(book, side, amount, limit)
         except Exception as e:
             self.logger.error(f"❌ Depth analysis failed for {symbol}: {e}")
-            return {"is_safe": True, "error": str(e)}  # Default to safe to not block if API fails
+            return {"is_safe": True, "error": str(e)}
+
+    def analyze_cached_execution(self, symbol: str, side: str, amount: float, limit: int = 5) -> Dict[str, Any]:
+        """
+        Analyzes the potential impact using cached data (Phase 230).
+        Zero Network I/O.
+        """
+        book = self.adapter.get_cached_order_book(symbol)
+        if not book:
+            return {"is_safe": False, "error": "cache_miss"}
+
+        # Check staleness
+        if self.adapter.is_cache_stale(symbol):
+            return {"is_safe": False, "error": "cache_stale"}
+
+        return self._analyze_book(book, side, amount, limit)
+
+    def _analyze_book(self, book: Dict[str, Any], side: str, amount: float, limit: int) -> Dict[str, Any]:
+        """Internal helper for slippage calculation."""
+        # side='buy' -> we consume ASKS (lowest price first)
+        # side='sell' -> we consume BIDS (highest price first)
+        levels = book.get("asks" if side == "buy" else "bids", [])
+
+        if not levels:
+            return {"is_safe": False, "error": "empty_book"}
+
+        best_price = float(levels[0][0])
+        remaining_amount = amount
+        total_cost = 0.0
+
+        for price, qty in levels:
+            price = float(price)
+            qty = float(qty)
+
+            fill = min(remaining_amount, qty)
+            total_cost += fill * price
+            remaining_amount -= fill
+
+            if remaining_amount <= 0:
+                break
+
+        if remaining_amount > 0:
+            # Estimate remaining at 5% worse price for safety metric
+            total_cost += remaining_amount * (best_price * (1.05 if side == "buy" else 0.95))
+
+        avg_price = total_cost / amount
+        slippage = abs(avg_price - best_price) / best_price
+
+        return {
+            "avg_price": avg_price,
+            "best_price": best_price,
+            "slippage_pct": slippage,
+            "total_notional": total_cost,
+            "is_safe": slippage < 0.01,  # Default 1% threshold
+            "depth_consumed": amount - max(0, remaining_amount),
+            "source": "cache" if "timestamp" in book else "rest",
+        }
 
     def get_safe_chunk_size(self, symbol: str, side: str, max_slippage_pct: float = 0.002) -> float:
         """

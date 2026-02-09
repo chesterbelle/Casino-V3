@@ -103,7 +103,16 @@ class OrderManager:
 
         # Calculate sizing via centralized OrderExecutor logic (Phase 46)
         try:
-            current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
+            # Phase 230: Fast-Track Pricing (<1ms vs ~300ms)
+            current_price = self.croupier.exchange_adapter.get_cached_price(symbol)
+            if (
+                not current_price
+                or current_price <= 0
+                or self.croupier.exchange_adapter.is_cache_stale(symbol, check_order_book=False)
+            ):
+                logger.info(f"💾 Cache Miss/Stale for {symbol}, falling back to REST price lookup...")
+                current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
+
             position_value, amount = self.croupier.order_executor.calculate_sizing(
                 symbol=symbol,
                 bet_size=bet_size,

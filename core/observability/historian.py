@@ -455,7 +455,15 @@ class TradeHistorian:
 
                     -- Error/Leakage PnL = True Errors (Ghosts, Force Closes, Audits)
                     SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN net_pnl ELSE 0 END) as error_pnl,
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN 1 ELSE 0 END) as error_count
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
+
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
+
+                    -- Phase 190: Latency Telemetry
+                    AVG((t2_submit_ts - t0_signal_ts) * 1000) as avg_internal_latency,
+                    MAX((t2_submit_ts - t0_signal_ts) * 1000) as max_internal_latency,
+                    AVG((t4_fill_ts - t2_submit_ts) * 1000) as avg_external_latency,
+                    MAX((t4_fill_ts - t2_submit_ts) * 1000) as max_external_latency
 
                 FROM trades
             """
@@ -483,11 +491,12 @@ class TradeHistorian:
                         "healed_pnl": 0.0,
                         "healed_count": 0,
                         "error_pnl": 0.0,
-                        "error_count": 0,
-                        "active_pnl": 0.0,
-                        "active_count": 0,
                         "drain_pnl": 0.0,
                         "drain_count": 0,
+                        "avg_internal_latency": 0.0,
+                        "max_internal_latency": 0.0,
+                        "avg_external_latency": 0.0,
+                        "max_external_latency": 0.0,
                     }
                 )
 
@@ -658,6 +667,12 @@ if __name__ == "__main__":
         print(
             f"Win Rate:     {(stats['wins'] * 100 / stats['count'] if stats['count'] > 0 else 0):.2f}% ({stats['wins']}W / {stats['losses']}L)"
         )
+        print("--------------------------")
+        print("⏱️  LATENCY TELEMETRY")
+        print(f"Internal (Avg): {stats.get('avg_internal_latency', 0) or 0:.1f} ms")
+        print(f"Internal (Max): {stats.get('max_internal_latency', 0) or 0:.1f} ms")
+        print(f"External (Avg): {stats.get('avg_external_latency', 0) or 0:.1f} ms")
+        print(f"External (Max): {stats.get('max_external_latency', 0) or 0:.1f} ms")
         print("==========================\n")
 
     if args.details:

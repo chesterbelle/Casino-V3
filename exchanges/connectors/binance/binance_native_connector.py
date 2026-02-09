@@ -94,6 +94,10 @@ class BinanceNativeConnector(BaseConnector):
         # Ticker Queues for blocking watch_ticker
         self._ticker_queues: Dict[str, asyncio.Queue] = defaultdict(lambda: asyncio.Queue(maxsize=10))
 
+        # Order Book Cache (Phase 230: Fast-Track Execution)
+        # Key: native_symbol, Value: {"asks": [...], "bids": [...], "timestamp": ...}
+        self._order_books: Dict[str, Dict] = {}
+
         # WebSocket State
         self._market_data_ws: Optional[websockets.WebSocketClientProtocol] = None
         self._market_data_task: Optional[asyncio.Task] = None
@@ -467,8 +471,6 @@ class BinanceNativeConnector(BaseConnector):
             if self._enable_websocket:
                 # 4. Start Websocket Stream (non-blocking)
                 asyncio.create_task(self._start_market_data_stream())
-                # Phase 11: Start Subscription Worker
-                self._subscription_worker_task = asyncio.create_task(self._subscription_worker())
 
                 self.logger.info("✅ WebSocket & Subscription Worker started")
 
@@ -1404,10 +1406,12 @@ class BinanceNativeConnector(BaseConnector):
             # Spawn Shards
             for i in range(self._num_shards):
                 worker_id = f"Shard-{i}"
+                # Phase 230: Use /stream endpoint for market data to get "stream" wrapper (required for depth attribution)
+                market_ws_url = self._ws_base_url.replace("/ws", "/stream")
                 worker = BinanceWorker(
                     input_queue=self._shards_in_queues[i],
                     output_queue=self._shards_out_queues[i],
-                    base_url=self._ws_base_url,
+                    base_url=market_ws_url,
                     worker_id=worker_id,
                 )
                 worker.daemon = True
@@ -1503,6 +1507,15 @@ class BinanceNativeConnector(BaseConnector):
             try:
                 data = queue.get_nowait()
 
+                # Phase 230: Unwrap "stream" wrapper if present (from /stream endpoint)
+                if "stream" in data and "data" in data:
+                    stream_name = data["stream"]
+                    payload = data["data"]
+                    # If it's a depth snapshot, it won't have the "s" field, so we extract it from stream name
+                    if "@depth" in stream_name and "s" not in payload:
+                        payload["s"] = stream_name.split("@")[0].upper()
+                    data = payload
+
                 # Phase 102: Airlock Telemetry (Transit Latency)
                 worker_ts = data.get("_worker_ts")
                 if worker_ts:
@@ -1529,9 +1542,14 @@ class BinanceNativeConnector(BaseConnector):
 
                 event_type = data.get("e")
 
+                # Phase 230: Depth Handling (Depth streams don't have "e" field OR use depthUpdate for limited depth)
+                if (not event_type or event_type == "depthUpdate") and "b" in data and "a" in data:
+                    event_type = "depthSnapshot"
+
                 # Phase 91: Pulse Logging (Bridge)
                 # Phase 102: Enhanced pulse with queue size
-                if processed_count % 50 == 0:
+                # Phase 231: Only log if we actually processed something to avoid spam
+                if processed_count > 0 and processed_count % 50 == 0:
                     q_size = queue.qsize() if hasattr(queue, "qsize") else "?"
                     self.logger.debug(f"🌉 Bridge: Processed {processed_count} {source} events | Q_Size: {q_size}")
 
@@ -1542,6 +1560,8 @@ class BinanceNativeConnector(BaseConnector):
                 elif event_type in ("24hrTicker", "bookTicker", "@ticker", "ticker"):
                     self.logger.debug(f"📈 Bridge: Ticker update for {data.get('s')}")
                     self._handle_ticker_update(data)
+                elif event_type == "depthSnapshot":
+                    self._handle_depth_update(data)
 
                 # User Data Routing (Airlock Phase 91.1)
                 elif event_type == "ORDER_TRADE_UPDATE":
@@ -1558,8 +1578,8 @@ class BinanceNativeConnector(BaseConnector):
                 # Market data is limited to 100 per burst to prevent main loop starvation.
                 # User data (critical) is NOT limited to ensure atomic processing of state changes.
                 processed_count += 1
-                if source == "market" and processed_count >= 100:
-                    # Return and let _consume_ingestion_queue yield
+                if source.startswith("market") and processed_count >= 100:
+                    # Return and let _consume_shard_loop yield
                     return processed_count
                 # Note: For user events, we drain up to max_processed without intermediate sleeps.
 
@@ -1583,6 +1603,13 @@ class BinanceNativeConnector(BaseConnector):
         """Subscribe to ticker stream for a symbol."""
         native_symbol = self._normalize_symbol(symbol).lower()
         stream = f"{native_symbol}@ticker"
+        await self._subscribe_stream(stream)
+        self._active_subscriptions.add(stream)
+
+    async def subscribe_depth(self, symbol: str, levels: int = 5) -> None:
+        """Subscribe to depth stream for a symbol (Phase 230)."""
+        native_symbol = self._normalize_symbol(symbol).lower()
+        stream = f"{native_symbol}@depth{levels}"
         await self._subscribe_stream(stream)
         self._active_subscriptions.add(stream)
 
@@ -1751,6 +1778,49 @@ class BinanceNativeConnector(BaseConnector):
             q.put_nowait(ticker_data)
         except Exception:
             pass
+
+    def _handle_depth_update(self, data: Dict) -> None:
+        """Handle depth update (partial book) from WebSocket (Phase 230)."""
+        native_symbol = data.get("s", "")
+        if not native_symbol:
+            return
+
+        self._order_books[native_symbol] = {
+            "bids": [[float(p), float(q)] for p, q in data.get("b", [])],
+            "asks": [[float(p), float(q)] for p, q in data.get("a", [])],
+            "timestamp": data.get("T") or (time.time() * 1000),
+        }
+        # Phase 231: Debug logging to verify cache is being populated
+        self.logger.debug(f"🗄️ Cache: Depth snapshot updated for {native_symbol}")
+
+    def get_cached_order_book(self, symbol: str) -> Optional[Dict]:
+        """Get last order book from cache (Phase 230)."""
+        native_symbol = self._normalize_symbol(symbol)
+        return self._order_books.get(native_symbol)
+
+    def is_cache_stale(self, symbol: str, threshold_ms: int = 3000, check_order_book: bool = True) -> bool:
+        """Check if cached data for symbol is older than threshold (Phase 230)."""
+        native_symbol = self._normalize_symbol(symbol)
+        now_ms = time.time() * 1000
+
+        # Check ticker
+        ticker = self._tickers.get(native_symbol)
+        if not ticker:
+            return True
+        ticker_age = now_ms - ticker.get("timestamp", 0)
+        if ticker_age > threshold_ms:
+            return True
+
+        # Check order book (Optional)
+        if check_order_book:
+            ob = self._order_books.get(native_symbol)
+            if not ob:
+                return True
+            ob_age = now_ms - ob.get("timestamp", 0)
+            if ob_age > threshold_ms:
+                return True
+
+        return False
 
     # =========================================================
     # WEBSOCKET - User Data

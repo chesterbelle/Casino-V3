@@ -161,11 +161,17 @@ class OrderExecutor:
                 avg_lat = stats.get("avg_latency", 0)
                 raise ExchangeError(f"Safe Mode Active: High Latency ({avg_lat:.2f}ms)")
 
-        # Phase 102: Industrial Resilience - Execution Quality Analysis
-        analysis = await self.depth_profiler.analyze_execution(order["symbol"], order["side"], order["amount"])
+        # Phase 102/230: Industrial Resilience - Execution Quality Analysis
+        # Prefer cached analysis for speed (<5ms vs ~400ms)
+        analysis = self.depth_profiler.analyze_cached_execution(order["symbol"], order["side"], order["amount"])
+        if analysis.get("error"):
+            self.logger.info(f"💾 Cache Miss/Stale for {order['symbol']}, falling back to REST analysis...")
+            analysis = await self.depth_profiler.analyze_execution(order["symbol"], order["side"], order["amount"])
 
         slippage = analysis.get("slippage_pct", 0)
-        self.logger.info(f"📊 Market Impact Analysis: {order['symbol']} | Ext. Slippage: {slippage:.4%}")
+        self.logger.info(
+            f"📊 Market Impact Analysis ({analysis.get('source', 'unknown')}): {order['symbol']} | Ext. Slippage: {slippage:.4%}"
+        )
 
         if slippage > self.max_slippage_pct:
             # Check if this is a close order (Emergency/Stop) or entry
@@ -204,6 +210,25 @@ class OrderExecutor:
         # LOCAL TRACKING: Register in OrderTracker if available
         if self.order_tracker:
             self.order_tracker.track_local_order(result)
+
+        # Phase 232: Market Polish - Wait for immediate fills if 'open'
+        if result.get("status") == "open":
+            order_id = result.get("order_id")
+            for i in range(3):
+                self.logger.info(f"⏳ Polling Market Order {order_id} (Attempt {i+1})...")
+                await asyncio.sleep(0.5)
+                try:
+                    updated = await self.adapter.fetch_order(order_id, symbol)
+                    if updated.get("status") in ["closed", "filled"]:
+                        result.update(updated)
+                        self.logger.info(f"✅ Market Order {order_id} filled after polling.")
+                        break
+                    elif updated.get("status") in ["canceled", "rejected"]:
+                        result.update(updated)
+                        self.logger.warning(f"⚠️ Market Order {order_id} was {updated.get('status')}.")
+                        break
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Polling failed for {order_id}: {e}")
 
         # ENRICHMENT: Fetch exact fill details and fees if not present
         result = await self._enrich_fill_details(result, symbol)
@@ -608,24 +633,89 @@ class OrderExecutor:
             # Last chunk takes the remainder
             current_chunk = chunk_amount if i < num_chunks - 1 else remaining
 
+            # Phase 232: Small amount safety
             if current_chunk <= 0:
-                break
+                if i == num_chunks - 1 and results:
+                    break  # Already done
+                continue
 
             chunk_order = order.copy()
-            chunk_order["amount"] = current_chunk
-            # Ensure unique ID for each chunk
+            # Ensure last fragment is rounded correctly to avoid precision errors
+            chunk_order["amount"] = float(self.adapter.amount_to_precision(symbol, current_chunk))
+
+            # Ensure we don't try to send 0.0 after precision rounding
+            if float(chunk_order["amount"]) <= 0:
+                if i == num_chunks - 1:
+                    break
+                continue
+
             self._ensure_client_order_id(chunk_order, prefix=f"FRAG_{i}")
 
-            self.logger.info(f"📤 Executing Frag {i+1}/{num_chunks}: {current_chunk} {symbol}")
+            self.logger.info(f"📤 Executing Frag {i+1}/{num_chunks}: {chunk_order['amount']} {symbol}")
             res = await self.adapter.execute_order(chunk_order)
+
+            # Phase 232: Market Polish for fragments
+            if res.get("status") == "open":
+                f_id = res.get("order_id") or res.get("id")
+                for poll_i in range(3):
+                    self.logger.info(f"⏳ Polling Frag {i+1} {f_id} (Attempt {poll_i+1})...")
+                    await asyncio.sleep(0.5)
+                    try:
+                        updated = await self.adapter.fetch_order(f_id, symbol)
+                        if updated.get("status") in ["closed", "filled"]:
+                            res.update(updated)
+                            self.logger.info(f"✅ Frag {i+1} filled after polling.")
+                            break
+                    except Exception:
+                        pass
+
             results.append(res)
 
-            remaining -= current_chunk
+            # Phase 232 diagnostic: Log actual fill for this frag
+            f_id = res.get("order_id") or res.get("id")
+            f_filled = float(res.get("filled", 0))
+            f_status = res.get("status")
+            self.logger.info(f"📥 Frag {i+1}/{num_chunks} Response: ID={f_id}, Status={f_status}, Filled={f_filled}")
+
+            # Substract what was ACTUALLY requested in formatted units
+            remaining -= float(chunk_order["amount"])
+            # Ensure remaining doesn't go slightly negative due to float noise
+            remaining = max(0, remaining)
             # Small delay between chunks to let book recover
             if i < num_chunks - 1:
                 await asyncio.sleep(0.5)
 
-        # Aggregate results (take the first successful one for ID/status, but log all)
-        # In V3 architecture, the Croupier/PositionTracker will pick up individual fills
-        # so we just return the final result structure.
-        return results[-1] if results else {"error": "fragmentation_failed"}
+        # Aggregate results (Phase 230: Fix Result Mismatch)
+        if not results:
+            return {"error": "fragmentation_failed"}
+
+        # Use the last successful result as a template but update with aggregated values
+        final_result = results[-1].copy()
+
+        # Phase 232: Strict Fill Counting (Don't fall back to 'amount'!)
+        total_filled = sum(float(r.get("filled", 0)) for r in results)
+
+        total_cost = sum(
+            float(r.get("cost") or (float(r.get("filled", 0)) * float(r.get("average", 0))) or 0) for r in results
+        )
+        total_fee = sum(float(r.get("fee", {}).get("cost", 0)) for r in results if r.get("fee"))
+
+        final_result["amount"] = total_amount  # Original requested amount
+        final_result["filled"] = total_filled
+        final_result["cost"] = total_cost
+        if total_filled > 0:
+            final_result["average"] = total_cost / total_filled
+            final_result["price"] = final_result["average"]
+
+        if total_fee > 0:
+            final_result["fee"] = {
+                "cost": total_fee,
+                "currency": results[0].get("fee", {}).get("currency", "USDT"),
+            }
+
+        self.logger.info(
+            f"✅ Fragmented Order Aggregated: {total_amount} {symbol} | "
+            f"Filled: {total_filled} | AvgPrice: {final_result.get('average', 0):.4f}"
+        )
+
+        return final_result
