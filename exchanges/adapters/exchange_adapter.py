@@ -401,11 +401,11 @@ class ExchangeAdapter(NetworkIterator):
             return self.connector.get_cached_order_book(symbol)
         return None
 
-    def is_cache_stale(self, symbol: str = None, threshold_ms: int = 1500) -> bool:
+    def is_cache_stale(self, symbol: str = None, threshold_ms: int = 1500, **kwargs) -> bool:
         """Check if cached data is older than threshold (Phase 230)."""
         symbol = symbol or self.symbol
         if hasattr(self.connector, "is_cache_stale"):
-            return self.connector.is_cache_stale(symbol, threshold_ms)
+            return self.connector.is_cache_stale(symbol, threshold_ms, **kwargs)
         return True
 
     @property
