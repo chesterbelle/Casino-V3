@@ -26,7 +26,7 @@ class TestCroupier:
     @pytest.fixture
     def croupier(self, mock_adapter):
         """Create Croupier instance."""
-        return Croupier(exchange_adapter=mock_adapter, initial_balance=10000.0, max_concurrent_positions=5)
+        return Croupier(exchange_adapter=mock_adapter, initial_balance=10000.0)
 
     def test_croupier_initialization(self, croupier):
         """Test Croupier initializes all components correctly."""

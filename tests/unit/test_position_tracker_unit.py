@@ -2,7 +2,7 @@ from core.portfolio.position_tracker import PositionTracker
 
 
 def test_open_position_and_basic_properties():
-    tracker = PositionTracker(max_concurrent_positions=2, mode="simulation")
+    tracker = PositionTracker(mode="simulation")
     order = {
         "trade_id": "t1",
         "symbol": "BTC/USD",

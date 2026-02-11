@@ -1,0 +1,100 @@
+21:46:38 | PositionTracker | INFO    | PnL REAL: -0.16 | Fee (Entry+Exit): 0.0108 | Funding: +0.0000 | Bars: 0
+21:46:38 | Croupier        | INFO    | 🧹 Performing bracket cleanup for ETHUSDT after close...
+21:46:38 | TradeHistorian  | INFO    | 💾 Historian: Registered trade 8273860514 (ETHUSDT) | Net PnL: -0.1701 | Session: session_1770506074
+21:46:39 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: persistence_loop | Last heartbeat: 16.00s ago | Last message: 'Auto-save loop running'
+21:46:39 | BinanceNative   | ERROR   | ❌ Position sync TIMEOUT for XLMUSDT after 3.0s
+21:46:39 | OrderTracker    | ERROR   | ❌ Order failed | CASINO_1770515194677_7ae946f6 | Error: (-2022) ReduceOnly Order is rejected.
+21:46:39 | ResilientConnector[BinanceNativeConnector] | ERROR   | ❌ create_order falló | CASINO_1770515194677_7ae946f6 | (-2022) ReduceOnly Order is rejected.
+21:46:39 | exchanges.adapters.exchange_adapter | ERROR   | ❌ Error executing order: (-2022) ReduceOnly Order is rejected.
+21:46:39 | Croupier        | INFO    | ✅ Position 323633305 was already closed (TP/SL hit). Confirming closure in tracker.
+21:46:39 | exchanges.adapters.exchange_adapter | INFO    | 🔍 get_current_price | requested_symbol=XLMUSDT | adapter_symbol=MULTI
+21:46:39 | exchanges.adapters.exchange_adapter | INFO    | 💰 Current price for XLMUSDT: 0.16289
+21:46:39 | PositionTracker | INFO    | PnL REAL: -0.33 | Fee (Entry+Exit): 0.0062 | Funding: +0.0000 | Bars: 0
+21:46:39 | Croupier        | INFO    | 🧹 Performing bracket cleanup for XLMUSDT after close...
+21:46:39 | TradeHistorian  | INFO    | 💾 Historian: Registered trade 323633305 (XLMUSDT) | Net PnL: -0.3330 | Session: session_1770506074
+21:46:39 | Croupier        | INFO    | 🔍 Audit Sweep (Attempt 1/3)...
+21:46:40 | Croupier        | INFO    | ✅ Exchange is clean.
+21:46:40 | Croupier        | INFO    | ✅ Emergency sweep complete: 10 positions closed, 0 orders cancelled
+21:46:40 | Croupier        | WARNING | ⚠️ Cleaned up 10 positions and 0 orders from exchange
+21:46:40 | ErrorHandler    | INFO    | 🛑 ErrorHandler shutdown mode: DISABLED
+21:46:40 | Casino-V3       | INFO    | ⏳ Settle Phase: Waiting for PnL confirmation...
+21:46:41 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: clock_reactor | Last heartbeat: 10.00s ago | Last message: 'Clock loop active'
+21:46:41 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: main_loop | Last heartbeat: 30.85s ago | Last message: 'Clock Reactor Active'
+21:46:45 | Casino-V3       | INFO    | ⏳ Settling... (Active: 0, Pending: 8)
+21:46:50 | Casino-V3       | INFO    | ⏳ Settling... (Active: 0, Pending: 8)
+21:46:51 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: clock_reactor | Last heartbeat: 10.00s ago | Last message: 'Clock loop active'
+21:46:55 | Casino-V3       | INFO    | ⏳ Settling... (Active: 0, Pending: 8)
+21:46:55 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: persistence_loop | Last heartbeat: 16.00s ago | Last message: 'Auto-save loop running'
+21:47:00 | Casino-V3       | INFO    | ⏳ Settling... (Active: 0, Pending: 8)
+21:47:01 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: clock_reactor | Last heartbeat: 10.00s ago | Last message: 'Clock loop active'
+21:47:05 | Casino-V3       | INFO    | ⏳ Settling... (Active: 0, Pending: 8)
+21:47:05 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: feed_health_check | Last heartbeat: 61.83s ago | Last message: 'Checking WS health'
+21:47:10 | Casino-V3       | INFO    | ⏳ Settling... (Active: 0, Pending: 8)
+21:47:10 | Casino-V3       | INFO    | ✅ Settlement complete (30.0s). All trades accounted.
+21:47:10 | Casino-V3       | INFO    | 💰 Fetching final balance from exchange...
+21:47:10 | Casino-V3       | INFO    | 🔌 Disconnecting exchange connector...
+21:47:10 | ResilientConnector[BinanceNativeConnector] | INFO    | Cerrando conexión...
+21:47:10 | BinanceNative   | INFO    | 🔌 Closing Binance Native Connector...
+21:47:10 | ResilientConnector[BinanceNativeConnector] | INFO    | ✅ Conexión cerrada
+21:47:10 | Casino-V3       | INFO    | 📊 Generating Session Report...
+21:47:10 | Croupier        | INFO    | 🏦 Starting Ledger Reconciliation (Bank Statement Match)...
+21:47:10 | BinanceNative   | WARNING | ⚠️ HTTP session lost. Attempting lazy re-initialization...
+21:47:11 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: persistence_loop | Last heartbeat: 16.00s ago | Last message: 'Auto-save loop running'
+21:47:11 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: clock_reactor | Last heartbeat: 10.00s ago | Last message: 'Clock loop active'
+21:47:11 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: main_loop | Last heartbeat: 30.00s ago | Last message: 'Clock Reactor Active'
+21:47:13 | Watchdog        | ERROR   | 🚨 TASK STALL DETECTED: engine_dispatch | Last heartbeat: 61.89s ago | Last message: 'Processing TICK'
+21:47:13 | Croupier        | INFO    | ✅ Ledger Reconciliation Complete.
+21:47:13 | TradeHistorian  | INFO    | 💰 Ledger Reconciliation: Restored 32 records | Total Impact: -1.0034 USDT
+21:47:13 | Casino-V3       | INFO    | ==========================================
+21:47:13 | Casino-V3       | INFO    | 🏁 SESSION SUMMARY (Persistent Historian)
+21:47:13 | Casino-V3       | INFO    |    Reason: TIMEOUT
+21:47:13 | Casino-V3       | INFO    |    Duration: 151.0m (Active: 105.0m | Draining: 46.0m)
+21:47:13 | Casino-V3       | INFO    |    Start Balance: 2784.96 USDT
+21:47:13 | Casino-V3       | INFO    |    Final Balance: 2778.21043998
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    📈 Strategy PnL: -6.6676 USDT (79 trades)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🚀 Active Strategy: -0.6233 USDT (39 trades)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🕒 Draining Phase: -6.0443 USDT (40 trades)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🛡️ Saved by Resilience: -1.4823 USDT (51 healed | Rate: 64.6%)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🏛️ Legacy Audit: -1.0034 USDT (32 items - Excluded from Strategy)
+21:47:13 | Casino-V3       | INFO    |    🔧 Error Leakage: +0.0000 USDT (0 error trades)
+21:47:13 | Casino-V3       | INFO    |    🧹 Forced Cleanup: 10 positions killed at timeout
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    🛡️ RESILIENCE PERFORMANCE (Phase 160)
+21:47:13 | Casino-V3       | INFO    |       • Healing Efficiency: 83.6% (51 saved vs 10 killed)
+21:47:13 | Casino-V3       | INFO    |       • Orphan Hygiene: 79.75% (63 killed)
+21:47:13 | Casino-V3       | INFO    |       • Race Prevention: 19.2% (15 saved by grace period)
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    🧾 Recorded Expenses (Database):
+21:47:13 | Casino-V3       | INFO    |       • Fees Paid: 1.0920 USDT
+21:47:13 | Casino-V3       | INFO    |       • Funding:   0.0000 USDT
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    ❓ ⚠️ Unexplained Variance: -0.0868 USDT
+21:47:13 | Casino-V3       | INFO    |       (Possible Causes: Ghosts, Exchange Lag, Unrecorded Funding)
+21:47:13 | Casino-V3       | INFO    |    💰 Account Delta: -6.7543 USDT
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    Total Fees Paid: 1.0920 USDT
+21:47:13 | Casino-V3       | INFO    |    Total Trades: 79
+21:47:13 | Casino-V3       | INFO    |    Wins/Losses: 21/58 (WR: 26.58%)
+21:47:13 | Casino-V3       | INFO    | ==========================================
+21:47:13 | Casino-V3       | INFO    | 🛑 Stopping Clock Reactor...
+21:47:13 | ResilientConnector[BinanceNativeConnector] | INFO    | Cerrando conexión...
+21:47:13 | BinanceNative   | INFO    | 🔌 Closing Binance Native Connector...
+21:47:13 | ResilientConnector[BinanceNativeConnector] | INFO    | ✅ Conexión cerrada
+21:47:13 | Croupier        | INFO    | 🛑 Croupier Reactor Stopped
+21:47:13 | DriftAuditor    | INFO    | 🛡️ DriftAuditor stopped
+21:47:14 | Watchdog        | INFO    | 🛡️ Watchdog monitor stopped.
+21:47:14 | Clock           | INFO    | 🛑 Clock stopped
+21:47:14 | Croupier        | INFO    | 🛑 Croupier Reactor Stopped
+21:47:14 | DriftAuditor    | INFO    | 🛡️ DriftAuditor stopped
+21:47:14 | core.sensor_manager | INFO    | 🛑 Stopping Sensor Workers...
+21:47:14 | Casino-V3       | INFO    | 💾 Syncing final state...
+21:47:14 | Casino-V3       | INFO    | 🛑 Stopping state manager...
+21:47:14 | PersistentState | INFO    | 🛑 State manager stopped
+21:47:14 | StateManager    | INFO    | 🛑 State manager stopped
+21:47:14 | Casino-V3       | INFO    | 📊 Stopping metrics server...
+21:47:15 | core.observability.metrics_server | INFO    | 🛑 Metrics server stopped
+21:47:15 | Watchdog        | INFO    | 🛡️ Watchdog monitor stopped.
+21:47:15 | Casino-V3       | INFO    | 🏁 Cleanup complete. Goodbye.
+/usr/lib/python3.14/multiprocessing/resource_tracker.py:396: UserWarning: resource_tracker: There appear to be 60 leaked semaphore objects to clean up at shutdown: {'/mp-ttiegqr5', '/mp-nnkkf2_4', '/mp-07vw8x1x', '/mp-5ciho2oc', '/mp-te1qxbqy', '/mp-pa464fjx', '/mp-9_9mlq1m', '/mp-64lduae5', '/mp-ns_1hdul', '/mp-hjnl37bx', '/mp-2qkwm7_z', '/mp-rjv_82j9', '/mp-4cihytlb', '/mp-alh2_xu6', '/mp-2g8du2va', '/mp-gwqg1hqx', '/mp-g0khhoic', '/mp-s6z7xy4k', '/mp-voxwsecy', '/mp-5k1r0jg9', '/mp-2db9qujn', '/mp-eif8azps', '/mp-2zerko2k', '/mp-kam5y59j', '/mp-3ekk099e', '/mp-7vond3a7', '/mp-pudrw_8t', '/mp-96yeyk7l', '/mp-sqkt43x_', '/mp-2ar3_lwq', '/mp-mtln1d2c', '/mp-ky3ri029', '/mp-g53d_icu', '/mp-0iykatyd', '/mp-ltwst6jo', '/mp-no_c18ow', '/mp-j9ysf36k', '/mp-qpf64y8c', '/mp-vqht997v', '/mp-jcri990x', '/mp-l6iar3yk', '/mp-551fxgd0', '/mp-v3mw9jl2', '/mp-pcx2nxn7', '/mp-avqx_b7c', '/mp-p4mg9yu6', '/mp-vthitxas', '/mp-dxuo0j_d', '/mp-6u84aokq', '/mp-3m46x4fs', '/mp-ztf6y47t', '/mp-jh3s4598', '/mp-zd0poort', '/mp-o6n414ew', '/mp-0rdx6db3', '/mp-g8vbtcny', '/mp-jimbg3t_', '/mp-7of814a9', '/mp-9q69h11a', '/mp-fanr4u45'}
+  warnings.warn(

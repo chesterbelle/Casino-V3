@@ -60,14 +60,13 @@ class Croupier(TimeIterator):
         })
     """
 
-    def __init__(self, exchange_adapter, initial_balance: float, max_concurrent_positions: int = 10):
+    def __init__(self, exchange_adapter, initial_balance: float):
         """
         Initialize Croupier orchestrator.
 
         Args:
             exchange_adapter: ExchangeAdapter for order execution
             initial_balance: Starting capital
-            max_concurrent_positions: Max number of concurrent positions
         """
         super().__init__()
         self.adapter = exchange_adapter
@@ -79,9 +78,7 @@ class Croupier(TimeIterator):
         # Initialize core components
         self.error_handler = get_error_handler()
         self.balance_manager = BalanceManager(initial_balance)
-        self.position_tracker = PositionTracker(
-            max_concurrent_positions=max_concurrent_positions, adapter=exchange_adapter, session_id=self.session_id
-        )
+        self.position_tracker = PositionTracker(adapter=exchange_adapter, session_id=self.session_id)
 
         # Phase 31: PositionTracker is now the single source of truth for order state
         # Initialize specialized components
@@ -109,10 +106,7 @@ class Croupier(TimeIterator):
         self._drain_in_progress: bool = False  # Task guard for drain status updates
         self._last_funding_sync: float = 0.0  # Phase 30: For precision accounting
 
-        self.logger.info(
-            f"[CORE] ✅ Croupier V4 initialized | Balance: {initial_balance} | "
-            f"Max Positions: {max_concurrent_positions}"
-        )
+        self.logger.info(f"[CORE] ✅ Croupier V4 initialized | Balance: {initial_balance} | Global limit: UNLIMITED")
 
         # Register callback for automatic cleanup when exchange hits TP/SL
         self.position_tracker.on_close_callback = self._on_position_closed_cleanup
@@ -970,9 +964,9 @@ class Croupier(TimeIterator):
         # We add 1ms to startTime to avoid fetching the same record twice
         since = int(((self._last_funding_sync or (now - 900))) * 1000) + 1
 
+        self._last_funding_sync = now
         try:
             income_list = await self.adapter.fetch_income(income_type="FUNDING_FEE", since=since)
-            self._last_funding_sync = now
 
             if not income_list:
                 return

@@ -128,9 +128,7 @@ class PreflightValidator:
         logger.info(f"💰 Balance: ${self.initial_balance:,.2f}")
 
         # 4. Create croupier (matches main.py line 148)
-        self.croupier = Croupier(
-            exchange_adapter=self.adapter, initial_balance=self.initial_balance, max_concurrent_positions=10
-        )
+        self.croupier = Croupier(exchange_adapter=self.adapter, initial_balance=self.initial_balance)
         # LIFECYCLE SUPPORT: Initialize Reconciliation Service for GC (Phase 48)
         self.recon_service = ReconciliationService(
             self.adapter, self.croupier.position_tracker, self.croupier.oco_manager, self.croupier

@@ -115,9 +115,7 @@ class MultiSymbolValidator:
 
         logger.info(f"💰 Balance: ${self.initial_balance:,.2f}")
 
-        self.croupier = Croupier(
-            exchange_adapter=self.multi_adapter, initial_balance=self.initial_balance, max_concurrent_positions=20
-        )
+        self.croupier = Croupier(exchange_adapter=self.multi_adapter, initial_balance=self.initial_balance)
         # LIFECYCLE SUPPORT: Initialize Reconciliation Service for GC
         # We need this to cleanup OFF_BOARDING positions
         self.oco_manager = self.croupier.oco_manager

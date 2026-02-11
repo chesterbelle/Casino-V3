@@ -223,14 +223,12 @@ class PositionTracker:
 
     def __init__(
         self,
-        max_concurrent_positions: int = 10,
         adapter: Optional["ExchangeAdapter"] = None,
         on_close_callback: Optional[callable] = None,
         session_id: Optional[str] = None,
     ):
         """
         Args:
-            max_concurrent_positions: Máximo número de posiciones simultáneas permitidas
             adapter: ExchangeAdapter para cancelar órdenes OCO (agnóstico del conector)
             session_id: ID de la sesión actual (para Historian)
         """
@@ -238,7 +236,6 @@ class PositionTracker:
         self.session_start_ts = time.time()  # Phase 110: Session Isolation
         self.open_positions: List[OpenPosition] = []
         self.blocked_capital: float = 0.0
-        self.max_concurrent_positions = max_concurrent_positions
         self.adapter = adapter  # For OCO cancellation
         self._close_listeners: List[callable] = []
         # Callback for immediate state persistence
@@ -268,7 +265,7 @@ class PositionTracker:
         # O(1) Symbol Map for high-frequency price processing
         self._symbol_map: Dict[str, List[OpenPosition]] = defaultdict(list)
 
-        logger.info(f"PositionTracker inicializado | Max positions: {max_concurrent_positions}")
+        logger.info("PositionTracker inicializado | Global limit removed (Unlimited)")
 
     # =========================================================
     # LISTENER MANAGEMENT
@@ -821,11 +818,7 @@ class PositionTracker:
         Returns:
             True si se puede abrir la posición
         """
-        # Verificar límite de posiciones concurrentes
-        if len(self.open_positions) >= self.max_concurrent_positions:
-            return False
-
-        # Verificar capital disponible
+        # Verificar capital disponible (Global capacity now unlimited)
         return available_equity >= required_margin
 
     @staticmethod
@@ -1260,7 +1253,6 @@ class PositionTracker:
             "total_closed": self.total_trades_closed,
             "total_wins": self.total_wins,
             "total_losses": self.total_losses,
-            "max_concurrent": self.max_concurrent_positions,
             "total_errors": self.total_errors,
             "total_timeouts": self.total_timeouts,
             "recovered_count": self.recovered_count,

@@ -840,7 +840,15 @@ class BinanceNativeConnector(BaseConnector):
 
     async def fetch_balance(self) -> Dict[str, Any]:
         """Fetch account balance."""
-        balances = await self._request("GET", "/fapi/v2/balance", signed=True, endpoint_type="account")
+        balances = await self.error_handler.execute_with_breaker(
+            self._account_breaker_name,
+            self._request,
+            "GET",
+            "/fapi/v2/balance",
+            signed=True,
+            endpoint_type="account",
+            timeout=20,
+        )
 
         result = {"total": {}, "free": {}, "used": {}}
         for b in balances:
@@ -853,7 +861,15 @@ class BinanceNativeConnector(BaseConnector):
 
     async def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fetch all positions."""
-        positions = await self._request("GET", "/fapi/v2/positionRisk", signed=True, endpoint_type="account")
+        positions = await self.error_handler.execute_with_breaker(
+            self._account_breaker_name,
+            self._request,
+            "GET",
+            "/fapi/v2/positionRisk",
+            signed=True,
+            endpoint_type="account",
+            timeout=20,
+        )
 
         if isinstance(symbol, list):
             target_symbols = [self._normalize_symbol(s) for s in symbol]
@@ -929,7 +945,7 @@ class BinanceNativeConnector(BaseConnector):
                 params=params,
                 signed=True,
                 endpoint_type="account",
-                timeout=15,
+                timeout=20,
             )
         except Exception as e:
             self.logger.error(f"🚨 Fetch Income failed: {e}")

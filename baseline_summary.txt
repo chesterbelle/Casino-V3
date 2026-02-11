@@ -1,0 +1,41 @@
+21:47:13 | Casino-V3       | INFO    | 🏁 SESSION SUMMARY (Persistent Historian)
+21:47:13 | Casino-V3       | INFO    |    Reason: TIMEOUT
+21:47:13 | Casino-V3       | INFO    |    Duration: 151.0m (Active: 105.0m | Draining: 46.0m)
+21:47:13 | Casino-V3       | INFO    |    Start Balance: 2784.96 USDT
+21:47:13 | Casino-V3       | INFO    |    Final Balance: 2778.21043998
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    📈 Strategy PnL: -6.6676 USDT (79 trades)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🚀 Active Strategy: -0.6233 USDT (39 trades)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🕒 Draining Phase: -6.0443 USDT (40 trades)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🛡️ Saved by Resilience: -1.4823 USDT (51 healed | Rate: 64.6%)
+21:47:13 | Casino-V3       | INFO    |       ↳ 🏛️ Legacy Audit: -1.0034 USDT (32 items - Excluded from Strategy)
+21:47:13 | Casino-V3       | INFO    |    🔧 Error Leakage: +0.0000 USDT (0 error trades)
+21:47:13 | Casino-V3       | INFO    |    🧹 Forced Cleanup: 10 positions killed at timeout
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    🛡️ RESILIENCE PERFORMANCE (Phase 160)
+21:47:13 | Casino-V3       | INFO    |       • Healing Efficiency: 83.6% (51 saved vs 10 killed)
+21:47:13 | Casino-V3       | INFO    |       • Orphan Hygiene: 79.75% (63 killed)
+21:47:13 | Casino-V3       | INFO    |       • Race Prevention: 19.2% (15 saved by grace period)
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    🧾 Recorded Expenses (Database):
+21:47:13 | Casino-V3       | INFO    |       • Fees Paid: 1.0920 USDT
+21:47:13 | Casino-V3       | INFO    |       • Funding:   0.0000 USDT
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    ❓ ⚠️ Unexplained Variance: -0.0868 USDT
+21:47:13 | Casino-V3       | INFO    |       (Possible Causes: Ghosts, Exchange Lag, Unrecorded Funding)
+21:47:13 | Casino-V3       | INFO    |    💰 Account Delta: -6.7543 USDT
+21:47:13 | Casino-V3       | INFO    |    --------------------------------------
+21:47:13 | Casino-V3       | INFO    |    Total Fees Paid: 1.0920 USDT
+21:47:13 | Casino-V3       | INFO    |    Total Trades: 79
+21:47:13 | Casino-V3       | INFO    |    Wins/Losses: 21/58 (WR: 26.58%)
+21:47:13 | Casino-V3       | INFO    | ==========================================
+21:47:13 | Casino-V3       | INFO    | 🛑 Stopping Clock Reactor...
+21:47:13 | ResilientConnector[BinanceNativeConnector] | INFO    | Cerrando conexión...
+21:47:13 | BinanceNative   | INFO    | 🔌 Closing Binance Native Connector...
+21:47:13 | ResilientConnector[BinanceNativeConnector] | INFO    | ✅ Conexión cerrada
+21:47:13 | Croupier        | INFO    | 🛑 Croupier Reactor Stopped
+21:47:13 | DriftAuditor    | INFO    | 🛡️ DriftAuditor stopped
+21:47:14 | Watchdog        | INFO    | 🛡️ Watchdog monitor stopped.
+21:47:14 | Clock           | INFO    | 🛑 Clock stopped
+21:47:14 | Croupier        | INFO    | 🛑 Croupier Reactor Stopped
+21:47:14 | DriftAuditor    | INFO    | 🛡️ DriftAuditor stopped

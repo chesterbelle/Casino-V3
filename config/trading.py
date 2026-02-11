@@ -10,37 +10,46 @@ Parámetros financieros y de gestión de riesgo.
 # 💰 CONFIGURACIÓN FINANCIERA
 # =====================================================
 
-# Capital inicial con el que empieza el jugador
-# En live trading, se sincroniza con el balance real del exchange
+# Capital inicial con el que empieza el jugador (Ground Truth balance).
+# En live trading, se sincroniza automáticamente con el balance real del exchange.
 STARTING_BALANCE = 10_000.0
 
-# Tamaños relativos de TP y SL (expresados en proporción decimal)
-# Proven values from 90-day backtest (50.8% WR, +0.25% PnL)
-TAKE_PROFIT = 0.01  # 1.0% target
-STOP_LOSS = 0.01  # 1.0% stop
+# Multiplicadores de salida estática (respaldo si el sensor no provee metadata).
+# Estos valores calculan la distancia porcentual (0.01 = 1.0%) desde el precio de entrada.
+TAKE_PROFIT = 0.01  # Target de salida con ganancias
+STOP_LOSS = 0.01  # Límite de pérdida máximo aceptado
 
-# Time-Based Exit (Optimization Alignment)
-MAX_HOLD_BARS = 180  # Increase to 3h for more natural exits
+# Límite de tiempo máximo para mantener una posición abierta (en número de velas).
+# Si la posición no toca TP/SL en este tiempo, se activa la salida por tiempo.
+MAX_HOLD_BARS = 180  # 180 velas = 3 horas en temporalidad de 1m
 
-# --- Graceful Exit (Soft Timeout) ---
-DRAIN_PHASE_MINUTES = 45  # Extended for defensive exit
-DRAIN_MAX_CLOSE_RATE = 5  # Max positions to close per minute (Prevent -1021)
-SOFT_EXIT_TP_MULT = 0.5  # Narrow TP by 50% for soft exit
-GRACEFUL_TP_TIMEOUT = 30.0  # Increase to 30s for Demo API latency handling
+# --- Cierre Progresivo (Fase de Drenaje) ---
+# Duración de la fase de salida suave antes del apagado total del bot.
+DRAIN_PHASE_MINUTES = 45  # Ventana de tiempo para cerrar posiciones gradualmente
+
+# Tasa máxima de cierre (número de posiciones por minuto).
+# Evita errores de "Rate Limit" (-1021) en el exchange durante cierres masivos.
+DRAIN_MAX_CLOSE_RATE = 5
+
+# Multiplicador para reducir el TP durante la fase inicial de drenaje (Optimistic).
+SOFT_EXIT_TP_MULT = 0.5  # Reduce el target al 50% para facilitar el cierre
+
+# Tiempo máximo de espera para confirmar una modificación de TP en el exchange.
+GRACEFUL_TP_TIMEOUT = 30.0  # Tolerancia para latencias en la API de Binance/Hyperliquid
 
 
 # =====================================================
 # ⚖️ GESTIÓN DE RIESGO (SIZING)
 # =====================================================
 
-# Modo de cálculo de tamaño de posición:
-# - "FIXED_NOTIONAL": Usa el Bet Size como % del Balance Total (Ej. 1% balance = 34 USDT)
-# - "FIXED_RISK":     Usa el Bet Size como % de RIESGO en Stop Loss (Ej. 1% riesgo + 1% SL = 3400 USDT)
-POSITION_SIZING_MODE = "FIXED_NOTIONAL"  # ACTIVATED
+# Algoritmo de cálculo para el tamaño de las posiciones:
+# - "FIXED_NOTIONAL": El bot arriesga un % fijo del Balance Total (Bet Size * Equity).
+# - "FIXED_RISK": El bot calcula el tamaño para que, si toca el Stop Loss, solo pierdas un % fijo del total.
+POSITION_SIZING_MODE = "FIXED_NOTIONAL"  # Modo actual activo
 
-# Riesgo por operación (Solo usado si POSITION_SIZING_MODE = "FIXED_RISK")
-# Si bet-size es 1.0 (1%), se arriesga el 1% del balance en caso de stop loss.
-RISK_PER_TRADE = 0.01
+# Porcentaje de riesgo máximo del capital por cada operación individual.
+# Solo se utiliza cuando POSITION_SIZING_MODE está en "FIXED_RISK".
+RISK_PER_TRADE = 0.01  # 1% de riesgo total por trade
 
 
 # =====================================================
@@ -48,12 +57,24 @@ RISK_PER_TRADE = 0.01
 # =====================================================
 
 # Configuración básica de trading
-MAX_LEVERAGE = 50  # máximo apalancamiento permitido
-MAX_POSITION_SIZE = 0.08  # tamaño máximo conservador (8% del equity)
-COMMISSION_RATE = 0.00035  # Hyperliquid taker fee (0.035%)
-SLIPPAGE_DEFAULT = 0.0003  # spread estimado
-MAINTENANCE_MARGIN_RATE = 0.003  # margen de mantenimiento (0.3%)
-DEFAULT_MARGIN_TYPE = "ISOLATED"  # Opciones: ISOLATED, CROSSED
+# Nivel máximo de apalancamiento permitido en el exchange.
+MAX_LEVERAGE = 50
+
+# Tamaño máximo permitido para una sola posición como % del capital total.
+# Filtro de seguridad para evitar sobre-exposición accidental.
+MAX_POSITION_SIZE = 0.08  # Máximo 8% del balance total por símbolo
+
+# Tasa de comisión estimada (Fee) para el cálculo de PnL neto.
+COMMISSION_RATE = 0.00035  # Basado en Hyperliquid Taker Fee (0.035%)
+
+# Diferencia estimada entre el precio esperado y el ejecutado (Slippage).
+SLIPPAGE_DEFAULT = 0.0003  # 0.03% de margen de error en ejecución
+
+# Margen mínimo requerido para mantener una posición abierta antes de liquidación.
+MAINTENANCE_MARGIN_RATE = 0.003  # 0.3% del nocional de la posición
+
+# Tipo de margen por defecto para las cuentas de futuros.
+DEFAULT_MARGIN_TYPE = "ISOLATED"  # Aislado protege el resto del balance de liquidación
 
 
 # =====================================================
@@ -61,21 +82,22 @@ DEFAULT_MARGIN_TYPE = "ISOLATED"  # Opciones: ISOLATED, CROSSED
 # =====================================================
 
 # --- Trailing Stop ---
-# Dynamic SL that follows price when it moves in favor
-TRAILING_STOP_ENABLED = True
-TRAILING_STOP_ACTIVATION_PCT = 0.005  # Activate after 0.5% profit
-TRAILING_STOP_DISTANCE_PCT = 0.003  # Maintain 0.3% distance from peak
+# Dynamic SL that follows price when it moves in favor.
+# Best for Capturing Trends but can be stopped out by noise in Scalping.
+TRAILING_STOP_ENABLED = False  # Set to False for investigation
+TRAILING_STOP_ACTIVATION_PCT = 0.005  # Profit threshold (0.5%) before SL starts trailing
+TRAILING_STOP_DISTANCE_PCT = 0.003  # Distance (0.3%) from the peak price to set the trailing SL
 
 # --- Breakeven ---
-# Move SL to entry price to secure risk-free trade
+# Move SL to entry price to secure risk-free trade once a target is reached.
 BREAKEVEN_ENABLED = True
-BREAKEVEN_ACTIVATION_PCT = 0.003  # Move to BE after 0.3% profit
+BREAKEVEN_ACTIVATION_PCT = 0.003  # Profit threshold (0.3%) to trigger SL move to Entry Price
 
 # --- Signal Reversal ---
-# Close position if a strong opposite signal is detected
-SIGNAL_REVERSAL_ENABLED = True
-SIGNAL_REVERSAL_THRESHOLD = 0.8  # Confidence threshold for reversal signal
-GRACEFUL_SL_TIMEOUT = 10.0  # Timeout for SL modification requests
+# Close position if a strong opposite signal is detected from consensus.
+SIGNAL_REVERSAL_ENABLED = False  # Deactivated as per user request (threshold mismatch)
+SIGNAL_REVERSAL_THRESHOLD = 0.8  # Required confidence (0-1) to trigger an immediate market close
+GRACEFUL_SL_TIMEOUT = 10.0  # Seconds to wait for SL modification before considering it a failure
 
 # =====================================================
 # 💧 FILTROS DE LIQUIDEZ (FLYTEST)
