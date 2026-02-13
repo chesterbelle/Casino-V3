@@ -570,6 +570,41 @@ class BinanceNativeConnector(BaseConnector):
             await self._http_session.close()
             self._http_session = None
 
+        # Phase 232: Explicitly terminate ingestion shards
+        for process in self._shards_processes:
+            if process and process.is_alive():
+                try:
+                    self.logger.info(f"🔪 Terminating ingestion shard {process.pid}")
+                    process.terminate()
+                except Exception:
+                    pass
+
+        # Give them a moment and then kill if still alive
+        if self._shards_processes:
+            await asyncio.sleep(1.0)
+            for process in self._shards_processes:
+                if process and process.is_alive():
+                    try:
+                        self.logger.warning(f"🔨 Killing ingestion shard {process.pid}")
+                        process.kill()
+                    except Exception:
+                        pass
+
+        self._shards_processes = []
+
+        # Phase 233: Terminate User Data Sentinel Process (was missing → zombie)
+        if self._user_ingestion_process and self._user_ingestion_process.is_alive():
+            try:
+                self.logger.info(f"🔪 Terminating User Data Sentinel {self._user_ingestion_process.pid}")
+                self._user_ingestion_process.terminate()
+                self._user_ingestion_process.join(timeout=2.0)
+                if self._user_ingestion_process.is_alive():
+                    self.logger.warning(f"🔨 Killing User Data Sentinel {self._user_ingestion_process.pid}")
+                    self._user_ingestion_process.kill()
+            except Exception:
+                pass
+        self._user_ingestion_process = None
+
         self._connected = False
         self._market_data_ws = None
         self._user_data_ws = None
@@ -1224,14 +1259,24 @@ class BinanceNativeConnector(BaseConnector):
         try:
             algo_orders = await self._fetch_open_algo_orders(symbol)
             if algo_orders:
-                self.logger.info(f"🧹 Found {len(algo_orders)} algo orders to cancel for {symbol}")
+                self.logger.info(
+                    f"🧹 Found {len(algo_orders)} algo orders to cancel for {symbol}. Cancelling in parallel..."
+                )
+
+                async def _safe_cancel(order_id):
+                    try:
+                        await self._cancel_algo_order(order_id, symbol)
+                    except Exception as inner_e:
+                        self.logger.error(f"❌ Failed to cancel algo order {order_id} for {symbol}: {inner_e}")
+
+                tasks = []
                 for order in algo_orders:
                     order_id = order.get("id")
                     if order_id:
-                        try:
-                            await self._cancel_algo_order(order_id, symbol)
-                        except Exception as inner_e:
-                            self.logger.error(f"❌ Failed to cancel algo order {order_id} for {symbol}: {inner_e}")
+                        tasks.append(_safe_cancel(order_id))
+
+                if tasks:
+                    await asyncio.gather(*tasks)
         except Exception as e:
             self.logger.error(f"❌ Failed to sweep algo orders for {symbol}: {e}")
 
@@ -1869,6 +1914,7 @@ class BinanceNativeConnector(BaseConnector):
                     base_url=ws_url,
                     worker_id="User-Data",
                 )
+                self._user_ingestion_process.daemon = True
                 self._user_ingestion_process.start()
                 self.logger.info(f"✅ User Data Sentinel Started (PID: {self._user_ingestion_process.pid})")
 

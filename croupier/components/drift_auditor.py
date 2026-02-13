@@ -24,6 +24,8 @@ class DriftAuditor:
         self._audit_task = None
         self.audit_interval = 60  # Check every 60s
         self.drift_threshold_usd = 1.0  # Alert/Heal if balance drift > $1
+        self.recon_cooldown = 120  # Minimum 2 mins between full recons
+        self.last_recon_time = 0
 
     async def start(self):
         """Starts the background audit loop."""
@@ -76,10 +78,18 @@ class DriftAuditor:
             drift = abs(ex_balance - local_balance)
 
             if drift > self.drift_threshold_usd:
+                now = asyncio.get_event_loop().time()
+                if now - self.last_recon_time < self.recon_cooldown:
+                    self.logger.info(
+                        f"⏭️ Drift detected (${drift:.2f}) but skipping Auto-Healing (Cooldown: {int(self.recon_cooldown - (now - self.last_recon_time))}s remaining)"
+                    )
+                    return
+
                 self.logger.warning(
                     f"⚠️ DRIFT DETECTED: Exchange=${ex_balance:.2f} | Local=${local_balance:.2f} | "
                     f"Diff=${drift:.4f}. Initiating Auto-Healing..."
                 )
+                self.last_recon_time = now
                 await self.recon.reconcile_all()
                 return
 
@@ -89,10 +99,18 @@ class DriftAuditor:
             local_pos_count = len(self.tracker.open_positions)
 
             if ex_pos_count != local_pos_count:
+                now = asyncio.get_event_loop().time()
+                if now - self.last_recon_time < self.recon_cooldown:
+                    self.logger.info(
+                        f"⏭️ Pos count drift ({ex_pos_count} vs {local_pos_count}) but skipping Auto-Healing (Cooldown: {int(self.recon_cooldown - (now - self.last_recon_time))}s remaining)"
+                    )
+                    return
+
                 self.logger.warning(
                     f"⚠️ POS COUNT DRIFT: Exchange={ex_pos_count} | Local={local_pos_count}. "
                     "Initiating Auto-Healing..."
                 )
+                self.last_recon_time = now
                 await self.recon.reconcile_all()
                 return
 

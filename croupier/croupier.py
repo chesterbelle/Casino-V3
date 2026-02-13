@@ -558,7 +558,12 @@ class Croupier(TimeIterator):
 
         try:
             # 1. Cancel TP/SL
-            await self.oco_manager.cancel_bracket(position.tp_order_id, position.sl_order_id, position.symbol)
+            try:
+                await self.oco_manager.cancel_bracket(position.tp_order_id, position.sl_order_id, position.symbol)
+            except Exception as ce:
+                self.logger.warning(
+                    f"⚠️ Non-critical failure cancelling bracket for {trade_id}: {ce}. Proceeding to close market position."
+                )
 
             # 2. Execute market close
 

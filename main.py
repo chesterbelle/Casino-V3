@@ -25,6 +25,7 @@ import signal
 import sys
 import threading
 import time
+from typing import Any, Optional
 
 # Try uvloop for performance
 try:
@@ -678,6 +679,11 @@ async def main():
                 drain_duration = (
                     args.drain_duration if args.drain_duration is not None else trading_config.DRAIN_PHASE_MINUTES
                 )
+                # Cap drain_duration to 30% of timeout to prevent immediate drain activation
+                # when DRAIN_PHASE_MINUTES (45) > timeout (e.g. 30)
+                max_drain = args.timeout * 0.30
+                if drain_duration > max_drain:
+                    drain_duration = max_drain
 
                 if elapsed_min >= (args.timeout - drain_duration):
                     if not croupier.is_drain_mode:
@@ -727,8 +733,9 @@ async def main():
 
         # --- HEARTBEAT WATCHDOG ---
         class HeartbeatWatchdog:
-            def __init__(self, timeout: float = 60.0):
+            def __init__(self, timeout: float = 60.0, connector: Optional[Any] = None):
                 self.timeout = timeout
+                self.connector = connector
                 self.last_heartbeat = time.time()
                 self.stop_event = threading.Event()
                 self._thread = None
@@ -762,12 +769,41 @@ async def main():
                                 lock.release()
                             except Exception:
                                 pass
+
+                        # Phase 232: Graceful Termination Sequence (Orphan Prevention)
+                        if self.connector:
+                            try:
+                                logger.warning("🔄 Watchdog: Attempting SIGTERM on child processes before hard kill...")
+                                # Attempt to stop connector (which should terminate subprocesses)
+                                # ResilientConnector stores inner conector in _connector and delegates attributes
+                                target = getattr(self.connector, "_connector", self.connector)
+
+                                if hasattr(target, "_shards_processes"):
+                                    procs = getattr(target, "_shards_processes", [])
+                                    user_proc = getattr(target, "_user_ingestion_process", None)
+                                    all_procs = procs + ([user_proc] if user_proc else [])
+                                    for p in all_procs:
+                                        if p and p.is_alive():
+                                            logger.info(f"🔪 Terminating worker process {p.pid}")
+                                            p.terminate()
+
+                                    # Give them a moment
+                                    time.sleep(2.0)
+
+                                    # Hard kill if still alive
+                                    for p in all_procs:
+                                        if p and p.is_alive():
+                                            logger.warning(f"🔨 Hard-killing worker process {p.pid}")
+                                            p.kill()
+                            except Exception as e:
+                                logger.error(f"❌ Watchdog termination failed: {e}")
+
                         os._exit(1)
                     time.sleep(1.0)
 
         # 0. Watchdog for Cleanup (Protection against hangs)
         # Rename local to avoiding shadowing the global watchdog registry
-        cleanup_watchdog = HeartbeatWatchdog(timeout=120.0)
+        cleanup_watchdog = HeartbeatWatchdog(timeout=120.0, connector=connector)
         cleanup_watchdog.start()
         cleanup_watchdog.heartbeat()  # Entry heartbeat
 

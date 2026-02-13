@@ -24,7 +24,7 @@ from .sensor_tracker import SensorTracker
 logger = logging.getLogger(__name__)
 
 # Configuration
-SIGNAL_TIMEOUT_MS = 100  # Wait 100ms for all sensors to fire
+SIGNAL_TIMEOUT_MS = 500  # Wait 500ms for all sensors to fire (increased for MULTI mode latency)
 MIN_SCORE_THRESHOLD = 0.5  # Only sensors with proven/neutral performance participate
 MIN_MARGIN_RATIO = 0.10  # Winner must have 10% higher Σ than loser for conviction
 

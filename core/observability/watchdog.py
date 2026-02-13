@@ -110,7 +110,7 @@ class WatchdogRegistry(TimeIterator):
         Monitors health of all registered tasks independently of the event loop.
         """
         # Register the clock reactor itself for monitoring
-        self.register("clock_reactor", timeout=10.0, is_critical=True)
+        self.register("clock_reactor", timeout=15.0, is_critical=True)
 
         while not self._stop_event.is_set():
             try:
