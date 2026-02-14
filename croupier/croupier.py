@@ -176,7 +176,13 @@ class Croupier(TimeIterator):
             async with sem:
                 # Tag position with phase for reporting
                 pos.lifecycle_phase = f"DRAIN_{phase}"
-                await self.exit_manager.apply_dynamic_exit(pos, phase)
+                try:
+                    await asyncio.wait_for(
+                        self.exit_manager.apply_dynamic_exit(pos, phase),
+                        timeout=15.0,
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"⏰ Drain {phase} timeout for {pos.trade_id} ({pos.symbol}) — skipping")
 
         tasks = [_apply_with_limit(pos) for pos in active_positions]
         await asyncio.gather(*tasks, return_exceptions=True)
