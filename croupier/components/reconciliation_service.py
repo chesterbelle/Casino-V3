@@ -911,15 +911,20 @@ class ReconciliationService:
                 continue
 
             # This order is truly orphaned
+            # Phase 233: Classify as OCO residual vs true orphan
+            # If no exchange position exists for this symbol, the position already
+            # closed (via SL/TP fill) and this is just the leftover OCO leg.
+            cancel_reason = "oco_residual" if not has_exchange_position else "true_orphan"
+
             if mode == "audit":
-                self.logger.info(f"🕵️ Orphan detected: {order_id} (not cancelled in audit mode)")
+                self.logger.info(f"🕵️ Orphan detected: {order_id} ({cancel_reason}, not cancelled in audit mode)")
                 continue
 
             try:
                 # Phase 45: Delegate to OrderExecutor
                 if self.croupier and self.croupier.order_executor:
                     await self.croupier.order_executor.cancel_order(order_id, symbol)
-                    resilience_orphan_cancels_total.labels(symbol=symbol).inc()
+                    resilience_orphan_cancels_total.labels(symbol=symbol, reason=cancel_reason).inc()
                     cancelled_count += 1
                 else:
                     # Fallback to direct call if for some reason Croupier is missing executor

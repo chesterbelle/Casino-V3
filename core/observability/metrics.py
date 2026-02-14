@@ -94,7 +94,7 @@ resilience_healing_events_total = Counter(
 resilience_orphan_cancels_total = Counter(
     "resilience_orphan_cancels_total",
     "Total number of orphan orders cancelled",
-    ["symbol"],
+    ["symbol", "reason"],
 )
 
 resilience_orphan_skips_total = Counter(

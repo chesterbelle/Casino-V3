@@ -949,6 +949,24 @@ async def main():
             orphan_kills = get_metric_sum(resilience_orphan_cancels_total)
             orphan_skips = get_metric_sum(resilience_orphan_skips_total)
 
+            # Phase 233: Split orphan kills by reason (true_orphan vs oco_residual)
+            def get_metric_by_label(metric, label_name, label_value):
+                """Extract metric count for a specific label value."""
+                total = 0.0
+                try:
+                    for m in metric.collect():
+                        for s in m.samples:
+                            if s.name.endswith("_created"):
+                                continue
+                            if s.labels.get(label_name) == label_value:
+                                total += s.value
+                except Exception:
+                    pass
+                return int(total)
+
+            true_orphan_kills = get_metric_by_label(resilience_orphan_cancels_total, "reason", "true_orphan")
+            oco_residual_kills = get_metric_by_label(resilience_orphan_cancels_total, "reason", "oco_residual")
+
             # Legacy: total_net_pnl for backward compatibility
             strategy_net_pnl = summary.get("total_net_pnl", 0.0)
 
@@ -1028,9 +1046,11 @@ async def main():
                 f"      • Healing Efficiency: {healing_efficiency:.1f}% ({healed_count} saved vs {forced_closes} killed)"
             )
 
-            # Orphan Hygiene: Kills / Strategy Trades
-            orphan_hygiene = (orphan_kills / strategy_count * 100) if strategy_count > 0 else 0.0
-            logger.info(f"      • Orphan Hygiene: {orphan_hygiene:.2f}% ({orphan_kills} killed)")
+            # Orphan Hygiene: Only TRUE orphans count against hygiene (OCO residuals are expected)
+            orphan_hygiene = (true_orphan_kills / strategy_count * 100) if strategy_count > 0 else 0.0
+            logger.info(f"      • Orphan Hygiene: {orphan_hygiene:.2f}% ({true_orphan_kills} true orphans)")
+            if oco_residual_kills > 0:
+                logger.info(f"      • OCO Residuals: {oco_residual_kills} (expected cleanup, excluded from hygiene)")
 
             # Grace Period Savings: Skips / (Skips + Kills)
             total_orphan_attempts = orphan_skips + orphan_kills

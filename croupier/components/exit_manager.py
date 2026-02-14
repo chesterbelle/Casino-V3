@@ -280,7 +280,18 @@ class ExitManager:
                     self.logger.info(f"✅ {phase} TP applied: {new_tp:.4f}")
 
             except Exception as e:
-                self.logger.error(f"❌ Failed to apply {phase} exit: {e!r}")
+                # Phase 233: If TP "would immediately trigger", price already passed the exit target.
+                # This means the position should be closed NOW instead of placing a limit order.
+                if "-2021" in str(e) or "immediately trigger" in str(e):
+                    self.logger.warning(
+                        f"⚡ {phase} TP would immediately trigger for {position.trade_id} | Escalating to market close"
+                    )
+                    try:
+                        await self.croupier.close_position(position.trade_id, exit_reason=f"DRAIN_{phase}_ESCALATION")
+                    except Exception as close_err:
+                        self.logger.error(f"❌ Escalation close failed for {position.trade_id}: {close_err!r}")
+                else:
+                    self.logger.error(f"❌ Failed to apply {phase} exit: {e!r}")
 
     async def _execute_soft_exit(self, position: OpenPosition, reason: str):
         """Legacy wrapper for compatibility."""
