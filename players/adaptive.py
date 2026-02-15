@@ -100,7 +100,8 @@ class AdaptivePlayer:
         # Check position limit
         # Check position limit (PER SYMBOL)
         # Fix: Normalize symbol strings to handle LTCUSDT vs LTC/USDT mismatch
-        open_positions = self.croupier.get_open_positions()
+        # Phase 234: Use get_active_positions to ignore CLOSING/OFF_BOARDING
+        open_positions = self.croupier.get_active_positions()
 
         target_symbol_norm = event.symbol.replace("/", "")
         symbol_positions = [p for p in open_positions if p.symbol.replace("/", "") == target_symbol_norm]

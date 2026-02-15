@@ -364,6 +364,20 @@ class PositionTracker:
         """
         return self._symbol_map.get(normalize_symbol(symbol), [])
 
+    def get_active_positions(self, symbol: Optional[str] = None) -> List[OpenPosition]:
+        """
+        Phase 234: Returns only positions in 'ENTRY-ACTIVE' states.
+        Excludes CLOSING and OFF_BOARDING states.
+
+        Args:
+            symbol: Optional filter by symbol
+
+        Returns:
+            List of positions in ACTIVE, OPENING, or MODIFYING status.
+        """
+        candidates = self.get_positions_by_symbol(symbol) if symbol else self.open_positions
+        return [pos for pos in candidates if getattr(pos, "status", "ACTIVE") in ["ACTIVE", "OPENING", "MODIFYING"]]
+
     def has_valid_bracket(self, trade_id: str, exchange_order_ids: set, exchange_client_ids: set = None) -> tuple:
         """
         Phase 54: Check if a position has valid TP and SL orders on the exchange.

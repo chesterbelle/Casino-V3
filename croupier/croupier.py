@@ -678,7 +678,12 @@ class Croupier(TimeIterator):
 
             return result
         finally:
-            # Emergency safety: Ensure lock is released if we crashed before confirm_close
+            # Phase 234: Emergency safety: Revert status if we crashed or timed out before confirm_close
+            # This allows the next drain/exit tick to retry the closure.
+            if position and getattr(position, "status", "") == "CLOSING":
+                self.logger.warning(f"🔄 Reverting {trade_id} status to ACTIVE after close failure/timeout")
+                position.status = "ACTIVE"
+
             self.position_tracker.unlock(trade_id, position=position)
 
     def _on_position_closed_cleanup(self, trade_id: str, result: Dict[str, Any]):
@@ -786,8 +791,18 @@ class Croupier(TimeIterator):
         return self.balance_manager.equity
 
     def get_open_positions(self) -> List[OpenPosition]:
-        """Get all open positions."""
+        """
+        Get all open positions tracked in memory.
+        Includes ACTIVE, OPENING, MODIFYING, CLOSING, and OFF_BOARDING states.
+        """
         return self.position_tracker.open_positions
+
+    def get_active_positions(self, symbol: Optional[str] = None) -> List[OpenPosition]:
+        """
+        Phase 234: Get only positions that should block new entries.
+        Excludes CLOSING and OFF_BOARDING states.
+        """
+        return self.position_tracker.get_active_positions(symbol)
 
     def can_open_position(self, margin_required: float) -> bool:
         """Check if we can open a new position."""

@@ -227,10 +227,11 @@ class ReconciliationService:
 
         for pos in local_positions[:]:
             # LIFECYCLE: GARBAGE COLLECTION
-            if getattr(pos, "status", "") == "OFF_BOARDING":
+            # Phase 234: Include CLOSING in GC to handle timed-out close attempts
+            if getattr(pos, "status", "") in ["OFF_BOARDING", "CLOSING"]:
                 if not self._exists_in_exchange(pos, exchange_positions):
                     # Confirmed gone from exchange -> Cleanup
-                    self.logger.info(f"🧹 GC: Finalizing removal of OFF_BOARDING position {pos.trade_id}")
+                    self.logger.info(f"🧹 GC: Finalizing removal of {pos.status} position {pos.trade_id}")
                     await self.tracker.finalize_removal(pos.trade_id)
                     continue
                 else:
