@@ -63,6 +63,8 @@ class BinanceNativeConnector(BaseConnector):
         self._market_data_breaker_name = "rest_market_data"
         self._account_breaker_name = "rest_account_api"
         self._order_breaker_name = "rest_order_api"
+        # Phase 236: Isolated breaker for reconciliation (prevents testnet timeouts from poisoning trading)
+        self._reconciliation_breaker_name = "rest_reconciliation"
 
         # API Configuration
         if mode == "demo":
@@ -762,6 +764,32 @@ class BinanceNativeConnector(BaseConnector):
             self.logger.error(f"🚨 Fetch Book Tickers failed: {e}")
             raise
 
+    async def watch_order_book(self, symbol: str, limit: int = 50) -> Dict[str, Any]:
+        """
+        Get order book using WebSocket cache (preferred) or subscribe if missing.
+        Compatible with CCXT interface.
+        """
+
+        # 1. Try Cache
+        cached = self.get_cached_order_book(symbol)
+        if cached:
+            return cached
+
+        # 2. Subscribe (Fire & Forget)
+        # Use existing subscribe_depth with 100ms preference
+        await self.subscribe_depth(symbol, levels=5)
+
+        # 3. Wait briefly for cache to warm up (upto 2s)
+        for _ in range(20):
+            await asyncio.sleep(0.1)
+            cached = self.get_cached_order_book(symbol)
+            if cached:
+                return cached
+
+        # 4. Fallback to REST if stream doesn't warm up
+        self.logger.warning(f"⚠️ WS Order Book cold for {symbol}, falling back to REST.")
+        return await self.fetch_order_book(symbol, limit)
+
     async def fetch_order_book(self, symbol: str, limit: int = 50) -> Dict[str, Any]:
         """
         Fetch L2 Order Book (Depth) for a specific symbol.
@@ -896,8 +924,10 @@ class BinanceNativeConnector(BaseConnector):
 
     async def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fetch all positions."""
+        # Phase 236: Use isolated reconciliation breaker (higher threshold)
+        # Prevents testnet position-fetch timeouts from poisoning rest_account_api
         positions = await self.error_handler.execute_with_breaker(
-            self._account_breaker_name,
+            self._reconciliation_breaker_name,
             self._request,
             "GET",
             "/fapi/v2/positionRisk",
@@ -1005,7 +1035,7 @@ class BinanceNativeConnector(BaseConnector):
                 "amount": float(t["qty"]),
                 "cost": float(t["quoteQty"]),
                 "fee": {
-                    "cost": float(t.get("commission", 0)),
+                    "cost": float(t.get("commission") or 0),
                     "currency": t.get("commissionAsset", "USDT"),
                 },
                 "realized_pnl": float(t.get("realizedPnl", 0)),
@@ -1670,7 +1700,8 @@ class BinanceNativeConnector(BaseConnector):
     async def subscribe_depth(self, symbol: str, levels: int = 5) -> None:
         """Subscribe to depth stream for a symbol (Phase 230)."""
         native_symbol = self._normalize_symbol(symbol).lower()
-        stream = f"{native_symbol}@depth{levels}"
+        # Phase 235: Golden Execution - Force 100ms latency
+        stream = f"{native_symbol}@depth{levels}@100ms"
         await self._subscribe_stream(stream)
         self._active_subscriptions.add(stream)
 

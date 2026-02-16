@@ -507,8 +507,8 @@ class PreflightValidator:
             # Create 2 limit orders that won't fill
             for i in range(2):
                 limit_price = round(price * 0.85, 2)  # 15% below
-                # Dynamic sizing: Ensure > 5 USD (Target 10 USD)
-                target_notional = 10.0
+                # Dynamic sizing: Ensure > 20 USD (ETH MinNotional is 20)
+                target_notional = 25.0
                 raw_amount = target_notional / limit_price
                 test_amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
 
@@ -569,7 +569,7 @@ class PreflightValidator:
         try:
             # Calculate amount (Master Sizing simulation)
             price = await self.adapter.get_current_price(self.symbol)
-            notional = 15.0
+            notional = 25.0
             raw_amount = notional / price
             amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
 

@@ -262,9 +262,10 @@ class Croupier(TimeIterator):
                 self.logger.info(f"🛡️ Gracefully closing {len(tracked_positions)} tracked positions (Parallel)...")
 
                 # Phase 200: Concurrent Draining Optimization
-                # Use a semaphore to allow 5 concurrent closes per batch
-                # This drastically reduces draining time for 42 symbols (e.g. 8s -> 1.5s)
-                sem = asyncio.Semaphore(5)
+                # Phase 236: Reduced from Sem(5) to Sem(3) to prevent API flood during shutdown
+                # Each close = 2 cancel requests (TP+SL) + 1 market order = 3 REST calls
+                # Sem(3) * 3 calls = max 9 concurrent REST requests (safe for testnet)
+                sem = asyncio.Semaphore(3)
 
                 async def close_with_sem(pos, idx, total):
                     async with sem:
@@ -279,8 +280,8 @@ class Croupier(TimeIterator):
                         finally:
                             if watchdog:
                                 watchdog.heartbeat()
-                            # Small stagger to prevent exact millisecond collision
-                            await asyncio.sleep(0.05)
+                            # Phase 236: Increased stagger from 50ms to 200ms to prevent API saturation
+                            await asyncio.sleep(0.2)
 
                 # Launch all close tasks
                 tasks = [close_with_sem(pos, i, len(tracked_positions)) for i, pos in enumerate(tracked_positions)]
@@ -678,11 +679,13 @@ class Croupier(TimeIterator):
 
             return result
         finally:
-            # Phase 234: Emergency safety: Revert status if we crashed or timed out before confirm_close
-            # This allows the next drain/exit tick to retry the closure.
+            # Phase 236: Mark as CLOSE_FAILED instead of reverting to ACTIVE
+            # Reverting to ACTIVE causes infinite retry loops during drain/shutdown
+            # (drain ticker retries → fails → reverts → retries → 587 stalls)
+            # CLOSE_FAILED allows emergency_sweep audit to pick it up without drain retries
             if position and getattr(position, "status", "") == "CLOSING":
-                self.logger.warning(f"🔄 Reverting {trade_id} status to ACTIVE after close failure/timeout")
-                position.status = "ACTIVE"
+                self.logger.warning(f"⚠️ Marking {trade_id} as CLOSE_FAILED (will not auto-retry)")
+                position.status = "CLOSE_FAILED"
 
             self.position_tracker.unlock(trade_id, position=position)
 
@@ -903,10 +906,15 @@ class Croupier(TimeIterator):
         try:
             open_orders = await self.adapter.fetch_open_orders(symbol)
             for order in open_orders:
-                await self.adapter.cancel_order(order["id"], symbol)
-            self.logger.info(f"✅ Cancelled {len(open_orders)} open orders for {symbol}")
+                try:
+                    await self.adapter.cancel_order(order["id"], symbol)
+                except Exception as inner_e:
+                    # Log but continue to ensure we try to cancel others
+                    self.logger.warning(f"⚠️ Failed to cancel individual order {order.get('id')} in cleanup: {inner_e}")
+
+            self.logger.info(f"✅ Cleanup processed {len(open_orders)} open orders for {symbol}")
         except Exception as e:
-            self.logger.error(f"❌ Error cancelling open orders for {symbol}: {e}")
+            self.logger.error(f"❌ Error fetching/cancelling open orders for {symbol}: {e}")
 
         # 2. Close any remaining positions (if not handled by main loop)
         # Note: main.py attempts to close positions via close_position before calling this,

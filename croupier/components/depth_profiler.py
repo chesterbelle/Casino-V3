@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, Dict
 
@@ -18,11 +19,24 @@ class DepthProfiler:
 
     async def analyze_execution(self, symbol: str, side: str, amount: float, limit: int = 20) -> Dict[str, Any]:
         """
-        Analyzes the potential impact of a market order (REST-based).
+        Analyzes the potential impact of a market order (Hybrid: Cache -> REST).
+        Prioritizes Zero-Latency Cache check.
         """
+        # 1. Try Cache First (Golden Execution Path)
+        cached = self.analyze_cached_execution(symbol, side, amount, limit)
+        if not cached.get("error"):
+            # Cache Hit & Valid
+            return cached
+
+        # 2. Fallback to REST (Safety Net)
         try:
-            book = await self.adapter.fetch_order_book(symbol, limit=limit)
+            # Phase 234: Critical Timeout Fix
+            # Prevent indefinite hang during congestion
+            book = await asyncio.wait_for(self.adapter.fetch_order_book(symbol, limit=limit), timeout=2.0)
             return self._analyze_book(book, side, amount, limit)
+        except asyncio.TimeoutError:
+            self.logger.warning(f"⚠️ Depth analysis timed out for {symbol} (Fail Open)")
+            return {"is_safe": True, "error": "timeout"}
         except Exception as e:
             self.logger.error(f"❌ Depth analysis failed for {symbol}: {e}")
             return {"is_safe": True, "error": str(e)}

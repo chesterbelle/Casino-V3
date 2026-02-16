@@ -130,6 +130,7 @@ class OrderExecutor:
         order: Dict[str, Any],
         retry_config: Optional[RetryConfig] = None,
         timeout: Optional[float] = None,
+        skip_depth_analysis: bool = False,
     ) -> Dict[str, Any]:
         """
         Execute market order with retry logic.
@@ -138,6 +139,7 @@ class OrderExecutor:
             order: Order dict with symbol, side, amount
             retry_config: Optional retry configuration
             timeout: Optional operation timeout (seconds)
+            skip_depth_analysis: Skip depth profiler (Phase 236: for emergency closes)
 
         Returns:
             Order result dict with order_id, status, filled_price, etc.
@@ -162,11 +164,25 @@ class OrderExecutor:
                 raise ExchangeError(f"Safe Mode Active: High Latency ({avg_lat:.2f}ms)")
 
         # Phase 102/230: Industrial Resilience - Execution Quality Analysis
-        # Prefer cached analysis for speed (<5ms vs ~400ms)
-        analysis = self.depth_profiler.analyze_cached_execution(order["symbol"], order["side"], order["amount"])
-        if analysis.get("error"):
-            self.logger.info(f"💾 Cache Miss/Stale for {order['symbol']}, falling back to REST analysis...")
-            analysis = await self.depth_profiler.analyze_execution(order["symbol"], order["side"], order["amount"])
+        # Phase 236: Skip depth analysis during emergency close (avoids REST flood during shutdown)
+        if skip_depth_analysis:
+            self.logger.info(f"⚡ Emergency Close: Skipping depth analysis for {order['symbol']}")
+            analysis = {"slippage_pct": 0, "source": "emergency_skip"}
+        else:
+            # Prefer cached analysis for speed (<5ms vs ~400ms)
+            analysis = self.depth_profiler.analyze_cached_execution(order["symbol"], order["side"], order["amount"])
+            if analysis.get("error"):
+                # Phase 236: Hard 2s timeout on REST fallback (prevents OCO stalls)
+                # If REST is slow/dead, proceed with the trade (fail-open)
+                try:
+                    self.logger.info(f"💾 Cache Miss/Stale for {order['symbol']}, falling back to REST analysis...")
+                    analysis = await asyncio.wait_for(
+                        self.depth_profiler.analyze_execution(order["symbol"], order["side"], order["amount"]),
+                        timeout=2.0,
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"⚠️ Depth REST timeout for {order['symbol']}. Proceeding (fail-open).")
+                    analysis = {"slippage_pct": 0, "source": "timeout_skip", "is_safe": True}
 
         slippage = analysis.get("slippage_pct", 0)
         self.logger.info(
@@ -218,7 +234,8 @@ class OrderExecutor:
                 self.logger.info(f"⏳ Polling Market Order {order_id} (Attempt {i+1})...")
                 await asyncio.sleep(0.5)
                 try:
-                    updated = await self.adapter.fetch_order(order_id, symbol)
+                    # Fix 7: Hard timeout for polling actions (Phase 236)
+                    updated = await asyncio.wait_for(self.adapter.fetch_order(order_id, symbol), timeout=2.0)
                     if updated.get("status") in ["closed", "filled"]:
                         result.update(updated)
                         self.logger.info(f"✅ Market Order {order_id} filled after polling.")
@@ -227,11 +244,21 @@ class OrderExecutor:
                         result.update(updated)
                         self.logger.warning(f"⚠️ Market Order {order_id} was {updated.get('status')}.")
                         break
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"⚠️ Polling timeout for {order_id} (Attempt {i+1}). Skipping.")
                 except Exception as e:
                     self.logger.warning(f"⚠️ Polling failed for {order_id}: {e}")
 
         # ENRICHMENT: Fetch exact fill details and fees if not present
-        result = await self._enrich_fill_details(result, symbol)
+        try:
+            # Fix 7: Hard timeout for enrichment (Phase 236)
+            # Only enrich if filled, otherwise skip
+            if result.get("status") == "filled":
+                result = await asyncio.wait_for(self._enrich_fill_details(result, symbol), timeout=2.0)
+        except asyncio.TimeoutError:
+            self.logger.warning(f"⚠️ Fill enrichment timed out for {result.get('order_id')}. Using raw result.")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Fill enrichment failed: {e}")
 
         self.logger.info(
             f"[TRADE] ✅ Market Order Filled: {result.get('order_id')} | "
@@ -462,7 +489,9 @@ class OrderExecutor:
         else:
             return RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
 
-    async def force_close_position(self, symbol: str, side: str, amount: float) -> Dict[str, Any]:
+    async def force_close_position(
+        self, symbol: str, side: str, amount: float, skip_depth_analysis: bool = True
+    ) -> Dict[str, Any]:
         """
         Force close a position with "Smart Close" fallback logic.
 
@@ -470,6 +499,8 @@ class OrderExecutor:
         1. Market Order (Preferred)
         2. Aggressive Limit (5% buffer) - if Market blocked by volatility
         3. Safe Limit (1% buffer) - if Aggressive blocked by price bands
+
+        Phase 236: skip_depth_analysis defaults to True for force closes.
         """
         symbol = self.adapter.normalize_symbol(symbol)
         # Invert side for closing
@@ -501,7 +532,8 @@ class OrderExecutor:
                     "side": close_side,
                     "amount": amount,
                     "params": {"reduceOnly": True, "client_order_id": client_id},
-                }
+                },
+                skip_depth_analysis=skip_depth_analysis,
             )
         except Exception as e:
             err_str = str(e).lower()

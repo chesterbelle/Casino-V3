@@ -147,7 +147,10 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                         t.cancel()
 
             # Final Audit
-            logger.info("🧹 Chaos phase complete. Proceeding to Global Integrity Audit...")
+            logger.info("🧹 Chaos phase complete. Performing Emergency Sweep to ensure clean slate...")
+            await self.croupier.emergency_sweep(close_positions=True)
+
+            logger.info("⏳ Waiting for events to settle...")
             await asyncio.sleep(15)  # Let events settle and auditor finish healing
 
             integrity_passed = await self.test_global_integrity()

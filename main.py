@@ -809,30 +809,12 @@ async def main():
 
         # 0. Cancel background tasks created in main()
 
-        # 0.5. STOP INPUTS AND PROCESSING (PRIORITY)
-        # We stop sensors and engine FIRST so the loop is quiet during sweep
-        try:
-            logger.info("🛑 Stopping background tasks and managers...")
+        # Phase 236: CRITICAL FIX - Emergency Sweep BEFORE killing feeds
+        # The sweep needs live WebSocket data (depth cache) to close positions.
+        # Old order: Stop feeds → Sweep (cache stale → REST flood → HANG)
+        # New order: Sweep (cache warm → 0-latency) → Stop feeds
 
-            # Stop Sensors (multiprocessing)
-            sensor_manager.stop()
-
-            # Stop Engine & OrderManager (Accept no more events)
-            await asyncio.wait_for(engine.stop(), timeout=5.0)
-            await asyncio.wait_for(order_manager.stop(), timeout=5.0)
-
-            # Cancel specific background tasks
-            health_check_task = locals().get("health_check_task")
-            if health_check_task:
-                health_check_task.cancel()
-            reconciliation_task = locals().get("reconciliation_task")
-            if reconciliation_task:
-                reconciliation_task.cancel()
-
-        except Exception as e:
-            logger.error(f"⚠️ Error during early shutdown: {e}")
-
-        # 0.6. Emergency Sweep / Close Positions (PRIORITY)
+        # 0.5. Emergency Sweep / Close Positions (WHILE FEEDS ARE ALIVE)
         logger.info("🧹 Performing final exchange sweep...")
         should_close = args.close_on_exit
         sweep_report = {}
@@ -854,6 +836,28 @@ async def main():
             logger.error(f"❌ Error during emergency sweep: {e}")
         finally:
             cleanup_watchdog.heartbeat()  # Final heartbeat after sweep
+
+        # 0.6. NOW STOP INPUTS AND PROCESSING (after positions are closed)
+        try:
+            logger.info("🛑 Stopping background tasks and managers...")
+
+            # Stop Sensors (multiprocessing)
+            sensor_manager.stop()
+
+            # Stop Engine & OrderManager (Accept no more events)
+            await asyncio.wait_for(engine.stop(), timeout=5.0)
+            await asyncio.wait_for(order_manager.stop(), timeout=5.0)
+
+            # Cancel specific background tasks
+            health_check_task = locals().get("health_check_task")
+            if health_check_task:
+                health_check_task.cancel()
+            reconciliation_task = locals().get("reconciliation_task")
+            if reconciliation_task:
+                reconciliation_task.cancel()
+
+        except Exception as e:
+            logger.error(f"⚠️ Error during early shutdown: {e}")
 
         # Phase 84: Settlement Phase
         # Wait for "Pending Closes" to be confirmed by Exchange so PnL is recorded in DB.
