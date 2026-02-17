@@ -10,7 +10,7 @@ class LatencyMonitor:
     or exchange is congested.
     """
 
-    def __init__(self, window_size: int = 50, critical_threshold_ms: float = 800.0):
+    def __init__(self, window_size: int = 50, critical_threshold_ms: float = 2000.0):
         self.logger = logging.getLogger("LatencyMonitor")
         self.window_size = window_size
         self.critical_threshold_ms = critical_threshold_ms

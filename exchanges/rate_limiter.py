@@ -92,11 +92,14 @@ class ExchangeRateLimiter:
 
         # Acquire token (will wait if rate limit reached)
         try:
+            self.logger.debug(f"[TRACE] Rate limit acquisition START for {endpoint_type}...")
             await asyncio.wait_for(limiter.acquire(), timeout=timeout)
             self._request_counts[endpoint_type] = self._request_counts.get(endpoint_type, 0) + 1
-            self.logger.debug(f"Rate limit acquired: {endpoint_type} ({self._request_counts[endpoint_type]} requests)")
+            self.logger.debug(
+                f"[TRACE] Rate limit acquisition SUCCESS: {endpoint_type} ({self._request_counts[endpoint_type]} requests)"
+            )
         except asyncio.TimeoutError:
-            self.logger.error(f"🚨 Rate limit acquisition TIMEOUT for {endpoint_type} after {timeout}s")
+            self.logger.error(f"🚨 [TRACE] Rate limit acquisition TIMEOUT for {endpoint_type} after {timeout}s")
             raise TimeoutError(f"Rate limit acquisition timeout ({endpoint_type})")
 
     def limit(self, endpoint_type: str = "default"):

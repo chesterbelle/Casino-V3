@@ -45,6 +45,7 @@ class WatchdogRegistry(TimeIterator):
         self.running = False
         self._initialized = True
         self._monitor_thread: Optional[threading.Thread] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_event = threading.Event()
 
     def register(
@@ -84,6 +85,7 @@ class WatchdogRegistry(TimeIterator):
         if self.running:
             return
         self.running = True
+        self._loop = asyncio.get_running_loop()
         self._stop_event.clear()
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name="WatchdogMonitor")
         self._monitor_thread.start()
@@ -126,11 +128,16 @@ class WatchdogRegistry(TimeIterator):
                         if task.recovery_callback:
                             try:
                                 logger.warning(f"🔄 Triggering recovery callback for {name}...")
-                                # Note: Asynchronous callbacks might not run if the loop is dead
+                                # Phase 237: Support async callbacks from independent thread
                                 if asyncio.iscoroutinefunction(task.recovery_callback):
-                                    logger.warning(
-                                        f"⚠️ Cannot execute coroutine callback for {name} from Watchdog thread if loop is hung!"
-                                    )
+                                    if self._loop and self._loop.is_running():
+                                        self._loop.call_soon_threadsafe(
+                                            lambda t=task: asyncio.run_coroutine_threadsafe(
+                                                t.recovery_callback(), self._loop
+                                            )
+                                        )
+                                    else:
+                                        logger.error(f"❌ Cannot trigger async recovery for {name}: Loop not running!")
                                 else:
                                     task.recovery_callback()
                             except Exception as e:

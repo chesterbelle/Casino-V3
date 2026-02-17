@@ -167,7 +167,12 @@ class OCOManager:
 
         # WATCHDOG INTEGRATION: Register OCO operation for monitoring
         operation_id = f"oco_{symbol}_{uuid.uuid4().hex[:8]}"
-        watchdog.register(operation_id, timeout=OCO_OPERATION_TIMEOUT)
+
+        # Phase 237: Register recovery callback to clear pending locks on stall
+        async def _recovery():
+            await self._handle_oco_stall(operation_id, symbol)
+
+        watchdog.register(operation_id, timeout=OCO_OPERATION_TIMEOUT, recovery_callback=_recovery)
 
         try:
             # 0. PRE-VALIDATE PRICES (Sanity Check)
@@ -1354,3 +1359,18 @@ class OCOManager:
             self.logger.error(f"❌ Smart Healing Failed for {trade_id}: {e}")
             position.status = old_status  # Revert on error
             return False
+
+    async def _handle_oco_stall(self, operation_id: str, symbol: str):
+        """
+        Phase 237: Recovery callback for stalled OCO tasks.
+        Releases the symbol lock so the bot can try again.
+        """
+        self.logger.warning(f"🔄 Recovering stalled OCO task {operation_id} for {symbol}...")
+
+        # 1. Release symbol lock
+        if symbol in self.pending_symbols:
+            self.pending_symbols.remove(symbol)
+            self.logger.info(f"🔓 Symbol lock released for {symbol} after stall.")
+
+        # 2. Cleanup watchdog (Self-idempotent)
+        watchdog.unregister(operation_id)

@@ -303,7 +303,9 @@ class BinanceNativeConnector(BaseConnector):
         """Execution of the raw HTTP request, called by ErrorHandler."""
         # Rate limiting - Use specific bucket (Phase 14) with safety timeout
         # Default to 45s which matches our long REST timeouts but prevents indefinite hang
+        self.logger.debug(f"[TRACE] Connector: Acquiring {endpoint_type} limiter...")
         await self._rate_limiter.acquire(endpoint_type, timeout=45.0)
+        self.logger.debug(f"[TRACE] Connector: {endpoint_type} limiter ACQUIRED.")
 
         # Use specific timeout if provided, else session default
         req_timeout = aiohttp.ClientTimeout(total=timeout) if timeout else None
@@ -333,25 +335,31 @@ class BinanceNativeConnector(BaseConnector):
 
             if method == "GET":
                 start_time = time.time()
+                self.logger.debug(f"[TRACE] Connector: Sending GET request to {final_url}...")
                 async with self._http_session.get(
                     final_url, params=final_params, headers=headers, timeout=req_timeout
                 ) as resp:
+                    self.logger.debug(f"[TRACE] Connector: GET Response RECEIVED (Status: {resp.status})")
                     res = await self._handle_response(resp)
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "POST":
                 start_time = time.time()
+                self.logger.debug(f"[TRACE] Connector: Sending POST request to {final_url}...")
                 async with self._http_session.post(
                     final_url, params=final_params, headers=headers, timeout=req_timeout
                 ) as resp:
+                    self.logger.debug(f"[TRACE] Connector: POST Response RECEIVED (Status: {resp.status})")
                     res = await self._handle_response(resp)
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "DELETE":
                 start_time = time.time()
+                self.logger.debug(f"[TRACE] Connector: Sending DELETE request to {final_url}...")
                 async with self._http_session.delete(
                     final_url, params=final_params, headers=headers, timeout=req_timeout
                 ) as resp:
+                    self.logger.debug(f"[TRACE] Connector: DELETE Response RECEIVED (Status: {resp.status})")
                     res = await self._handle_response(resp)
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res

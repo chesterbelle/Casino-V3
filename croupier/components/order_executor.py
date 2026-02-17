@@ -212,6 +212,7 @@ class OrderExecutor:
             f"[TRADE] 📤 Executing Market Order: {order['side']} {order['amount']} {symbol} | ID: {order.get('clientOrderId')}"
         )
 
+        self.logger.debug(f"[TRACE] OrderExecutor: Starting execution with 5s timeout for {symbol}...")
         result = await asyncio.wait_for(
             self.error_handler.execute_with_breaker(
                 f"exchange_orders_{symbol}",
@@ -222,43 +223,25 @@ class OrderExecutor:
             ),
             timeout=5.0,  # Phase 56: Strict Execution Timeout
         )
+        self.logger.debug(f"[TRACE] OrderExecutor: Execution SUCCESS for {symbol}.")
 
         # LOCAL TRACKING: Register in OrderTracker if available
         if self.order_tracker:
             self.order_tracker.track_local_order(result)
 
-        # Phase 232: Market Polish - Wait for immediate fills if 'open'
-        if result.get("status") == "open":
-            order_id = result.get("order_id")
-            for i in range(3):
-                self.logger.info(f"⏳ Polling Market Order {order_id} (Attempt {i+1})...")
-                await asyncio.sleep(0.5)
-                try:
-                    # Fix 7: Hard timeout for polling actions (Phase 236)
-                    updated = await asyncio.wait_for(self.adapter.fetch_order(order_id, symbol), timeout=2.0)
-                    if updated.get("status") in ["closed", "filled"]:
-                        result.update(updated)
-                        self.logger.info(f"✅ Market Order {order_id} filled after polling.")
-                        break
-                    elif updated.get("status") in ["canceled", "rejected"]:
-                        result.update(updated)
-                        self.logger.warning(f"⚠️ Market Order {order_id} was {updated.get('status')}.")
-                        break
-                except asyncio.TimeoutError:
-                    self.logger.warning(f"⚠️ Polling timeout for {order_id} (Attempt {i+1}). Skipping.")
-                except Exception as e:
-                    self.logger.warning(f"⚠️ Polling failed for {order_id}: {e}")
+        # Phase 238: Native Performance Restoration (Deep Clean)
+        # Removed blocking polling loop entirely. If order is 'open', the Auditor
+        # or OCOManager retry logic handles it reactively.
 
-        # ENRICHMENT: Fetch exact fill details and fees if not present
-        try:
-            # Fix 7: Hard timeout for enrichment (Phase 236)
-            # Only enrich if filled, otherwise skip
-            if result.get("status") == "filled":
-                result = await asyncio.wait_for(self._enrich_fill_details(result, symbol), timeout=2.0)
-        except asyncio.TimeoutError:
-            self.logger.warning(f"⚠️ Fill enrichment timed out for {result.get('order_id')}. Using raw result.")
-        except Exception as e:
-            self.logger.warning(f"⚠️ Fill enrichment failed: {e}")
+        # ENRICHMENT: Move to background to prevent blocking the critical path
+        if result.get("status") == "filled":
+            self.logger.debug(f"🧵 Spawning background enrichment for {result.get('order_id')}")
+            asyncio.create_task(self._safe_enrichment(result, symbol))
+
+        self.logger.info(
+            f"[TRADE] ✅ Market Order Executed: {result.get('order_id')} | "
+            f"Status: {result.get('status')} (Native Speed)"
+        )
 
         self.logger.info(
             f"[TRADE] ✅ Market Order Filled: {result.get('order_id')} | "
@@ -305,6 +288,17 @@ class OrderExecutor:
                 self.logger.warning(f"⚠️ Failed to enrich fill details for {order_id}: {e}")
 
         return result
+
+    async def _safe_enrichment(self, result: Dict[str, Any], symbol: str):
+        """
+        Background wrapper for enrichment to prevent main loop hangs.
+        """
+        try:
+            # Wait 2-3 seconds for engine to settle and trades to populate
+            await asyncio.sleep(2.0)
+            await asyncio.wait_for(self._enrich_fill_details(result, symbol), timeout=3.0)
+        except Exception as e:
+            self.logger.debug(f"ℹ️ Background enrichment skipped/failed for {result.get('order_id')}: {e}")
 
     async def execute_limit_order(
         self, symbol: str, side: str, amount: float, price: float, params: Dict = None

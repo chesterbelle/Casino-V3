@@ -147,16 +147,19 @@ class ReconciliationService:
                 normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
             }
 
-            # Phase 102: Industrial Resilience - Balance Reconciliation
+            # Phase 102/238: Industrial Resilience - Throttled Balance Reconciliation
             if self.croupier and hasattr(self.croupier, "balance_manager"):
-                try:
-                    balance_data = await self.adapter.connector.fetch_balance()
-                    new_balance = balance_data.get("total", {}).get("USDT", 0.0)
-                    if new_balance > 0:
-                        self.logger.info(f"[SYNC] 💰 Reconciling balance: {new_balance:.2f} USDT")
-                        self.croupier.balance_manager.set_balance(new_balance)
-                except Exception as e:
-                    self.logger.warning(f"⚠️ Failed to reconcile balance: {e}")
+                last_bal_reconcile = getattr(self, "_last_balance_reconcile", 0)
+                if (time.time() - last_bal_reconcile) > 300:  # Every 5 minutes
+                    try:
+                        balance_data = await self.adapter.connector.fetch_balance()
+                        new_balance = balance_data.get("total", {}).get("USDT", 0.0)
+                        if new_balance > 0:
+                            self.logger.info(f"[SYNC] 💰 Reconciling balance: {new_balance:.2f} USDT")
+                            self.croupier.balance_manager.set_balance(new_balance)
+                            self._last_balance_reconcile = time.time()
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Failed to reconcile balance: {e}")
 
             all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
