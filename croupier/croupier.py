@@ -60,6 +60,9 @@ class Croupier(TimeIterator):
         })
     """
 
+    # Phase 240: Shutdown Performance
+    EXCHANGE_SHUTDOWN_TIMEOUT = 10.0
+
     def __init__(self, exchange_adapter, initial_balance: float):
         """
         Initialize Croupier orchestrator.
@@ -273,7 +276,9 @@ class Croupier(TimeIterator):
                             self.logger.info(
                                 f"📉 Closing tracked position {pos.trade_id} ({pos.symbol}) [{idx+1}/{total}]"
                             )
-                            await self.close_position(pos.trade_id, exit_reason=reason, position_obj=pos)
+                            await self.close_position(
+                                pos.trade_id, exit_reason=reason, position_obj=pos, watchdog=watchdog
+                            )
                             report["positions_closed"] += 1
                         except Exception as e:
                             self.logger.error(f"❌ Failed to close {pos.trade_id}: {e}")
@@ -299,10 +304,21 @@ class Croupier(TimeIterator):
             for attempt in range(3):
                 self.logger.info(f"🔍 Audit Sweep (Attempt {attempt+1}/3)...")
 
+                if watchdog:
+                    watchdog.heartbeat("emergency_sweep", "Bulk fetch start")
+
                 # 1. Fetch EVERYTHING once
-                all_exchange_positions, all_exchange_orders = await asyncio.gather(
-                    self.adapter.fetch_positions(), self.adapter.fetch_open_orders(None), return_exceptions=True
-                )
+                # Phase 240: Use strict timeout for audit fetch
+                try:
+                    all_exchange_positions, all_exchange_orders = await asyncio.wait_for(
+                        asyncio.gather(
+                            self.adapter.fetch_positions(), self.adapter.fetch_open_orders(None), return_exceptions=True
+                        ),
+                        timeout=self.EXCHANGE_SHUTDOWN_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.error("❌ Bulk fetch timed out during emergency_sweep")
+                    all_exchange_positions, all_exchange_orders = [], []
 
                 # Handle potential exceptions in bulk fetch
                 if isinstance(all_exchange_positions, Exception):
@@ -346,7 +362,7 @@ class Croupier(TimeIterator):
                     try:
                         # Step A: Cancel all orders
                         if state["orders"]:
-                            await self.adapter.cancel_all_orders(sym)
+                            await self.adapter.cancel_all_orders(sym, timeout=self.EXCHANGE_SHUTDOWN_TIMEOUT)
                             report["orders_cancelled"] += len(state["orders"])
                             await asyncio.sleep(0.1)  # Tiny pause
 
@@ -362,7 +378,10 @@ class Croupier(TimeIterator):
 
                                     # Create Market Order
                                     await self.adapter.create_market_order(
-                                        symbol=sym, side=close_side, amount=size, params={"reduceOnly": True}
+                                        symbol=sym,
+                                        side=close_side,
+                                        amount=size,
+                                        params={"reduceOnly": True, "timeout": self.EXCHANGE_SHUTDOWN_TIMEOUT},
                                     )
                                     self.logger.info(f"✅ Closed remainder: {sym} {size}")
 
@@ -371,7 +390,8 @@ class Croupier(TimeIterator):
                                         # Estimate PnL (Neutral) or fetch current price
                                         exit_price = 0.0
                                         try:
-                                            ticker = await self.adapter.fetch_ticker(sym)
+                                            # Phase 240: Fast Ticker with timeout
+                                            ticker = await asyncio.wait_for(self.adapter.fetch_ticker(sym), timeout=5.0)
                                             exit_price = float(ticker.get("last", 0))
                                         except Exception:
                                             pass
@@ -537,6 +557,7 @@ class Croupier(TimeIterator):
         trade_id: str,
         exit_reason: str = "MANUAL",
         position_obj: Optional[Any] = None,
+        watchdog: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Close a position manually.
@@ -571,6 +592,9 @@ class Croupier(TimeIterator):
                 self.logger.warning(
                     f"⚠️ Non-critical failure cancelling bracket for {trade_id}: {ce}. Proceeding to close market position."
                 )
+
+            if watchdog:
+                watchdog.heartbeat("close_position", f"Bracket cancelled for {position.symbol}")
 
             # 2. Execute market close
 
@@ -955,24 +979,36 @@ class Croupier(TimeIterator):
 
         # 2. Periodic Balance Sync (Every 5 mins) - Offset by 30s to avoid candle boundary
         if int(timestamp) % 300 == 30:
-            asyncio.create_task(self._sync_balance())
+            self._run_periodic_task(self._sync_balance(), "BalanceSync", timeout=30.0)
 
         # 2.5. Periodic Funding Sync (Every 10 mins) - Phase 30
         if timestamp - self._last_funding_sync >= 600:
-            # We don't need a strict modulo here, but let's ensure it doesn't always hit :00
-            asyncio.create_task(self._sync_funding_fees())
+            self._run_periodic_task(self._sync_funding_fees(), "FundingSync", timeout=45.0)
 
         # 3. Periodic Reconciliation (Every 60s) - Safety Net for Ghosts
         # Phase 180: Offset by 15s to avoid colliding with 42 candle closures at :00
         if int(timestamp) % 60 == 15:
             # We use reconcile_positions(None) to reconcile ALL symbols
             # This is lightweight if tracking matches exchange, heavy if detachment found.
-            asyncio.create_task(self.reconcile_positions(None))
+            self._run_periodic_task(self.reconcile_positions(None), "GlobalRecon", timeout=45.0)
 
         # 3. Dynamic Exits (If needed, can be driven here)
         # Note: In V3, ExitManager was likely driven by external ticks or own loop.
         # In V4, it should be driven here.
         # await self.exit_manager.tick(timestamp)
+
+    def _run_periodic_task(self, coro, name: str, timeout: float):
+        """Helper to run a periodic task with strict timeout and pile-up protection."""
+
+        async def _execution_wrapper():
+            try:
+                await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                self.logger.error(f"⏰ Periodic Task {name} TIMED OUT after {timeout}s")
+            except Exception as e:
+                self.logger.error(f"❌ Periodic Task {name} FAILED: {e}", exc_info=True)
+
+        asyncio.create_task(_execution_wrapper())
 
     async def _sync_balance(self):
         """Standardized balance sync."""

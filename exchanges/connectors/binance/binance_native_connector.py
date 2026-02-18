@@ -14,11 +14,28 @@ import asyncio
 import decimal
 import hashlib
 import hmac
-import json
+
+try:
+    import orjson
+
+    json_loads = orjson.loads
+
+    # orjson.dumps returns bytes, we usually need str for requests/aiohttp params
+    def json_dumps(obj):
+        return orjson.dumps(obj).decode("utf-8")
+
+    USING_ORJSON = True
+except ImportError:
+    import json
+
+    json_loads = json.loads
+    json_dumps = json.dumps
+    USING_ORJSON = False
 import logging
 import multiprocessing
 import os
 import time
+import uuid
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -27,6 +44,7 @@ import aiohttp
 import websockets
 import yarl
 
+from core.execution_process import Priority
 from core.observability.latency_monitor import LatencyMonitor
 from exchanges.connectors.connector_base import BaseConnector
 from exchanges.ingestion.binance_worker import BinanceWorker
@@ -58,6 +76,12 @@ class BinanceNativeConnector(BaseConnector):
         self.error_handler = get_error_handler()
         self._market_breaker_name = "binance_market_stream"
         self._user_breaker_name = "binance_user_stream"
+
+        # Phase 7: Execution Airlock Queues
+        self._exec_cmd_queue: Optional[multiprocessing.Queue] = None
+        self._exec_res_queue: Optional[multiprocessing.Queue] = None
+        self._exec_futures: Dict[str, asyncio.Future] = {}
+        self._exec_poll_task: Optional[asyncio.Task] = None
 
         # Phase 24: Global Circuit Breaker name for REST Market Data (Pressure Relief)
         self._market_data_breaker_name = "rest_market_data"
@@ -201,6 +225,57 @@ class BinanceNativeConnector(BaseConnector):
         """Return if WebSocket is enabled."""
         return self._enable_websocket
 
+    def set_execution_queues(self, cmd_queue: multiprocessing.Queue, res_queue: multiprocessing.Queue):
+        """
+        Phase 7: Inject Airlock Queues for dedicated execution process.
+        Starts the result polling loop.
+        """
+        self._exec_cmd_queue = cmd_queue
+        self._exec_res_queue = res_queue
+        self.logger.info("🚀 Execution Airlock Configured")
+
+        # Start polling loop
+        if not self._exec_poll_task or self._exec_poll_task.done():
+            self._exec_poll_task = asyncio.create_task(self._poll_execution_results())
+
+    async def _poll_execution_results(self):
+        """
+        Polls the execution result queue and resolves pending futures.
+        Runs as a background task in the main loop.
+        """
+        self.logger.info("🔄 Execution Result Poller Started")
+        while True:
+            try:
+                # Non-blocking poll with yield
+                try:
+                    # We can't await a multiprocessing queue in asyncio directly without running in executor
+                    # But for high frequency, running run_in_executor for every get is overhead.
+                    # We'll use a short sleep loop here or use a Thread + AsyncQueue bridge.
+                    # For simplicity/speed in this phase: check queue, if empty sleep 1ms.
+                    # If high volume, this sleep is acceptable.
+                    while not self._exec_res_queue.empty():
+                        result = self._exec_res_queue.get_nowait()
+                        request_id = result["request_id"]
+
+                        if request_id in self._exec_futures:
+                            future = self._exec_futures.pop(request_id)
+                            if not future.done():
+                                if result["success"]:
+                                    future.set_result(result["data"])
+                                else:
+                                    future.set_exception(
+                                        Exception(result["data"].get("error", "Unknown Airlock Error"))
+                                    )
+                        else:
+                            self.logger.warning(f"⚠️ Received result for unknown/timed-out request: {request_id}")
+
+                    await asyncio.sleep(0.001)
+                except Exception as e:
+                    self.logger.error(f"⚠️ Poller Error: {e}")
+                    await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                break
+
     def get_load_factor(self) -> float:
         """Returns current exchange load factor based on weight."""
         return self._rate_limiter.get_load_factor()
@@ -263,30 +338,20 @@ class BinanceNativeConnector(BaseConnector):
         url = f"{self._base_url}{endpoint}"
         params = params or {}
 
-        final_params = params
-
-        if signed:
-            params["timestamp"] = self._get_timestamp()
-            # Phase 71: Increase recvWindow to handle reactor jitter/lag
-            if "recvWindow" not in params:
-                params["recvWindow"] = 15000
-            # _sign_params now returns a STRING (verified fix for -1022)
-            final_params = self._sign_params(params)
-        elif params:
-            # Basic encoding for non-signed (optional, but good practice)
-            # But let aiohttp handle non-signed usually, unless we want uniformity
-            pass
-
         headers = {"X-MBX-APIKEY": self._api_key} if self._api_key else {}
 
-        # Use ErrorHandler to execute the request with retries
+        # Phase 241: Pass unsigned params + signed flag to _execute_raw_request
+        # so each ErrorHandler retry re-signs with a FRESH timestamp.
+        # Previously, signing happened here once, and retries reused the stale
+        # signed string — causing infinite -1021 loops.
         return await self.error_handler.execute(
             self._execute_raw_request,
             method,
             url,
-            final_params,
+            params,
             headers,
             endpoint_type,
+            signed=signed,
             timeout=timeout,
             context=f"binance.{endpoint}",
         )
@@ -298,9 +363,71 @@ class BinanceNativeConnector(BaseConnector):
         params: Dict[str, Any],
         headers: Dict[str, Any],
         endpoint_type: str = "default",
+        signed: bool = False,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Execution of the raw HTTP request, called by ErrorHandler."""
+
+        # Phase 7: execution Airlock (Offload heavy writes)
+        if self._exec_cmd_queue and method in ["POST", "PUT", "DELETE"]:
+            try:
+                # Extract endpoint relative to base_url
+                endpoint = url.replace(self._base_url, "")
+                if not endpoint.startswith("/"):
+                    endpoint = "/" + endpoint
+
+                request_id = uuid.uuid4().hex
+
+                # Determine Priority
+                priority = Priority.HIGH
+                if method == "DELETE":
+                    priority = Priority.CRITICAL  # Cancellations are paramount
+                elif endpoint_type == "account":
+                    priority = Priority.NORMAL
+
+                # Create Future to await result
+                loop = asyncio.get_running_loop()
+                future = loop.create_future()
+                self._exec_futures[request_id] = future
+
+                # Dispatch (priority, request_id, endpoint, method, payload, signed)
+                # Use put_nowait to avoid blocking main loop
+                item = (priority.value, request_id, endpoint, method, params, signed)
+                self._exec_cmd_queue.put_nowait(item)
+
+                # Await result (RPC style) or timeout
+                # The poll loop will resolve this future
+                return await asyncio.wait_for(future, timeout=timeout or 5.0)
+
+            except (asyncio.TimeoutError, multiprocessing.queues.Full) as e:
+                # If timeout or queue full, fallback to local execution?
+                # For Timeout, it means Airlock didn't process in time. Double execution risk if we retry locally?
+                # If Queue Full, we should fallback locally.
+                if isinstance(e, asyncio.TimeoutError):
+                    # Remove future
+                    self._exec_futures.pop(request_id, None)
+                    self.logger.error(f"❌ Airlock Request {request_id} Timed Out. Retrying locally...")
+                else:
+                    self.logger.warning("⚠️ Airlock Queue Full. Fallback to local execution.")
+
+            except Exception as e:
+                self.logger.error(f"⚠️ Airlock Routing Failed: {e}. Fallback to local.")
+                if "request_id" in locals():
+                    self._exec_futures.pop(request_id, None)
+
+        # ---------------------------------------------------------
+        # Fallback / Default Local Execution
+        # ---------------------------------------------------------
+
+        # Phase 241: Re-sign on EVERY attempt with a fresh timestamp.
+        # This ensures retries after -1021 resync use the updated offset.
+        if signed:
+            params = dict(params)  # Don't mutate the original dict
+            params["timestamp"] = self._get_timestamp()
+            # Phase 71: Increase recvWindow to handle reactor jitter/lag
+            if "recvWindow" not in params:
+                params["recvWindow"] = 15000
+            params = self._sign_params(params)
         # Rate limiting - Use specific bucket (Phase 14) with safety timeout
         # Default to 45s which matches our long REST timeouts but prevents indefinite hang
         self.logger.debug(f"[TRACE] Connector: Acquiring {endpoint_type} limiter...")
@@ -390,11 +517,13 @@ class BinanceNativeConnector(BaseConnector):
         text = await resp.text()
 
         if resp.status == 200:
-            return json.loads(text) if text else {}
+            return json_loads(text) if text else {}
 
         # Parse error response
         try:
-            error_data = json.loads(text)
+            error_data = json_loads(text)
+            if not isinstance(error_data, dict):
+                error_data = {}
             code = error_data.get("code", resp.status)
             msg = error_data.get("msg", text)
         except json.JSONDecodeError:
@@ -506,11 +635,11 @@ class BinanceNativeConnector(BaseConnector):
         """
         Force re-synchronization of local time with Binance server time.
         Used when -1021 (Timestamp outside recvWindow) is detected.
-        """
-        if self._time_sync_lock.locked():
-            self.logger.debug("🕒 Time sync already in progress, skipping redundant request.")
-            return
 
+        Phase 241: Changed from skip-if-locked to await-lock.
+        All concurrent threads now wait for sync to complete and benefit
+        from the updated offset, instead of skipping and retrying with stale timestamps.
+        """
         async with self._time_sync_lock:
             try:
                 self.logger.warning("🕒 Syncing time with Binance...")
@@ -519,7 +648,7 @@ class BinanceNativeConnector(BaseConnector):
                 if self._http_session:
                     async with self._http_session.get(url, timeout=5) as resp:
                         if resp.status == 200:
-                            data = await resp.json()
+                            data = await resp.json(loads=json_loads)
                             server_time = data["serverTime"]
                             local_time = int(time.time() * 1000)
                             old_offset = self._time_offset
@@ -687,17 +816,20 @@ class BinanceNativeConnector(BaseConnector):
             for k in klines
         ]
 
-    async def fetch_tickers(self) -> Dict[str, Dict[str, Any]]:
+    async def fetch_tickers(self, timeout: Optional[float] = None) -> Dict[str, Dict[str, Any]]:
         """
         Fetch all 24hr tickers in a single request (Bulk).
         Binance Weight: 1 (Highly efficient).
         Uses a lock to prevent multiple simultaneous bulk fetches (Phase 14).
         """
-        async with self._ticker_lock:
-            # Check if another task just refreshed the tickers while we were waiting for the lock
-            if time.time() - self._last_tickers_refresh < 3.0:
-                self.logger.debug("⚡ Tickers recently refreshed by another task, using cache.")
-                return {self.denormalize_symbol(k): v for k, v in self._tickers.items()}
+        # Phase 240: Add safety timeout to prevent lock-driven thundering herd
+        try:
+            async with asyncio.timeout(10.0):
+                async with self._ticker_lock:
+                    # Check if another task just refreshed the tickers while we were waiting for the lock
+                    if time.time() - self._last_tickers_refresh < 3.0:
+                        self.logger.debug("⚡ Tickers recently refreshed by another task, using cache.")
+                        return {self.denormalize_symbol(k): v for k, v in self._tickers.items()}
 
             self.logger.info("📊 Fetching all symbols (Bulk Tickers REST)...")
 
@@ -710,8 +842,9 @@ class BinanceNativeConnector(BaseConnector):
                     self._request,
                     "GET",
                     "/fapi/v1/ticker/24hr",
-                    endpoint_type="market_data",
-                    timeout=30,
+                    signed=False,
+                    endpoint_type="default",
+                    timeout=timeout,
                     retry_config=RetryConfig(max_retries=1),  # Minimal retries here, let failover handle it
                 )
             except Exception as e:
@@ -734,7 +867,6 @@ class BinanceNativeConnector(BaseConnector):
                     "volume": float(t.get("volume", 0)),
                     "quote_volume": float(t.get("quoteVolume", 0)),
                     "change": float(t.get("priceChangePercent", 0)),
-                    "timestamp": t.get("closeTime", int(time.time() * 1000)),
                 }
                 # Cache it
                 self._tickers[native_symbol] = ticker_data
@@ -742,6 +874,9 @@ class BinanceNativeConnector(BaseConnector):
 
             self._last_tickers_refresh = time.time()
             return result
+        except asyncio.TimeoutError:
+            self.logger.warning("⏰ fetch_tickers Lock acquisition timed out - falling back to existing cache")
+            return {self.denormalize_symbol(k): v for k, v in self._tickers.items()}
 
     async def fetch_book_tickers(self) -> Dict[str, Dict[str, float]]:
         """
@@ -930,7 +1065,9 @@ class BinanceNativeConnector(BaseConnector):
 
         return result
 
-    async def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def fetch_positions(
+        self, symbol: Optional[str] = None, timeout: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
         """Fetch all positions."""
         # Phase 236: Use isolated reconciliation breaker (higher threshold)
         # Prevents testnet position-fetch timeouts from poisoning rest_account_api
@@ -941,7 +1078,7 @@ class BinanceNativeConnector(BaseConnector):
             "/fapi/v2/positionRisk",
             signed=True,
             endpoint_type="account",
-            timeout=20,
+            timeout=timeout or 20,
         )
 
         if isinstance(symbol, list):
@@ -1056,7 +1193,7 @@ class BinanceNativeConnector(BaseConnector):
     # ORDERS - Regular
     # =========================================================
 
-    async def fetch_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+    async def fetch_open_orders(self, symbol: str = None, timeout: Optional[float] = None) -> List[Dict[str, Any]]:
         """Fetch ALL open orders (regular + algo). Propagates errors on failure."""
         all_orders = []
 
@@ -1066,11 +1203,13 @@ class BinanceNativeConnector(BaseConnector):
             params["symbol"] = self._normalize_symbol(symbol)
 
         # self.logger.debug(f"🔍 Fetching regular orders with params: {params}")
-        orders = await self._request("GET", "/fapi/v1/openOrders", params, signed=True, endpoint_type="orders")
+        orders = await self._request(
+            "GET", "/fapi/v1/openOrders", params, signed=True, endpoint_type="orders", timeout=timeout
+        )
         all_orders.extend([self._normalize_order(o) for o in orders])
 
         # 2. Algo/Conditional orders
-        algo_orders = await self._fetch_open_algo_orders(symbol)
+        algo_orders = await self._fetch_open_algo_orders(symbol, timeout=timeout)
         all_orders.extend(algo_orders)
 
         return all_orders
@@ -1226,6 +1365,35 @@ class BinanceNativeConnector(BaseConnector):
                     return self._normalize_order(response)
             raise
 
+    async def create_batch_orders(self, orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Create multiple orders in a single request (Batch Orders).
+        Supports up to 5 orders per batch.
+        param orders: List of order dictionaries (raw API format).
+        """
+        # Phase 240: Project Supersonic - Batch Execution
+        if not orders:
+            return []
+
+        # Serialize orders list to JSON string using orjson if available
+        # We need to ensure floats are formatted correctly (handled by json_dumps usually)
+        batch_orders_json = json_dumps(orders)
+
+        params = {"batchOrders": batch_orders_json}
+
+        # Use Airlock via _request (which routes POST to ExecutionProcess)
+        # Note: Response is a LIST of order objects/errors
+        # endpoint_type="order" ensures it goes through the order circuit breaker
+        return await self.error_handler.execute_with_breaker(
+            self._order_breaker_name,
+            self._request,
+            "POST",
+            "/fapi/v1/batchOrders",
+            params,
+            signed=True,
+            endpoint_type="order",
+        )
+
     async def _wait_for_position_sync(self, symbol: str, timeout: float = 3.0) -> bool:
         """Poll the position endpoint until a position appears (Internal Sync)."""
         start_time = time.time()
@@ -1260,7 +1428,7 @@ class BinanceNativeConnector(BaseConnector):
             timeout=timeout,
         )
 
-    async def cancel_order(self, order_id: str, symbol: str) -> None:
+    async def cancel_order(self, order_id: str, symbol: str, timeout: Optional[float] = None) -> None:
         """Cancel an order (regular or algo)."""
         native_symbol = self._normalize_symbol(symbol)
 
@@ -1271,15 +1439,17 @@ class BinanceNativeConnector(BaseConnector):
             else:
                 params["origClientOrderId"] = order_id
 
-            await self._request("DELETE", "/fapi/v1/order", params, signed=True, endpoint_type="orders")
+            await self._request(
+                "DELETE", "/fapi/v1/order", params, signed=True, endpoint_type="orders", timeout=timeout
+            )
         except Exception as e:
             # Try as algo order
             if "Unknown order" in str(e) or "-2011" in str(e):
-                await self._cancel_algo_order(order_id, symbol)
+                await self._cancel_algo_order(order_id, symbol, timeout=timeout)
             else:
                 raise
 
-    async def cancel_all_orders(self, symbol: str) -> None:
+    async def cancel_all_orders(self, symbol: str, timeout: Optional[float] = None) -> None:
         """
         Cancel ALL open orders for a symbol (Bulk + Algos).
         Binance fapi/v1/allOpenOrders (Standard) + _cancel_algo_order (Manual loop).
@@ -1289,13 +1459,15 @@ class BinanceNativeConnector(BaseConnector):
 
         # 1. Standard Bulk Cancel (Cancellations GTC/Limit orders)
         try:
-            await self._request("DELETE", "/fapi/v1/allOpenOrders", params, signed=True, endpoint_type="orders")
+            await self._request(
+                "DELETE", "/fapi/v1/allOpenOrders", params, signed=True, endpoint_type="orders", timeout=timeout
+            )
         except Exception as e:
             self.logger.warning(f"⚠️ Standard bulk cancel failed for {symbol}: {e}")
 
         # 2. Algo Orders Manual Sweep (Cancellations StopLoss/TakeProfit orders)
         try:
-            algo_orders = await self._fetch_open_algo_orders(symbol)
+            algo_orders = await self._fetch_open_algo_orders(symbol, timeout=timeout)
             if algo_orders:
                 self.logger.info(
                     f"🧹 Found {len(algo_orders)} algo orders to cancel for {symbol}. Cancelling in parallel..."
@@ -1303,7 +1475,7 @@ class BinanceNativeConnector(BaseConnector):
 
                 async def _safe_cancel(order_id):
                     try:
-                        await self._cancel_algo_order(order_id, symbol)
+                        await self._cancel_algo_order(order_id, symbol, timeout=timeout)
                     except Exception as inner_e:
                         self.logger.error(f"❌ Failed to cancel algo order {order_id} for {symbol}: {inner_e}")
 
@@ -1322,7 +1494,9 @@ class BinanceNativeConnector(BaseConnector):
     # ORDERS - Algo/Conditional
     # =========================================================
 
-    async def _fetch_open_algo_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+    async def _fetch_open_algo_orders(
+        self, symbol: str = None, timeout: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
         """Fetch open algo/conditional orders. Propagates errors."""
         params = {}
         if symbol:
@@ -1331,7 +1505,9 @@ class BinanceNativeConnector(BaseConnector):
         # FIX: Force max limit to avoid visibility loss (default is often 20 or 100)
         params["limit"] = 1000
 
-        response = await self._request("GET", "/fapi/v1/openAlgoOrders", params, signed=True, endpoint_type="orders")
+        response = await self._request(
+            "GET", "/fapi/v1/openAlgoOrders", params, signed=True, endpoint_type="orders", timeout=timeout
+        )
         # Handle both list and dict responses (API version differences)
         if isinstance(response, list):
             orders = response
@@ -1401,7 +1577,7 @@ class BinanceNativeConnector(BaseConnector):
         )
         return self._normalize_algo_order_response(response, args)
 
-    async def _cancel_algo_order(self, algo_id: str, symbol: str) -> None:
+    async def _cancel_algo_order(self, algo_id: str, symbol: str, timeout: Optional[float] = None) -> None:
         """Cancel an algo/conditional order."""
         native_symbol = self._normalize_symbol(symbol)
         params = {"symbol": native_symbol}
@@ -1411,7 +1587,9 @@ class BinanceNativeConnector(BaseConnector):
         else:
             params["clientAlgoId"] = algo_id
 
-        await self._request("DELETE", "/fapi/v1/algoOrder", params, signed=True, endpoint_type="orders")
+        await self._request(
+            "DELETE", "/fapi/v1/algoOrder", params, signed=True, endpoint_type="orders", timeout=timeout
+        )
 
     async def amend_order(
         self,
@@ -1902,6 +2080,11 @@ class BinanceNativeConnector(BaseConnector):
         """Check if cached data for symbol is older than threshold (Phase 230)."""
         native_symbol = self._normalize_symbol(symbol)
         now_ms = time.time() * 1000
+
+        # Phase 240: Dynamic Threshold
+        # During congestion, we relax staleness to 10s to prevent REST flood
+        if self.is_congested:
+            threshold_ms = max(threshold_ms, 10000)
 
         # Check ticker
         ticker = self._tickers.get(native_symbol)

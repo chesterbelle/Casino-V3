@@ -177,7 +177,11 @@ class ReconciliationService:
 
             tasks = [sem_reconcile(s) for s in all_symbols]
             if tasks:
-                reports = await asyncio.gather(*tasks)
+                try:
+                    reports = await asyncio.wait_for(asyncio.gather(*tasks), timeout=40.0)
+                except asyncio.TimeoutError:
+                    self.logger.error("❌ Global reconciliation gather TIMED OUT after 40s")
+                    reports = []
             else:
                 reports = []
 
@@ -588,7 +592,8 @@ class ReconciliationService:
             # 1. Check known TP Order
             if pos.tp_order_id:
                 try:
-                    tp_order = await self.adapter.fetch_order(pos.tp_order_id, symbol)
+                    # Phase 240: Fast Ticker with timeout
+                    tp_order = await asyncio.wait_for(self.adapter.fetch_order(pos.tp_order_id, symbol), timeout=5.0)
                     status = tp_order.get("status")
                     filled = float(tp_order.get("filled", 0))
 
@@ -645,7 +650,8 @@ class ReconciliationService:
             # 2. Check known SL Order
             if pos.sl_order_id:
                 try:
-                    sl_order = await self.adapter.fetch_order(pos.sl_order_id, symbol)
+                    # Phase 240: Fast Ticker with timeout
+                    sl_order = await asyncio.wait_for(self.adapter.fetch_order(pos.sl_order_id, symbol), timeout=5.0)
                     # Stop Market orders usually show as 'calnceled' or 'expired' if triggered via algo,
                     # BUT if they triggered a fill, there should be a trade.
                     # Simpler check: If status is 'closed' (filled)
@@ -694,7 +700,8 @@ class ReconciliationService:
             try:
                 # Fetch recent trades for this symbol
                 # Phase 82: Increased limit to 100 to handle high-density chaos test runs
-                trades = await self.adapter.fetch_my_trades(symbol, limit=100)
+                # Phase 240: Fast search with timeout
+                trades = await asyncio.wait_for(self.adapter.fetch_my_trades(symbol, limit=100), timeout=10.0)
 
                 # Check for any CLOSING trade after position entry
                 entry_time = getattr(pos, "entry_timestamp", 0)

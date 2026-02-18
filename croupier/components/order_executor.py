@@ -154,14 +154,25 @@ class OrderExecutor:
         # Ensure Semantic ID (Default to ENTRY for market orders)
         self._ensure_client_order_id(order, prefix="ENTRY")
 
-        # Phase 102: Active Latency Telemetry - Safe Mode
         if self.adapter.is_congested:
             params = order.get("params", {})
             if not params.get("reduceOnly", False):
-                self.logger.warning(f"🛡️ SAFE MODE ACTIVE: Rejecting new entry for {order['symbol']} due to congestion.")
-                stats = getattr(self.adapter.connector, "latency_stats", {})
-                avg_lat = stats.get("avg_latency", 0)
-                raise ExchangeError(f"Safe Mode Active: High Latency ({avg_lat:.2f}ms)")
+                # Phase 240: Fail-Soft Safe Mode
+                # Allow high-conviction/low-exposure entries even in congestion
+                # to prevent trade volume from dropping to zero permanently.
+                open_count = len(self.position_tracker.open_positions) if self.position_tracker else 0
+                if open_count >= 3:
+                    self.logger.warning(
+                        f"🛡️ SAFE MODE ACTIVE: Rejecting entry for {order['symbol']} "
+                        f"(Exposure: {open_count} positions >= limit 3)"
+                    )
+                    stats = getattr(self.adapter.connector, "latency_stats", {})
+                    avg_lat = stats.get("avg_latency", 0)
+                    raise ExchangeError(f"Safe Mode Throttled: High Latency ({avg_lat:.2f}ms) & High exposure")
+                else:
+                    self.logger.info(
+                        f"🛡️ SAFE MODE FAIL-SOFT: Allowing entry for {order['symbol']} " f"(Exposure: {open_count} < 3)"
+                    )
 
         # Phase 102/230: Industrial Resilience - Execution Quality Analysis
         # Phase 236: Skip depth analysis during emergency close (avoids REST flood during shutdown)
@@ -239,13 +250,8 @@ class OrderExecutor:
             asyncio.create_task(self._safe_enrichment(result, symbol))
 
         self.logger.info(
-            f"[TRADE] ✅ Market Order Executed: {result.get('order_id')} | "
-            f"Status: {result.get('status')} (Native Speed)"
-        )
-
-        self.logger.info(
-            f"[TRADE] ✅ Market Order Filled: {result.get('order_id')} | "
-            f"Status: {result.get('status')} | Fee: {result.get('fee', {}).get('cost', 0):.4f}"
+            f"[TRADE] ✅ Market Order: {result.get('order_id')} | "
+            f"{result.get('status')} | Fee: {result.get('fee', {}).get('cost', 0):.4f}"
         )
 
         return result

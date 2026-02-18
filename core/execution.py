@@ -3,6 +3,7 @@ Execution Layer for Casino-V3.
 Handles DecisionEvents from Paroli and executes orders via Croupier.
 """
 
+import asyncio
 import logging
 import time
 
@@ -154,27 +155,20 @@ class OrderManager:
             "ghost": False,
             "contributors": [getattr(event, "selected_sensor", "Unknown")],
             "trace_id": getattr(event, "trace_id", None),
+            "estimated_price": current_price,  # Phase 240: avoid redundant price fetch in OCO
         }
 
         # Store for outcome tracking (include sensor_id if available)
         sensor_id = getattr(event, "selected_sensor", "Unknown")
         self.pending_trades[trade_id] = (event, sensor_id)
 
-        # Execute via Croupier with error handling
-        from core.error_handling import RetryConfig, get_error_handler
-
-        error_handler = get_error_handler()
-
+        # Phase 240: Direct execution with hard timeout cap (no double error-handler wrapping)
+        # OCOManager already has its own retry/breaker logic per leg.
+        # Double-wrapping caused stalls up to 30s on backoff — catastrophic for HFT.
         try:
-            result = await error_handler.execute(
-                self.croupier.execute_order,
-                order_payload,
-                retry_config=RetryConfig(
-                    max_retries=3,
-                    backoff_base=2.0,
-                    backoff_max=30.0,
-                ),
-                context=f"execute_order_{event.symbol}",
+            result = await asyncio.wait_for(
+                self.croupier.execute_order(order_payload),
+                timeout=15.0,  # Hard cap: 15s total for entire OCO bracket
             )
 
             # Check for success (support both simple orders and OCO bracket results)
@@ -192,16 +186,20 @@ class OrderManager:
                     symbol=event.symbol,
                     side=event.side,
                 )
-                # TODO: Track order to get outcome and update Paroli
             else:
                 logger.warning(f"⚠️ Order Result: {result}")
 
-        except Exception as e:
-            logger.error(f"❌ Execution Failed after retries: {e}", exc_info=True)
-            # Record failed order
+        except asyncio.TimeoutError:
+            logger.error(f"❌ Order timed out (15s cap) for {event.symbol} — dropping")
             metrics.record_order_failed(
                 exchange=self.croupier.exchange_adapter.connector.__class__.__name__.replace("NativeConnector", ""),
-                reason=str(e)[:50],  # Truncate reason
+                reason="timeout_15s",
+            )
+        except Exception as e:
+            logger.error(f"❌ Execution Failed: {e}", exc_info=True)
+            metrics.record_order_failed(
+                exchange=self.croupier.exchange_adapter.connector.__class__.__name__.replace("NativeConnector", ""),
+                reason=str(e)[:50],
             )
 
     def handle_trade_outcome(self, trade_id: str, won: bool, pnl: float = 0.0):

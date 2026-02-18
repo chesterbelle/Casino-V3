@@ -14,6 +14,7 @@ Version: 3.0.0
 
 import asyncio
 import logging
+import time
 import uuid
 from typing import Any, Dict, Optional
 
@@ -176,13 +177,25 @@ class OCOManager:
 
         try:
             # 0. PRE-VALIDATE PRICES (Sanity Check)
-            # Prevents filling entry for markets where tick_size rounds TP/SL to 0.0
-            try:
-                watchdog.heartbeat(operation_id, f"Fetching price for {symbol}")
-                # TIMEOUT PROTECTION: Prevents hang when REST breaker is open
-                est_price = await asyncio.wait_for(
-                    self.adapter.get_current_price(symbol), timeout=OCO_PRICE_FETCH_TIMEOUT
-                )
+            # Phase 240: HFT Fast-Track — Use estimated_price from OrderManager (already cached)
+            # Eliminates redundant REST call (~0-300ms savings per trade)
+            est_price = order.get("estimated_price") or 0
+            if not est_price or est_price <= 0:
+                # Fallback: try cache, then REST
+                est_price = self.adapter.get_cached_price(symbol) or 0
+            if not est_price or est_price <= 0:
+                try:
+                    watchdog.heartbeat(operation_id, f"Fetching price for {symbol}")
+                    est_price = await asyncio.wait_for(
+                        self.adapter.get_current_price(symbol), timeout=OCO_PRICE_FETCH_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    raise OCOAtomicityError(f"Price fetch timed out for {symbol} (REST may be blocked)")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Pre-validation skipped (price fetch failed): {e}")
+                    est_price = 0
+
+            if est_price > 0:
                 watchdog.heartbeat(operation_id, f"Got price {est_price}")
                 tp_est, sl_est = self._calculate_tp_sl_prices(
                     est_price, side, order["take_profit"], order["stop_loss"], symbol
@@ -191,12 +204,6 @@ class OCOManager:
                     raise OCOAtomicityError(
                         f"Pre-validation failed: TP/SL would round to 0.0 (Price: {est_price}, tick_size check needed)"
                     )
-            except asyncio.TimeoutError:
-                raise OCOAtomicityError(f"Price fetch timed out for {symbol} (REST may be blocked)")
-            except Exception as e:
-                if isinstance(e, OCOAtomicityError):
-                    raise
-                self.logger.warning(f"⚠️ Pre-validation skipped (price fetch failed): {e}")
 
             # PRE-RESERVE CLIENT ORDER ID (To prevent race conditions with WS Fill Events)
             # Phase 43: Standardize to CASINO_ prefix
@@ -219,6 +226,12 @@ class OCOManager:
                 order_params=order,
                 trace_id=order.get("trace_id"),
             )
+
+            # Step 0.8: Prioritize Supersonic Batch Execution
+            # If Market Order and Adapter supports Batch, execute atomically (~2 RTT -> 1 RTT)
+            is_market = str(order.get("type", "MARKET")).upper() == "MARKET"
+            if is_market and hasattr(self.adapter, "create_batch_orders") and est_price > 0:
+                return await self._execute_supersonic_batch(order, position, client_order_id, est_price)
 
             # Step 1: Execute main market order
             main_order = await self._execute_main_order(order, client_order_id=client_order_id)
@@ -328,35 +341,35 @@ class OCOManager:
                 # Phase 52/82: Pre-register bracket IDs to prevent "WS Event UNMATCHED" race
                 self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
 
-                # Step 4: Create TP order with client_order_id (Phase 56: Anti-Hang Timeout)
-                tp_order = await asyncio.wait_for(
-                    self._create_tp_order(symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id),
-                    timeout=5.0,
+                # Phase 240: HFT Parallel Bracket Creation
+                # TP and SL are independent — fire both simultaneously (~150-300ms savings)
+                tp_order, sl_order = await asyncio.gather(
+                    asyncio.wait_for(
+                        self._create_tp_order(
+                            symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id
+                        ),
+                        timeout=5.0,
+                    ),
+                    asyncio.wait_for(
+                        self._create_sl_order(
+                            symbol, side, main_order["amount"], sl_price, client_order_id=sl_client_id
+                        ),
+                        timeout=5.0,
+                    ),
                 )
-                watchdog.heartbeat(operation_id, f"TP order created: {tp_order.get('order_id') or tp_order.get('id')}")
-
-                # Step 5: Create SL order with client_order_id (Phase 56: Anti-Hang Timeout)
-                sl_order = await asyncio.wait_for(
-                    self._create_sl_order(symbol, side, main_order["amount"], sl_price, client_order_id=sl_client_id),
-                    timeout=5.0,
+                watchdog.heartbeat(
+                    operation_id,
+                    f"TP+SL created in parallel: TP={tp_order.get('order_id') or tp_order.get('id')}, SL={sl_order.get('order_id') or sl_order.get('id')}",
                 )
-                watchdog.heartbeat(operation_id, f"SL order created: {sl_order.get('order_id') or sl_order.get('id')}")
 
                 # Step 6: Validate OCO completeness
                 self._validate_oco_complete(main_order, tp_order, sl_order)
 
-                # Step 7: Register OCO pair
+                # Step 7: Register OCO pair (Phase 240: Fire-and-forget, not on critical path)
                 tp_order_id = tp_order.get("order_id") or tp_order.get("id")
                 sl_order_id = sl_order.get("order_id") or sl_order.get("id")
-                await self.error_handler.execute_with_breaker(
-                    f"oco_register_{symbol}",
-                    self.adapter.register_oco_pair,
-                    symbol,
-                    tp_order_id,
-                    sl_order_id,
-                    retry_config=RetryConfig(max_retries=3, backoff_base=0.5, backoff_factor=2.0),
-                )
-                watchdog.heartbeat(operation_id, "OCO pair registered")
+                asyncio.create_task(self._background_register_oco(symbol, tp_order_id, sl_order_id))
+                watchdog.heartbeat(operation_id, "OCO registered (background)")
 
                 self.logger.info(
                     f"[OCO] ✅ Bracket Active | Main: {main_order.get('order_id') or main_order.get('id')} | "
@@ -364,7 +377,6 @@ class OCOManager:
                 )
 
                 # Phase 31: Create OrderState objects for unified tracking
-                import time
 
                 tp_order_state = OrderState(
                     client_order_id=tp_client_id,
@@ -489,6 +501,142 @@ class OCOManager:
                 watchdog.unregister(operation_id)
             except Exception:
                 pass  # Ignore errors during cleanup
+
+    async def _execute_supersonic_batch(
+        self, order: Dict[str, Any], position: Any, client_order_id: str, est_price: float
+    ) -> Dict[str, Any]:
+        """
+        Phase 240: Project Supersonic - Atomic Batch Execution.
+        Sends Entry + TP + SL in a single RTT via Airlock.
+        """
+        symbol = order["symbol"]
+        side = order["side"]
+        amount = order["amount"]
+
+        # 1. Calculate TP/SL Prices based on ESTIMATE (Speed > Precision)
+        tp_price, sl_price = self._calculate_tp_sl_prices(
+            est_price, side, order["take_profit"], order["stop_loss"], symbol
+        )
+
+        # 2. Generate Client IDs
+        tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
+        sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+
+        # 3. Pre-register Bracket in Tracker
+        self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
+
+        # 4. Construct Batch Payload
+        # Entry (Market)
+        entry_payload = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "type": "MARKET",
+            "quantity": self.adapter.amount_to_precision(symbol, amount),
+            "newClientOrderId": client_order_id,
+        }
+
+        # TP (Limit ReduceOnly)
+        tp_side = "SELL" if side == "LONG" else "BUY"
+        tp_payload = {
+            "symbol": symbol,
+            "side": tp_side,
+            "type": "LIMIT",
+            "quantity": self.adapter.amount_to_precision(symbol, amount),
+            "price": self.adapter.price_to_precision(symbol, tp_price),
+            "timeInForce": "GTC",
+            "reduceOnly": "true",
+            "newClientOrderId": tp_client_id,
+        }
+
+        # SL (Stop Market ReduceOnly)
+        sl_payload = {
+            "symbol": symbol,
+            "side": tp_side,
+            "type": "STOP_MARKET",
+            "quantity": self.adapter.amount_to_precision(symbol, amount),
+            "stopPrice": self.adapter.price_to_precision(symbol, sl_price),
+            "reduceOnly": "true",
+            "newClientOrderId": sl_client_id,
+        }
+
+        self.logger.info(f"🚀 SUPERSONIC LAUNCH: Sending Batch [Entry, TP, SL] for {symbol}")
+
+        try:
+            # 5. Execute Batch
+            # Response is a list of results in order
+            results = await self.adapter.create_batch_orders([entry_payload, tp_payload, sl_payload])
+
+            # 6. Process Results
+            if not results or not isinstance(results, list) or len(results) < 3:
+                raise OCOAtomicityError(f"Invalid Batch Response: {results}")
+
+            entry_res = results[0]
+            tp_res = results[1]
+            sl_res = results[2]
+
+            # Check Entry
+            if "code" in entry_res:
+                # Entry failed!
+                raise OCOAtomicityError(f"Supersonic Entry Failed: {entry_res}")
+
+            # Check for generic failure (-1000 etc) which might return a dict instead of list?
+            # Adapter should return list if success. If error, error_handler handles it?
+            # Yes, error_handler raises exception if pure error. But batch error can return 200 with error codes inside list.
+
+            # Extract Fill Price from Entry
+            fill_price = float(entry_res.get("avgPrice") or entry_res.get("price") or est_price)
+            if fill_price == 0:
+                fill_price = est_price  # Fallback
+
+            # Update Position
+            position.entry_price = fill_price
+            position.tp_level = tp_price
+            position.sl_level = sl_price
+            position.entry_fee = float(entry_res.get("cumQuote", 0)) * 0.0005  # Estimate if not present
+
+            # Check TP/SL
+            tp_id = tp_res.get("orderId")
+            sl_id = sl_res.get("orderId")
+
+            if "code" in tp_res:
+                self.logger.error(f"❌ Supersonic TP Failed: {tp_res}")
+                tp_id = None
+            if "code" in sl_res:
+                self.logger.error(f"❌ Supersonic SL Failed: {sl_res}")
+                sl_id = None
+
+            # Update Tracker with Exchange IDs
+            if tp_id:
+                position.tp_order_id = str(tp_id)
+                position.exchange_tp_id = str(tp_id)
+                self.tracker.register_bracket_alias(tp_id, position, "TP", client_id=tp_client_id)
+
+            if sl_id:
+                position.sl_order_id = str(sl_id)
+                position.exchange_sl_id = str(sl_id)
+                self.tracker.register_bracket_alias(sl_id, position, "SL", client_id=sl_client_id)
+
+            # Promote to ACTIVE
+            position.status = "ACTIVE"
+            self.tracker._trigger_state_change()
+
+            self.logger.info(f"✅ Supersonic Execution Complete for {symbol}")
+
+            return {
+                "main_order": entry_res,
+                "tp_order": tp_res,
+                "sl_order": sl_res,
+                "fill_price": fill_price,
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+                "position": position,
+            }
+
+        except Exception as e:
+            self.logger.error(f"❌ Supersonic Batch Failed: {e}")
+            # Rollback position (remove tentative)
+            await self.tracker.remove_position(position.trade_id)
+            raise e
 
     async def modify_bracket(
         self,
@@ -766,6 +914,21 @@ class OCOManager:
             )
 
         return tp_price, sl_price
+
+    async def _background_register_oco(self, symbol: str, tp_order_id: str, sl_order_id: str) -> None:
+        """Phase 240: Fire-and-forget OCO pair registration (off critical path)."""
+        try:
+            await self.error_handler.execute_with_breaker(
+                f"oco_register_{symbol}",
+                self.adapter.register_oco_pair,
+                symbol,
+                tp_order_id,
+                sl_order_id,
+                retry_config=RetryConfig(max_retries=3, backoff_base=0.5, backoff_factor=2.0),
+            )
+            self.logger.debug(f"[OCO] ✅ Background OCO pair registered: TP={tp_order_id} SL={sl_order_id}")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Background OCO registration failed (non-critical): {e}")
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """

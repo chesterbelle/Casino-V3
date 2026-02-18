@@ -8,6 +8,24 @@ from typing import Dict, List, Optional, Set
 
 import aiohttp
 
+# Phase 2: High-Performance Serialization (Project Supersonic)
+try:
+    import orjson
+
+    # orjson returns bytes, aiohttp expects str for text frames
+    json_loads = orjson.loads
+
+    def json_dumps(x):
+        return orjson.dumps(x).decode("utf-8")
+
+    USING_ORJSON = True
+except ImportError:
+    import json
+
+    json_loads = json.loads
+    json_dumps = json.dumps
+    USING_ORJSON = False
+
 # Configure minimal logging for the worker
 logger = logging.getLogger("BinanceWorker")
 logger.setLevel(logging.INFO)
@@ -87,7 +105,7 @@ class BinanceWorker(multiprocessing.Process):
 
     async def _connect_and_listen(self, session: aiohttp.ClientSession):
         """Manage single connection lifecycle."""
-        logger.info(f"🔌 Connecting to {self.base_url}...")
+        logger.info(f"🔌 Connecting to {self.base_url}... (ORJSON: {USING_ORJSON})")
 
         async with session.ws_connect(self.base_url, heartbeat=20) as ws:
             self.ws = ws
@@ -120,7 +138,7 @@ class BinanceWorker(multiprocessing.Process):
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.TEXT:
                 try:
-                    data = msg.json()
+                    data = msg.json(loads=json_loads)
                     # Phase 102: Airlock Telemetry (Add transit metadata)
                     # Use float for high resolution
                     data["_worker_ts"] = time.time()
@@ -198,7 +216,7 @@ class BinanceWorker(multiprocessing.Process):
 
         payload = {"method": "SUBSCRIBE", "params": streams, "id": int(time.time() * 1000)}
         try:
-            await self.ws.send_json(payload)
+            await self.ws.send_json(payload, dumps=json_dumps)
             logger.info(f"📤 Subscribed to {len(streams)} streams")
         except Exception as e:
             logger.error(f"Failed to subscribe: {e}")
@@ -210,7 +228,7 @@ class BinanceWorker(multiprocessing.Process):
 
         payload = {"method": "UNSUBSCRIBE", "params": streams, "id": int(time.time() * 1000)}
         try:
-            await self.ws.send_json(payload)
+            await self.ws.send_json(payload, dumps=json_dumps)
             logger.info(f"📤 Unsubscribed from {len(streams)} streams")
         except Exception as e:
             logger.error(f"Failed to unsubscribe: {e}")

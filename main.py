@@ -255,14 +255,40 @@ async def main():
 
     # 1. Initialize Exchange Adapter
     connector = None
+    exec_process = None
 
     if args.exchange == "binance":
+        # Phase 7: Execution Airlock Setup
+        import multiprocessing
+
+        from core.execution_process import ExecutionProcess
+
+        exec_cmd_queue = multiprocessing.Queue(maxsize=1000)
+        exec_res_queue = multiprocessing.Queue(maxsize=1000)
+
+        api_key = args.wallet or exchange_config.BINANCE_API_KEY
+        secret = args.key or exchange_config.BINANCE_API_SECRET
+        base_url = "https://testnet.binancefuture.com" if args.mode != "live" else "https://fapi.binance.com"
+
+        exec_process = ExecutionProcess(
+            command_queue=exec_cmd_queue,
+            res_queue=exec_res_queue,
+            api_key=api_key,
+            api_secret=secret,
+            base_url=base_url,
+        )
+        exec_process.start()
+        logger.info(f"🚀 Execution Airlock Process Started (PID: {exec_process.pid})")
+
         # Binance Native Connector
         native = BinanceNativeConnector(
-            api_key=args.wallet or exchange_config.BINANCE_API_KEY,
-            secret=args.key or exchange_config.BINANCE_API_SECRET,
+            api_key=api_key,
+            secret=secret,
             mode="demo" if args.mode != "live" else "live",
         )
+
+        # Inject Queues
+        native.set_execution_queues(exec_cmd_queue, exec_res_queue)
 
         # Wrap with Resilience (Circuit Breaker, Tracking, State Recovery)
         connector = ResilientConnector(
@@ -581,6 +607,8 @@ async def main():
     # Start Watchdog Monitor Loop
     await watchdog.start()
     watchdog.register("main_loop", timeout=30.0)
+    if args.ui:
+        watchdog.register("dashboard_ui", timeout=15.0)
 
     # --- V4 REACTOR SETUP ---
     clock = Clock(tick_size_seconds=1.0)
@@ -623,6 +651,51 @@ async def main():
             dashboard = IndustrialDashboard(session_id=croupier.session_id)
             dashboard.start()
             logger.info("🖥️ Dashboard UI started")
+
+            # Phase 240: UI/Metric Decoupling
+            # Offload expensive metric collection to a separate task to avoid
+            # stalling the main loop and its heartbeats.
+            async def ui_monitor_task():
+                while not stop_event.is_set():
+                    try:
+                        watchdog.heartbeat("dashboard_ui", "Updating UI Statistics")
+
+                        # 1. Resilience
+                        def get_metric_sum(metric):
+                            total = 0.0
+                            for m in metric.collect():
+                                for s in m.samples:
+                                    total += s.value
+                            return int(total)
+
+                        res_metrics = {
+                            "healing": get_metric_sum(resilience_healing_events_total),
+                            "orphans": get_metric_sum(resilience_orphan_cancels_total),
+                            "skips": get_metric_sum(resilience_orphan_skips_total),
+                        }
+                        dashboard.update_resilience(res_metrics)
+
+                        # 2. PnL & Trades
+                        stats = croupier.position_tracker.get_stats()
+                        dashboard.update_pnl(
+                            pnl=stats.get("realized_pnl", 0.0) + stats.get("unrealized_pnl", 0.0),
+                            trades=stats.get("closed_trades", 0),
+                            symbols_perf={},
+                        )
+
+                        # 3. Breakers
+                        error_stats = error_handler.get_error_stats()
+                        breakers = {name: data["state"] for name, data in error_stats["circuit_breakers"].items()}
+                        dashboard.update_state("breakers", breakers)
+
+                        dashboard.refresh()
+                    except Exception as e:
+                        logger.error(f"⚠️ UI Task Error: {e}")
+
+                    # Refresh UI every 2 seconds (sufficient for TUI)
+                    await asyncio.sleep(2.0)
+
+            asyncio.create_task(ui_monitor_task())
         except Exception as e:
             logger.error(f"❌ Failed to start Dashboard: {e}")
 
@@ -632,44 +705,8 @@ async def main():
             watchdog.heartbeat("main_loop", "Clock Reactor Active")
 
             # Use short sleep to keep main active but light
+            # UI/Metrics now handled by ui_monitor_task
             await asyncio.sleep(1.0)
-
-            # Phase 150: Dashboard Updates
-            if dashboard:
-                try:
-                    # 1. Resilience
-                    # Helper to sum all samples in a metric (ignoring labels for total count)
-                    def get_metric_sum(metric):
-                        total = 0.0
-                        for m in metric.collect():
-                            for s in m.samples:
-                                total += s.value
-                        return int(total)
-
-                    res_metrics = {
-                        "healing": get_metric_sum(resilience_healing_events_total),
-                        "orphans": get_metric_sum(resilience_orphan_cancels_total),
-                        "skips": get_metric_sum(resilience_orphan_skips_total),
-                    }
-                    dashboard.update_resilience(res_metrics)
-
-                    # 2. PnL & Trades
-                    stats = croupier.position_tracker.get_stats()
-                    dashboard.update_pnl(
-                        pnl=stats.get("realized_pnl", 0.0) + stats.get("unrealized_pnl", 0.0),
-                        trades=stats.get("closed_trades", 0),
-                        symbols_perf={},  # TODO: Populate symbol breakdown later
-                    )
-
-                    # 3. Breakers
-                    # Fixed: Use proper API to get circuit breaker stats (Phase 150)
-                    error_stats = error_handler.get_error_stats()
-                    breakers = {name: data["state"] for name, data in error_stats["circuit_breakers"].items()}
-                    dashboard.update_state("breakers", breakers)
-
-                    dashboard.refresh()
-                except Exception as e:
-                    logger.error(f"⚠️ Dashboard update error: {e}")
 
             # Check timeout
             if args.timeout:
@@ -740,7 +777,7 @@ async def main():
                 self.stop_event = threading.Event()
                 self._thread = None
 
-            def heartbeat(self):
+            def heartbeat(self, *args, **kwargs):
                 self.last_heartbeat = time.time()
                 logger.debug("💓 Watchdog Heartbeat received")
 
@@ -1104,6 +1141,12 @@ async def main():
                 candle_maker.stop()
         except Exception as e:
             logger.error(f"❌ Error stopping clock/croupier: {e}")
+
+        # Phase 7: Execution Airlock Cleanup
+        if exec_process and exec_process.is_alive():
+            logger.info(f"🛑 Terminating Execution Airlock Process ({exec_process.pid})")
+            exec_process.terminate()
+            exec_process.join(timeout=1.0)
 
         # 2. Sync final state before closing positions
         logger.info("💾 Syncing final state...")
