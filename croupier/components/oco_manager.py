@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from core.error_handling import RetryConfig, get_error_handler
 from core.observability.watchdog import watchdog
@@ -561,14 +561,38 @@ class OCOManager:
 
         self.logger.info(f"🚀 SUPERSONIC LAUNCH: Sending Batch [Entry, TP, SL] for {symbol}")
 
-        try:
-            # 5. Execute Batch
-            # Response is a list of results in order
-            results = await self.adapter.create_batch_orders([entry_payload, tp_payload, sl_payload])
+        # 5. OPTIMISTIC PROMOTION (Fire-and-Forget)
+        # Mark as ACTIVE before we even send, so the strategy can react to exit signals immediately.
+        position.status = "ACTIVE"
+        position.entry_price = est_price  # Tentative
+        position.tp_level = tp_price
+        position.sl_level = sl_price
 
-            # 6. Process Results
+        self.logger.info(f"🚀 SUPERSONIC LAUNCH (Optimistic): Sending Batch for {symbol}")
+
+        # Phase 8: Record T2 (Submission to Airlock)
+        position.t2_submit_ts = time.time()
+
+        # 6. Execute Batch in Background (Asynchronous Confirmation)
+        # We don't await here; we return the tentative result to the Croupier immediately.
+        asyncio.create_task(
+            self._finalize_supersonic_batch(
+                [entry_payload, tp_payload, sl_payload], position, client_order_id, tp_client_id, sl_client_id
+            )
+        )
+
+        return {"status": "optimistic_sent", "client_order_id": client_order_id, "position": position}
+
+    async def _finalize_supersonic_batch(
+        self, payloads: List[Dict], position: Any, entry_cid: str, tp_cid: str, sl_cid: str
+    ):
+        """Background handler for Supersonic batch confirmation."""
+        try:
+            results = await self.adapter.create_batch_orders(payloads)
+
             if not results or not isinstance(results, list) or len(results) < 3:
-                raise OCOAtomicityError(f"Invalid Batch Response: {results}")
+                self.logger.error(f"❌ Supersonic Batch Response Corrupted: {results}")
+                return
 
             entry_res = results[0]
             tp_res = results[1]
@@ -576,67 +600,52 @@ class OCOManager:
 
             # Check Entry
             if "code" in entry_res:
-                # Entry failed!
-                raise OCOAtomicityError(f"Supersonic Entry Failed: {entry_res}")
+                self.logger.error(f"🔥 Supersonic Entry REJECTED: {entry_res}. Evicting position.")
+                position.status = "CLOSED"
+                position.exit_reason = "REJECTED_BY_EXCHANGE"
+                self.tracker.evict_position(position)
+                return
 
-            # Check for generic failure (-1000 etc) which might return a dict instead of list?
-            # Adapter should return list if success. If error, error_handler handles it?
-            # Yes, error_handler raises exception if pure error. But batch error can return 200 with error codes inside list.
+            # Update with ground truth
+            fill_price = float(entry_res.get("avgPrice") or entry_res.get("price") or 0)
+            if fill_price > 0:
+                position.entry_price = fill_price
+                # Re-calculate TP/SL based on ACTUAL fill price
+                # (Optional: Only if precision dictates it's necessary, for now we keep the optimistic levels)
 
-            # Extract Fill Price from Entry
-            fill_price = float(entry_res.get("avgPrice") or entry_res.get("price") or est_price)
-            if fill_price == 0:
-                fill_price = est_price  # Fallback
-
-            # Update Position
-            position.entry_price = fill_price
-            position.tp_level = tp_price
-            position.sl_level = sl_price
-            position.entry_fee = float(entry_res.get("cumQuote", 0)) * 0.0005  # Estimate if not present
-
-            # Check TP/SL
+            # Register Brackets
             tp_id = tp_res.get("orderId")
             sl_id = sl_res.get("orderId")
 
-            if "code" in tp_res:
-                self.logger.error(f"❌ Supersonic TP Failed: {tp_res}")
-                tp_id = None
-            if "code" in sl_res:
-                self.logger.error(f"❌ Supersonic SL Failed: {sl_res}")
-                sl_id = None
-
-            # Update Tracker with Exchange IDs
             if tp_id:
                 position.tp_order_id = str(tp_id)
                 position.exchange_tp_id = str(tp_id)
-                self.tracker.register_bracket_alias(tp_id, position, "TP", client_id=tp_client_id)
+                self.tracker.register_bracket_alias(tp_id, position, "TP", client_id=tp_cid)
 
             if sl_id:
                 position.sl_order_id = str(sl_id)
                 position.exchange_sl_id = str(sl_id)
-                self.tracker.register_bracket_alias(sl_id, position, "SL", client_id=sl_client_id)
+                self.tracker.register_bracket_alias(sl_id, position, "SL", client_id=sl_cid)
 
-            # Promote to ACTIVE
-            position.status = "ACTIVE"
-            self.tracker._trigger_state_change()
-
-            self.logger.info(f"✅ Supersonic Execution Complete for {symbol}")
-
-            return {
-                "main_order": entry_res,
-                "tp_order": tp_res,
-                "sl_order": sl_res,
-                "fill_price": fill_price,
-                "tp_price": tp_price,
-                "sl_price": sl_price,
-                "position": position,
-            }
+            self.logger.info(f"✨ Supersonic Batch Finalized for {position.symbol} | Fill: {fill_price}")
 
         except Exception as e:
-            self.logger.error(f"❌ Supersonic Batch Failed: {e}")
-            # Rollback position (remove tentative)
-            await self.tracker.remove_position(position.trade_id)
-            raise e
+            self.logger.critical(f"🔥 Supersonic Finalization CRASHED: {e}")
+            # The Auditor will eventually pick this up and reconcile
+            self.tracker._trigger_state_change()
+
+            # Fix undefined names: symbol -> position.symbol, and remove unreachable return variables
+            self.logger.info(f"✅ Supersonic Execution Cleanup for {position.symbol}")
+
+            return {
+                "main_order": None,
+                "tp_order": None,
+                "sl_order": None,
+                "fill_price": 0.0,
+                "tp_price": position.tp_level,
+                "sl_price": position.sl_level,
+                "position": position,
+            }
 
     async def modify_bracket(
         self,

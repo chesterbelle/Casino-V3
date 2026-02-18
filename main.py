@@ -265,20 +265,23 @@ async def main():
 
         exec_cmd_queue = multiprocessing.Queue(maxsize=1000)
         exec_res_queue = multiprocessing.Queue(maxsize=1000)
+        # Phase 8: Command Pipe for sub-ms wakening
+        # conn1 (parent) = reader, conn2 (child) = writer
+        exec_cmd_parent, exec_cmd_child = multiprocessing.Pipe(duplex=False)
 
         api_key = args.wallet or exchange_config.BINANCE_API_KEY
         secret = args.key or exchange_config.BINANCE_API_SECRET
         base_url = "https://testnet.binancefuture.com" if args.mode != "live" else "https://fapi.binance.com"
 
         exec_process = ExecutionProcess(
-            command_queue=exec_cmd_queue,
+            command_pipe=exec_cmd_parent,  # Parent is reader
             res_queue=exec_res_queue,
             api_key=api_key,
             api_secret=secret,
             base_url=base_url,
         )
         exec_process.start()
-        logger.info(f"🚀 Execution Airlock Process Started (PID: {exec_process.pid})")
+        logger.info(f"🚀 Execution Airlock Process Started (PID: {exec_process.pid}) | Mode: PIPE")
 
         # Binance Native Connector
         native = BinanceNativeConnector(
@@ -287,8 +290,10 @@ async def main():
             mode="demo" if args.mode != "live" else "live",
         )
 
-        # Inject Queues
-        native.set_execution_queues(exec_cmd_queue, exec_res_queue)
+        # Inject Channels
+        native.set_execution_queues(
+            cmd_queue=exec_cmd_queue, res_queue=exec_res_queue, cmd_pipe=exec_cmd_child
+        )  # Child is writer
 
         # Wrap with Resilience (Circuit Breaker, Tracking, State Recovery)
         connector = ResilientConnector(

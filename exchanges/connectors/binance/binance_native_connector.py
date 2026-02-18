@@ -44,6 +44,11 @@ import aiohttp
 import websockets
 import yarl
 
+from core.exceptions import (
+    ExchangeError,
+    OrderNotFoundError,
+    PositionAlreadyClosedError,
+)
 from core.execution_process import Priority
 from core.observability.latency_monitor import LatencyMonitor
 from exchanges.connectors.connector_base import BaseConnector
@@ -77,8 +82,9 @@ class BinanceNativeConnector(BaseConnector):
         self._market_breaker_name = "binance_market_stream"
         self._user_breaker_name = "binance_user_stream"
 
-        # Phase 7: Execution Airlock Queues
+        # Phase 7/8: Execution Airlock Queues & Pipes
         self._exec_cmd_queue: Optional[multiprocessing.Queue] = None
+        self._exec_cmd_pipe: Optional[multiprocessing.connection.Connection] = None
         self._exec_res_queue: Optional[multiprocessing.Queue] = None
         self._exec_futures: Dict[str, asyncio.Future] = {}
         self._exec_poll_task: Optional[asyncio.Task] = None
@@ -225,17 +231,23 @@ class BinanceNativeConnector(BaseConnector):
         """Return if WebSocket is enabled."""
         return self._enable_websocket
 
-    def set_execution_queues(self, cmd_queue: multiprocessing.Queue, res_queue: multiprocessing.Queue):
+    def set_execution_queues(
+        self,
+        cmd_queue: Optional[multiprocessing.Queue] = None,
+        res_queue: Optional[multiprocessing.Queue] = None,
+        cmd_pipe: Optional[multiprocessing.connection.Connection] = None,
+    ):
         """
-        Phase 7: Inject Airlock Queues for dedicated execution process.
+        Phase 7/8: Inject Airlock Queues/Pipes for dedicated execution process.
         Starts the result polling loop.
         """
         self._exec_cmd_queue = cmd_queue
+        self._exec_cmd_pipe = cmd_pipe
         self._exec_res_queue = res_queue
-        self.logger.info("🚀 Execution Airlock Configured")
+        self.logger.info("🚀 Execution Airlock Configured (Event-Driven Mode)")
 
         # Start polling loop
-        if not self._exec_poll_task or self._exec_poll_task.done():
+        if res_queue and (not self._exec_poll_task or self._exec_poll_task.done()):
             self._exec_poll_task = asyncio.create_task(self._poll_execution_results())
 
     async def _poll_execution_results(self):
@@ -391,24 +403,30 @@ class BinanceNativeConnector(BaseConnector):
                 self._exec_futures[request_id] = future
 
                 # Dispatch (priority, request_id, endpoint, method, payload, signed)
-                # Use put_nowait to avoid blocking main loop
+                # Phase 8: Prefer PIPE for low latency wakening
                 item = (priority.value, request_id, endpoint, method, params, signed)
-                self._exec_cmd_queue.put_nowait(item)
+                try:
+                    if self._exec_cmd_pipe:
+                        self._exec_cmd_pipe.send(item)
+                    elif self._exec_cmd_queue:
+                        self._exec_cmd_queue.put_nowait(item)
+                    else:
+                        raise ExchangeError("Airlock Channel Not Configured")
+                except (BrokenPipeError, ConnectionResetError, multiprocessing.queues.Full) as e:
+                    self.logger.error(f"❌ Airlock Dispatch Failed: {e}. Fallback to local.")
+                    raise e
 
                 # Await result (RPC style) or timeout
-                # The poll loop will resolve this future
                 return await asyncio.wait_for(future, timeout=timeout or 5.0)
 
-            except (asyncio.TimeoutError, multiprocessing.queues.Full) as e:
-                # If timeout or queue full, fallback to local execution?
-                # For Timeout, it means Airlock didn't process in time. Double execution risk if we retry locally?
-                # If Queue Full, we should fallback locally.
+            except (asyncio.TimeoutError, multiprocessing.queues.Full, BrokenPipeError, ConnectionResetError) as e:
+                # If timeout or channel error, fallback to local execution
                 if isinstance(e, asyncio.TimeoutError):
                     # Remove future
                     self._exec_futures.pop(request_id, None)
                     self.logger.error(f"❌ Airlock Request {request_id} Timed Out. Retrying locally...")
                 else:
-                    self.logger.warning("⚠️ Airlock Queue Full. Fallback to local execution.")
+                    self.logger.warning(f"⚠️ Airlock Channel Error ({type(e).__name__}). Fallback to local execution.")
 
             except Exception as e:
                 self.logger.error(f"⚠️ Airlock Routing Failed: {e}. Fallback to local.")
@@ -540,7 +558,6 @@ class BinanceNativeConnector(BaseConnector):
         # Phase 75: Reactive Recovery on State Mismatch
         # -2011 = Unknown order (might be deaf to fills) → Business Logic Handled
         if str(code) == "-2011":
-            from core.exceptions import OrderNotFoundError
 
             # Phase 83: Disable forced reconnect to prevent reconnection storms and blind spots
             self.logger.warning(f"⚠️ State Mismatch ({code}). Handled as Business Logic (No WS Reset).")
@@ -549,7 +566,6 @@ class BinanceNativeConnector(BaseConnector):
         # Phase 82: -2022 = Position already closed by TP/SL → NOT a connectivity issue
         # Raise semantic exception, do NOT reconnect WS (prevents cascade)
         if str(code) == "-2022":
-            from core.exceptions import PositionAlreadyClosedError
 
             self.logger.info("📉 Position already closed on exchange (ReduceOnly rejected)")
             raise PositionAlreadyClosedError(f"({code}) {msg}")

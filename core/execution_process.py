@@ -7,7 +7,6 @@ import signal
 import time
 import traceback
 from enum import IntEnum
-from queue import Empty
 from typing import Dict, Optional
 from urllib.parse import urlencode
 
@@ -37,14 +36,14 @@ class ExecutionProcess(multiprocessing.Process):
 
     def __init__(
         self,
-        command_queue: multiprocessing.Queue,
-        res_queue: multiprocessing.Queue,  # Renamed for consistency
+        command_pipe: multiprocessing.connection.Connection,
+        res_queue: multiprocessing.Queue,
         api_key: str,
         api_secret: str,
         base_url: str = "https://testnet.binancefuture.com",
     ):
         super().__init__(name="ExecutionAirlock")
-        self.cmd_queue = command_queue
+        self.cmd_pipe = command_pipe
         self.res_queue = res_queue
         self.api_key = api_key
         self.api_secret = api_secret
@@ -63,7 +62,10 @@ class ExecutionProcess(multiprocessing.Process):
 
         # 3. Start Async Event Loop
         try:
-            asyncio.run(self._main_loop())
+            # We use a custom event loop setup for highest performance
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._main_loop())
         except Exception as e:
             self.logger.critical(f"💥 Execution Process Crashed: {e}\n{traceback.format_exc()}")
         finally:
@@ -77,40 +79,51 @@ class ExecutionProcess(multiprocessing.Process):
         self.logger = logging.getLogger("ExecutionAirlock")
 
     async def _main_loop(self):
-        """Main async loop consuming the queue."""
+        """Main async loop consuming the pipe."""
         connector = aiohttp.TCPConnector(limit=100, ttl_dns_cache=300)
         async with aiohttp.ClientSession(connector=connector) as session:
             self._session = session
             # Phase 4: WebSocket Execution Connection
-            # We use a persistent WS connection for execution if enabled
             self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
             self._ws_futures: Dict[str, asyncio.Future] = {}
             ws_task = asyncio.create_task(self._maintain_ws(session))
 
             self.logger.info("✅ HTTP Keep-Alive Session Established")
 
-            while not self.stop_event.is_set():
+            # Phase 8: Pipe-based Event Reactor
+            # We register the pipe's file descriptor to the event loop.
+            # This allows the loop to wake up ONLY when there is data, with sub-ms precision.
+            loop = asyncio.get_running_loop()
+
+            def handle_command():
                 try:
-                    # Non-blocking check
-                    try:
-                        item = self.cmd_queue.get_nowait()
-                    except Empty:
-                        await asyncio.sleep(0.001)  # Yield 1ms
-                        continue
+                    while self.cmd_pipe.poll():
+                        item = self.cmd_pipe.recv()
+                        if item is None:
+                            self.logger.info("🧪 Poison pill received. Exiting.")
+                            self.stop_event.set()
+                            return
 
-                    if item is None:
-                        self.logger.info("🧪 Poison pill received. Exiting.")
-                        break
+                        # Parse Item: (priority, request_id, endpoint, method, payload, signed)
+                        priority, request_id, endpoint, method, payload, signed = item
 
-                    # Parse Item: (priority, request_id, endpoint, method, payload, signed)
-                    priority, request_id, endpoint, method, payload, signed = item
-
-                    # Fire-and-Forget execution task
-                    asyncio.create_task(self._execute_request(request_id, endpoint, method, payload, signed))
-
+                        # Fire-and-Forget execution task
+                        asyncio.create_task(self._execute_request(request_id, endpoint, method, payload, signed))
+                except EOFError:
+                    self.logger.warning("🔌 Command Pipe closed unexpectedly.")
+                    self.stop_event.set()
                 except Exception as e:
-                    self.logger.error(f"⚠️ Loop Error: {e}")
-                    await asyncio.sleep(0.1)
+                    self.logger.error(f"⚠️ Reactor Error: {e}")
+
+            loop.add_reader(self.cmd_pipe.fileno(), handle_command)
+            self.logger.info("🔥 Pipe Reactor Registered (Zero-Latency)")
+
+            while not self.stop_event.is_set():
+                await asyncio.sleep(0.1)  # Keep loop alive, actual work triggered by handler
+
+            loop.remove_reader(self.cmd_pipe.fileno())
+            if ws_task:
+                ws_task.cancel()
 
             if ws_task:
                 ws_task.cancel()

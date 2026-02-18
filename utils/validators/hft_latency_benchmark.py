@@ -196,6 +196,7 @@ class HFTLatencyBenchmark:
                     "stop_loss": 0.03,
                     "trade_id": f"bench_{symbol}_{iteration}_{int(time.time())}",
                     "estimated_price": current_price,  # Phase 240: pass cached price
+                    "t0_signal_ts": time.time(),  # Phase 8: Signal Generation Timestamp
                 }
 
                 # ─── MEASURE ───

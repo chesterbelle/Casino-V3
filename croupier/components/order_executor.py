@@ -174,46 +174,12 @@ class OrderExecutor:
                         f"🛡️ SAFE MODE FAIL-SOFT: Allowing entry for {order['symbol']} " f"(Exposure: {open_count} < 3)"
                     )
 
-        # Phase 102/230: Industrial Resilience - Execution Quality Analysis
-        # Phase 236: Skip depth analysis during emergency close (avoids REST flood during shutdown)
-        if skip_depth_analysis:
-            self.logger.info(f"⚡ Emergency Close: Skipping depth analysis for {order['symbol']}")
-            analysis = {"slippage_pct": 0, "source": "emergency_skip"}
-        else:
-            # Prefer cached analysis for speed (<5ms vs ~400ms)
-            analysis = self.depth_profiler.analyze_cached_execution(order["symbol"], order["side"], order["amount"])
-            if analysis.get("error"):
-                # Phase 236: Hard 2s timeout on REST fallback (prevents OCO stalls)
-                # If REST is slow/dead, proceed with the trade (fail-open)
-                try:
-                    self.logger.info(f"💾 Cache Miss/Stale for {order['symbol']}, falling back to REST analysis...")
-                    analysis = await asyncio.wait_for(
-                        self.depth_profiler.analyze_execution(order["symbol"], order["side"], order["amount"]),
-                        timeout=2.0,
-                    )
-                except asyncio.TimeoutError:
-                    self.logger.warning(f"⚠️ Depth REST timeout for {order['symbol']}. Proceeding (fail-open).")
-                    analysis = {"slippage_pct": 0, "source": "timeout_skip", "is_safe": True}
+        # Phase 102/230/241: Execution Quality Analysis (STRIPPED for Footprint Scalping)
+        # Depth profiling is removed from the hot path to eliminate latency.
+        # We assume liquid symbols or handle slippage reactively via reconciliation.
 
-        slippage = analysis.get("slippage_pct", 0)
-        self.logger.info(
-            f"📊 Market Impact Analysis ({analysis.get('source', 'unknown')}): {order['symbol']} | Ext. Slippage: {slippage:.4%}"
-        )
-
-        if slippage > self.max_slippage_pct:
-            # Check if this is a close order (Emergency/Stop) or entry
-            is_close = order.get("params", {}).get("reduceOnly") is True
-            if is_close:
-                self.logger.warning(f"⚠️ High Slippage ({slippage:.2%}) on CLOSE order. Proceeding with caution...")
-            else:
-                self.logger.warning(
-                    f"🚨 Slippage Too High ({slippage:.2%} > {self.max_slippage_pct:.2%}). Fragmenting execution..."
-                )
-                return await self._execute_fragmented_market_order(order)
-
-        elif slippage > self.fragmentation_threshold_pct:
-            self.logger.info(f"⚖️ Moderate Slippage ({slippage:.4%}). Using fragmented execution for optimal fill.")
-            return await self._execute_fragmented_market_order(order)
+        # Log the skip
+        self.logger.debug(f"⚡ Footprint Fast-Track: Skipping depth analysis for {order['symbol']}")
 
         # Execute with retry
         retry_cfg = retry_config or RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
