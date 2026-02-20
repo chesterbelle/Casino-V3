@@ -133,24 +133,89 @@ class BinanceWorker(multiprocessing.Process):
             logger.warning("⚠️ WebSocket disconnected or task ended.")
 
     async def _read_socket(self, ws: aiohttp.ClientWebSocketResponse):
-        """Read loop from WebSocket."""
-        loop = asyncio.get_running_loop()
+        """Read loop from WebSocket with Phase 240 Ingestion Airlock."""
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.TEXT:
                 try:
                     data = msg.json(loads=json_loads)
-                    # Phase 102: Airlock Telemetry (Add transit metadata)
-                    # Use float for high resolution
-                    data["_worker_ts"] = time.time()
-                    data["_worker_pid"] = os.getpid()
 
-                    # Push to main process (non-blocking via executor)
-                    # Use timed put to avoid indefinite blocking of worker thread
+                    # Phase 240: In-Worker Normalization (The Airlock)
+                    # We unwrap the "stream" wrapper here if present
+                    if "stream" in data and "data" in data:
+                        stream_name = data["stream"]
+                        payload = data["data"]
+                        if "@depth" in stream_name and "s" not in payload:
+                            payload["s"] = stream_name.split("@")[0].upper()
+                        data = payload
+
+                    event_type = data.get("e")
+
+                    # Check for depth snapshots (no "e" field but has "b" and "a")
+                    if not event_type and "b" in data and "a" in data:
+                        event_type = "depthSnapshot"
+                    elif event_type == "depthUpdate" and "b" in data and "a" in data:
+                        event_type = "depthSnapshot"
+
+                    # Normalized Packet Structure: (TYPE_CODE, WORKER_TS, DATA)
+                    # TYPE_CODES: 1: aggTrade, 2: ticker, 3: depth, 4: orderUpdate, 5: accountUpdate, 0: raw/other
+                    normalized = None
+                    worker_ts = time.time()
+
+                    if event_type == "aggTrade":
+                        # (1, symbol, price, qty, ts, is_maker, trade_id)
+                        normalized = (
+                            1,
+                            worker_ts,
+                            (
+                                data.get("s"),
+                                float(data.get("p", 0)),
+                                float(data.get("q", 0)),
+                                data.get("T"),
+                                data.get("m"),
+                                data.get("a"),
+                            ),
+                        )
+                    elif event_type in ("24hrTicker", "bookTicker", "@ticker", "ticker") or (
+                        not event_type and "c" in data and "b" in data
+                    ):
+                        # (2, symbol, last, bid, ask, ts)
+                        normalized = (
+                            2,
+                            worker_ts,
+                            (
+                                data.get("s"),
+                                float(data.get("c", 0)),
+                                float(data.get("b", 0)),
+                                float(data.get("a", 0)),
+                                data.get("E", int(worker_ts * 1000)),
+                            ),
+                        )
+                    elif event_type == "depthSnapshot":
+                        # (3, symbol, bids, asks, ts)
+                        normalized = (
+                            3,
+                            worker_ts,
+                            (
+                                data.get("s"),
+                                [[float(p), float(q)] for p, q in data.get("b", [])],
+                                [[float(p), float(q)] for p, q in data.get("a", [])],
+                                data.get("T") or data.get("E") or int(worker_ts * 1000),
+                            ),
+                        )
+                    elif event_type == "ORDER_TRADE_UPDATE":
+                        normalized = (4, worker_ts, data)
+                    elif event_type == "ACCOUNT_UPDATE":
+                        normalized = (5, worker_ts, data)
+                    else:
+                        # Raw Fallback for other types
+                        data["_worker_ts"] = worker_ts
+                        normalized = (0, worker_ts, data)
+
+                    # Push to main process
                     try:
-                        await loop.run_in_executor(None, self.output_queue.put, data, 0.5)
+                        self.output_queue.put_nowait(normalized)
                         self.msg_count += 1
                     except Exception:
-                        # Log only occasionally to prevent spam
                         if self.msg_count % 100 == 0:
                             logger.warning(f"⚠️ [{self.worker_id}] Output queue full, dropping message")
                 except Exception as e:

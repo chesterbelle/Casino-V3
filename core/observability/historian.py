@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import multiprocessing as mp
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +9,106 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("TradeHistorian")
+
+
+def _historian_worker(db_path: str, q: mp.Queue):
+    """Background Multi-Process Worker for DB I/O (Phase 240)."""
+    import logging
+    import sqlite3
+    from datetime import datetime
+
+    worker_logger = logging.getLogger("HistorianWorker")
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception as e:
+        worker_logger.error(f"HistorianWorker failed to connect to DB: {e}")
+        return
+
+    while True:
+        try:
+            item = q.get()
+            if item is None:
+                break
+
+            action, data = item
+            if action == "INSERT_TRADE":
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO trades
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    data,
+                )
+                conn.commit()
+            elif action == "RECONCILE_LEDGER":
+                income_records, session_id, min_timestamp = data
+                for record in income_records:
+                    income_type = record.get("incomeType")
+                    if income_type not in ["FUNDING_FEE", "INSURANCE_CLEAR", "ADJUSTMENT", "COMMISSION"]:
+                        continue
+
+                    tran_id = str(record.get("tranId"))
+                    cursor = conn.execute("SELECT 1 FROM trades WHERE trade_id = ?", (tran_id,))
+                    if cursor.fetchone():
+                        continue
+
+                    ts_ms = record.get("time", 0)
+                    record_ts = ts_ms / 1000.0
+
+                    actual_session = session_id or "LEDGER_SYNC"
+                    if min_timestamp and record_ts < min_timestamp:
+                        actual_session = "LEGACY_AUDIT"
+
+                    amount = float(record.get("income", 0.0))
+                    symbol = record.get("symbol", "UNKNOWN")
+                    timestamp = datetime.fromtimestamp(record_ts).isoformat()
+
+                    gross = 0.0
+                    fee = 0.0
+                    funding = 0.0
+
+                    if income_type == "FUNDING_FEE":
+                        funding = -amount
+                    elif income_type == "COMMISSION":
+                        fee = -amount
+                    else:
+                        gross = amount
+
+                    net_pnl = gross - fee - funding
+
+                    conn.execute(
+                        """
+                        INSERT INTO trades
+                        (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            tran_id,
+                            symbol,
+                            "FLAT",
+                            0.0,
+                            0.0,
+                            0.0,
+                            fee,
+                            funding,
+                            gross,
+                            net_pnl,
+                            income_type,
+                            timestamp,
+                            0,
+                            actual_session,
+                            0,
+                        ),
+                    )
+                conn.commit()
+        except Exception as e:
+            worker_logger.error(
+                f"HistorianWorker error processing {action if 'action' in locals() else 'unknown'}: {e}"
+            )
+
+    conn.close()
 
 
 class TradeHistorian:
@@ -19,20 +120,39 @@ class TradeHistorian:
     def __init__(self, db_path: str = "data/casino_v3.db"):
         self.db_path = db_path
         self._conn = None
+        self._use_mp = self.db_path != ":memory:"
+
         if self.db_path == ":memory:":
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
         self._ensure_data_dir()
         self._init_db()
 
-        # Phase 104: Non-blocking DB operations
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="HistorianDB")
+        # Phase 240: HFT Footprint Decoupling (Multiprocessing for I/O)
+        self._queue = None
+        self._worker_process = None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="HistorianDB_Legacy")
         self._loop = None
+
+        if self._use_mp:
+            # We don't start the process here to avoid multiprocessing import locks.
+            # It will be started lazily in _ensure_worker()
+            pass
 
     def _ensure_data_dir(self):
         """Ensures the directory for the database exists."""
         if self.db_path == ":memory:":
             return
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+
+    def _ensure_worker(self):
+        """Lazily starts the background worker process."""
+        if self._use_mp and self._worker_process is None:
+            self._queue = mp.Queue()
+            self._worker_process = mp.Process(
+                target=_historian_worker, args=(self.db_path, self._queue), name="HistorianWorker", daemon=True
+            )
+            self._worker_process.start()
+            logger.info("🚀 HistorianWorker Process started for ultra-low latency I/O.")
 
     def _init_db(self):
         """Initializes the database schema."""
@@ -133,19 +253,14 @@ class TradeHistorian:
 
     def record_trade(self, trade_data: Dict[str, Any]):
         """
-        Records a completed trade into the database. (Non-blocking)
+        Records a completed trade into the database. (Non-blocking pipeline)
         """
-        return self._run_async(self._record_trade_sync, trade_data)
-
-    def _record_trade_sync(self, trade_data: Dict[str, Any]):
-        """Internal synchronous recording logic."""
         try:
             trade_id = trade_data.get("trade_id")
             if not trade_id:
                 logger.error("❌ Historian: Cannot record trade without trade_id")
                 return
 
-            # Basic Price Validation
             entry_price = float(trade_data.get("entry_price", 0.0))
             exit_price = float(trade_data.get("exit_price", 0.0))
 
@@ -153,13 +268,11 @@ class TradeHistorian:
                 logger.warning(f"⚠️ Historian: Trade {trade_id} has invalid entry_price: {entry_price}. Skipping.")
                 return
 
-            # Calculate net pnl if not provided
             gross = float(trade_data.get("pnl", 0.0))
             fee = float(trade_data.get("fee", 0.0))
             funding = float(trade_data.get("funding", 0.0))
             net_pnl = gross - fee - funding
 
-            # Robust Qty Handling
             qty = float(trade_data.get("qty", 0.0))
             if qty <= 0:
                 notional = float(trade_data.get("notional", 0.0))
@@ -169,11 +282,49 @@ class TradeHistorian:
                 logger.warning(
                     f"⚠️ Historian: Trade {trade_id} has 0 qty and 0 notional. Forcing minimum for traceability."
                 )
-                qty = 0.00000001  # Token qty to prevent DB null/0 issues if it's a ghost trace
+                qty = 0.00000001
 
             session_id = trade_data.get("session_id")
             healed = 1 if trade_data.get("healed") else 0
 
+            params = (
+                trade_id,
+                trade_data.get("symbol"),
+                trade_data.get("side"),
+                entry_price,
+                exit_price,
+                qty,
+                fee,
+                funding,
+                gross,
+                net_pnl,
+                trade_data.get("exit_reason"),
+                datetime.now().isoformat(),
+                trade_data.get("bars_held", 0),
+                session_id,
+                healed,
+                trade_data.get("t0_signal_ts"),
+                trade_data.get("t1_decision_ts"),
+                trade_data.get("t2_submit_ts"),
+                trade_data.get("t4_fill_ts"),
+                trade_data.get("slippage_pct"),
+                trade_data.get("lifecycle_phase", "ACTIVE"),
+            )
+
+            if self._use_mp:
+                self._ensure_worker()
+                self._queue.put(("INSERT_TRADE", params))
+                logger.info(f"💾 Historian: Queued trade {trade_id} ({trade_data.get('symbol')}) -> MP Worker")
+            else:
+                self._run_async(self._execute_insert_trade, params)
+                logger.info(f"💾 Historian: Registered trade {trade_id} ({trade_data.get('symbol')}) | Sync")
+
+        except Exception as e:
+            logger.error(f"❌ Historian: Error processing trade record: {e}")
+
+    def _execute_insert_trade(self, params):
+        """Fallback sync executor for memory DBs."""
+        try:
             with self._get_conn() as conn:
                 conn.execute(
                     """
@@ -181,36 +332,11 @@ class TradeHistorian:
                     (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (
-                        trade_id,
-                        trade_data.get("symbol"),
-                        trade_data.get("side"),
-                        entry_price,
-                        exit_price,
-                        qty,
-                        fee,
-                        funding,
-                        gross,
-                        net_pnl,
-                        trade_data.get("exit_reason"),
-                        datetime.now().isoformat(),
-                        trade_data.get("bars_held", 0),
-                        session_id,
-                        healed,
-                        trade_data.get("t0_signal_ts"),
-                        trade_data.get("t1_decision_ts"),
-                        trade_data.get("t2_submit_ts"),
-                        trade_data.get("t4_fill_ts"),
-                        trade_data.get("slippage_pct"),
-                        trade_data.get("lifecycle_phase", "ACTIVE"),
-                    ),
+                    params,
                 )
                 conn.commit()
-            logger.info(
-                f"💾 Historian: Registered trade {trade_id} ({trade_data.get('symbol')}) | Net PnL: {net_pnl:+.4f} | Session: {session_id}"
-            )
         except Exception as e:
-            logger.error(f"❌ Historian: Error recording trade: {e}")
+            logger.error(f"❌ Historian: Error in sync execute: {e}")
 
     def reconcile_ledger(
         self,
@@ -220,10 +346,13 @@ class TradeHistorian:
     ):
         """
         Reconciles Ledger (Income History) to capture missing Funding Fees. (Non-blocking)
-
-        Phase 110: Supports min_timestamp to avoid polluting active session stats with legacy records.
         """
-        return self._run_async(self._reconcile_ledger_sync, income_records, session_id, min_timestamp)
+        if self._use_mp:
+            self._ensure_worker()
+            self._queue.put(("RECONCILE_LEDGER", (income_records, session_id, min_timestamp)))
+            logger.info(f"💾 Historian: Queued ledger reconciliation ({len(income_records)} records) -> MP Worker")
+        else:
+            return self._run_async(self._reconcile_ledger_sync, income_records, session_id, min_timestamp)
 
     def _reconcile_ledger_sync(
         self,

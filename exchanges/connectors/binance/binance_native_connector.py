@@ -1800,7 +1800,46 @@ class BinanceNativeConnector(BaseConnector):
             try:
                 data = queue.get_nowait()
 
-                # Phase 230: Unwrap "stream" wrapper if present (from /stream endpoint)
+                # Phase 240: Handle Tuple-based Ingestion (The Airlock)
+                if isinstance(data, (tuple, list)) and len(data) >= 3:
+                    type_code, worker_ts, payload = data
+
+                    # Phase 103: Shard Telemetry
+                    t = self._shard_telemetry[source]
+                    t["last_msg"] = time.time()
+                    t["count"] += 1
+                    t["latency"] = (time.time() - worker_ts) * 1000
+
+                    if source.startswith("market"):
+                        self._last_market_message_time = time.time()
+                    else:
+                        self._last_user_message_time = time.time()
+
+                    if type_code == 1:  # aggTrade (symbol, price, qty, ts, is_maker)
+                        self._handle_trade_update(payload, is_normalized=True)
+                    elif type_code == 2:  # ticker (symbol, last, bid, ask, ts)
+                        self._handle_ticker_update(payload, is_normalized=True)
+                    elif type_code == 3:  # depth (symbol, bids, asks, ts)
+                        self._handle_depth_update(payload, is_normalized=True)
+                    elif type_code == 4:  # ORDER_TRADE_UPDATE
+                        self._handle_order_update(payload)
+                    elif type_code == 5:  # ACCOUNT_UPDATE
+                        self._handle_account_update(payload)
+                    elif type_code == 0:  # Raw Fallback
+                        event_type = payload.get("e")
+                        if event_type == "STRATEGY_UPDATE":
+                            self._handle_strategy_update(payload)
+                        elif event_type == "listenKeyExpired":
+                            self.logger.warning("🔑 ListenKey Expired! Reconnecting...")
+                            asyncio.create_task(self._reconnect_user_data_stream())
+
+                    processed_count += 1
+                    if source.startswith("market") and processed_count >= 100:
+                        return processed_count
+                    continue
+
+                # --- Legacy Dict Handling ---
+                # Phase 230: Unwrap "stream" wrapper if present
                 if "stream" in data and "data" in data:
                     stream_name = data["stream"]
                     payload = data["data"]
@@ -1994,42 +2033,32 @@ class BinanceNativeConnector(BaseConnector):
         for stream in self._active_subscriptions:
             await self._subscribe_stream(stream)
 
-    def _handle_trade_update(self, data: Dict) -> None:
+    def _handle_trade_update(self, data: Any, is_normalized: bool = False) -> None:
         """Handle trade update from WebSocket."""
-        # e: aggTrade
-        # s: symbol
-        # p: price
-        # q: quantity (using q instead of volume)
-        # T: timestamp
-        # m: is_buyer_maker
-        native_symbol = data.get("s", "")
-        # Need to map back to unified symbol if possible, but internal queue uses user-facing symbol if we knew it.
-        # However, _trade_queues usage in watch_trades uses 'symbol' (user facing).
-        # We need a reverse mapping or we just use what we have.
-        # The watch_trades caller passes the unified symbol (e.g. BTC/USDT).
-        # But data["s"] is BTCUSDT.
+        if is_normalized:
+            # (symbol, price, qty, ts, is_maker, trade_id)
+            native_symbol, price, qty, ts, is_buyer_maker, trade_id = data
+            unified_symbol = self.denormalize_symbol(native_symbol)
+        else:
+            native_symbol = data.get("s", "")
+            unified_symbol = self.denormalize_symbol(native_symbol)
+            price = float(data.get("p", 0))
+            qty = float(data.get("q", 0))
+            ts = data.get("T")
+            is_buyer_maker = data.get("m", False)
+            trade_id = data.get("a")
 
-        # Since we don't have a reliable reverse map here easily without iterating,
-        # We will assume the queue key matches the normalized symbol if we can't find it?
-        # A clearer approach: store queues by NATIVE symbol since that's what we get from WS.
-        # But watch_trades receives unified symbol.
-
-        # Let's use the unified symbol stored in the _trade_queues if we can match it.
-        # If we use denormalize_symbol it might work.
-        unified_symbol = self.denormalize_symbol(native_symbol)
-
-        price = float(data.get("p", 0))
-        amount = float(data.get("q", 0))  # AggTrade uses q
-        side = "sell" if data.get("m", False) else "buy"  # m=True means maker (sell), m=False means taker (buy)
+        amount = qty  # AggTrade uses q
+        side = "sell" if is_buyer_maker else "buy"  # m=True means maker (sell), m=False means taker (buy)
 
         trade = {
             "symbol": unified_symbol,
-            "id": str(data.get("a", "")),
+            "id": str(trade_id or ""),
             "price": price,
             "amount": amount,
             "side": side,
-            "timestamp": data.get("T", int(time.time() * 1000)),
-            "datetime": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(data.get("T", 0) / 1000)),
+            "timestamp": ts,
+            "datetime": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(ts / 1000)) if ts else None,
         }
 
         # Update ticker cache as well since it's most recent price
@@ -2041,21 +2070,25 @@ class BinanceNativeConnector(BaseConnector):
             if not queue.full():
                 queue.put_nowait(trade)
 
-    def _handle_ticker_update(self, data: Dict) -> None:
-        """Handle ticker update from WebSocket.
-
-        Phase 37: Supports both push-based (direct callback) and pull-based (queue) models.
-        When _tick_event_callback is registered, dispatches events directly without queue.
-        """
-        native_symbol = data.get("s", "")
-        unified_symbol = self.denormalize_symbol(native_symbol)
-        timestamp_ms = data.get("E", int(time.time() * 1000))
+    def _handle_ticker_update(self, data: Any, is_normalized: bool = False) -> None:
+        """Handle ticker update from WebSocket."""
+        if is_normalized:
+            # (symbol, last, bid, ask, ts)
+            native_symbol, last, bid, ask, timestamp_ms = data
+            unified_symbol = self.denormalize_symbol(native_symbol)
+        else:
+            native_symbol = data.get("s", "")
+            unified_symbol = self.denormalize_symbol(native_symbol)
+            last = float(data.get("c", 0))
+            bid = float(data.get("b", 0))
+            ask = float(data.get("a", 0))
+            timestamp_ms = data.get("E", int(time.time() * 1000))
 
         ticker_data = {
             "symbol": unified_symbol,
-            "last": float(data.get("c", 0)),
-            "bid": float(data.get("b", 0)),
-            "ask": float(data.get("a", 0)),
+            "last": last,
+            "bid": bid,
+            "ask": ask,
             "timestamp": timestamp_ms,
         }
         self._tickers[native_symbol] = ticker_data
@@ -2073,16 +2106,23 @@ class BinanceNativeConnector(BaseConnector):
         except Exception:
             pass
 
-    def _handle_depth_update(self, data: Dict) -> None:
+    def _handle_depth_update(self, data: Any, is_normalized: bool = False) -> None:
         """Handle depth update (partial book) from WebSocket (Phase 230)."""
-        native_symbol = data.get("s", "")
-        if not native_symbol:
-            return
+        if is_normalized:
+            # (symbol, bids, asks, ts)
+            native_symbol, bids, asks, timestamp = data
+        else:
+            native_symbol = data.get("s", "")
+            if not native_symbol:
+                return
+            bids = [[float(p), float(q)] for p, q in data.get("b", [])]
+            asks = [[float(p), float(q)] for p, q in data.get("a", [])]
+            timestamp = data.get("T") or (time.time() * 1000)
 
         self._order_books[native_symbol] = {
-            "bids": [[float(p), float(q)] for p, q in data.get("b", [])],
-            "asks": [[float(p), float(q)] for p, q in data.get("a", [])],
-            "timestamp": data.get("T") or (time.time() * 1000),
+            "bids": bids,
+            "asks": asks,
+            "timestamp": timestamp,
         }
         # Phase 231: Debug logging to verify cache is being populated
         self.logger.debug(f"🗄️ Cache: Depth snapshot updated for {native_symbol}")
