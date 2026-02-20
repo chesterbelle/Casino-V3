@@ -1014,7 +1014,7 @@ class Croupier(TimeIterator):
         """Standardized balance sync."""
         try:
             exchange_balance = await self.adapter.fetch_balance()
-            actual_equity = exchange_balance.get("total", {}).get("USDT", 0.0)
+            actual_equity = (exchange_balance.get("total") or {}).get("USDT", 0.0)
             if actual_equity > 0:
                 self.balance_manager.set_balance(actual_equity)
                 self.logger.info(f"[WALLET] ⚖️ Synced Balance: {actual_equity:.2f} USDT")
@@ -1101,7 +1101,7 @@ class Croupier(TimeIterator):
         self.process_start_balance = float(balance)
         self.logger.info(f"[WALLET] 💰 Process Start Balance: {self.process_start_balance:.2f} USDT")
 
-    def get_session_summary(self, final_balance: Optional[float] = None) -> Dict[str, Any]:
+    async def get_session_summary(self, final_balance: Optional[float] = None) -> Dict[str, Any]:
         """
         Get precise trade stats from Historian (Net PnL) and Account Delta.
 
@@ -1110,10 +1110,10 @@ class Croupier(TimeIterator):
                           If provided, calculates 'Leakage' (untracked pnl).
         """
         self.logger.debug(f"📊 Fetching Session Stats for ID: {self.position_tracker.session_id}")
-        stats = historian.get_session_stats(session_id=self.position_tracker.session_id)
+        stats = await historian.get_session_stats(session_id=self.position_tracker.session_id)
 
         # Phase 68: Granular Error Reporting
-        stats["error_breakdown"] = historian.get_error_breakdown(session_id=self.position_tracker.session_id)
+        stats["error_breakdown"] = await historian.get_error_breakdown(session_id=self.position_tracker.session_id)
 
         # Calculate Transparency Metrics (Phase 30)
         strategy_net_pnl = stats.get("total_net_pnl", 0.0)
@@ -1220,7 +1220,7 @@ class Croupier(TimeIterator):
             # Since we record with trade_id (bot level), matching exact order ID is safer
             # Local positions often store exit order IDs.
             # For simplicity in this background task, we take the most recent fee if it hasn't been enriched yet.
-            real_fee = float(trades[0].get("fee", {}).get("cost", 0) or 0)
+            real_fee = float((trades[0].get("fee") or {}).get("cost", 0) or 0)
 
             if real_fee > 0:
                 self.logger.info(f"💰 Background Enrichment: Updating trade {trade_id} with exit_fee={real_fee:.4f}")

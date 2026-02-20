@@ -399,6 +399,7 @@ class SignalAggregatorV3:
             },
             strategy_name=strategy_name,
             t0_timestamp=selected["signal"].timestamp,  # Phase 85: Carry forward signal timestamp
+            t1_decision_ts=time.time(),  # Phase 10: Decision Finalized Timestamp
             trace_id=getattr(selected["signal"], "trace_id", None) or f"trc_{int(time.time()*1000)}",
         )
 

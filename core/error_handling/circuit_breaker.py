@@ -70,6 +70,10 @@ class CircuitBreaker:
         self._half_open_calls = 0
         self._lock = asyncio.Lock()
 
+        # Phase 243: Exponential recovery backoff to break death spiral
+        self._consecutive_open_trips = 0
+        self._max_recovery_timeout = recovery_timeout * 8  # Cap at 8x base (480s default)
+
         self.logger = logging.getLogger(f"CircuitBreaker.{name}")
 
     @property
@@ -157,18 +161,24 @@ class CircuitBreaker:
                 self._transition_to_open()
 
     def _should_attempt_reset(self) -> bool:
-        """Check if enough time has passed to attempt reset."""
+        """Check if enough time has passed to attempt reset.
+        Phase 243: Uses exponential backoff — each failed HALF_OPEN probe
+        doubles the recovery wait (capped at _max_recovery_timeout).
+        """
         if self._last_failure_time is None:
             return True
         elapsed = time.time() - self._last_failure_time
-        return elapsed >= self.recovery_timeout
+        # Exponential backoff: base * 2^trips (capped)
+        effective_timeout = min(self.recovery_timeout * (2**self._consecutive_open_trips), self._max_recovery_timeout)
+        return elapsed >= effective_timeout
 
     def _time_until_retry(self) -> float:
         """Calculate time until retry is allowed."""
         if self._last_failure_time is None:
             return 0.0
         elapsed = time.time() - self._last_failure_time
-        return max(0.0, self.recovery_timeout - elapsed)
+        effective_timeout = min(self.recovery_timeout * (2**self._consecutive_open_trips), self._max_recovery_timeout)
+        return max(0.0, effective_timeout - elapsed)
 
     def _transition_to_closed(self):
         """Transition to CLOSED state."""
@@ -177,11 +187,16 @@ class CircuitBreaker:
         self._failure_count = 0
         self._success_count = 0
         self._half_open_calls = 0
+        self._consecutive_open_trips = 0  # Phase 243: Reset backoff on recovery
 
     def _transition_to_open(self):
         """Transition to OPEN state."""
+        self._consecutive_open_trips += 1  # Phase 243: Track for exponential backoff
+        effective_timeout = min(self.recovery_timeout * (2**self._consecutive_open_trips), self._max_recovery_timeout)
         self.logger.warning(
-            f"🔴 Circuit breaker '{self.name}' → OPEN " f"(failures: {self._failure_count}/{self.failure_threshold})"
+            f"🔴 Circuit breaker '{self.name}' → OPEN "
+            f"(failures: {self._failure_count}/{self.failure_threshold}, "
+            f"next probe in {effective_timeout:.0f}s)"
         )
         self._state = CircuitState.OPEN
         self._success_count = 0
@@ -235,6 +250,7 @@ class CircuitBreaker:
         self._success_count = 0
         self._half_open_calls = 0
         self._last_failure_time = None
+        self._consecutive_open_trips = 0  # Phase 243: Reset backoff on manual reset
 
     def get_stats(self) -> dict:
         """Get circuit breaker statistics."""

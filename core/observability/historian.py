@@ -64,7 +64,12 @@ class TradeHistorian:
                 bars_held INTEGER,
                 session_id TEXT,
                 healed BOOLEAN DEFAULT 0,
-                lifecycle_phase TEXT DEFAULT 'ACTIVE'
+                lifecycle_phase TEXT DEFAULT 'ACTIVE',
+                t0_signal_ts REAL,
+                t1_decision_ts REAL,
+                t2_submit_ts REAL,
+                t4_fill_ts REAL,
+                slippage_pct REAL
             )
         """
         )
@@ -83,6 +88,7 @@ class TradeHistorian:
         # Phase 85: Schema Evolution for Latency Telemetry
         try:
             conn.execute("ALTER TABLE trades ADD COLUMN t0_signal_ts REAL")
+            conn.execute("ALTER TABLE trades ADD COLUMN t1_decision_ts REAL")
             conn.execute("ALTER TABLE trades ADD COLUMN t2_submit_ts REAL")
             conn.execute("ALTER TABLE trades ADD COLUMN t4_fill_ts REAL")
             conn.execute("ALTER TABLE trades ADD COLUMN slippage_pct REAL")
@@ -172,8 +178,8 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         trade_id,
@@ -192,6 +198,7 @@ class TradeHistorian:
                         session_id,
                         healed,
                         trade_data.get("t0_signal_ts"),
+                        trade_data.get("t1_decision_ts"),
                         trade_data.get("t2_submit_ts"),
                         trade_data.get("t4_fill_ts"),
                         trade_data.get("slippage_pct"),
@@ -419,7 +426,14 @@ class TradeHistorian:
         "LIQUIDATION",  # Detected external closure
     )
 
-    def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_session_stats(self, session_id: Optional[str] = None) -> Any:
+        """
+        Returns statistics for the current database state, optionally filtered by session. (Non-blocking)
+        """
+        return self._run_async(self._get_session_stats_sync, session_id)
+
+    def _get_session_stats_sync(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Internal synchronous stats calculation."""
         """
         Returns statistics for the current database state, optionally filtered by session.
 
@@ -459,11 +473,18 @@ class TradeHistorian:
 
                     SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
 
-                    -- Phase 190: Latency Telemetry
-                    AVG((t2_submit_ts - t0_signal_ts) * 1000) as avg_internal_latency,
-                    MAX((t2_submit_ts - t0_signal_ts) * 1000) as max_internal_latency,
+                    -- Phase 10: Signal-to-Wire (Decision Birth to Wire)
+                    -- We use T1 (Decision) instead of T0 (Sensor) for HFT audit
+                    AVG((t2_submit_ts - t1_decision_ts) * 1000) as avg_signal_to_wire,
+                    MAX((t2_submit_ts - t1_decision_ts) * 1000) as max_signal_to_wire,
                     AVG((t4_fill_ts - t2_submit_ts) * 1000) as avg_external_latency,
-                    MAX((t4_fill_ts - t2_submit_ts) * 1000) as max_external_latency
+                    MAX((t4_fill_ts - t2_submit_ts) * 1000) as max_external_latency,
+
+                    -- Strategy Aggregation Wait (T0 to T1)
+                    AVG((t1_decision_ts - t0_signal_ts) * 1000) as avg_strat_wait,
+
+                    -- Phase 240: HFT Core Efficiency (Percent sub-ms)
+                    SUM(CASE WHEN (t2_submit_ts - t1_decision_ts) < 0.001 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as hft_efficiency
 
                 FROM trades
             """
@@ -493,10 +514,11 @@ class TradeHistorian:
                         "error_pnl": 0.0,
                         "drain_pnl": 0.0,
                         "drain_count": 0,
-                        "avg_internal_latency": 0.0,
-                        "max_internal_latency": 0.0,
+                        "avg_signal_to_wire": 0.0,
+                        "max_signal_to_wire": 0.0,
                         "avg_external_latency": 0.0,
                         "max_external_latency": 0.0,
+                        "hft_efficiency": 0.0,
                     }
                 )
 
@@ -514,7 +536,12 @@ class TradeHistorian:
             logger.error(f"❌ Historian: Error getting stats: {e}")
             return {}
 
-    def get_error_breakdown(self, session_id: Optional[str] = None) -> Dict[str, int]:
+    def get_error_breakdown(self, session_id: Optional[str] = None) -> Any:
+        """Returns a breakdown of error reasons. (Non-blocking)"""
+        return self._run_async(self._get_error_breakdown_sync, session_id)
+
+    def _get_error_breakdown_sync(self, session_id: Optional[str] = None) -> Dict[str, int]:
+        """Internal synchronous breakdown calculation."""
         """Returns a breakdown of error reasons (e.g. AUDIT_GHOST: 78)."""
         try:
             params = []
@@ -536,7 +563,12 @@ class TradeHistorian:
             logger.error(f"❌ Historian: Error getting breakdown: {e}")
             return {}
 
-    def get_detailed_report(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_detailed_report(self, session_id: Optional[str] = None) -> Any:
+        """Returns a detailed report grouped by symbol. (Non-blocking)"""
+        return self._run_async(self._get_detailed_report_sync, session_id)
+
+    def _get_detailed_report_sync(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Internal synchronous detailed report calculation."""
         """Returns a detailed report grouped by symbol, optionally filtered by session."""
         try:
             with self._get_conn() as conn:
@@ -643,7 +675,8 @@ class TradeHistorian:
 # Global instance
 historian = TradeHistorian()
 
-if __name__ == "__main__":
+
+async def main_cli():
     import argparse
     import sys
 
@@ -653,12 +686,15 @@ if __name__ == "__main__":
     parser.add_argument("--check", action="store_true", help="Run integrity check")
     parser.add_argument("--export", type=str, help="Export trades to CSV file path")
     parser.add_argument("--clear", action="store_true", help="Wipe all trade history (DANGER)")
+    parser.add_argument("--session", type=str, help="Filter reports by specific session ID")
 
     args = parser.parse_args()
 
     if args.report:
-        stats = historian.get_session_stats()
+        stats = await historian.get_session_stats(session_id=args.session)
         print("\n📊 SESSION SUMMARY REPORT")
+        if args.session:
+            print(f"Filter: {args.session}")
         print("==========================")
         print(f"Total Trades: {stats['count']}")
         print(f"Net PnL:      {stats['total_net_pnl']:+.4f} USDT")
@@ -668,15 +704,19 @@ if __name__ == "__main__":
             f"Win Rate:     {(stats['wins'] * 100 / stats['count'] if stats['count'] > 0 else 0):.2f}% ({stats['wins']}W / {stats['losses']}L)"
         )
         print("--------------------------")
-        print("⏱️  LATENCY TELEMETRY")
-        print(f"Internal (Avg): {stats.get('avg_internal_latency', 0) or 0:.1f} ms")
-        print(f"Internal (Max): {stats.get('max_internal_latency', 0) or 0:.1f} ms")
-        print(f"External (Avg): {stats.get('avg_external_latency', 0) or 0:.1f} ms")
-        print(f"External (Max): {stats.get('max_external_latency', 0) or 0:.1f} ms")
+        print("⚡ HFT PERFORMANCE AUDIT")
+        print(f"Signal-to-Wire (Avg): {stats.get('avg_signal_to_wire', 0) or 0:.3f} ms")
+        print(f"Signal-to-Wire (Max): {stats.get('max_signal_to_wire', 0) or 0:.3f} ms")
+        print(f"HFT Core Efficiency:  {stats.get('hft_efficiency', 0) or 0:.1f}% (sub-1ms)")
+        print(f"Strategy Agg. Wait:   {stats.get('avg_strat_wait', 0) or 0:.1f} ms")
+        print("--------------------------")
+        print("🌍 NETWORK LATENCY")
+        print(f"External/Exchange (Avg): {stats.get('avg_external_latency', 0) or 0:.1f} ms")
+        print(f"External/Exchange (Max): {stats.get('max_external_latency', 0) or 0:.1f} ms")
         print("==========================\n")
 
     if args.details:
-        details = historian.get_detailed_report()
+        details = await historian.get_detailed_report(session_id=args.session)
         print("\n📋 DETAILED SYMBOL REPORT")
         print("==========================")
         print(f"{'Symbol':<15} {'Trades':<8} {'Net PnL':<12} {'Win%':<8} {'Dur.'}")
@@ -711,3 +751,7 @@ if __name__ == "__main__":
 
     if len(sys.argv) == 1:
         parser.print_help()
+
+
+if __name__ == "__main__":
+    asyncio.run(main_cli())

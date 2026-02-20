@@ -152,6 +152,7 @@ class OrderManager:
             "stop_loss": sl_pct,
             "timestamp": str(event.timestamp),
             "t0_signal_ts": getattr(event, "t0_timestamp", None),  # Phase 85: Signal Latency
+            "t1_decision_ts": getattr(event, "t1_decision_ts", None),  # Phase 10: Decision Latency
             "ghost": False,
             "contributors": [getattr(event, "selected_sensor", "Unknown")],
             "trace_id": getattr(event, "trace_id", None),

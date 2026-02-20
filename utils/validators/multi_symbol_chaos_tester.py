@@ -156,7 +156,7 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
             integrity_passed = await self.test_global_integrity()
 
             # Summary
-            stats = historian.get_session_stats(self.croupier.session_id)
+            stats = await historian.get_session_stats(self.croupier.session_id)
             self.error_trades = stats.get("error_count", 0)
 
             logger.info("\n" + "=" * 70)

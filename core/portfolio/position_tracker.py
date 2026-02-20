@@ -126,6 +126,7 @@ class OpenPosition:
 
     # Phase 85: Latency Telemetry
     t0_signal_ts: Optional[float] = None
+    t1_decision_ts: Optional[float] = None
     t2_submit_ts: Optional[float] = None
     t3_ack_ts: Optional[float] = None
     t4_fill_ts: Optional[float] = None
@@ -1189,6 +1190,7 @@ class PositionTracker:
             "healed": 1 if (healed or getattr(position, "healed", False)) else 0,  # Phase 81
             # Phase 85: Latency Telemetry
             "t0_signal_ts": getattr(position, "t0_signal_ts", None),
+            "t1_decision_ts": getattr(position, "t1_decision_ts", None),
             "t2_submit_ts": getattr(position, "t2_submit_ts", None),
             "t4_fill_ts": getattr(position, "t4_fill_ts", None),
             "slippage_pct": 0.0,  # TODO: Calculate if decision price available
@@ -1410,8 +1412,16 @@ class PositionTracker:
         if self.adapter:
             try:
                 logger.info(f"🕵️ Analyzing Ghost Position {trade_id} ({found_pos.symbol}) for residual costs...")
-                # Fetch recent trades for this symbol
-                trades = await self.adapter.fetch_my_trades(found_pos.symbol, limit=20)
+                # Fetch recent trades for this symbol (Phase 244: with strict 2.0s timeout to prevent execution cap stalls)
+                try:
+                    import asyncio
+
+                    trades = await asyncio.wait_for(
+                        self.adapter.fetch_my_trades(found_pos.symbol, limit=20), timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Ghost Audit: fetch_my_trades timed out. Network may be unresponsive.")
+                    trades = []
 
                 # Match by trade_id
                 relevant_trades = [
@@ -1423,7 +1433,7 @@ class PositionTracker:
                 ]
 
                 if relevant_trades:
-                    total_fee = sum(float(t.get("fee", {}).get("cost", 0) or 0) for t in relevant_trades)
+                    total_fee = sum(float((t.get("fee") or {}).get("cost", 0) or 0) for t in relevant_trades)
                     total_pnl = sum(float(t.get("realized_pnl", 0) or 0) for t in relevant_trades)
                     audit_fee += total_fee
                     audit_pnl = total_pnl
@@ -1553,6 +1563,7 @@ class PositionTracker:
             main_order_id=client_order_id,
             status="OPENING",
             t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
+            t1_decision_ts=order_params.get("t1_decision_ts"),  # Phase 10: Decision Latency
             trace_id=trace_id or order_params.get("trace_id"),
         )
         main_order_state = OrderState(
@@ -1719,7 +1730,7 @@ class PositionTracker:
             matched_trades = [t for t in trades if str(t.get("order") or t.get("orderId")) == str(order_id)]
 
             if matched_trades:
-                total_fee = sum(float(t.get("fee", {}).get("cost", 0) or 0) for t in matched_trades)
+                total_fee = sum(float((t.get("fee") or {}).get("cost", 0) or 0) for t in matched_trades)
                 # Recalculate PnL if we have precise fills
                 # (Optional: for now we stick to estimated PnL but update Fee)
                 fee_real = total_fee

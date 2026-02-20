@@ -286,7 +286,7 @@ class OCOManager:
 
             # Extract precise data from fill (Phase 30)
             fill_price = float(fill_data.get("price") or fill_data.get("average") or 0)
-            entry_fee = float(fill_data.get("fee", {}).get("cost", 0) or 0)
+            entry_fee = float((fill_data.get("fee") or {}).get("cost", 0) or 0)
 
             watchdog.heartbeat(operation_id, f"Main filled at {fill_price} (Fee: {entry_fee})")
             self.logger.info(f"✅ Main order filled @ {fill_price} (Fee: {entry_fee})")

@@ -332,7 +332,7 @@ async def main():
     initial_balance_data = await error_handler.execute(
         connector.fetch_balance, retry_config=startup_retry, context="fetch_initial_balance"
     )
-    initial_balance = initial_balance_data.get("total", {}).get("USDT", 10000.0)
+    initial_balance = (initial_balance_data.get("total") or {}).get("USDT", 10000.0)
     logger.info(f"💰 Initial Balance: {initial_balance:.2f} USDT")
 
     croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance)
@@ -933,7 +933,7 @@ async def main():
             logger.info("💰 Fetching final balance from exchange...")
             bal = await asyncio.wait_for(croupier.adapter.fetch_balance(), timeout=10.0)
 
-            final_balance_usdt = bal.get("total", {}).get("USDT", "N/A")
+            final_balance_usdt = (bal.get("total") or {}).get("USDT", "N/A")
             try:
                 final_bal_float = float(final_balance_usdt) if final_balance_usdt != "N/A" else None
             except (ValueError, TypeError):
@@ -961,7 +961,7 @@ async def main():
             await croupier.reconcile_ledger_with_exchange()
 
             # Pass final wallet balance to calculate leakage/adjustment
-            summary = croupier.get_session_summary(final_balance=final_balance_usdt)
+            summary = await croupier.get_session_summary(final_balance=final_balance_usdt)
 
             total_trades = summary.get("count", 0)
             wins = summary.get("wins", 0)

@@ -16,7 +16,7 @@ class TestAccountingEnrichment(unittest.IsolatedAsyncioTestCase):
         self.adapter = MagicMock()
         self.executor = OrderExecutor(self.adapter)
 
-    def test_historian_external_closure(self):
+    async def test_historian_external_closure(self):
         """Test that Historian correctly records an external closure."""
         self.historian.record_external_closure(
             symbol="BTC/USDT:USDT",
@@ -28,11 +28,11 @@ class TestAccountingEnrichment(unittest.IsolatedAsyncioTestCase):
             reason="UNIT_TEST",
         )
 
-        stats = self.historian.get_session_stats()
+        stats = await self.historian.get_session_stats()
         # Gross PnL = (41000 - 40000) * 0.1 = 100
         # Net PnL = 100 - 5.0 = 95.0
         self.assertEqual(stats["total_net_pnl"], 95.0)
-        self.assertEqual(stats["total_trades"], 1)
+        self.assertEqual(stats["count"], 1)
 
     async def test_order_executor_enrichment(self):
         """Test that OrderExecutor enriches fills from trade history."""

@@ -36,7 +36,7 @@ class TestAccountingLogic(unittest.IsolatedAsyncioTestCase):
         self.adapter = AsyncMock()
         self.executor = OrderExecutor(self.adapter)
 
-    def test_record_external_closure(self):
+    async def test_record_external_closure(self):
         """Verify that Historian correctly records brute-force or recon closures."""
         self.historian.record_external_closure(
             symbol="ETH/USDT:USDT",
@@ -49,7 +49,7 @@ class TestAccountingLogic(unittest.IsolatedAsyncioTestCase):
             session_id="session_123",
         )
 
-        stats = self.historian.get_session_stats(session_id="session_123")
+        stats = await self.historian.get_session_stats(session_id="session_123")
         # Gross = (Entry 2500 - Exit 2400) * 1.0 = 100 (Short win)
         # Net = 100 - 2.0 = 98.0
         self.assertEqual(stats["total_net_pnl"], 98.0)

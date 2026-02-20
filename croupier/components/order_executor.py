@@ -167,7 +167,7 @@ class OrderExecutor:
                         f"(Exposure: {open_count} positions >= limit 3)"
                     )
                     stats = getattr(self.adapter.connector, "latency_stats", {})
-                    avg_lat = stats.get("avg_latency", 0)
+                    avg_lat = (stats or {}).get("avg_latency", 0)
                     raise ExchangeError(f"Safe Mode Throttled: High Latency ({avg_lat:.2f}ms) & High exposure")
                 else:
                     self.logger.info(
@@ -217,7 +217,7 @@ class OrderExecutor:
 
         self.logger.info(
             f"[TRADE] ✅ Market Order: {result.get('order_id')} | "
-            f"{result.get('status')} | Fee: {result.get('fee', {}).get('cost', 0):.4f}"
+            f"{result.get('status')} | Fee: {(result.get('fee') or {}).get('cost', 0):.4f}"
         )
 
         return result
@@ -231,7 +231,7 @@ class OrderExecutor:
             return result
 
         # Check if we already have fee info
-        if result.get("fee") and result["fee"].get("cost", 0) > 0:
+        if result.get("fee") and (result.get("fee") or {}).get("cost", 0) > 0:
             return result
 
         # If it's a closed/filled order, try to fetch trades to get the fee
@@ -245,14 +245,14 @@ class OrderExecutor:
                 order_trades = [t for t in trades if str(t.get("order_id")) == str(order_id)]
 
                 if order_trades:
-                    total_fee = sum(t.get("fee", {}).get("cost", 0) for t in order_trades)
+                    total_fee = sum((t.get("fee") or {}).get("cost", 0) for t in order_trades)
                     avg_price = sum(t["price"] * t["amount"] for t in order_trades) / sum(
                         t["amount"] for t in order_trades
                     )
 
                     result["fee"] = {
                         "cost": total_fee,
-                        "currency": order_trades[0].get("fee", {}).get("currency", "USDT"),
+                        "currency": (order_trades[0].get("fee") or {}).get("currency", "USDT"),
                     }
                     result["average"] = avg_price
                     self.logger.info(f"✨ Enriched Order {order_id}: Fee={total_fee:.4f}, AvgPrice={avg_price:.4f}")
@@ -696,7 +696,7 @@ class OrderExecutor:
         total_cost = sum(
             float(r.get("cost") or (float(r.get("filled", 0)) * float(r.get("average", 0))) or 0) for r in results
         )
-        total_fee = sum(float(r.get("fee", {}).get("cost", 0)) for r in results if r.get("fee"))
+        total_fee = sum(float((r.get("fee") or {}).get("cost", 0)) for r in results if r.get("fee"))
 
         final_result["amount"] = total_amount  # Original requested amount
         final_result["filled"] = total_filled
@@ -708,7 +708,7 @@ class OrderExecutor:
         if total_fee > 0:
             final_result["fee"] = {
                 "cost": total_fee,
-                "currency": results[0].get("fee", {}).get("currency", "USDT"),
+                "currency": (results[0].get("fee") or {}).get("currency", "USDT"),
             }
 
         self.logger.info(

@@ -29,10 +29,12 @@ class DecisionEvent(Event):
         sl_pct: float = None,
         selected_sensor: str = None,
         t0_timestamp: float = None,
+        t1_decision_ts: float = None,
         trace_id: str = None,
     ):
         super().__init__(type=EventType.DECISION, timestamp=time.time())
         self.t0_timestamp = t0_timestamp
+        self.t1_decision_ts = t1_decision_ts
         self.trace_id = trace_id
         self.symbol = symbol
         self.side = side
@@ -151,6 +153,7 @@ class AdaptivePlayer:
             sl_pct=sl_pct,
             selected_sensor=event.selected_sensor,
             t0_timestamp=getattr(event, "t0_timestamp", None),
+            t1_decision_ts=getattr(event, "t1_decision_ts", None),
             trace_id=getattr(event, "trace_id", None),
         )
         decision.decision_id = decision_id  # Add unique ID

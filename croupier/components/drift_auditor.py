@@ -11,6 +11,9 @@ class DriftAuditor:
     Monitors high-level state (Balance, Position Count) to detect
     desynchronization without the heavy overhead of full reconciliation.
     Triggers full reconciliation cycles if significant drift is detected, providing "Auto-Healing" capabilities.
+
+    Phase 243: CB-aware skip + timeout wrapper to prevent event loop starvation
+    when rest_account_api circuit breaker is OPEN.
     """
 
     def __init__(self, exchange_adapter, position_tracker, reconciliation_service, balance_manager):
@@ -26,6 +29,7 @@ class DriftAuditor:
         self.drift_threshold_usd = 1.0  # Alert/Heal if balance drift > $1
         self.recon_cooldown = 120  # Minimum 2 mins between full recons
         self.last_recon_time = 0
+        self._audit_timeout = 15.0  # Phase 243: Max seconds per audit cycle
 
     async def start(self):
         """Starts the background audit loop."""
@@ -47,12 +51,34 @@ class DriftAuditor:
                 pass
         self.logger.info("🛡️ DriftAuditor stopped")
 
+    def _is_account_cb_open(self) -> bool:
+        """Phase 243: Check if rest_account_api circuit breaker is OPEN.
+        Returns True if CB is open (skip audit), False if healthy or unknown.
+        """
+        try:
+            connector = self.adapter.connector
+            if hasattr(connector, "error_handler"):
+                cb = connector.error_handler.get_circuit_breaker("rest_account_api")
+                return cb.is_open
+        except Exception:
+            pass
+        return False
+
     async def _audit_loop(self):
         """Main audit loop."""
         while self.running:
             try:
                 await asyncio.sleep(self.audit_interval)
-                await self.perform_audit()
+
+                # Phase 243: Skip audit if account API CB is OPEN
+                # This prevents event loop starvation from retry backoffs
+                if self._is_account_cb_open():
+                    self.logger.debug("⏭️ Skipping audit: rest_account_api CB is OPEN")
+                    continue
+
+                await asyncio.wait_for(self.perform_audit(), timeout=self._audit_timeout)
+            except asyncio.TimeoutError:
+                self.logger.warning("⏰ State Audit timed out (%.0fs)", self._audit_timeout)
             except asyncio.CancelledError:
                 break
             except Exception as e:

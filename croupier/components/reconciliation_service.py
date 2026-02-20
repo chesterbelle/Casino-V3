@@ -147,19 +147,30 @@ class ReconciliationService:
                 normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
             }
 
-            # Phase 102/238: Industrial Resilience - Throttled Balance Reconciliation
-            if self.croupier and hasattr(self.croupier, "balance_manager"):
+            # Phase 102/238/243: Industrial Resilience - Throttled Balance Reconciliation
+            # Phase 243: Skip balance sync if rest_account_api CB is not CLOSED
+            # This prevents redundant blocking calls that compound the death spiral
+            _account_cb_healthy = True
+            try:
+                account_cb = self.error_handler.get_circuit_breaker("rest_account_api")
+                _account_cb_healthy = account_cb.is_closed
+            except Exception:
+                pass
+
+            if _account_cb_healthy and self.croupier and hasattr(self.croupier, "balance_manager"):
                 last_bal_reconcile = getattr(self, "_last_balance_reconcile", 0)
                 if (time.time() - last_bal_reconcile) > 300:  # Every 5 minutes
                     try:
                         balance_data = await self.adapter.connector.fetch_balance()
-                        new_balance = balance_data.get("total", {}).get("USDT", 0.0)
+                        new_balance = (balance_data.get("total") or {}).get("USDT", 0.0)
                         if new_balance > 0:
                             self.logger.info(f"[SYNC] 💰 Reconciling balance: {new_balance:.2f} USDT")
                             self.croupier.balance_manager.set_balance(new_balance)
                             self._last_balance_reconcile = time.time()
                     except Exception as e:
                         self.logger.warning(f"⚠️ Failed to reconcile balance: {e}")
+            elif not _account_cb_healthy:
+                self.logger.debug("⏭️ Skipping balance reconciliation: rest_account_api CB is not CLOSED")
 
             all_symbols = local_symbols | exchange_symbols | open_orders_symbols
 
@@ -745,7 +756,7 @@ class ReconciliationService:
                     price = float(last_trade.get("price", 0))
                     pnl = float(last_trade.get("realized_pnl", 0))
 
-                    fee_real = float(last_trade.get("fee", {}).get("cost", 0) or 0)
+                    fee_real = float((last_trade.get("fee") or {}).get("cost", 0) or 0)
 
                     if price > 0:
                         self.logger.info(
