@@ -1,6 +1,8 @@
 import asyncio
+
 from config.settings import load_config
 from exchanges.connectors.binance.binance_native_connector import BinanceNativeConnector
+
 
 async def main():
     cfg = load_config("demo")
@@ -22,6 +24,7 @@ async def main():
 
     await conn.close()
     print("Done")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
