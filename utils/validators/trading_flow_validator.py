@@ -157,14 +157,22 @@ class PreflightValidator:
             # Close all positions
             positions = await self.connector.fetch_positions()
             for pos in positions:
-                if pos.get("symbol") == self.symbol:
-                    size = abs(float(pos.get("size", 0)))
+                # Normalize both for comparison
+                pos_symbol = pos.get("symbol", "")
+                # Support both LTCUSDT and LTC/USDT:USDT
+                is_match = pos_symbol == self.symbol or pos_symbol.split(":")[0].replace("/", "") == self.symbol
+
+                if is_match:
+                    # Support both CCXT (size) and Native (contracts)
+                    size = abs(float(pos.get("contracts") or pos.get("size") or 0))
                     if size > 0:
-                        side = "sell" if pos.get("side") == "LONG" else "buy"
+                        # Case-insensitive side check
+                        side_str = str(pos.get("side", "")).upper()
+                        target_side = "sell" if side_str == "LONG" else "buy"
                         await self.connector.create_order(
-                            symbol=self.symbol, order_type="market", side=side, amount=size
+                            symbol=self.symbol, order_type="market", side=target_side, amount=size
                         )
-                        logger.info(f"  ✓ Closed position: {pos.get('side')} {size}")
+                        logger.info(f"  ✓ Closed position: {side_str} {size}")
 
             # Cancel all orders
             open_orders = await self.connector.fetch_open_orders(self.symbol)
@@ -201,7 +209,11 @@ class PreflightValidator:
 
             # Fetch positions
             positions = await self.connector.fetch_positions()
-            symbol_positions = [p for p in positions if p.get("symbol") == self.symbol]
+            symbol_positions = [
+                p
+                for p in positions
+                if p.get("symbol") == self.symbol or p.get("symbol", "").split(":")[0].replace("/", "") == self.symbol
+            ]
             logger.info(f"✅ Positions check: {len(symbol_positions)} positions")
 
             logger.info("✅ TEST 1 PASSED\n")
@@ -475,8 +487,10 @@ class PreflightValidator:
             # Verify no position in exchange
             positions = await self.connector.fetch_positions()
             for pos in positions:
-                if pos.get("symbol") == self.symbol:
-                    size = abs(float(pos.get("size", 0)))
+                pos_symbol = pos.get("symbol", "")
+                is_match = pos_symbol == self.symbol or pos_symbol.split(":")[0].replace("/", "") == self.symbol
+                if is_match:
+                    size = abs(float(pos.get("contracts") or pos.get("size") or 0))
                     if size > 0.001:  # Small tolerance
                         logger.error(f"❌ Position still exists in exchange: {size}")
                         return False

@@ -1102,6 +1102,25 @@ async def main():
             total_orphan_attempts = orphan_skips + orphan_kills
             savings_rate = (orphan_skips / total_orphan_attempts * 100) if total_orphan_attempts > 0 else 0.0
             logger.info(f"      • Race Prevention: {savings_rate:.1f}% ({orphan_skips} saved by grace period)")
+            logger.info(f"      • Force-Closed Residuals: {oco_residual_kills} (expected, excluded from hygiene)")
+
+            # Phase 240: HFT Core Efficiency & Latency
+            logger.info("   --------------------------------------")
+            logger.info("   ⏱️ HFT PERFORMANCE (Phase 240)")
+
+            avg_strat_wait = summary.get("avg_strat_wait", 0.0) or 0.0
+            avg_wire = summary.get("avg_signal_to_wire", 0.0) or 0.0
+            max_wire = summary.get("max_signal_to_wire", 0.0) or 0.0
+            avg_ext = summary.get("avg_external_latency", 0.0) or 0.0
+            hft_eff = summary.get("hft_efficiency", 0.0) or 0.0
+
+            logger.info(f"      • Strat Aggregation (T0-T1): {avg_strat_wait:.1f}ms")
+            logger.info(f"      • Signal-to-Wire   (T1-T2): {avg_wire:.1f}ms (Max: {max_wire:.1f}ms)")
+            logger.info(f"      • Tick-to-Order    (T0-T2): {avg_strat_wait + avg_wire:.1f}ms (Target: <50ms)")
+            logger.info(f"      • Exchange Latency (T2-T4): {avg_ext / 1000:.2f}s (Avg Fill)")
+
+            eff_color = "⚡" if hft_eff > 90 else "🐢"
+            logger.info(f"      • {eff_color} HFT Core Efficiency: {hft_eff:.1f}% (<1ms core processing)")
 
             logger.info("   --------------------------------------")
             logger.info("   🧾 Recorded Expenses (Database):")

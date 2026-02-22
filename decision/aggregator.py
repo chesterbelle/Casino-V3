@@ -41,6 +41,8 @@ class SignalAggregatorV3:
         self.engine = engine
         # Multi-Asset: Symbol -> Timestamp -> List[Signal]
         self.signal_buffer: Dict[str, Dict[float, List[SignalEvent]]] = defaultdict(lambda: defaultdict(list))
+        # Keep track of which candles have already been processed to avoid double-firing fast-tracked signals
+        self.processed_candles: Dict[str, set] = defaultdict(set)
         # Track latest candle timestamp per symbol
         self.latest_candle_ts: Dict[str, float] = {}
         self.timeout_tasks: Dict[str, asyncio.Task] = {}
@@ -77,11 +79,15 @@ class SignalAggregatorV3:
         # Clean old buffers (keep last 5 candles only)
         # Access buffer for this symbol
         symbol_buffer = self.signal_buffer[symbol]
+        processed_set = self.processed_candles[symbol]
+
         if len(symbol_buffer) > 5:
             sorted_keys = sorted(symbol_buffer.keys())
             # Remove oldest keys until only 5 remain
             while len(symbol_buffer) > 5:
-                del symbol_buffer[sorted_keys.pop(0)]
+                old_key = sorted_keys.pop(0)
+                del symbol_buffer[old_key]
+                processed_set.discard(old_key)
 
     async def on_signal(self, event: SignalEvent):
         """Collect signal and start timeout if first signal for this candle."""
@@ -94,16 +100,34 @@ class SignalAggregatorV3:
             logger.warning(f"⚠️ Received signal for {symbol} but no candle timestamp set")
             return
 
+        # Phase 240 Latency Fix: If this candle was already processed (via Fast-Track), ignore late arrivals
+        if candle_ts in self.processed_candles[symbol]:
+            logger.debug(f"⏭️ Skipping late signal for {symbol} (candle {candle_ts} already processed)")
+            return
+
         # Add signal to buffer
         self.signal_buffer[symbol][candle_ts].append(event)
+
+        # Phase 240: Fast-Track Execution for HFT/OrderFlow sensors
+        # If an ultra-fast sensor fires, we don't wait 500ms for MACD/RSI to catch up
+        sensor_type = get_sensor_type(event.sensor_id)
+        if sensor_type == "OrderFlow" or getattr(event, "fast_track", False):
+            logger.info(f"⚡ FAST-TRACK: {event.sensor_id} fired for {symbol}. Bypassing 500ms consensus delay.")
+            # Cancel any pending timeout task for this symbol if exists
+            if symbol in self.timeout_tasks and not self.timeout_tasks[symbol].done():
+                self.timeout_tasks[symbol].cancel()
+
+            # Process immediately
+            asyncio.create_task(self._process_signals(symbol, candle_ts))
+            return
 
         current_count = len(self.signal_buffer[symbol][candle_ts])
 
         # If this is the first signal for this candle, start timeout
         if current_count == 1:
-            # We don't store task reference to cancel it, basically fire-and-forget timeout
-            # But maybe good to track context?
-            asyncio.create_task(self._timeout_handler(symbol, candle_ts))
+            # Store task reference to allow cancellation
+            task = asyncio.create_task(self._timeout_handler(symbol, candle_ts))
+            self.timeout_tasks[symbol] = task
             logger.debug(f"🕐 Started {SIGNAL_TIMEOUT_MS}ms timeout for {symbol} candle {candle_ts}")
 
     async def _timeout_handler(self, symbol: str, candle_ts: float):
@@ -122,10 +146,17 @@ class SignalAggregatorV3:
         4. Winner = side with higher Σ
         5. Confidence = winner_sum / total_sum
         """
+        # Phase 240: Prevent double execution if already fast-tracked
+        if candle_ts in self.processed_candles[symbol]:
+            return
+
         signals = self.signal_buffer[symbol].get(candle_ts, [])
 
         if not signals:
             return
+
+        # Mark as processed immediately to prevent race conditions
+        self.processed_candles[symbol].add(candle_ts)
 
         # 1. Filter by Score (Quality Gate)
         valid_signals = [s for s in signals if self.tracker.get_sensor_score(s.sensor_id) >= MIN_SCORE_THRESHOLD]

@@ -105,14 +105,34 @@ class OrderManager:
         # Calculate sizing via centralized OrderExecutor logic (Phase 46)
         try:
             # Phase 230: Fast-Track Pricing (<1ms vs ~300ms)
-            current_price = self.croupier.exchange_adapter.get_cached_price(symbol)
-            if (
-                not current_price
-                or current_price <= 0
-                or self.croupier.exchange_adapter.is_cache_stale(symbol, check_order_book=False)
-            ):
-                logger.info(f"💾 Cache Miss/Stale for {symbol}, falling back to REST price lookup...")
-                current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
+            current_price = getattr(event, "estimated_price", None)
+
+            # Phase 240: Hard-bypass REST for fast-tracked HFT signals
+            is_fast_track = getattr(event, "fast_track", False)
+
+            if is_fast_track and current_price and current_price > 0:
+                logger.debug(
+                    f"⚡ FAST-TRACK: Bypassing price cache check for {symbol}, using estimated {current_price}"
+                )
+            else:
+                if (
+                    not current_price
+                    or current_price <= 0
+                    or self.croupier.exchange_adapter.is_cache_stale(symbol, check_order_book=False)
+                ):
+                    if is_fast_track:
+                        logger.warning(
+                            "⚡ FAST-TRACK ALERT: Cache is stale but avoiding REST call to preserve latency. Using last known cached price."
+                        )
+                        current_price = self.croupier.exchange_adapter.get_cached_price(symbol)
+                        if not current_price:
+                            logger.error(
+                                f"❌ FAST-TRACK FALLED: No cached price available for {symbol}, forced to REST."
+                            )
+                            current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
+                    else:
+                        logger.info(f"💾 Cache Miss/Stale for {symbol}, falling back to REST price lookup...")
+                        current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
 
             position_value, amount = self.croupier.order_executor.calculate_sizing(
                 symbol=symbol,

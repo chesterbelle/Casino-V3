@@ -1,24 +1,21 @@
 import os
-import sqlite3
 
 
 def reset_all_data():
     """Wipes all persistent data (DB and JSON state)."""
     print("🧹 Iniciando reseteo total de datos de Casino-V3...")
 
-    # 1. Resetear Base de Datos SQLite
-    db_path = "data/casino_v3.db"
-    if os.path.exists(db_path):
-        try:
-            with sqlite3.connect(db_path) as conn:
-                conn.execute("DROP TABLE IF EXISTS trades")
-                print(f"✅ Tabla 'trades' eliminada de '{db_path}'.")
-                conn.commit()
-            # The Historian will recreate it on init
-        except Exception as e:
-            print(f"❌ Error al limpiar DB: {e}")
-    else:
-        print(f"ℹ️ El archivo DB '{db_path}' no existe todavía.")
+    # 1. Resetear Bases de Datos SQLite (incluyendo archivos WAL y SHM)
+    import glob
+
+    db_patterns = ["data/casino_v3.db*", "data/historian.db*"]
+    for pattern in db_patterns:
+        for fpath in glob.glob(pattern):
+            try:
+                os.remove(fpath)
+                print(f"✅ Archivo DB eliminado: {fpath}")
+            except Exception as e:
+                print(f"❌ Error al eliminar DB '{fpath}': {e}")
 
     # 2. Resetear Estado del Bot y Archivos de Sesión
     import glob

@@ -275,9 +275,17 @@ class BinanceNativeConnector(BaseConnector):
                                 if result["success"]:
                                     future.set_result(result["data"])
                                 else:
-                                    future.set_exception(
-                                        Exception(result["data"].get("error", "Unknown Airlock Error"))
-                                    )
+                                    # Phase 240: Robust error extraction for Airlock responses
+                                    data = result["data"]
+                                    error_msg = "Unknown Airlock Error"
+                                    if isinstance(data, dict):
+                                        error_msg = (
+                                            data.get("msg") or data.get("error") or data.get("message") or str(data)
+                                        )
+                                    else:
+                                        error_msg = str(data)
+
+                                    future.set_exception(Exception(error_msg))
                         else:
                             self.logger.warning(f"⚠️ Received result for unknown/timed-out request: {request_id}")
 
@@ -478,6 +486,11 @@ class BinanceNativeConnector(BaseConnector):
                 final_url = yarl.URL(full_url_str, encoded=True)
                 final_params = None
 
+            if not self._http_session:
+                raise RuntimeError(
+                    "HTTP Session was closed or set to None during request execution (Shutdown/Disconnect)."
+                )
+
             if method == "GET":
                 start_time = time.time()
                 self.logger.debug(f"[TRACE] Connector: Sending GET request to {final_url}...")
@@ -489,6 +502,10 @@ class BinanceNativeConnector(BaseConnector):
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "POST":
+                if not self._http_session:
+                    raise RuntimeError(
+                        "HTTP Session was closed or set to None during request execution (Shutdown/Disconnect)."
+                    )
                 start_time = time.time()
                 self.logger.debug(f"[TRACE] Connector: Sending POST request to {final_url}...")
                 async with self._http_session.post(
@@ -499,6 +516,10 @@ class BinanceNativeConnector(BaseConnector):
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "DELETE":
+                if not self._http_session:
+                    raise RuntimeError(
+                        "HTTP Session was closed or set to None during request execution (Shutdown/Disconnect)."
+                    )
                 start_time = time.time()
                 self.logger.debug(f"[TRACE] Connector: Sending DELETE request to {final_url}...")
                 async with self._http_session.delete(
@@ -509,6 +530,10 @@ class BinanceNativeConnector(BaseConnector):
                     self._latency_monitor.record_latency((time.time() - start_time) * 1000)
                     return res
             elif method == "PUT":
+                if not self._http_session:
+                    raise RuntimeError(
+                        "HTTP Session was closed or set to None during request execution (Shutdown/Disconnect)."
+                    )
                 start_time = time.time()
                 async with self._http_session.put(
                     final_url, params=final_params, headers=headers, timeout=req_timeout

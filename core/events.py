@@ -112,6 +112,7 @@ class SignalEvent(Event):
     score: float = 1.0
     metadata: Optional[Dict[str, Any]] = None
     trace_id: Optional[str] = None
+    fast_track: bool = False  # Phase 240: If true, bypasses Aggregator 500ms delay
 
     def __post_init__(self):
         self.type = EventType.SIGNAL

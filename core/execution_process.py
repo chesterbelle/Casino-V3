@@ -197,6 +197,10 @@ class ExecutionProcess(multiprocessing.Process):
                 # Sign the payload parameters
                 signed_params = self._sign_payload(payload.copy())
 
+                # Phase 240: WS-FAPI requires apiKey inside the params object
+                # (unlike REST which uses the X-MBX-APIKEY header)
+                signed_params["apiKey"] = self.api_key
+
                 # Binance WS Params are usually pure key-values
                 ws_req = {"id": request_id, "method": ws_method, "params": signed_params}
 
@@ -266,7 +270,11 @@ class ExecutionProcess(multiprocessing.Process):
             # Let's assume params for now as per `binance_native_connector._request` logic
             # which usually passes `params=signed_params`.
 
-            async with self._session.request(method, url, params=payload, headers=headers, timeout=5.0) as resp:
+            # Phase 240: Use list of tuples to ensure aiohttp preserves parameter order
+            # Matching the signature exactly is critical for HFT.
+            payload_items = list(payload.items())
+
+            async with self._session.request(method, url, params=payload_items, headers=headers, timeout=5.0) as resp:
                 text = await resp.text()
 
                 try:
@@ -295,15 +303,18 @@ class ExecutionProcess(multiprocessing.Process):
             self.res_queue.put({"request_id": request_id, "status": 0, "data": {"error": str(e)}, "success": False})
 
     def _sign_payload(self, payload: Dict) -> Dict:
-        """Signs the payload using HMAC SHA256."""
+        """Signs the payload using HMAC SHA256 with strict parameter sorting."""
         if "timestamp" not in payload:
             payload["timestamp"] = int(time.time() * 1000)
 
-        # Sort and create query string manually to match connector logic
-        # (connector uses urlencode usually)
-        query_string = urlencode(payload)
+        # Phase 240: Strict parameter sorting to prevent -1022 (Signature mismatch)
+        # We must ensure the query string used for signing matches the one sent.
+        items = sorted([(k, v) for k, v in payload.items() if v is not None])
+        query_string = urlencode(items)
 
         signature = hmac.new(self.api_secret.encode("utf-8"), query_string.encode("utf-8"), hashlib.sha256).hexdigest()
 
-        payload["signature"] = signature
-        return payload
+        # Reconstruct as an ordered dict with signature at the end
+        signed_payload = dict(items)
+        signed_payload["signature"] = signature
+        return signed_payload

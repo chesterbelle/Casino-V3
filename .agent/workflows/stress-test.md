@@ -38,6 +38,12 @@ Al finalizar, revisar:
    📈 Strategy PnL: +X.XX USDT (XX clean trades)
    🔧 Error Recovery: +X.XX USDT (XX error trades)  ← DEBE SER $0.00 (0 trades)
    🧹 Audit Adjust: +X.XX USDT
+   --------------------------------------
+   ⏱️ HFT PERFORMANCE (Phase 240)
+      • Strat Aggregation (T0-T1): XX.Xms
+      • Signal-to-Wire   (T1-T2): XX.Xms
+      • Tick-to-Order    (T0-T2): XX.Xms  ← OBJETIVO < 50ms
+      • HFT Core Efficiency: XX.X%
 ==========================================
 ```
 
@@ -49,6 +55,8 @@ Al finalizar, revisar:
 - [ ] **Audit Adjust < $1.00**
 - [ ] **Volume > 50 trades** ejecutados
 - [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
+- [ ] **HFT Latency (T0-T2) < 50ms** (Avg) ← FASE 240
+- [ ] **HFT Core Efficiency > 90%** (Processing < 1ms)
 
 ## Resilience Performance (Phase 160)
 - [ ] **Healing Efficiency > 90%** (`Healed / (Healed + Force-Closed)`)

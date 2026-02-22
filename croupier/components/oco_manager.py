@@ -490,7 +490,8 @@ class OCOManager:
                     position.status = "ACTIVE"  # Ensure it is visible to Auditor
                 else:
                     await self.tracker.remove_position(position.trade_id)
-            raise OCOAtomicityError(f"Failed to create OCO bracket: {e}") from e
+            error_desc = str(e) or e.__class__.__name__ or str(type(e))
+            raise OCOAtomicityError(f"Failed to create OCO bracket: {error_desc}") from e
 
         finally:
             # UNLOCK SYMBOL

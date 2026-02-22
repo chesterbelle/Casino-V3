@@ -117,7 +117,7 @@ class TradeHistorian:
     Tracks every trade with precision accounting (Fees, Funding, Net PnL).
     """
 
-    def __init__(self, db_path: str = "data/casino_v3.db"):
+    def __init__(self, db_path: str = "data/historian.db"):
         self.db_path = db_path
         self._conn = None
         self._use_mp = self.db_path != ":memory:"
