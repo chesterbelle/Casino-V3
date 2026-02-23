@@ -59,6 +59,72 @@ class ReconciliationService:
         # Retry config for reconciliation operations
         self.reconcile_retry_config = RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
 
+    async def reconcile_from_cache(
+        self, exchange_positions: List[Dict], open_orders: List[Dict]
+    ) -> List[Dict[str, Any]]:
+        """
+        Phase 4: Reconcile using pre-fetched data from ReconciliationWorker.
+        Zero REST calls on the main event loop — all data arrives via IPC Queue.
+        """
+        self.logger.info("[SYNC] 🔄 Starting CACHED reconciliation (Phase 4 Worker)")
+        reports = []
+
+        try:
+            if exchange_positions is None or open_orders is None:
+                self.logger.error("❌ Aborting cached reconciliation: Worker provided None data")
+                return []
+
+            self.logger.info(
+                f"[SYNC] 🔍 Cached sync sees {len(exchange_positions)} positions and {len(open_orders)} orders"
+            )
+
+            # Reuse the same grouping + reconciliation logic as reconcile_all
+            from collections import defaultdict
+
+            ex_pos_by_symbol = defaultdict(list)
+            for p in exchange_positions:
+                ex_pos_by_symbol[normalize_symbol(p["symbol"])].append(p)
+
+            orders_by_symbol = defaultdict(list)
+            open_orders_symbols = set()
+            for o in open_orders:
+                norm_sym = normalize_symbol(o["symbol"])
+                orders_by_symbol[norm_sym].append(o)
+                open_orders_symbols.add(norm_sym)
+
+            local_symbols = {normalize_symbol(pos.symbol) for pos in self.tracker.open_positions}
+            exchange_symbols = {
+                normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
+            }
+
+            all_symbols = local_symbols | exchange_symbols | open_orders_symbols
+
+            semaphore = asyncio.Semaphore(5)
+
+            async def sem_reconcile(symbol):
+                async with semaphore:
+                    return await self._reconcile_symbol_data(
+                        symbol,
+                        ex_pos_by_symbol[symbol],
+                        orders_by_symbol[symbol],
+                        mode="active",
+                    )
+
+            tasks = [sem_reconcile(s) for s in all_symbols]
+            if tasks:
+                try:
+                    reports = await asyncio.wait_for(asyncio.gather(*tasks), timeout=40.0)
+                except asyncio.TimeoutError:
+                    self.logger.error("❌ Cached reconciliation gather TIMED OUT after 40s")
+                    reports = []
+
+            self.logger.info(f"[SYNC] ✅ Cached reconciliation complete. {len(reports)} symbols processed.")
+
+        except Exception as e:
+            self.logger.error(f"❌ Cached reconciliation failed: {e}", exc_info=True)
+
+        return reports
+
     async def reconcile_all(self) -> List[Dict[str, Any]]:
         """
         Reconcile ALL symbols in a single optimized pass.

@@ -695,6 +695,13 @@ class BinanceNativeConnector(BaseConnector):
                             old_offset = self._time_offset
                             self._time_offset = server_time - local_time
                             self.logger.info(f"✅ Time Resynced. Offset: {old_offset}ms -> {self._time_offset}ms")
+
+                            # Phase 240: Sync time offset with Execution Airlock
+                            if self._exec_cmd_pipe:
+                                try:
+                                    self._exec_cmd_pipe.send(("SYNC_TIME", self._time_offset))
+                                except Exception as e:
+                                    self.logger.error(f"⚠️ Failed to sync time with Airlock: {e}")
                         else:
                             self.logger.error(f"❌ Time sync failed: status {resp.status}")
             except Exception as e:

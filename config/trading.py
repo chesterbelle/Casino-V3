@@ -84,7 +84,7 @@ DEFAULT_MARGIN_TYPE = "ISOLATED"  # Aislado protege el resto del balance de liqu
 # --- Trailing Stop ---
 # Dynamic SL that follows price when it moves in favor.
 # Best for Capturing Trends but can be stopped out by noise in Scalping.
-TRAILING_STOP_ENABLED = False  # Set to False for investigation
+TRAILING_STOP_ENABLED = True  # Shadow Trailing Enabled
 TRAILING_STOP_ACTIVATION_PCT = 0.005  # Profit threshold (0.5%) before SL starts trailing
 TRAILING_STOP_DISTANCE_PCT = 0.003  # Distance (0.3%) from the peak price to set the trailing SL
 

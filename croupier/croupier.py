@@ -133,6 +133,9 @@ class Croupier(TimeIterator):
         self._reconciliation_tasks: Dict[str, float] = {}
         self._reconcile_lock = asyncio.Lock()
 
+        # Phase 4: ReconciliationWorker IPC Queue (set externally by main.py)
+        self._recon_queue = None
+
         # Track pending closures to prevent premature shutdown before PnL is recorded
         self._pending_closures: set = set()
 
@@ -646,6 +649,26 @@ class Croupier(TimeIterator):
                         pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
                     else:
                         pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+                else:
+                    self.logger.error(f"❌ Smart Close Failed for {trade_id}: {e}. Triggering RAW EMERGENCY BYPASS.")
+                    # Extreme Failsafe: Bypass OrderExecutor and Circuit Breakers entirely
+                    connector = getattr(self.adapter, "connector", None) or getattr(self.adapter, "_connector", None)
+                    if connector:
+                        close_side = "sell" if position.side == "LONG" else "buy"
+                        try:
+                            result = await connector.create_order(
+                                symbol=position.symbol,
+                                side=close_side,
+                                amount=0,
+                                order_type="market",
+                                params={"closePosition": True},
+                            )
+                            self.logger.warning(f"🛡️ RAW EMERGENCY BYPASS SUCCESS for {position.symbol}")
+                        except Exception as bypass_err:
+                            self.logger.critical(f"🔥 RAW EMERGENCY BYPASS FAILED. POSITION ORPHANED: {bypass_err}")
+                            raise e  # Re-raise original error if bypass fails
+                    else:
+                        raise e
 
                     self.position_tracker.confirm_close(
                         trade_id=trade_id,
@@ -793,9 +816,15 @@ class Croupier(TimeIterator):
         self._reconciliation_tasks[symbol] = now
         asyncio.create_task(self.reconcile_positions(symbol))
 
+    def set_recon_queue(self, queue):
+        """Phase 4: Attach the ReconciliationWorker's output queue."""
+        self._recon_queue = queue
+        self.logger.info("✅ ReconciliationWorker queue attached (Phase 4 State Isolation)")
+
     async def reconcile_positions(self, symbol: Optional[str] = None):
         """
         Reconcile positions with exchange.
+        Phase 4: Prefers pre-fetched data from ReconciliationWorker if available.
 
         Args:
             symbol: Symbol to reconcile (None = all symbols)
@@ -805,9 +834,21 @@ class Croupier(TimeIterator):
         """
         if symbol:
             return await self.reconciliation.reconcile_symbol(symbol)
-        else:
-            # Reconcile all symbols in a single optimized pass
-            return await self.reconciliation.reconcile_all()
+
+        # Phase 4: Try to use cached data from the worker queue (Zero REST on main loop)
+        if self._recon_queue is not None:
+            try:
+                payload = self._recon_queue.get_nowait()
+                exchange_positions = payload.get("exchange_positions", [])
+                open_orders = payload.get("open_orders", [])
+                self.logger.debug(f"📡 Using Worker cache: {len(exchange_positions)} pos, {len(open_orders)} orders")
+                return await self.reconciliation.reconcile_from_cache(exchange_positions, open_orders)
+            except Exception:
+                # Queue empty or stale — worker hasn't pushed yet, fall through to legacy
+                pass
+
+        # Fallback: Direct REST calls (legacy path)
+        return await self.reconciliation.reconcile_all()
 
     def get_balance(self) -> float:
         """Get current available balance."""

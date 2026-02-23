@@ -41,6 +41,7 @@ class ExecutionProcess(multiprocessing.Process):
         api_key: str,
         api_secret: str,
         base_url: str = "https://testnet.binancefuture.com",
+        time_offset: int = 0,
     ):
         super().__init__(name="ExecutionAirlock")
         self.cmd_pipe = command_pipe
@@ -48,6 +49,7 @@ class ExecutionProcess(multiprocessing.Process):
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = base_url
+        self.time_offset = time_offset
         self.stop_event = multiprocessing.Event()
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -105,6 +107,11 @@ class ExecutionProcess(multiprocessing.Process):
                             return
 
                         # Parse Item: (priority, request_id, endpoint, method, payload, signed)
+                        if len(item) == 2 and item[0] == "SYNC_TIME":
+                            self.time_offset = item[1]
+                            self.logger.info(f"🕒 Time Offset Updated: {self.time_offset}ms")
+                            continue
+
                         priority, request_id, endpoint, method, payload, signed = item
 
                         # Fire-and-Forget execution task
@@ -195,11 +202,10 @@ class ExecutionProcess(multiprocessing.Process):
                     ws_method = "order.cancel"
 
                 # Sign the payload parameters
-                signed_params = self._sign_payload(payload.copy())
-
-                # Phase 240: WS-FAPI requires apiKey inside the params object
-                # (unlike REST which uses the X-MBX-APIKEY header)
-                signed_params["apiKey"] = self.api_key
+                # Phase 240: WS-FAPI requires apiKey inside the params object AND in the signature
+                ws_payload = payload.copy()
+                ws_payload["apiKey"] = self.api_key
+                signed_params = self._sign_payload(ws_payload)
 
                 # Binance WS Params are usually pure key-values
                 ws_req = {"id": request_id, "method": ws_method, "params": signed_params}
@@ -236,6 +242,8 @@ class ExecutionProcess(multiprocessing.Process):
                             "success": success,
                         }
                     )
+                    if success:
+                        self.logger.info(f"⚡ Airlock Success: {ws_method} via WS | Latency: {latency_ms:.1f}ms")
                     return
 
                 except asyncio.TimeoutError:
@@ -305,7 +313,7 @@ class ExecutionProcess(multiprocessing.Process):
     def _sign_payload(self, payload: Dict) -> Dict:
         """Signs the payload using HMAC SHA256 with strict parameter sorting."""
         if "timestamp" not in payload:
-            payload["timestamp"] = int(time.time() * 1000)
+            payload["timestamp"] = int(time.time() * 1000) + self.time_offset
 
         # Phase 240: Strict parameter sorting to prevent -1022 (Signature mismatch)
         # We must ensure the query string used for signing matches the one sent.

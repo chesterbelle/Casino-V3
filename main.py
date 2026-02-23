@@ -63,6 +63,7 @@ from core.observability.metrics import (
 )
 from core.observability.watchdog import watchdog
 from core.sensor_manager import SensorManager
+from croupier.components.reconciliation_worker import ReconciliationWorker
 from croupier.croupier import Croupier
 from decision.aggregator import SignalAggregatorV3
 from exchanges.adapters import ExchangeAdapter
@@ -338,9 +339,25 @@ async def main():
     croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance)
     await croupier.start()
 
+    # Phase 4: Start ReconciliationWorker (Independent Process for State Isolation)
+    import multiprocessing as mp
+
+    recon_queue = mp.Queue(maxsize=2)
+    recon_worker = ReconciliationWorker(
+        api_key=connector.api_key,
+        secret_key=connector.secret,
+        testnet=connector.testnet,
+        output_queue=recon_queue,
+        interval=45.0,
+    )
+    recon_worker.daemon = True
+    recon_worker.start()
+    croupier.set_recon_queue(recon_queue)
+
     # 3.1 Subscribe components to exchange and logic events
     engine.subscribe(EventType.AGGREGATED_SIGNAL, croupier.exit_manager.on_signal)
     engine.subscribe(EventType.CANDLE, croupier.exit_manager.on_candle)
+    engine.subscribe(EventType.TICK, croupier.exit_manager.on_tick)
 
     # Phase 31: Unified ORDER_UPDATE routing through PositionTracker
     async def unified_order_update_handler(event: dict):
@@ -897,6 +914,13 @@ async def main():
             reconciliation_task = locals().get("reconciliation_task")
             if reconciliation_task:
                 reconciliation_task.cancel()
+
+            # Phase 4: Stop ReconciliationWorker
+            if recon_worker and recon_worker.is_alive():
+                logger.info("🛑 Stopping ReconciliationWorker...")
+                recon_worker.stop()
+                recon_worker.join(timeout=5.0)
+                logger.info("✅ ReconciliationWorker stopped.")
 
         except Exception as e:
             logger.error(f"⚠️ Error during early shutdown: {e}")

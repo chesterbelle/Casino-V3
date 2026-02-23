@@ -17,7 +17,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import config.trading as config
-from core.events import AggregatedSignalEvent, CandleEvent
+from core.events import AggregatedSignalEvent, CandleEvent, TickEvent
 from core.portfolio.position_tracker import OpenPosition
 from utils.symbol_norm import normalize_symbol
 
@@ -55,29 +55,51 @@ class ExitManager:
 
     async def on_candle(self, event: CandleEvent):
         """
-        Handle candle update for trailing stops, breakeven, and time exits.
+        Handle candle update for time exits.
+        Phase 241: Breakeven and trailing migrated to on_tick for zero-lag shadow tracking.
         """
-        # We need current price. Candle close is a good approximation.
         current_price = event.close
-
-        # Phase 46: Performance Hardening (O(1) Symbol Lookup)
-        # Instead of scanning ALL open positions, we only fetch positions for this symbol.
         symbol_norm = normalize_symbol(event.symbol)
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
 
         for position in positions[:]:
-            self.logger.debug(f"⚡ Processing Exit Logic for {position.symbol} | Price: {current_price}")
-
-            # 1. Check Time-Based Exit
+            self.logger.debug(f"⚡ Processing Candle Exit Logic for {position.symbol} | Price: {current_price}")
             await self._check_time_exit(position, event)
 
-            # 2. Check Breakeven
-            if config.BREAKEVEN_ENABLED:
-                await self._check_breakeven(position, current_price)
+    async def on_tick(self, event: TickEvent):
+        """
+        Phase 241: High-Frequency Shadow Trailing Stops and Breakeven evaluation.
+        Evaluates current price against in-memory SL without updating physical exchange order.
+        """
+        current_price = event.price
+        symbol_norm = normalize_symbol(event.symbol)
 
-            # 3. Check Trailing Stop
+        positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
+        for position in positions[:]:
+            # 1. Trigger Shadow SL Market Close (Airlock Bypass)
+            if position.shadow_sl_level is not None:
+                if position.side == "LONG" and current_price <= position.shadow_sl_level:
+                    self.logger.warning(
+                        f"🚨 Shadow SL Triggered for {position.trade_id} @ {current_price:.6f} (Threshold: {position.shadow_sl_level:.6f})"
+                    )
+                    asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason="SHADOW_SL"))
+                    position.shadow_sl_level = None  # Prevent multi-triggers
+                    continue
+                elif position.side == "SHORT" and current_price >= position.shadow_sl_level:
+                    self.logger.warning(
+                        f"🚨 Shadow SL Triggered for {position.trade_id} @ {current_price:.6f} (Threshold: {position.shadow_sl_level:.6f})"
+                    )
+                    asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason="SHADOW_SL"))
+                    position.shadow_sl_level = None  # Prevent multi-triggers
+                    continue
+
+            # 2. Update Shadow Breakeven
+            if config.BREAKEVEN_ENABLED:
+                await self._check_shadow_breakeven(position, current_price)
+
+            # 3. Update Shadow Trailing Stop
             if config.TRAILING_STOP_ENABLED:
-                await self._check_trailing_stop(position, current_price)
+                await self._check_shadow_trailing_stop(position, current_price)
 
     async def _check_signal_reversal(self, position: OpenPosition, signal: AggregatedSignalEvent):
         """
@@ -297,96 +319,50 @@ class ExitManager:
         """Legacy wrapper for compatibility."""
         await self.apply_dynamic_exit(position, "OPTIMISTIC")
 
-    async def _check_breakeven(self, position: OpenPosition, current_price: float):
-        """
-        Move SL to entry if profit threshold reached.
-        """
-        # Skip if already at or better than breakeven
+    async def _check_shadow_breakeven(self, position: OpenPosition, current_price: float):
+        """Phase 241: Move Shadow SL to entry if profit threshold reached."""
+        if position.shadow_sl_level is None:
+            position.shadow_sl_level = position.sl_level  # Initialize to hard SL
+
         if position.side == "LONG":
-            if position.sl_level >= position.entry_price:
+            if position.shadow_sl_level >= position.entry_price:
                 return
-
-            # Calculate profit pct
             profit_pct = (current_price - position.entry_price) / position.entry_price
-
             if profit_pct >= config.BREAKEVEN_ACTIVATION_PCT:
-                new_sl = position.entry_price * 1.001  # Slightly above entry to cover fees
-                await self._update_sl(position, new_sl, "Breakeven")
-
+                new_sl = position.entry_price * 1.001
+                if new_sl > position.shadow_sl_level:
+                    position.shadow_sl_level = new_sl
+                    self.logger.info(f"🛡️ High-Frequency Breakeven ACTIVATED for {position.trade_id} @ {new_sl:.6f}")
         elif position.side == "SHORT":
-            if position.sl_level <= position.entry_price:
+            if position.shadow_sl_level <= position.entry_price and position.shadow_sl_level > 0:
                 return
-
-            # Calculate profit pct (entry - current) / entry
             profit_pct = (position.entry_price - current_price) / position.entry_price
-
             if profit_pct >= config.BREAKEVEN_ACTIVATION_PCT:
-                new_sl = position.entry_price * 0.999  # Slightly below entry
-                await self._update_sl(position, new_sl, "Breakeven")
+                new_sl = position.entry_price * 0.999
+                if new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
+                    position.shadow_sl_level = new_sl
+                    self.logger.info(f"🛡️ High-Frequency Breakeven ACTIVATED for {position.trade_id} @ {new_sl:.6f}")
 
-    async def _check_trailing_stop(self, position: OpenPosition, current_price: float):
-        """
-        Update SL to follow price if activation threshold reached.
-        """
-        # Guard against zero division (if entry price missing/corrupt)
+    async def _check_shadow_trailing_stop(self, position: OpenPosition, current_price: float):
+        """Phase 241: Update Shadow SL to follow price if activation threshold reached."""
         if position.entry_price <= 0:
             return
+        if position.shadow_sl_level is None:
+            position.shadow_sl_level = position.sl_level
 
         if position.side == "LONG":
-            # Calculate profit
             profit_pct = (current_price - position.entry_price) / position.entry_price
-
-            # Check activation
             if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT:
                 return
-
-            # Calculate potential new SL
-            # Distance from CURRENT price
             trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
             new_sl = current_price - trailing_dist
-
-            # Only move UP
-            if new_sl > position.sl_level:
-                # Ensure we don't move SL too close (min tick size check handled by Croupier/Adapter)
-                await self._update_sl(position, new_sl, "Trailing Stop")
-
+            if new_sl > position.shadow_sl_level:
+                position.shadow_sl_level = new_sl
         elif position.side == "SHORT":
-            # Calculate profit
             profit_pct = (position.entry_price - current_price) / position.entry_price
-
-            # Check activation
             if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT:
                 return
-
-            # Calculate potential new SL
-            # Distance from CURRENT price
             trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
             new_sl = current_price + trailing_dist
-
-            # Only move DOWN
-            if new_sl < position.sl_level:
-                await self._update_sl(position, new_sl, "Trailing Stop")
-
-    async def _update_sl(self, position: OpenPosition, new_sl: float, reason: str):
-        """
-        Execute SL update via Croupier.
-        """
-        self.logger.info(
-            f"🔄 {reason} triggered for {position.trade_id} | "
-            f"Current SL: {position.sl_level:.2f} -> New SL: {new_sl:.2f}"
-        )
-
-        try:
-            result = await self.croupier.modify_sl(
-                trade_id=position.trade_id,
-                new_sl_price=new_sl,
-                symbol=position.symbol,
-                old_sl_order_id=position.sl_order_id,
-            )
-
-            # Update position state locally
-            position.sl_level = result["new_sl_price"]
-            position.sl_order_id = result["new_order_id"]
-
-        except Exception as e:
-            self.logger.error(f"❌ Failed to update SL ({reason}): {e}")
+            if new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
+                position.shadow_sl_level = new_sl

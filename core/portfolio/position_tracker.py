@@ -107,6 +107,7 @@ class OpenPosition:
     sl_level: float
     liquidation_level: Optional[float]
     order: Dict[str, Any]
+    shadow_sl_level: Optional[float] = None
     # Legacy ID fields (for backward compatibility during migration)
     main_order_id: Optional[str] = None
     tp_order_id: Optional[str] = None
