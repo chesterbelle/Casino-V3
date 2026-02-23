@@ -468,31 +468,23 @@ class PositionTracker:
         if not position:
             return False
 
-        # Lock governance for closure
-        import traceback
-
-        for frame in traceback.extract_stack()[::-1]:
-            if "croupier.py" in frame.filename or "reconciliation_service.py" in frame.filename:
-                caller = f"{frame.filename.split('/')[-1]}:{frame.lineno}"
-                break
-
-        # DEFINITIVE PRINT FOR DEBUGGING
-        print(
-            f"DEBUG_GOV: [{trade_id}] Request by {caller}. Status={position.status}, Locked={position._lock.locked()}",
-            flush=True,
-        )
+        # Phase 243: Fail-fast and low-overhead governance
+        # If already closing, skip immediately without waiting or traceback overhead.
+        if position.status == "CLOSING":
+            return False
 
         # 1. Non-blocking checkout
-        if position.status == "CLOSING" or position._lock.locked():
+        if position._lock.locked():
             if not wait_if_busy:
                 return False
 
             # Wait for the lock to be released by whoever holds it
             try:
-                # We use a timeout to avoid hangs
-                async with asyncio.timeout(10.0):
+                # We use a shorter timeout for the hot path
+                async with asyncio.timeout(2.0):
                     async with position._lock:
-                        return False
+                        # Once released, re-check status
+                        return position.status != "CLOSING"
             except (asyncio.TimeoutError, Exception):
                 return False
 

@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import statistics
 import sys
 import time
@@ -137,33 +138,51 @@ class HFTLatencyBenchmark:
 
         self.connector.set_order_update_callback(async_order_update_handler)
 
+        # 4.2 Signal Handling (Phase 243 Resilience)
+        loop = asyncio.get_running_loop()
+        for s in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(s, lambda: asyncio.create_task(self.shutdown_handler()))
+
         # Pre-test cleanup
         await self._force_cleanup_all()
         logger.info("✅ Setup complete\n")
 
-    async def _force_cleanup_all(self):
-        """Force cleanup for all target symbols."""
-        for symbol in self.symbols:
-            try:
-                open_orders = await self.connector.fetch_open_orders(symbol)
-                for order in open_orders:
-                    await self.connector.cancel_order(order["id"], symbol)
+    async def shutdown_handler(self):
+        """Signal handler for graceful shutdown."""
+        logger.warning("⚠️ Signal received. Initiating emergency response...")
+        await self._force_cleanup_all()
+        sys.exit(0)
 
-                positions = await self.connector.fetch_positions([symbol])
-                for pos in positions:
-                    sz = abs(float(pos.get("contracts") or pos.get("size") or 0))
-                    if sz > 0:
-                        side = "sell" if pos.get("side") == "LONG" else "buy"
-                        await self.connector.create_order(
-                            symbol=symbol,
-                            order_type="market",
-                            side=side,
-                            amount=sz,
-                            params={"reduceOnly": "true"},
-                        )
-            except Exception as e:
-                logger.warning(f"⚠️ Cleanup error for {symbol}: {e}")
-        await asyncio.sleep(2)
+    async def _force_cleanup_all(self):
+        """Phase 243: Force cleanup using emergency_sweep governance."""
+        logger.info("🧹 Initiating Global Emergency Sweep...")
+        if self.croupier:
+            # Set shutdown mode to suppress ExitManager triggers
+            self.croupier.error_handler.shutdown_mode = True
+            await self.croupier.emergency_sweep(close_positions=True)
+            logger.info("✅ Emergency sweep complete.")
+        else:
+            # Fallback legacy cleanup
+            logger.warning("⚠️ Croupier not initialized, using legacy fallback cleanup.")
+            for symbol in self.symbols:
+                try:
+                    open_orders = await self.connector.fetch_open_orders(symbol)
+                    for order in open_orders:
+                        await self.connector.cancel_order(order["id"], symbol)
+                    positions = await self.connector.fetch_positions([symbol])
+                    for pos in positions:
+                        sz = abs(float(pos.get("contracts") or pos.get("size") or 0))
+                        if sz > 0:
+                            side = "sell" if pos.get("side") == "LONG" else "buy"
+                            await self.connector.create_order(
+                                symbol=symbol,
+                                order_type="market",
+                                side=side,
+                                amount=sz,
+                                params={"reduceOnly": "true"},
+                            )
+                except Exception as e:
+                    logger.warning(f"⚠️ Legacy cleanup error for {symbol}: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
     # BENCHMARK 1: OCO Bracket Latency
@@ -451,6 +470,7 @@ class HFTLatencyBenchmark:
             logger.error(f"\n❌ Benchmark crashed: {e}", exc_info=True)
 
         finally:
+            # Phase 243: Final Scorched Earth Teardown
             await self._force_cleanup_all()
             try:
                 await self.connector.close()

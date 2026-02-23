@@ -553,6 +553,9 @@ class TradeHistorian:
         "AUDIT_GHOST_REMOVAL",  # Auditor removed stale state
         "AUDIT_RECON_FORCE",  # Auditor forced exchange close
         "LIQUIDATION",  # Detected external closure
+        "SHADOW_SL",  # Phase 241: In-memory stop loss
+        "BREAKEVEN",  # Phase 241: Breakeven protection
+        "TRAILING_STOP",  # Phase 241: Dynamic trailing stop
     )
 
     def get_session_stats(self, session_id: Optional[str] = None) -> Any:
@@ -589,18 +592,16 @@ class TradeHistorian:
 
                     -- Phase 61: Intelligent PnL Attribution
                     -- Strategy PnL = Clean + Healed
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl,
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') OR healed=1) THEN 1 ELSE 0 END) as strategy_count,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP') OR healed=1) THEN 1 ELSE 0 END) as strategy_count,
 
                     -- Resilience PnL (Subset of Strategy) = Healed Trades
                     SUM(CASE WHEN healed=1 THEN net_pnl ELSE 0 END) as healed_pnl,
                     SUM(CASE WHEN healed=1 THEN 1 ELSE 0 END) as healed_count,
 
                     -- Error/Leakage PnL = True Errors (Ghosts, Force Closes, Audits)
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN net_pnl ELSE 0 END) as error_pnl,
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
-
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP') AND healed=0)) THEN net_pnl ELSE 0 END) as error_pnl,
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
 
                     -- Phase 10: Signal-to-Wire (Decision Birth to Wire)
                     -- We use T1 (Decision) instead of T0 (Sensor) for HFT audit
@@ -677,7 +678,7 @@ class TradeHistorian:
             query = """
                 SELECT exit_reason, COUNT(*) as count
                 FROM trades
-                WHERE ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION') AND healed=0))
+                WHERE ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP') AND healed=0))
             """
             if session_id:
                 query += " AND session_id = ?"

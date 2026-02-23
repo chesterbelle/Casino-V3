@@ -231,6 +231,21 @@ class BinanceNativeConnector(BaseConnector):
         """Return if WebSocket is enabled."""
         return self._enable_websocket
 
+    @property
+    def api_key(self) -> str:
+        """Return the API key."""
+        return self._api_key
+
+    @property
+    def secret(self) -> str:
+        """Return the API secret."""
+        return self._secret
+
+    @property
+    def testnet(self) -> bool:
+        """Return True if in demo/testnet mode."""
+        return self._mode == "demo"
+
     def set_execution_queues(
         self,
         cmd_queue: Optional[multiprocessing.Queue] = None,

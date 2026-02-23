@@ -799,9 +799,9 @@ async def main():
                 self.stop_event = threading.Event()
                 self._thread = None
 
-            def heartbeat(self, *args, **kwargs):
+            def heartbeat(self, phase: str = "general", activity: str = "progress"):
                 self.last_heartbeat = time.time()
-                logger.debug("💓 Watchdog Heartbeat received")
+                logger.debug(f"💓 Watchdog Heartbeat: {phase} | {activity}")
 
             def start(self):
                 self._thread = threading.Thread(target=self._run, daemon=True)
@@ -938,7 +938,9 @@ async def main():
                 time.time() - settle_start < 30
             ):
                 await asyncio.sleep(0.5)
-                cleanup_watchdog.heartbeat()  # Keep watchdog happy
+                cleanup_watchdog.heartbeat(
+                    "settlement", f"Waiting for fills... Elapsed: {time.time() - settle_start:.1f}s"
+                )
 
                 # Log progress every 5 seconds
                 elapsed = time.time() - settle_start

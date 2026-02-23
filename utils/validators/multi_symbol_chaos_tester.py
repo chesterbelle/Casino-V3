@@ -183,6 +183,8 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
             logger.error(f"🛑 CHAOS RUNNER CRASHED: {e}", exc_info=True)
             return False
         finally:
+            # Phase 243: Leverage parent cleanup (emergency_sweep)
+            await super().cleanup()
             await self.connector.close()
 
 
@@ -210,13 +212,7 @@ async def main():
         max_ops_per_symbol=args.max_ops,
     )
 
-    # Signal handler for graceful shutdown
-    def handle_signal(signum, frame):
-        logger.warning(f"⚠️ Received signal {signum}. Initiating graceful shutdown...")
-        tester._shutdown_event.set()
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    # signal handlers now inherited from MultiSymbolValidator
 
     success = await tester.run_all()
     sys.exit(0 if success else 1)

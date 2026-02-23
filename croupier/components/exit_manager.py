@@ -51,6 +51,9 @@ class ExitManager:
 
         # Check for reversals on all open positions
         for position in self.croupier.get_open_positions():
+            # Phase 243: Skip if closing or shutdown
+            if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
+                continue
             await self._check_signal_reversal(position, event)
 
     async def on_candle(self, event: CandleEvent):
@@ -63,6 +66,10 @@ class ExitManager:
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
 
         for position in positions[:]:
+            # Phase 243: Skip positions already in closure or if reactor is shutting down
+            if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
+                continue
+
             self.logger.debug(f"⚡ Processing Candle Exit Logic for {position.symbol} | Price: {current_price}")
             await self._check_time_exit(position, event)
 
@@ -76,6 +83,9 @@ class ExitManager:
 
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
         for position in positions[:]:
+            # Phase 243: Skip positions already in closure or if reactor is shutting down
+            if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
+                continue
             # 1. Trigger Shadow SL Market Close (Airlock Bypass)
             if position.shadow_sl_level is not None:
                 if position.side == "LONG" and current_price <= position.shadow_sl_level:

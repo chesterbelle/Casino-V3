@@ -341,7 +341,9 @@ class Croupier(TimeIterator):
                         symbol_map[sym] = {"positions": [], "orders": []}
                     symbol_map[sym]["positions"].append(pos)
 
-                for order in all_exchange_orders:
+                for i, order in enumerate(all_exchange_orders):
+                    if watchdog and i % 5 == 0:
+                        watchdog.heartbeat("emergency_sweep", f"Processing order {i}/{len(all_exchange_orders)}")
                     sym = normalize_symbol(order["symbol"])
                     if symbols:
                         norm_symbols = [normalize_symbol(s) for s in symbols]
@@ -370,8 +372,12 @@ class Croupier(TimeIterator):
                             await asyncio.sleep(0.1)  # Tiny pause
 
                         # Step B: Close positions
-                        if close_positions:
-                            for pos in state["positions"]:
+                        if close_positions and state["positions"]:
+                            for i, pos in enumerate(state["positions"]):
+                                if watchdog:
+                                    watchdog.heartbeat(
+                                        "emergency_sweep", f"Closing {sym} {i+1}/{len(state['positions'])}"
+                                    )
                                 size = abs(
                                     float(pos.get("contracts", 0) or pos.get("size", 0) or pos.get("amount", 0) or 0)
                                 )

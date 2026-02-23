@@ -1,16 +1,21 @@
-import asyncio
-import hashlib
-import hmac
 import os
 import sys
-import time
-
-import aiohttp
 
 # Ensure project root is in sys.path
 sys.path.append(os.getcwd())
 
-from config.exchange import BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_BASE_URL
+import asyncio  # noqa: E402
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
+import time  # noqa: E402
+
+import aiohttp  # noqa: E402
+
+from config.exchange import (  # noqa: E402
+    BINANCE_API_KEY,
+    BINANCE_API_SECRET,
+    BINANCE_BASE_URL,
+)
 
 
 async def cleanup():

@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import sys
 import time
 from datetime import datetime
@@ -27,6 +28,7 @@ sys.path.append(os.getcwd())
 from dotenv import load_dotenv
 
 from croupier.components.reconciliation_service import ReconciliationService
+from croupier.components.reconciliation_worker import ReconciliationWorker
 from croupier.croupier import Croupier
 from exchanges.adapters import ExchangeAdapter
 from exchanges.connectors.binance.binance_native_connector import BinanceNativeConnector
@@ -89,6 +91,8 @@ class MultiSymbolValidator:
         self.multi_adapter = None
         self.croupier = None
         self.initial_balance = 0.0
+        self.recon_worker = None
+        self.recon_queue = None
 
     async def setup(self):
         logger.info("=" * 70)
@@ -124,7 +128,22 @@ class MultiSymbolValidator:
         )
         self.croupier.reconciliation_service = self.recon_service
 
-        logger.info("✅ Croupier & Reconciliation initialized (Multi-symbol mode)")
+        # PHASE 4: Initialize ReconciliationWorker (State Isolation)
+        import multiprocessing as mp
+
+        self.recon_queue = mp.Queue(maxsize=2)
+        self.recon_worker = ReconciliationWorker(
+            api_key=self.connector.api_key,
+            secret_key=self.connector.secret,
+            testnet=self.connector.testnet,
+            output_queue=self.recon_queue,
+            interval=15.0,  # Fast interval for validation
+        )
+        self.recon_worker.daemon = True
+        self.recon_worker.start()
+        self.croupier.set_recon_queue(self.recon_queue)
+
+        logger.info("✅ Croupier & ReconciliationWorker initialized (Phase 4 isolation)")
 
         # 4.1 Register order update callback (matches main.py)
         # This is CRITICAL for PositionTracker to see fills and close positions!
@@ -137,9 +156,35 @@ class MultiSymbolValidator:
         self.connector.set_order_update_callback(async_order_update_handler)
         logger.info("✅ Order update callback registered for tracker/OCO")
 
+        # 4.2 Signal Handling (Phase 243 Resilience)
+        loop = asyncio.get_running_loop()
+        for s in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(s, lambda: asyncio.create_task(self.shutdown_handler()))
+
         # 5. Pre-test cleanup
-        await self._force_cleanup_all()
+        await self.cleanup()
         logger.info("✅ Setup complete\n")
+
+    async def shutdown_handler(self):
+        """Signal handler for graceful shutdown."""
+        logger.warning("⚠️ Signal received. Initiating emergency response...")
+        await self.cleanup()
+        sys.exit(0)
+
+    async def cleanup(self):
+        """
+        Phase 243: Centralized Scorched Earth Cleanup.
+        Uses Croupier's emergency_sweep to ensure 100% clean state.
+        """
+        logger.info("🧹 Initiating Global Emergency Sweep...")
+        if self.croupier:
+            # Set shutdown mode to suppress ExitManager triggers
+            self.croupier.error_handler.shutdown_mode = True
+            await self.croupier.emergency_sweep(close_positions=True)
+            logger.info("✅ Emergency sweep complete.")
+        else:
+            # Fallback if croupier not initialized
+            await self._force_cleanup_all()
 
     async def _force_cleanup_all(self):
         """Force cleanup for all target symbols."""
@@ -389,6 +434,14 @@ class MultiSymbolValidator:
             logger.error(f"🛑 TEST RUNNER CRASHED: {e}", exc_info=True)
             return False
         finally:
+            # Final Teardown
+            await self.cleanup()
+
+            if self.recon_worker and self.recon_worker.is_alive():
+                logger.info("🛑 Stopping ReconciliationWorker...")
+                self.recon_worker.stop()
+                self.recon_worker.join(timeout=5.0)
+
             await self.connector.close()
 
 

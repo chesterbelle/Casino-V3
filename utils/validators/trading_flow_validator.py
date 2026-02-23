@@ -27,6 +27,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import sys
 import time
 from datetime import datetime
@@ -145,45 +146,51 @@ class PreflightValidator:
         self.connector.set_order_update_callback(async_order_update_handler)
         logger.info("✅ Order update callback registered")
 
+        # 4.2 Signal Handling (Phase 243 Resilience)
+        loop = asyncio.get_running_loop()
+        for s in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(s, lambda: asyncio.create_task(self.shutdown_handler()))
+
         # 5. Pre-test cleanup - ensure clean slate
         await self._force_cleanup()
         logger.info("✅ Setup complete\n")
 
+    async def shutdown_handler(self):
+        """Signal handler for graceful shutdown."""
+        logger.warning("⚠️ Signal received. Initiating emergency response...")
+        await self._force_cleanup()
+        sys.exit(0)
+
     async def _force_cleanup(self):
-        """Force cleanup all positions and orders for the symbol."""
-        logger.info("🧹 Force cleanup before tests...")
-
-        try:
-            # Close all positions
-            positions = await self.connector.fetch_positions()
-            for pos in positions:
-                # Normalize both for comparison
-                pos_symbol = pos.get("symbol", "")
-                # Support both LTCUSDT and LTC/USDT:USDT
-                is_match = pos_symbol == self.symbol or pos_symbol.split(":")[0].replace("/", "") == self.symbol
-
-                if is_match:
-                    # Support both CCXT (size) and Native (contracts)
-                    size = abs(float(pos.get("contracts") or pos.get("size") or 0))
-                    if size > 0:
-                        # Case-insensitive side check
-                        side_str = str(pos.get("side", "")).upper()
-                        target_side = "sell" if side_str == "LONG" else "buy"
-                        await self.connector.create_order(
-                            symbol=self.symbol, order_type="market", side=target_side, amount=size
-                        )
-                        logger.info(f"  ✓ Closed position: {side_str} {size}")
-
-            # Cancel all orders
-            open_orders = await self.connector.fetch_open_orders(self.symbol)
-            for order in open_orders:
-                await self.connector.cancel_order(order["id"], self.symbol)
-                logger.info(f"  ✓ Cancelled order: {order['id']}")
-
-            await asyncio.sleep(2)
-
-        except Exception as e:
-            logger.warning(f"⚠️ Cleanup error (non-fatal): {e}")
+        """Phase 243: Force cleanup using emergency_sweep governance."""
+        logger.info("🧹 Initiating Global Emergency Sweep...")
+        if self.croupier:
+            # Set shutdown mode to suppress ExitManager triggers
+            self.croupier.error_handler.shutdown_mode = True
+            await self.croupier.emergency_sweep(close_positions=True)
+            logger.info("✅ Emergency sweep complete.")
+        else:
+            # Fallback legacy cleanup if croupier not ready
+            logger.warning("⚠️ Croupier not initialized, using legacy fallback cleanup.")
+            try:
+                # [Legacy fallback code omitted for brevity in thought, but included in actual tool call]
+                positions = await self.connector.fetch_positions()
+                for pos in positions:
+                    pos_symbol = pos.get("symbol", "")
+                    is_match = pos_symbol == self.symbol or pos_symbol.split(":")[0].replace("/", "") == self.symbol
+                    if is_match:
+                        size = abs(float(pos.get("contracts") or pos.get("size") or 0))
+                        if size > 0:
+                            side_str = str(pos.get("side", "")).upper()
+                            target_side = "sell" if side_str == "LONG" else "buy"
+                            await self.connector.create_order(
+                                symbol=self.symbol, order_type="market", side=target_side, amount=size
+                            )
+                open_orders = await self.connector.fetch_open_orders(self.symbol)
+                for order in open_orders:
+                    await self.connector.cancel_order(order["id"], self.symbol)
+            except Exception as e:
+                logger.warning(f"⚠️ Legacy cleanup error: {e}")
 
     # =========================================================================
     # TEST 1: Connection & Basic Operations
@@ -743,7 +750,7 @@ class PreflightValidator:
             all_passed = False
 
         finally:
-            # Final cleanup
+            # Phase 243: Final Scorched Earth Teardown
             await self._force_cleanup()
 
             # Close connector
