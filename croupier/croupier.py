@@ -671,6 +671,15 @@ class Croupier(TimeIterator):
                             pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
                     else:
                         pnl = 0.0
+
+                    self.position_tracker.confirm_close(
+                        trade_id=trade_id,
+                        exit_price=exit_price,
+                        exit_reason="TP_SL_HIT",
+                        pnl=pnl,
+                        fee=0.0,
+                    )
+                    return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
                 else:
                     self.logger.error(f"❌ Smart Close Failed for {trade_id}: {e}. Triggering RAW EMERGENCY BYPASS.")
                     # Extreme Failsafe: Bypass OrderExecutor and Circuit Breakers entirely
@@ -687,22 +696,41 @@ class Croupier(TimeIterator):
                             )
                             self.logger.warning(f"🛡️ RAW EMERGENCY BYPASS SUCCESS for {position.symbol}")
                         except Exception as bypass_err:
+                            if "-2022" in str(bypass_err) or "ReduceOnly" in str(bypass_err):
+                                self.logger.info(
+                                    f"✅ Position {trade_id} was actually already closed. Handled gracefully."
+                                )
+                                try:
+                                    exit_price = await self.adapter.get_current_price(position.symbol)
+                                except Exception:
+                                    exit_price = position.entry_price
+
+                                if position.entry_price > 0:
+                                    if position.side == "LONG":
+                                        pnl = (
+                                            (exit_price - position.entry_price)
+                                            * position.notional
+                                            / position.entry_price
+                                        )
+                                    else:
+                                        pnl = (
+                                            (position.entry_price - exit_price)
+                                            * position.notional
+                                            / position.entry_price
+                                        )
+                                else:
+                                    pnl = 0.0
+
+                                self.position_tracker.confirm_close(
+                                    trade_id=trade_id, exit_price=exit_price, exit_reason="TP_SL_HIT", pnl=pnl, fee=0.0
+                                )
+                                return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
+
                             self.logger.critical(f"🔥 RAW EMERGENCY BYPASS FAILED. POSITION ORPHANED: {bypass_err}")
-                            raise e  # Re-raise original error if bypass fails
+                            return {"status": "error", "message": str(bypass_err), "original_error": str(e)}
                     else:
-                        raise e
-
-                    self.position_tracker.confirm_close(
-                        trade_id=trade_id,
-                        exit_price=exit_price,
-                        exit_reason="TP_SL_HIT",  # Semantic marker
-                        pnl=pnl,
-                        fee=0.0,
-                    )
-                    return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
-
-                self.logger.error(f"❌ Failed to close position {trade_id} via Executor: {e}")
-                raise e
+                        self.logger.critical("🔥 RAW EMERGENCY BYPASS FAILED. No connector available.")
+                        return {"status": "error", "message": "No connector", "original_error": str(e)}
 
             fill_price = float(result.get("average", 0) or result.get("price", 0))
 
