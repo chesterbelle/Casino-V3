@@ -331,6 +331,9 @@ class ExitManager:
 
     async def _check_shadow_breakeven(self, position: OpenPosition, current_price: float):
         """Phase 241: Move Shadow SL to entry if profit threshold reached."""
+        if position.entry_price <= 0:
+            return
+
         if position.shadow_sl_level is None:
             position.shadow_sl_level = position.sl_level  # Initialize to hard SL
 

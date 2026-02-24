@@ -106,6 +106,7 @@ class Croupier(TimeIterator):
 
         self.process_start_balance: float = 0.0
         self.is_drain_mode: bool = False
+        self.is_shutting_down: bool = False
         self._drain_in_progress: bool = False  # Task guard for drain status updates
         self._last_funding_sync: float = 0.0  # Phase 30: For precision accounting
 
@@ -166,6 +167,12 @@ class Croupier(TimeIterator):
         if enabled:
             self.logger.warning("[CORE] 🕒 Croupier entering DRAIN MODE. Narrowing TPs for all positions.")
 
+    def set_shutting_down(self, enabled: bool):
+        """Enable or disable absolute shutdown mode."""
+        self.is_shutting_down = enabled
+        if enabled:
+            self.logger.warning("🏁 Croupier: SHUTDOWN SIGNAL RECEIVED. Severing non-sweep activities.")
+
     async def _apply_drain_phase(self, phase: str):
         """Helper to apply a drain phase to all active positions."""
         # Fix: PositionTracker uses a list 'open_positions', not a dict
@@ -203,6 +210,8 @@ class Croupier(TimeIterator):
         - T-10m to T-5m  (5m):  PANIC (Market Close)
         - T-5m  to T-0m  (5m):  FINAL SWEEP (Already passed to Emergency)
         """
+        if self.is_shutting_down:
+            return  # Phase 244: Sever non-sweep loops during teardown
         if not self.is_drain_mode or self._drain_in_progress:
             return
 
@@ -524,7 +533,11 @@ class Croupier(TimeIterator):
         symbol = normalize_symbol(raw_symbol)
         order["symbol"] = symbol
 
-        # DRAIN MODE CHECK
+        # DRAIN/SHUTDOWN MODE CHECK
+        if self.is_shutting_down:
+            self.logger.debug(f"⏭️ Skipping execute_order: SHUTDOWN active for {symbol}")
+            return {"status": "error", "message": "Shutdown active"}
+
         if self.is_drain_mode:
             self.logger.warning(f"🚫 Drain Mode Active: Rejecting new entry for {symbol}")
             return {"status": "error", "message": "Drain mode active"}
@@ -651,10 +664,13 @@ class Croupier(TimeIterator):
                         exit_price = position.entry_price  # Neutral fallback
 
                     # Calculate approximate PnL
-                    if position.side == "LONG":
-                        pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+                    if position.entry_price > 0:
+                        if position.side == "LONG":
+                            pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+                        else:
+                            pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
                     else:
-                        pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+                        pnl = 0.0
                 else:
                     self.logger.error(f"❌ Smart Close Failed for {trade_id}: {e}. Triggering RAW EMERGENCY BYPASS.")
                     # Extreme Failsafe: Bypass OrderExecutor and Circuit Breakers entirely
@@ -665,9 +681,9 @@ class Croupier(TimeIterator):
                             result = await connector.create_order(
                                 symbol=position.symbol,
                                 side=close_side,
-                                amount=0,
+                                amount=amount,
                                 order_type="market",
-                                params={"closePosition": True},
+                                params={"reduceOnly": True},
                             )
                             self.logger.warning(f"🛡️ RAW EMERGENCY BYPASS SUCCESS for {position.symbol}")
                         except Exception as bypass_err:
@@ -709,10 +725,13 @@ class Croupier(TimeIterator):
             # if confirm_close is not called.
 
             # Calculate PnL
-            if position.side == "LONG":
-                pnl = (fill_price - position.entry_price) * position.notional / position.entry_price
+            if position.entry_price > 0:
+                if position.side == "LONG":
+                    pnl = (fill_price - position.entry_price) * position.notional / position.entry_price
+                else:
+                    pnl = (position.entry_price - fill_price) * position.notional / position.entry_price
             else:
-                pnl = (position.entry_price - fill_price) * position.notional / position.entry_price
+                pnl = 0.0
 
             # PHASE 35: DEFERRED FORENSIC ENRICHMENT (No-Lag)
             # We record immediately with 0 fee, then enrich in background to avoid blocking execution.

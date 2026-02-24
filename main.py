@@ -873,32 +873,11 @@ async def main():
         # Old order: Stop feeds → Sweep (cache stale → REST flood → HANG)
         # New order: Sweep (cache warm → 0-latency) → Stop feeds
 
-        # 0.5. Emergency Sweep / Close Positions (WHILE FEEDS ARE ALIVE)
-        logger.info("🧹 Performing final exchange sweep...")
-        should_close = args.close_on_exit
-        sweep_report = {}
-
+        # 0.6. NOW STOP INPUTS AND PROCESSING (Cold Shutdown Strategy)
+        # Phase 244: Sever strategy inputs BEFORE the final sweep.
+        # This clears the event loop for the sweep while keeping feeds warm.
         try:
-            # We use an unconstrained wait for this critical operation (Smart Exit)
-            logger.info(
-                f"🧹 Emergency Sweep: {'Closing Positions' if should_close else 'Cancelling Orders'} (Reason: {exit_reason_str})"
-            )
-            # Pass watchdog for heartbeat signaling
-            sweep_task = croupier.emergency_sweep(
-                symbols=[args.symbol] if args.symbol and args.symbol != "MULTI" else None,
-                close_positions=should_close,
-                reason=exit_reason_str,
-                watchdog=cleanup_watchdog,  # Pass the watchdog to signal progress
-            )
-            sweep_report = await sweep_task
-        except Exception as e:
-            logger.error(f"❌ Error during emergency sweep: {e}")
-        finally:
-            cleanup_watchdog.heartbeat()  # Final heartbeat after sweep
-
-        # 0.6. NOW STOP INPUTS AND PROCESSING (after positions are closed)
-        try:
-            logger.info("🛑 Stopping background tasks and managers...")
+            logger.info("🛑 Stopping strategic inputs and background tasks...")
 
             # Stop Sensors (multiprocessing)
             sensor_manager.stop()
@@ -915,15 +894,44 @@ async def main():
             if reconciliation_task:
                 reconciliation_task.cancel()
 
+            # Signal Croupier to stop internal background loops
+            croupier.set_shutting_down(True)
+
+        except Exception as e:
+            logger.error(f"⚠️ Error during early input severance: {e}")
+
+        # 0.7. Emergency Sweep / Close Positions (WHILE FEEDS ARE ALIVE)
+        # Event loop is now "Cold" (no strategy noise) but cache is "Warm".
+        logger.info("🧹 Performing final exchange sweep...")
+        should_close = args.close_on_exit
+        sweep_report = {}
+
+        try:
+            logger.info(
+                f"🧹 Emergency Sweep: {'Closing Positions' if should_close else 'Cancelling Orders'} (Reason: {exit_reason_str})"
+            )
+            sweep_task = croupier.emergency_sweep(
+                symbols=[args.symbol] if args.symbol and args.symbol != "MULTI" else None,
+                close_positions=should_close,
+                reason=exit_reason_str,
+                watchdog=cleanup_watchdog,
+            )
+            sweep_report = await sweep_task
+        except Exception as e:
+            logger.error(f"❌ Error during emergency sweep: {e}")
+        finally:
+            cleanup_watchdog.heartbeat()
+
+        # 0.8. SECURE FINAL INFRASTRUCTURE (Recon Worker & Connectors)
+        try:
             # Phase 4: Stop ReconciliationWorker
             if recon_worker and recon_worker.is_alive():
                 logger.info("🛑 Stopping ReconciliationWorker...")
                 recon_worker.stop()
                 recon_worker.join(timeout=5.0)
                 logger.info("✅ ReconciliationWorker stopped.")
-
         except Exception as e:
-            logger.error(f"⚠️ Error during early shutdown: {e}")
+            logger.error(f"⚠️ Error during final infrastructure teardown: {e}")
 
         # Phase 84: Settlement Phase
         # Wait for "Pending Closes" to be confirmed by Exchange so PnL is recorded in DB.

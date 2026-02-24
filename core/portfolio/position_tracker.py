@@ -760,10 +760,13 @@ class PositionTracker:
             fee = position.tp_order.fee
 
             # Calculate PnL
-            if position.side == "LONG":
-                pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+            if position.entry_price > 0:
+                if position.side == "LONG":
+                    pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+                else:
+                    pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
             else:
-                pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+                pnl = 0.0
 
             self.confirm_close(trade_id=position.trade_id, exit_price=exit_price, exit_reason="TP", pnl=pnl, fee=fee)
 
@@ -778,10 +781,13 @@ class PositionTracker:
             fee = position.sl_order.fee
 
             # Calculate PnL
-            if position.side == "LONG":
-                pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+            if position.entry_price > 0:
+                if position.side == "LONG":
+                    pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
+                else:
+                    pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
             else:
-                pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+                pnl = 0.0
 
             self.confirm_close(trade_id=position.trade_id, exit_price=exit_price, exit_reason="SL", pnl=pnl, fee=fee)
 

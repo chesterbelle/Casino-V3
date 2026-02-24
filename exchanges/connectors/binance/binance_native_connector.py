@@ -1461,11 +1461,15 @@ class BinanceNativeConnector(BaseConnector):
         """Poll the position endpoint until a position appears (Internal Sync)."""
         start_time = time.time()
         while time.time() - start_time < timeout:
-            positions = await self.fetch_positions(symbol)
-            # Check if any position exists for this symbol that isn't zero
-            has_pos = any(abs(float(p.get("contracts", 0))) > 1e-8 for p in positions if p["symbol"] == symbol)
-            if has_pos:
-                return True
+            try:
+                positions = await self.fetch_positions(symbol)
+                # Check if any position exists for this symbol that isn't zero
+                has_pos = any(abs(float(p.get("contracts", 0))) > 1e-8 for p in positions if p["symbol"] == symbol)
+                if has_pos:
+                    return True
+            except Exception as e:
+                self.logger.warning(f"⚠️ Error during position sync fetch for {symbol}: {e}")
+
             await asyncio.sleep(0.2)  # Poll every 200ms
         self.logger.error(f"❌ Position sync TIMEOUT for {symbol} after {timeout}s")
         return False

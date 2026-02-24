@@ -1,0 +1,73 @@
+==== UNIQUE TRACEBACKS ====
+Count: 5181
+profit_pct = (position.entry_price - current_price) / position.entry_price
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+ZeroDivisionError: division by zero
+----------------------------------------
+Count: 3509
+File "/home/chesterbelle/Casino-V3/core/error_handling/circuit_breaker.py", line 219, in check_availability
+raise CircuitBreakerOpenError(
+f"Circuit breaker '{self.name}' is OPEN. " f"Retry after {self._time_until_retry():.1f}s"
+----------------------------------------
+Count: 3455
+File "/home/chesterbelle/Casino-V3/exchanges/connectors/binance/binance_native_connector.py", line 613, in _handle_response
+raise Exception(f"({code}) {msg}")
+Exception: (-4136) Target strategy invalid for orderType MARKET,closePosition true
+----------------------------------------
+Count: 193
+^
+File "/usr/lib/python3.14/asyncio/tasks.py", line 487, in wait_for
+async with timeouts.timeout(timeout):
+----------------------------------------
+Count: 98
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+----------------------------------------
+Count: 90
+File "/home/chesterbelle/Casino-V3/exchanges/connectors/binance/binance_native_connector.py", line 611, in _handle_response
+raise PositionAlreadyClosedError(f"({code}) {msg}")
+core.exceptions.PositionAlreadyClosedError: (-2022) ReduceOnly Order is rejected.
+----------------------------------------
+Count: 75
+^
+File "/home/chesterbelle/Casino-V3/croupier/components/oco_manager.py", line 494, in create_bracketed_order
+raise OCOAtomicityError(f"Failed to create OCO bracket: {error_desc}") from e
+----------------------------------------
+Count: 73
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/chesterbelle/Casino-V3/exchanges/connectors/binance/binance_native_connector.py", line 1423, in create_order
+if await self._wait_for_position_sync(symbol):
+----------------------------------------
+Count: 22
+final_url, params=final_params, headers=headers, timeout=req_timeout
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+) as resp:
+----------------------------------------
+Count: 18
+File "/home/chesterbelle/Casino-V3/exchanges/connectors/binance/binance_native_connector.py", line 613, in _handle_response
+raise Exception(f"({code}) {msg}")
+Exception: (-4003) Quantity less than or equal to zero.
+----------------------------------------
+Count: 6
+pnl = (position.entry_price - fill_price) * position.notional / position.entry_price
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+ZeroDivisionError: division by zero
+----------------------------------------
+Count: 2
+pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+ZeroDivisionError: division by zero
+----------------------------------------
+Count: 2
+File "/home/chesterbelle/Casino-V3/exchanges/connectors/binance/binance_native_connector.py", line 613, in _handle_response
+raise Exception(f"({code}) {msg}")
+Exception: (-4016) Limit price can't be higher than 0.0217.
+----------------------------------------
+Count: 1
+f"Circuit breaker '{self.name}' is HALF_OPEN. " f"Max test calls reached."
+)
+core.error_handling.circuit_breaker.CircuitBreakerOpenError: Circuit breaker 'exchange_orders_ZECUSDT' is HALF_OPEN. Max test calls reached.
+----------------------------------------
+
+==== TOP 50 UNIQUE ERRORS ====
