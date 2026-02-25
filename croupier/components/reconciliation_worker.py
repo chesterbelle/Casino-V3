@@ -33,7 +33,9 @@ class ReconciliationWorker(mp.Process):
         )
 
         mode = "demo" if self.testnet else "live"
-        connector = BinanceNativeConnector(api_key=self.api_key, secret=self.secret_key, mode=mode)
+        connector = BinanceNativeConnector(
+            api_key=self.api_key, secret=self.secret_key, mode=mode, enable_websocket=False
+        )
 
         # We only need the REST capabilities, no streams
         try:
