@@ -40,7 +40,7 @@ grep -c "UNMATCHED" logs/chaos_test_*.log 2>/dev/null || echo "0 unmatched"
 ```
 
 ## Success Criteria
-- [ ] Layer 1: 8/8 preflight tests pass
-- [ ] Layer 2: Multi-symbol concurrency + integrity pass
-- [ ] Layer 3: Bracket latency < 500ms avg, TP/SL parallel
-- [ ] Layer 4: 0 UNMATCHED, 0 error trades, clean integrity
+- [x] Layer 1: 8/8 preflight tests pass
+- [x] Layer 2: Multi-symbol concurrency + integrity pass
+- [x] Layer 3: Bracket latency < 500ms avg, TP/SL parallel
+- [x] Layer 4: 0 UNMATCHED, 0 error trades, clean integrity

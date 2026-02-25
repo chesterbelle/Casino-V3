@@ -542,6 +542,11 @@ class Croupier(TimeIterator):
             self.logger.warning(f"🚫 Drain Mode Active: Rejecting new entry for {symbol}")
             return {"status": "error", "message": "Drain mode active"}
 
+        # Phase 248: Cooldown check to prevent HFT Execution Loops
+        if self.position_tracker.is_symbol_blocked(symbol):
+            self.logger.warning(f"🛡️ Signal Cooldown Active for {symbol}: Rejecting execution.")
+            return {"status": "error", "message": "Signal cooldown active"}
+
         # 1. Execute OCO bracket order
         self.logger.info(f"📥 Execute order request: {order['side']} {order['symbol']}")
 
@@ -659,7 +664,9 @@ class Croupier(TimeIterator):
                     )
                     # Get current price for PnL estimation
                     try:
-                        exit_price = await self.adapter.get_current_price(position.symbol)
+                        exit_price = await asyncio.wait_for(
+                            self.adapter.get_current_price(position.symbol), timeout=5.0
+                        )
                     except Exception:
                         exit_price = position.entry_price  # Neutral fallback
 
@@ -693,6 +700,7 @@ class Croupier(TimeIterator):
                                 amount=amount,
                                 order_type="market",
                                 params={"reduceOnly": True},
+                                timeout=5.0,  # CRITICAL: Prevent 5-minute aiohttp fallback hang
                             )
                             self.logger.warning(f"🛡️ RAW EMERGENCY BYPASS SUCCESS for {position.symbol}")
                         except Exception as bypass_err:
@@ -701,7 +709,9 @@ class Croupier(TimeIterator):
                                     f"✅ Position {trade_id} was actually already closed. Handled gracefully."
                                 )
                                 try:
-                                    exit_price = await self.adapter.get_current_price(position.symbol)
+                                    exit_price = await asyncio.wait_for(
+                                        self.adapter.get_current_price(position.symbol), timeout=5.0
+                                    )
                                 except Exception:
                                     exit_price = position.entry_price
 
@@ -740,7 +750,7 @@ class Croupier(TimeIterator):
                     f"⚠️ Order result missing fill price (Got {fill_price}). Fetching current price for PnL estimation..."
                 )
                 try:
-                    fill_price = await self.adapter.get_current_price(position.symbol)
+                    fill_price = await asyncio.wait_for(self.adapter.get_current_price(position.symbol), timeout=5.0)
                     self.logger.info(f"✅ Fetched fallback price: {fill_price}")
                 except Exception as e:
                     self.logger.error(f"❌ Failed to fetch current price for fallback: {e}")
@@ -763,7 +773,6 @@ class Croupier(TimeIterator):
 
             # PHASE 35: DEFERRED FORENSIC ENRICHMENT (No-Lag)
             # We record immediately with 0 fee, then enrich in background to avoid blocking execution.
-            import asyncio
 
             asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
 
@@ -803,7 +812,6 @@ class Croupier(TimeIterator):
             self.auditor.record_execution(trace_id, result)
 
         # We start an async task for cleanup to avoid blocking the tracker
-        import asyncio
 
         asyncio.create_task(self._async_bracket_cleanup(trade_id, result))
 

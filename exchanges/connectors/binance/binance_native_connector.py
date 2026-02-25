@@ -1340,10 +1340,15 @@ class BinanceNativeConnector(BaseConnector):
             args["reduceOnly"] = "true"
         if params.get("closePosition"):
             args["closePosition"] = "true"
-            # CRITICAL: Only pop quantity for regular API STOP_MARKET/TAKE_PROFIT_MARKET
-            # Algo API does NOT support closePosition and ALWAYS requires quantity.
-            if order_type.upper() not in ["STOP", "TAKE_PROFIT"]:
-                args.pop("quantity", None)
+            # CRITICAL (Phase 248):
+            # 1. Main API (/fapi/v1/order) supports closePosition and DOES NOT want quantity for TP/SL MARKET.
+            # 2. Algo API (/fapi/v1/algo/...) DOES NOT support closePosition and ALWAYS wants quantity > 0.
+            # Therefore, if closePosition=True, we MUST use Main API if quantity is 0 (dust cleanup).
+            if order_type.upper() in ["STOP_MARKET", "TAKE_PROFIT_MARKET"]:
+                # If amount is effectively 0, we MUST pop it for the Main API
+                if float(args.get("quantity", 0)) == 0:
+                    args.pop("quantity", None)
+
             args.pop("reduceOnly", None)
 
         # Route to Algo API for conditional orders (Mandatory since Dec 2024 update)
@@ -1353,20 +1358,18 @@ class BinanceNativeConnector(BaseConnector):
 
         # Phase 102 Fix: If it's an Algo order, PREFER Algo API even if closePosition was requested.
         # We convert closePosition -> reduceOnly because Algo API requires quantity.
+        # Phase 248 Revision 1: Improved Routing
         use_algo_api = order_type.upper() in ALGO_ORDER_TYPES
         force_main_api = False
 
-        if use_algo_api:
-            if params.get("closePosition"):
-                self.logger.info(
-                    f"🔄 Converting closePosition to reduceOnly for Algo Order {order_type} to avoid -4120"
-                )
-                # Restore quantity which might have been popped at line 1008
-                args["quantity"] = formatted_amount
-                args.pop("closePosition", None)
-                args["reduceOnly"] = "true"
-        else:
-            force_main_api = params.get("closePosition") is True or str(params.get("closePosition")).lower() == "true"
+        if params.get("closePosition") or str(params.get("closePosition")).lower() == "true":
+            # closePosition=True is ONLY supported on Main API
+            # If we have it, we MUST force Main API, or the Algo conversion will fail on zero quantity.
+            force_main_api = True
+            use_algo_api = False
+        elif use_algo_api:
+            # Regular Algo order with quantity
+            pass
 
         # Ensure stopPrice is added for ALL conditional orders, regardless of API used
         if params.get("stopPrice"):

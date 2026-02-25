@@ -248,6 +248,10 @@ class PositionTracker:
         self.total_wins = 0  # Track wins
         self.total_losses = 0  # Track losses
         self.total_errors = 0  # Track errors/forced closes
+        # Phase 248: HFT Loop Prevention - Cooldown for failed/aborted signals
+        # symbol -> cooldown_expiry_timestamp
+        self._aborted_cooldowns: Dict[str, float] = {}
+        self._cooldown_duration: float = 60.0  # Default 60 seconds
         self.total_timeouts = 0  # Track timeouts
 
         # Granular Session Counters (New vs Recovered)
@@ -821,6 +825,28 @@ class PositionTracker:
         """Calcula capital disponible (total - bloqueado)."""
         return max(0.0, total_equity - self.blocked_capital)
 
+    def is_symbol_blocked(self, symbol: str) -> bool:
+        """
+        Phase 248: Check if a symbol is in cooldown after an OCO_ABORT or failure.
+        """
+        normalized = normalize_symbol(symbol)
+        expiry = self._aborted_cooldowns.get(normalized, 0)
+        if time.time() < expiry:
+            return True
+        elif normalized in self._aborted_cooldowns:
+            # Clean up expired cooldown
+            del self._aborted_cooldowns[normalized]
+        return False
+
+    def add_aborted_cooldown(self, symbol: str, duration: Optional[float] = None):
+        """
+        Phase 248: Add a cooldown for a symbol after a failed trade attempt.
+        """
+        normalized = normalize_symbol(symbol)
+        duration = duration if duration is not None else self._cooldown_duration
+        self._aborted_cooldowns[normalized] = time.time() + duration
+        logger.warning(f"🛡️ Symbol {normalized} placed in Cooldown for {duration}s after ABORT/FAILED.")
+
     def can_open_position(self, required_margin: float, available_equity: float) -> bool:
         """
         Verifica si se puede abrir una nueva posición.
@@ -1220,8 +1246,10 @@ class PositionTracker:
         self.total_trades_closed += 1
 
         # Track wins/losses based on PnL (positive = win, negative/zero = loss)
-        if exit_reason in ["ERROR", "FORCED_CLOSE", "CLI_FORCE_CLOSE", "SAFETY_CLOSE"]:
+        if exit_reason in ["ERROR", "FORCED_CLOSE", "CLI_FORCE_CLOSE", "SAFETY_CLOSE", "OCO_ABORT"]:
             self.total_errors += 1
+            # Phase 248: Trigger cooldown for ungraceful exits to prevent HFT loops
+            self.add_aborted_cooldown(position.symbol)
         elif exit_reason in ["TIMEOUT", "TIME_EXIT"]:
             self.total_timeouts += 1
         elif pnl > 0:
