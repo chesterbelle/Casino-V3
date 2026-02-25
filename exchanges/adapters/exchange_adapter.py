@@ -616,13 +616,20 @@ class ExchangeAdapter(NetworkIterator):
             )
         raise NotImplementedError(f"Connector {self.connector.__class__.__name__} does not support amend_order")
 
-    async def cancel_all_orders(self, symbol: str = None) -> None:
+    async def cancel_all_orders(self, symbol: str = None, timeout: Optional[float] = None) -> None:
         """
         Cancel ALL open orders for a symbol.
         """
         symbol = symbol or self.symbol
         if hasattr(self.connector, "cancel_all_orders"):
-            await self.connector.cancel_all_orders(symbol)
+            # Ensure the connector accepts timeout before passing it (backward compatibility)
+            import inspect
+
+            sig = inspect.signature(self.connector.cancel_all_orders)
+            if "timeout" in sig.parameters:
+                await self.connector.cancel_all_orders(symbol, timeout=timeout)
+            else:
+                await self.connector.cancel_all_orders(symbol)
         else:
             # Fallback: Individual cancellation (Slow)
             orders = await self.connector.fetch_open_orders(symbol)
@@ -644,7 +651,18 @@ class ExchangeAdapter(NetworkIterator):
         Returns:
             Order result
         """
-        return await self.connector.create_market_order(symbol=symbol, side=side, amount=amount, params=params)
+        params_copy = dict(params) if params else {}
+        timeout = params_copy.pop("timeout", None)
+
+        # Pass timeout explicitly to connector if it supports it
+        import inspect
+
+        sig = inspect.signature(self.connector.create_market_order)
+        if "timeout" in sig.parameters:
+            return await self.connector.create_market_order(
+                symbol=symbol, side=side, amount=amount, params=params_copy, timeout=timeout
+            )
+        return await self.connector.create_market_order(symbol=symbol, side=side, amount=amount, params=params_copy)
 
     async def fetch_open_orders(self, symbol: str = None) -> list:
         """

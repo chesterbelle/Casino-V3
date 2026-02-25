@@ -1195,6 +1195,11 @@ class PositionTracker:
             "slippage_pct": 0.0,  # TODO: Calculate if decision price available
         }
 
+        # Phase 247: Prevent Double Recording (Ghost Inflation)
+        # Set an ultra-fast in-memory flag before passing to historian thread.
+        # This stops ReconciliationService from ghost-auditing positions we've already closed.
+        position._closure_recorded = True
+
         # Remover de pending si estaba
         if trade_id in self.pending_confirmations:
             del self.pending_confirmations[trade_id]
@@ -1394,10 +1399,11 @@ class PositionTracker:
         if not found_pos:
             return False
 
-        # Phase 72: Double Accounting Protection
-        # If position is already OFF_BOARDING (e.g. handled by Recon), just finalize removal without duplicating stats
-        if getattr(found_pos, "status", "") == "OFF_BOARDING":
-            logger.info(f"⏭️ Skipping Ghost Audit for {trade_id} (Already OFF_BOARDING). Proceeding to cleanup.")
+        # Phase 247: Ghost Inflation Protection (Double Accounting)
+        # If the position has already been handled by `confirm_close` (Healer/Liq Sheriff),
+        # its PnL is already in the DB. Skip ghost audit entirely.
+        if getattr(found_pos, "_closure_recorded", False) or getattr(found_pos, "status", "") == "OFF_BOARDING":
+            logger.info(f"⏭️ Skipping Ghost Audit for {trade_id} (Already Handled). Proceeding to cleanup.")
             self._unregister_all_aliases(found_pos)
             await self.finalize_removal(trade_id)
             return True

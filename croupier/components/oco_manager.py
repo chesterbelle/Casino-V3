@@ -428,10 +428,11 @@ class OCOManager:
 
             except Exception as e:
                 # If TP/SL creation fails, the position is broken/partial.
-                # _cleanup_partial_oco will close it on exchange.
-                # We must also remove it from tracker.
-                self.logger.error("❌ OCO Creation failed after Position Registration. Rolling back state...")
-                await self.tracker.remove_position(position.trade_id)
+                # The exception is delegated to the outer handler which performs `_cleanup_partial_oco`
+                # and properly records the aborted trade by calling `confirm_close(reason="OCO_ABORT")`.
+                self.logger.error(
+                    "❌ OCO Creation failed after Position Registration. Rolling back state via global handler..."
+                )
                 raise e
 
             return {
@@ -481,13 +482,21 @@ class OCOManager:
                     sl_order if "sl_order" in locals() else None,
                 )
             if position:
-                # Phase 69: Do NOT remove if main order filled.
-                # Let Auditor heal the "Naked" position instead of creating a "Ghost".
+                # Phase 247: If main order filled, _cleanup_partial_oco has already executed an EMERGENCY BYPASS.
+                # We MUST call confirm_close to explicitly record this aborted trade in the Historian,
+                # which also sets `_closure_recorded = True` and `status = OFF_BOARDING`,
+                # preventing ReconciliationService from spawning a duplicate Ghost Removal.
                 if "main_order" in locals() and main_order:
                     self.logger.warning(
-                        f"🛡️ OCO Failed but Main Filled. Keeping {position.trade_id} for Auditor healing."
+                        f"🛡️ OCO Failed but Main Filled. Calling confirm_close for {position.trade_id} to finalize bypass."
                     )
-                    position.status = "ACTIVE"  # Ensure it is visible to Auditor
+                    self.tracker.confirm_close(
+                        trade_id=position.trade_id,
+                        exit_price=position.entry_price,  # Neutral price for bypass aborted trade
+                        exit_reason="OCO_ABORT",
+                        pnl=0.0,
+                        fee=getattr(position, "entry_fee", 0.0),
+                    )
                 else:
                     await self.tracker.remove_position(position.trade_id)
             error_desc = str(e) or e.__class__.__name__ or str(type(e))

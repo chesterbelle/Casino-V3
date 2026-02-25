@@ -32,7 +32,7 @@ class ReconciliationWorker(mp.Process):
             BinanceNativeConnector,
         )
 
-        connector = BinanceNativeConnector(api_key=self.api_key, secret=self.secret_key, testnet=self.testnet)
+        connector = BinanceNativeConnector(key=self.api_key, secret=self.secret_key, is_testnet=self.testnet)
 
         # We only need the REST capabilities, no streams
         try:
