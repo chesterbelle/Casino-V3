@@ -16,6 +16,8 @@ class BalanceManager:
         self.balance = starting_balance
         self.equity = starting_balance
         self.history = []
+        # Phase 249: PortfolioGuard hook (set by Croupier after init)
+        self._portfolio_guard = None
 
     def apply_trade_result(self, pnl: float, fee: float):
         """Aplica el resultado de una operación."""
@@ -58,6 +60,9 @@ class BalanceManager:
         """
         self.balance = new_balance
         self.equity = new_balance
+        # Phase 249: Notify PortfolioGuard
+        if self._portfolio_guard:
+            self._portfolio_guard.on_balance_update(self.equity)
 
     def add_balance_delta(self, delta: float):
         """
@@ -94,6 +99,9 @@ class BalanceManager:
                 self.balance = wallet_balance
                 self.equity = wallet_balance  # In a more complex setup, we'd add unrealized PnL
                 logger.info(f"💰 Real-Time Balance Update: {self.balance:.2f} USDT")
+                # Phase 249: Notify PortfolioGuard
+                if self._portfolio_guard:
+                    self._portfolio_guard.on_balance_update(self.equity)
                 break
 
     def get_state(self):

@@ -66,6 +66,8 @@ class ErrorHandler:
         self._circuit_breakers: dict[str, CircuitBreaker] = {}
         self._error_counts: dict[str, int] = {}
         self.shutdown_mode: bool = False
+        # Phase 249: PortfolioGuard hook (set externally)
+        self._portfolio_guard = None
 
     def get_circuit_breaker(
         self,
@@ -259,6 +261,13 @@ class ErrorHandler:
                     # Record failure for actual system issues (Network, Timeout, etc)
                     # or if the call was cancelled (which we treat as a timeout/failure).
                     await breaker.record_failure()
+
+                # Phase 249: Notify PortfolioGuard of execution errors
+                if self._portfolio_guard:
+                    try:
+                        self._portfolio_guard.on_execution_error(classification.category.value, breaker_name)
+                    except Exception:
+                        pass  # Guard must never block execution
 
                 raise e
 

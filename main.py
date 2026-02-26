@@ -532,6 +532,18 @@ async def main():
         )
         logger.info("🐶 Liquidity Watchdog background task launched.")
         # ----------------------------------------
+
+        # Phase 249: Update PortfolioGuard with live constraints
+        # Use common min_notional from Flytest or default
+        min_notional = 20.0
+        if active_symbols:
+            try:
+                min_notional = await adapter.get_min_notional(active_symbols[0])
+            except Exception:
+                pass
+
+        croupier.portfolio_guard.update_config(min_notional=min_notional, bet_size=args.bet_size)
+        logger.info(f"🛡️ PortfolioGuard calibrated: MinNotional=${min_notional:.2f}, Bet={args.bet_size:.2%}")
     else:
         # Single mode
         active_symbols = [args.symbol]
@@ -729,6 +741,12 @@ async def main():
             # Use short sleep to keep main active but light
             # UI/Metrics now handled by ui_monitor_task
             await asyncio.sleep(1.0)
+
+            # Phase 249: PortfolioGuard TERMINAL check (Kill Switch)
+            if getattr(croupier, "_kill_switch_triggered", False):
+                logger.critical("🚨 PORTFOLIO GUARD: TERMINAL state detected. Initiating shutdown.")
+                exit_reason_str = "PORTFOLIO_GUARD"
+                break
 
             # Check timeout
             if args.timeout:

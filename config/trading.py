@@ -119,6 +119,37 @@ FLYTEST_MIN_DEPTH_MULT = 3.0
 FLYTEST_DEPTH_CHECK_PCT = 0.01
 
 # =====================================================
+# 🛡️ PORTFOLIO GUARD (Risk Management)
+# =====================================================
+
+# Master switch for the guard. When disabled, all checks are skipped.
+PORTFOLIO_GUARD_ENABLED = True
+
+# Drawdown velocity (rolling window)
+# If equity drops by this % within the window → escalate state.
+GUARD_CAUTION_DRAWDOWN_PCT = 0.05  # 5% loss → CAUTION (block new entries)
+GUARD_CRITICAL_DRAWDOWN_PCT = 0.10  # 10% loss → CRITICAL (drain mode)
+GUARD_DRAWDOWN_WINDOW_MINUTES = 30  # Rolling window for drawdown calc
+
+# Loss streak (consecutive losing trades)
+GUARD_MAX_CONSECUTIVE_LOSSES = 5  # → CRITICAL after N consecutive losses
+
+# Error rate (execution errors in a time window)
+GUARD_MAX_ERRORS_WINDOW = 10  # N errors → TERMINAL (emergency shutdown)
+GUARD_ERROR_WINDOW_MINUTES = 5
+
+# Solvency: equity * bet_size must be >= min_notional * multiplier
+GUARD_SOLVENCY_MULTIPLIER = 1.25
+
+# Sizing violations (order notional < exchange minimum)
+GUARD_CAUTION_SIZING_VIOLATIONS = 3  # → CAUTION
+GUARD_TERMINAL_SIZING_VIOLATIONS = 10  # → TERMINAL
+
+# Recovery cooldown: minimum time in elevated state before allowing recovery
+GUARD_RECOVERY_COOLDOWN_SECONDS = 300  # 5 minutes
+
+
+# =====================================================
 # 🌍 MULTI-ASSET CONFIGURATION
 # =====================================================
 # Flytest will filter symbols based on MIN_NOTIONAL requirements:

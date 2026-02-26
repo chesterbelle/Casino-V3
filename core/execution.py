@@ -10,6 +10,7 @@ import time
 import config.trading
 from core.events import EventType
 from core.observability import metrics
+from core.portfolio.portfolio_guard import GuardState
 from croupier.croupier import Croupier
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,12 @@ class OrderManager:
             self.processed_decisions.add(decision_id)
             logger.debug(f"📥 Processing DecisionEvent {decision_id}")
 
+        # Phase 249: PortfolioGuard entry gate
+        guard = getattr(self.croupier, "portfolio_guard", None)
+        if guard and guard.state >= GuardState.CAUTION:
+            logger.warning(f"🛡️ GUARD: Rejecting entry for {symbol} " f"(state={guard.state.name})")
+            return
+
         # Construct Order Payload
         trade_id = f"V3_{int(time.time()*1000)}"
 
@@ -144,6 +151,22 @@ class OrderManager:
             )
         except Exception as e:
             logger.error(f"❌ Sizing calculation failed for {symbol}: {e}")
+            return
+
+        # Phase 249: Min Notional Solvency Gate
+        try:
+            min_notional = self.croupier.exchange_adapter.get_min_notional(symbol)
+        except Exception:
+            min_notional = 20.0  # Safe default for Binance Futures
+
+        if position_value < min_notional:
+            logger.error(
+                f"❌ SIZING VIOLATION: {symbol} notional ${position_value:.2f} < "
+                f"min ${min_notional:.2f}. Balance too low to trade."
+            )
+            guard = getattr(self.croupier, "portfolio_guard", None)
+            if guard:
+                guard.on_sizing_violation(symbol, position_value, min_notional)
             return
 
         # Validate minimum amount after precision rounding

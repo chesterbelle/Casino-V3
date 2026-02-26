@@ -26,6 +26,7 @@ from core.observability.historian import historian
 
 # Phase 31: OrderTracker removed - PositionTracker is now the single source of truth
 from core.portfolio.balance_manager import BalanceManager
+from core.portfolio.portfolio_guard import GuardConfig, GuardState, PortfolioGuard
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
@@ -140,6 +141,31 @@ class Croupier(TimeIterator):
         # Track pending closures to prevent premature shutdown before PnL is recorded
         self._pending_closures: set = set()
 
+        # Phase 249: PortfolioGuard (Event-Driven Risk Monitor)
+        self._kill_switch_triggered: bool = False
+        guard_cfg = GuardConfig(
+            enabled=getattr(trading_config, "PORTFOLIO_GUARD_ENABLED", True),
+            caution_drawdown_pct=getattr(trading_config, "GUARD_CAUTION_DRAWDOWN_PCT", 0.05),
+            critical_drawdown_pct=getattr(trading_config, "GUARD_CRITICAL_DRAWDOWN_PCT", 0.10),
+            drawdown_window_minutes=getattr(trading_config, "GUARD_DRAWDOWN_WINDOW_MINUTES", 30),
+            max_consecutive_losses=getattr(trading_config, "GUARD_MAX_CONSECUTIVE_LOSSES", 5),
+            max_errors_in_window=getattr(trading_config, "GUARD_MAX_ERRORS_WINDOW", 10),
+            error_window_minutes=getattr(trading_config, "GUARD_ERROR_WINDOW_MINUTES", 5),
+            solvency_multiplier=getattr(trading_config, "GUARD_SOLVENCY_MULTIPLIER", 1.25),
+            caution_sizing_violations=getattr(trading_config, "GUARD_CAUTION_SIZING_VIOLATIONS", 3),
+            terminal_sizing_violations=getattr(trading_config, "GUARD_TERMINAL_SIZING_VIOLATIONS", 10),
+            recovery_cooldown_seconds=getattr(trading_config, "GUARD_RECOVERY_COOLDOWN_SECONDS", 300),
+        )
+        self.portfolio_guard = PortfolioGuard(guard_cfg)
+        self.portfolio_guard.add_state_listener(self._on_guard_state_change)
+
+        # Wire guard into BalanceManager and ErrorHandler
+        self.balance_manager._portfolio_guard = self.portfolio_guard
+        self.error_handler._portfolio_guard = self.portfolio_guard
+
+        # Wire trade close events to guard (via PositionTracker listener)
+        self.position_tracker.add_close_listener(self._on_trade_close_guard)
+
     @property
     def is_settled(self) -> bool:
         """
@@ -172,6 +198,32 @@ class Croupier(TimeIterator):
         self.is_shutting_down = enabled
         if enabled:
             self.logger.warning("🏁 Croupier: SHUTDOWN SIGNAL RECEIVED. Severing non-sweep activities.")
+
+    # =========================================================
+    # PHASE 249: PORTFOLIO GUARD INTEGRATION
+    # =========================================================
+
+    def _on_guard_state_change(self, old_state: GuardState, new_state: GuardState, reason: str):
+        """Handle graduated response from PortfolioGuard."""
+        if new_state == GuardState.CAUTION:
+            self.logger.warning(f"🛡️ PORTFOLIO GUARD → CAUTION: {reason}. " "New entries blocked.")
+        elif new_state == GuardState.CRITICAL:
+            self.logger.critical(f"🚨 PORTFOLIO GUARD → CRITICAL: {reason}. " "Activating drain mode.")
+            if not self.is_drain_mode:
+                self.set_drain_mode(True)
+        elif new_state == GuardState.TERMINAL:
+            self.logger.critical(f"💀 PORTFOLIO GUARD → TERMINAL: {reason}. " "Emergency shutdown initiated.")
+            if not self.is_drain_mode:
+                self.set_drain_mode(True)
+            self._kill_switch_triggered = True
+        elif new_state == GuardState.HEALTHY:
+            self.logger.info(f"✅ PORTFOLIO GUARD → HEALTHY: {reason}. " "Normal operation resumed.")
+
+    def _on_trade_close_guard(self, trade_id: str, result: dict):
+        """Forward trade close events to PortfolioGuard for loss streak tracking."""
+        pnl = result.get("pnl", 0.0)
+        exit_reason = result.get("exit_reason", "UNKNOWN")
+        self.portfolio_guard.on_trade_closed(pnl, exit_reason)
 
     async def _apply_drain_phase(self, phase: str):
         """Helper to apply a drain phase to all active positions."""
