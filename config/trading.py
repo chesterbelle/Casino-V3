@@ -142,8 +142,8 @@ GUARD_ERROR_WINDOW_MINUTES = 5
 GUARD_SOLVENCY_MULTIPLIER = 1.25
 
 # Sizing violations (order notional < exchange minimum)
-GUARD_CAUTION_SIZING_VIOLATIONS = 3  # → CAUTION
-GUARD_TERMINAL_SIZING_VIOLATIONS = 10  # → TERMINAL
+GUARD_CAUTION_SIZING_VIOLATIONS = 1  # 1 violation → CAUTION
+GUARD_TERMINAL_SIZING_VIOLATIONS = 2  # 2 violations → TERMINAL (Buffer for rounding flutters)
 
 # Recovery cooldown: minimum time in elevated state before allowing recovery
 GUARD_RECOVERY_COOLDOWN_SECONDS = 300  # 5 minutes

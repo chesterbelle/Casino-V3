@@ -166,6 +166,10 @@ class Croupier(TimeIterator):
         # Wire trade close events to guard (via PositionTracker listener)
         self.position_tracker.add_close_listener(self._on_trade_close_guard)
 
+        # Phase 249.1: Trigger initial solvency check (Startup Sanity)
+        if initial_balance > 0:
+            self.portfolio_guard.on_balance_update(initial_balance)
+
     @property
     def is_settled(self) -> bool:
         """

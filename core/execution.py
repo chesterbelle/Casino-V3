@@ -177,6 +177,10 @@ class OrderManager:
                 f"Equity={current_equity:.2f} | BetSize={bet_size:.2%} | "
                 f"Suggestion: Increase bet size or use higher equity"
             )
+            # Phase 249.2: Notify guard of rounding down to zero
+            guard = getattr(self.croupier, "portfolio_guard", None)
+            if guard:
+                guard.on_sizing_violation(symbol, position_value, 0.0)  # 0.0 signals rounding fail
             return
 
         logger.info(
