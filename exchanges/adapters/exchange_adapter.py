@@ -357,9 +357,10 @@ class ExchangeAdapter(NetworkIterator):
             # Phase 230: Fast-Track Optimization (Cache First)
             cached_price = self.get_cached_price(symbol)
             if cached_price and cached_price > 0:
+                # Phase 310: Explicitly permit 60s ticker silence on low-volume pairs before REST fallback
                 # Check if cache is stale (Price lookup only needs ticker)
                 if hasattr(self.connector, "is_cache_stale") and not self.connector.is_cache_stale(
-                    symbol, check_order_book=False
+                    symbol, threshold_ms=60000, check_order_book=False
                 ):
                     self.logger.info(f"💾 Using cached price for {symbol}: {cached_price}")
                     return cached_price
@@ -401,8 +402,8 @@ class ExchangeAdapter(NetworkIterator):
             return self.connector.get_cached_order_book(symbol)
         return None
 
-    def is_cache_stale(self, symbol: str = None, threshold_ms: int = 1500, **kwargs) -> bool:
-        """Check if cached data is older than threshold (Phase 230)."""
+    def is_cache_stale(self, symbol: str = None, threshold_ms: int = 60000, **kwargs) -> bool:
+        """Check if cached data is older than threshold (Phase 230/310)."""
         symbol = symbol or self.symbol
         if hasattr(self.connector, "is_cache_stale"):
             return self.connector.is_cache_stale(symbol, threshold_ms, **kwargs)
