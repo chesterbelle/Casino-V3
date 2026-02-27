@@ -30,7 +30,13 @@ El objetivo es eliminarlos completamente.
 .venv/bin/python main.py --mode demo --symbol MULTI --timeout 150 --close-on-exit 2>&1 | tee logs/stress_test_$(date +%Y%m%d_%H%M%S).log
 ```
 
-### 3. Analizar SESSION SUMMARY
+### 3. Auditoría Estadística (Protocolo V2)
+// turbo
+```bash
+.venv/bin/python utils/audit_logs.py logs/stress_test_$(ls -t logs/ | head -1)
+```
+
+### 4. Analizar SESSION SUMMARY
 Al finalizar, revisar:
 ```
 ==========================================
@@ -49,6 +55,9 @@ Al finalizar, revisar:
 
 ## Criterio de Éxito
 - [ ] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
+- [ ] **Trade Efficiency Ratio < 1.5** (Trades/Signals) ← FASE 300
+- [ ] **Ghost Removals = 0** (No Auditor healing allowed) ← FASE 300
+- [ ] **Exchange Errors (-4003) = 0** ← FASE 300
 - [ ] **Event Integrity = 100%** (0 logs de `WS Event UNMATCHED`)
 - [ ] **API Stability = 100%** (0 logs de error `(-4120)`)
 - [ ] **Airlock Latency = 100%** (0 warnings de `🐢 High Airlock Latency`)

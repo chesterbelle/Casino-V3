@@ -34,9 +34,10 @@ Each layer must pass before proceeding to the next.
 ```
 **Must pass**: 0 UNMATCHED events, Error Recovery = $0, Integrity ✅
 
-## Verify No Orphans
+### Layer 4 Verification (Protocol V2)
+// turbo
 ```bash
-grep -c "UNMATCHED" logs/chaos_test_*.log 2>/dev/null || echo "0 unmatched"
+.venv/bin/python utils/audit_logs.py logs/chaos_test_$(ls -t logs/ | head -1)
 ```
 
 ## Success Criteria
@@ -44,3 +45,4 @@ grep -c "UNMATCHED" logs/chaos_test_*.log 2>/dev/null || echo "0 unmatched"
 - [x] Layer 2: Multi-symbol concurrency + integrity pass
 - [x] Layer 3: Bracket latency < 500ms avg, TP/SL parallel
 - [x] Layer 4: 0 UNMATCHED, 0 error trades, clean integrity
+- [x] Statistical Health: Audit V2 PASS (Ratio < 1.5, 0 Ghosts)

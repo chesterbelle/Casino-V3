@@ -127,6 +127,10 @@ class HFTLatencyBenchmark:
         logger.info(f"💰 Balance: ${self.initial_balance:,.2f}")
 
         self.croupier = Croupier(exchange_adapter=self.adapter, initial_balance=self.initial_balance)
+        # Phase 240: Disable PortfolioGuard during HFT benchmarks to avoid "5 consecutive losses"
+        # from force-closed test positions triggering Drain Mode and failing the test.
+        self.croupier.portfolio_guard.config.enabled = False
+
         self.recon_service = ReconciliationService(
             self.adapter, self.croupier.position_tracker, self.croupier.oco_manager, self.croupier
         )

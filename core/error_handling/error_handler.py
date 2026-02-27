@@ -265,7 +265,15 @@ class ErrorHandler:
                 # Phase 249: Notify PortfolioGuard of execution errors
                 if self._portfolio_guard:
                     try:
-                        self._portfolio_guard.on_execution_error(classification.category.value, breaker_name)
+                        # Phase 300: Filter business-logic races / sync lags from execution health
+                        semantic_errors = [
+                            ErrorCategory.POSITION_ALREADY_CLOSED,
+                            ErrorCategory.ORDER_NOT_FOUND,
+                            ErrorCategory.GRACEFUL_SHUTDOWN,
+                            ErrorCategory.INVALID_ORDER,
+                        ]
+                        if classification.category not in semantic_errors:
+                            self._portfolio_guard.on_execution_error(classification.category.value, breaker_name)
                     except Exception:
                         pass  # Guard must never block execution
 

@@ -67,7 +67,11 @@ class ExitManager:
 
         for position in positions[:]:
             # Phase 243: Skip positions already in closure or if reactor is shutting down
-            if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
+            if (
+                position.status == "CLOSING"
+                or self.croupier.error_handler.shutdown_mode
+                or getattr(position, "shadow_sl_triggered", False)
+            ):
                 continue
 
             self.logger.debug(f"⚡ Processing Candle Exit Logic for {position.symbol} | Price: {current_price}")
@@ -84,14 +88,19 @@ class ExitManager:
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
         for position in positions[:]:
             # Phase 243: Skip positions already in closure or if reactor is shutting down
-            if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
+            if (
+                position.status == "CLOSING"
+                or self.croupier.error_handler.shutdown_mode
+                or getattr(position, "shadow_sl_triggered", False)
+            ):
                 continue
             # 1. Trigger Shadow SL Market Close (Airlock Bypass)
-            if position.shadow_sl_level is not None:
+            if position.shadow_sl_level is not None and position.shadow_sl_level > 0:
                 if position.side == "LONG" and current_price <= position.shadow_sl_level:
                     self.logger.warning(
                         f"🚨 Shadow SL Triggered for {position.trade_id} @ {current_price:.6f} (Threshold: {position.shadow_sl_level:.6f})"
                     )
+                    position.shadow_sl_triggered = True
                     asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason="SHADOW_SL"))
                     position.shadow_sl_level = None  # Prevent multi-triggers
                     continue
@@ -99,6 +108,7 @@ class ExitManager:
                     self.logger.warning(
                         f"🚨 Shadow SL Triggered for {position.trade_id} @ {current_price:.6f} (Threshold: {position.shadow_sl_level:.6f})"
                     )
+                    position.shadow_sl_triggered = True
                     asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason="SHADOW_SL"))
                     position.shadow_sl_level = None  # Prevent multi-triggers
                     continue
@@ -334,7 +344,7 @@ class ExitManager:
         if position.entry_price <= 0:
             return
 
-        if position.shadow_sl_level is None:
+        if position.shadow_sl_level is None and position.sl_level > 0:
             position.shadow_sl_level = position.sl_level  # Initialize to hard SL
 
         if position.side == "LONG":
@@ -360,7 +370,7 @@ class ExitManager:
         """Phase 241: Update Shadow SL to follow price if activation threshold reached."""
         if position.entry_price <= 0:
             return
-        if position.shadow_sl_level is None:
+        if position.shadow_sl_level is None and position.sl_level > 0:
             position.shadow_sl_level = position.sl_level
 
         if position.side == "LONG":

@@ -33,7 +33,13 @@ Este test es más rápido que el stress-test (10 min vs 150 min).
     2>&1 | tee logs/chaos_test_$(date +%Y%m%d_%H%M%S).log
 ```
 
-### 3. Verificar Eventos Perdidos
+### 3. Auditoría de Integridad (Protocolo V2)
+// turbo
+```bash
+.venv/bin/python utils/audit_logs.py logs/chaos_test_$(ls -t logs/ | head -1)
+```
+
+### 4. Verificar Eventos Perdidos
 // turbo
 ```bash
 grep -c "UNMATCHED" logs/chaos_test_*.log 2>/dev/null || echo "0 unmatched"
@@ -41,6 +47,7 @@ grep -c "UNMATCHED" logs/chaos_test_*.log 2>/dev/null || echo "0 unmatched"
 
 ## Criterio de Éxito
 - [x] **0 eventos UNMATCHED en logs** ← CRÍTICO
+- [ ] **0 Ghost Removals** (Estructura OCO pura) ← FASE 300
 - [ ] Error Recovery = $0.00 (0 error trades)
 - [ ] Integrity Check PASS
 - [ ] Test completa sin hang (máx 11 minutos)
