@@ -101,7 +101,7 @@ grep "Pending Order" redo_round_1_v4.log | wc -l
 **Solutions**:
 1. This is **normal** behavior during signal storms
 2. Locks auto-release after order completes
-3. If symbol permanently stuck, check `state_audit.py`
+3. If symbol permanently stuck, restart the bot with `--close-on-exit`
 
 ### Positions Not Closing on Shutdown
 
@@ -118,8 +118,8 @@ python state_audit.py --symbol MULTI
 
 **Solution**:
 ```bash
-# Manual cleanup
-python sweep_exchange.py --symbol MULTI
+# Use the bot's built-in emergency sweep
+python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
 ```
 
 ### "Notional too small" (-4164)
@@ -271,13 +271,52 @@ INFO:Audit:Summary: Symbols Checked=5, Potential Orphans/Zombies=2
 
 **Solutions**:
 ```bash
-# Clean orphan orders/positions
-python sweep_exchange.py --symbol MULTI
+# Reset state and restart fresh
+python reset_data.py
 
-# Verify cleanup
-python state_audit.py --symbol MULTI
-# Should show: Potential Orphans/Zombies=0
+# Or use emergency sweep mode
+python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
 ```
+
+### Shadow SL Triggered (Frequent)
+
+**Cause**: ExitManager detects price crossing the in-memory stop-loss threshold
+
+**Diagnosis**:
+```bash
+grep "Shadow SL Triggered" logs/stress_test_*.log | wc -l
+```
+
+**Understanding**: Shadow SL hits are **normal** and expected. Each hit represents a single position being closed because price crossed the SL threshold in memory before the exchange SL order could fill. This is a feature, not a bug.
+
+### Ghost Position Removals
+
+**Cause**: Positions "adopted" from exchange that were closed externally
+
+**Diagnosis**:
+```bash
+grep "Analyzing Ghost Position" logs/stress_test_*.log
+```
+
+**Understanding**: Ghost removals of 1-2 per 150-minute session are normal ("Orphan Hygiene"). The system correctly identifies, audits, and closes these positions. Only flag if count exceeds 5.
+
+### HFT Latency Too High (T0-T2 > 50ms)
+
+**Cause**: WebSocket cache misses causing REST API fallbacks
+
+**Diagnosis**:
+```bash
+# Check cache misses
+grep "Cache miss/stale" logs/stress_test_*.log | wc -l
+
+# Check aggregator wait time
+grep "Strat Aggregation" logs/stress_test_*.log
+```
+
+**Solutions**:
+1. Increase cache threshold in `exchange_adapter.py` (`threshold_ms`, default: 60000)
+2. Reduce `SIGNAL_TIMEOUT_MS` in `aggregator.py` (default: 20ms)
+3. Ensure WebSocket shards are connected (`grep "Connected" workers.log`)
 
 ### State File Corruption
 
@@ -376,8 +415,8 @@ tail -n 100 bot.log
 # Force shutdown
 pkill -9 -f main.py
 
-# Clean exchange (important!)
-python sweep_exchange.py --symbol MULTI
+# Clean exchange
+python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
 
 # Restart bot
 ```
@@ -386,17 +425,14 @@ python sweep_exchange.py --symbol MULTI
 
 **Immediate Action**:
 ```bash
-# 1. Kill bot (don't move files, just kill)
+# 1. Kill bot
 pkill -9 -f main.py
 
-# 2. Close all positions manually
-python sweep_exchange.py --symbol MULTI
+# 2. Close all positions
+python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
 
-# 3. Review logs
-grep "Position closed" bot.log | tail -20
-
-# 4. Investigate before restarting
-python state_audit.py --symbol MULTI
+# 3. Review session summary in the last log
+tail -50 logs/stress_test_*.log | grep -A 30 "SESSION SUMMARY"
 ```
 
 ---
@@ -449,13 +485,13 @@ If issues persist after troubleshooting:
 # System info
 uname -a
 python --version
-pip list > requirements_installed.txt
+pip list > /tmp/requirements_installed.txt
 
 # Recent logs
-tail -n 500 bot.log > debug_logs.txt
+tail -n 500 logs/stress_test_*.log > /tmp/debug_logs.txt
 
-# State audit
-python state_audit.py --symbol MULTI > audit_report.txt
+# Run audit
+python utils/audit_logs.py logs/stress_test_*.log
 ```
 
 2. **File GitHub Issue**:
@@ -481,6 +517,7 @@ python state_audit.py --symbol MULTI > audit_report.txt
 | -2013 | Order doesn't exist | Ignore (already gone) |
 | -2019 | Margin insufficient | Increase balance |
 | -2021 | Order would trigger | Price too close to market |
+| -2022 | ReduceOnly rejected | Position already closed |
 | -4003 | Quantity too small | Increase bet size |
 | -4164 | Notional too small | Increase bet size or leverage |
 

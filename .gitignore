@@ -1,31 +1,31 @@
-# Archivos y carpetas de caché de Python
+# Python
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 
-# Archivos de entorno
+# Environment
 .env
+.idea/
+.vscode/
 
-# Logs (commented out to allow log viewing)
-# *.log
-# *.txt
-# *.json
-
-# Data
-*.csv
+# Runtime data
+data/
 *.db
-binance_info.json
+*.db-wal
+*.db-shm
+
+# Logs (all)
+*.log
+logs/
 
 # State
 state/
 
-# Archivos de entorno y logs
-.idea/
+# Debug dumps (prevent future leakage)
+*.txt
+!requirements.txt
 
-# Testing temporales (commented out to allow log viewing)
-# testing_*.log
-# RESULTADOS_TEST_*.md
-# RELEASE_NOTES_*.md
-logs/*.log
-logs/*.json
-*.log
+# OS
+.DS_Store
+Thumbs.db

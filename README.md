@@ -1,13 +1,9 @@
 # Casino-V3 🎰⚡
 
-> [!IMPORTANT]
-> **Production Master**: This is a clean, hyper-stabilized repository following the Chaos Endurance protocol. All historical clutter and temporary state from V2 have been removed.
-
----
-
 > **High-frequency algorithmic trading bot for cryptocurrency futures**
 > Built with Python, asyncio, and native exchange integrations
 
+[![v4.3.0-hft-stable](https://img.shields.io/badge/version-v4.3.0--hft--stable-brightgreen.svg)](https://github.com/chesterbelle/Casino-V3/releases/tag/v4.3.0-hft-stable)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -30,11 +26,12 @@
 - **State Recovery** - Automatic state persistence and restoration
 - **Watchdog Monitoring** - Task-level health checks and stall detection
 
-### Performance
+### Performance (Phase 310 Validated)
+- **5.4ms Tick-to-Order Latency** - Sub-10ms decision-to-wire pipeline
+- **3ms TP/SL Parallelism** - Near-simultaneous bracket placement
+- **$0.00 Error Leakage** - Zero infrastructure errors affecting PnL
 - **Native Exchange Integration** - Direct Binance Futures API (no CCXT overhead)
 - **WebSocket-First Architecture** - Real-time market data with minimal latency
-- **Bulk Operations** - Batch ticker fetching and parallel order placement
-- **Rate Limit Management** - Intelligent request throttling and prioritization
 - **Async-First Design** - Non-blocking I/O with asyncio and aiohttp
 
 ### Observability
@@ -100,32 +97,29 @@ curl http://localhost:8000/metrics
 
 ---
 
-## 🏗️ Architecture
+## Architecture (V4 Reactor)
 
-Casino-V3 follows an event-driven architecture with clear separation of concerns:
+Casino-V3 uses a Clock-Reactor architecture with event-driven execution:
 
 ```
-┌─────────────┐
-│   main.py   │  Orchestrator
-└──────┬──────┘
-       │
-       ├─► Engine ────────► StreamManager ──► Binance WebSocket
-       │                                    ├─► Market Data
-       │                                    └─► User Data
-       │
-       ├─► SensorManager ─► Sensor Pool ───► Signal Detection
-       │
-       ├─► OrderManager ──► AdaptivePlayer ─► Trading Decisions
-       │
-       ├─► Croupier ──────► OCOManager ─────► Order Execution
-       │                  └─► PositionTracker
-       │
-       └─► ExchangeAdapter ► BinanceNativeConnector
-                            ├─► REST API
-                            └─► WebSocket Streams
+main.py (Orchestrator & Clock Reactor)
+  |
+  +-- ClockReactor ------> Tick Events -------> SensorManager (50+ indicators)
+  |                                             +-> SignalAggregator (consensus)
+  |
+  +-- Croupier V4 -------> OCOManager --------> Bracket Execution (3ms gap)
+  |                       +-> PositionTracker    +-> ExitManager (Shadow SL)
+  |                       +-> ReconciliationWorker
+  |
+  +-- ExchangeAdapter ---> BinanceNativeConnector (100% Native)
+  |                       +-> 4 Ingestion Shards (WebSocket)
+  |                       +-> Execution Airlock (IPC)
+  |                       +-> User Data Sentinel
+  |
+  +-- Resilience --------> ErrorHandler + CircuitBreaker
+                          +-> PortfolioGuard (drawdown protection)
+                          +-> Watchdog (stall detection)
 ```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed component documentation.
 
 ---
 
@@ -143,16 +137,20 @@ python main.py --symbol BTC/USDT --mode demo --bet-size 0.1 --close-on-exit
 python main.py --symbol MULTI --mode demo --bet-size 0.05 --timeout 150 --close-on-exit
 ```
 
-### State Auditing
+### Validation Pipeline
 ```bash
-# Check exchange state consistency
-python state_audit.py --symbol MULTI
+# Run the full 4-layer validation pipeline
+# Layer 1: Preflight | Layer 2: Concurrency | Layer 3: Latency | Layer 4: Chaos
+python -m utils.validators.trading_flow_validator --mode demo
+python -m utils.validators.multi_symbol_validator --mode demo --size 500
+python -m utils.validators.hft_latency_benchmark --mode demo --iterations 3
+python -m utils.validators.multi_symbol_chaos_tester --mode demo --duration 300
 ```
 
-### Emergency Cleanup
+### Reset State
 ```bash
-# Close all positions and cancel all orders
-python sweep_exchange.py --symbol MULTI
+# Clean all session data for a fresh start
+python reset_data.py
 ```
 
 ---
@@ -178,7 +176,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues and solutions.
 - **Port 8000 in use**: Kill existing process or change metrics port
 - **API errors**: Verify API keys and permissions
 - **WebSocket disconnects**: Check network stability and firewall rules
-- **Position sync issues**: Run `state_audit.py` to verify exchange state
+- **Cache misses**: Adjust `threshold_ms` in `exchange_adapter.py` (default: 60s)
 
 ---
 

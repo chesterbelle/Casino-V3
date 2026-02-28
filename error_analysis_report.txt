@@ -1,3 +1,0 @@
-==== UNIQUE TRACEBACKS ====
-
-==== TOP 50 UNIQUE ERRORS ====
