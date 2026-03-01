@@ -216,7 +216,7 @@ STRATEGIES: Dict[str, dict] = {
     # QUICK SCALPER - Scalping de alta frecuencia optimizado
     # -----------------------------------------------------
     "QuickScalper": {
-        "enabled": True,  # ENABLED
+        "enabled": False,  # DISABLED IN PHASE 600
         "description": "Scalping de alta frecuencia con TP/SL ajustados",
         "logic": "Señales rápidas con confirmación de volumen. 1m-5m execution.",
         "sensors": [
@@ -249,8 +249,8 @@ STRATEGIES: Dict[str, dict] = {
     # FOOTPRINT SCALPER - Order Flow (Synthetic)
     # -----------------------------------------------------
     "FootprintScalper": {
-        "enabled": False,  # Disabled
-        "description": "Scalping based on synthetic Order Flow Imbalance",
+        "enabled": True,  # ENABLED IN PHASE 600
+        "description": "Scalping based on synthetic Order Flow Imbalance and Market Profile",
         "logic": "Follow aggressive imbalances, fade absorption. Context via Aggregator Consensus.",
         "sensors": [
             # --- Primary Triggers (Order Flow) ---

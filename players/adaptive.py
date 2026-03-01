@@ -134,13 +134,64 @@ class AdaptivePlayer:
             bet_size = self.fixed_pct
             sizing_method = "Fixed"
 
-        # Extract TP/SL from metadata if available
-        tp_pct = event.metadata.get("tp_pct") if event.metadata else None
-        sl_pct = event.metadata.get("sl_pct") if event.metadata else None
+        # Extract TP/SL from metadata if available (Dynamic Exits Phase 600)
+        tp_pct = event.metadata.get("tp_pct")
+        sl_pct = event.metadata.get("sl_pct")
+
+        # Phase 600: James Dalton Contextual Exits
+        if "poc" in event.metadata and "vah" in event.metadata and "val" in event.metadata:
+            # We have Market Profile data
+            poc = event.metadata["poc"]
+            vah = event.metadata["vah"]
+            val = event.metadata["val"]
+            current_price = event.metadata.get("price")  # We need price. If missing, we skip dynamic calc
+
+            # Rough estimation if current_price not explicitly in metadata: use the signal price or assume tight spread
+            # Best practice is for sensor to pass current price. Let's assume we have it or we can't calculate a relative %
+            if not current_price and "price" in event.metadata:
+                current_price = event.metadata["price"]
+
+            if current_price and current_price > 0:
+                if event.side == "LONG":
+                    # If entering a LONG near or below VAL, target the POC or VAH
+                    if current_price <= poc:
+                        # Target POC if below POC, VAH if near POC
+                        target_price = poc if (poc - current_price) / current_price > 0.001 else vah
+                        tp_pct = ((target_price - current_price) / current_price) * 100
+
+                    # Stop loss tightly below VAL if entering near VAL
+                    sl_target = val * 0.999  # Just below VAL
+                    calc_sl = ((current_price - sl_target) / current_price) * 100
+                    if calc_sl > 0:
+                        sl_pct = calc_sl
+
+                elif event.side == "SHORT":
+                    # If entering a SHORT near or above VAH, target POC or VAL
+                    if current_price >= poc:
+                        target_price = poc if (current_price - poc) / current_price > 0.001 else val
+                        tp_pct = ((current_price - target_price) / current_price) * 100
+
+                    # Stop loss tightly above VAH
+                    sl_target = vah * 1.001
+                    calc_sl = ((sl_target - current_price) / current_price) * 100
+                    if calc_sl > 0:
+                        sl_pct = calc_sl
+
+                # Ensure minimum logical TP/SLs for HFT
+                if tp_pct is not None:
+                    tp_pct = max(0.1, min(tp_pct, 2.0))
+                if sl_pct is not None:
+                    sl_pct = max(0.1, min(sl_pct, 2.0))
+
+        # Phase 600: Trader Dale Absorption Sizing
+        intensity = event.metadata.get("absorption_intensity", 1.0)
+        if intensity > 3.0 and bet_size:
+            # Highly asymmetric absorption -> slightly increase bet size confidence
+            bet_size = min(bet_size * 1.5, self.kelly_max if self.use_kelly else self.fixed_pct * 2.0)
 
         logger.info(
             f"🎯 Decision: {event.side} | {sizing_method} Bet: {bet_size:.2%} of {equity:.2f} | "
-            f"Sensor: {event.selected_sensor}"
+            f"Sensor: {event.selected_sensor} | TP: {tp_pct}% SL: {sl_pct}% (Intensity: {intensity})"
         )
 
         # Emit Decision with unique ID for tracking

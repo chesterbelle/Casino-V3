@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 
+from core.market_profile import MarketProfile
 from sensors.base import SensorV3
 from sensors.footprint.matrix import LiveFootprintMatrix
 
@@ -18,11 +19,18 @@ class FootprintImbalanceV3(SensorV3):
     - Signal is generated if imbalance occurs near the close (pushing price).
     """
 
-    def __init__(self, imbalance_ratio: float = 3.0, min_volume: float = 1.0, window_seconds: float = 30.0):
+    def __init__(
+        self,
+        imbalance_ratio: float = 3.0,
+        min_volume: float = 1.0,
+        window_seconds: float = 30.0,
+        tick_size: float = 0.1,
+    ):
         super().__init__()
         self.imbalance_ratio = imbalance_ratio
         self.min_volume = min_volume
         self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
+        self.market_profile = MarketProfile(tick_size=tick_size)
 
         # Cooldown to avoid blasting the engine with signals for the same imbalance
         self._last_signal_time = 0.0
@@ -34,8 +42,12 @@ class FootprintImbalanceV3(SensorV3):
 
     def on_tick(self, tick_data: dict) -> Optional[dict]:
         """React to every new tick."""
-        # 1. Update the memory matrix
+        # 1. Update the memory matrix and global profile
         self.matrix.on_tick(tick_data)
+
+        price = float(tick_data.get("price", 0))
+        vol = float(tick_data.get("qty", 0))
+        self.market_profile.add_trade(price, vol)
 
         # 2. Check for signal cooldown
         now = time.time()
@@ -48,27 +60,30 @@ class FootprintImbalanceV3(SensorV3):
             return None
 
         imbalances = []
+        poc, vah, val = self.market_profile.calculate_value_area()
 
         # Analyze each price level in the sliding window
-        for price, vol in profile.items():
-            bid_vol = vol.get("bid", 0.0)
-            ask_vol = vol.get("ask", 0.0)
+        for p, v in profile.items():
+            bid_vol = v.get("bid", 0.0)
+            ask_vol = v.get("ask", 0.0)
 
             # Skip low volume levels to avoid noise
             if (bid_vol + ask_vol) < self.min_volume:
                 continue
 
+            density = self.market_profile.get_cluster_density(p)
+
             # Check for Buy Imbalance (Aggressive Buying hit the ask)
             if ask_vol > (bid_vol * self.imbalance_ratio) and bid_vol > 0:
-                imbalances.append({"side": "LONG", "price": price, "ratio": ask_vol / bid_vol})
+                imbalances.append({"side": "LONG", "price": p, "ratio": ask_vol / bid_vol, "density": density})
             elif ask_vol > self.min_volume and bid_vol == 0:
-                imbalances.append({"side": "LONG", "price": price, "ratio": 99.9})
+                imbalances.append({"side": "LONG", "price": p, "ratio": 99.9, "density": density})
 
             # Check for Sell Imbalance (Aggressive Selling hit the bid)
             elif bid_vol > (ask_vol * self.imbalance_ratio) and ask_vol > 0:
-                imbalances.append({"side": "SHORT", "price": price, "ratio": bid_vol / ask_vol})
+                imbalances.append({"side": "SHORT", "price": p, "ratio": bid_vol / ask_vol, "density": density})
             elif bid_vol > self.min_volume and ask_vol == 0:
-                imbalances.append({"side": "SHORT", "price": price, "ratio": 99.9})
+                imbalances.append({"side": "SHORT", "price": p, "ratio": 99.9, "density": density})
 
         if not imbalances:
             return None
@@ -79,16 +94,34 @@ class FootprintImbalanceV3(SensorV3):
         # 4. Determine Direction (Simplest: Majority rules for micro-trend)
         signal = None
         if len(long_imbalances) > len(short_imbalances):
+            avg_density = sum(i["density"] for i in long_imbalances) / len(long_imbalances)
             signal = {
                 "side": "LONG",
                 "score": 1.0,
-                "metadata": {"imbalances": len(long_imbalances), "type": "Live Buy Imbalance"},
+                "metadata": {
+                    "imbalances": len(long_imbalances),
+                    "type": "Live Buy Imbalance",
+                    "fast_track": True,
+                    "cluster_density": round(avg_density, 2),
+                    "poc": poc,
+                    "vah": vah,
+                    "val": val,
+                },
             }
         elif len(short_imbalances) > len(long_imbalances):
+            avg_density = sum(i["density"] for i in short_imbalances) / len(short_imbalances)
             signal = {
                 "side": "SHORT",
                 "score": 1.0,
-                "metadata": {"imbalances": len(short_imbalances), "type": "Live Sell Imbalance"},
+                "metadata": {
+                    "imbalances": len(short_imbalances),
+                    "type": "Live Sell Imbalance",
+                    "fast_track": True,
+                    "cluster_density": round(avg_density, 2),
+                    "poc": poc,
+                    "vah": vah,
+                    "val": val,
+                },
             }
 
         if signal:
