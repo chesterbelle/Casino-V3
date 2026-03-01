@@ -68,20 +68,25 @@ class SensorWorker(multiprocessing.Process):
                         logger.info("🛑 Received STOP signal.")
                         break
 
-                    if isinstance(message, dict) and message.get("event") == "candle":
-                        candle_data = message.get("data")
-                        symbol = message.get("symbol")  # Extract symbol
-                        context = message.get("context")  # Multi-timeframe context
+                    if isinstance(message, dict):
+                        event_type = message.get("event")
+                        symbol = message.get("symbol")
+                        data = message.get("data")
 
                         if not symbol:
-                            logger.warning("⚠️ Received candle without symbol!")
+                            logger.warning("⚠️ Received message without symbol!")
                             continue
 
                         # Lazy instantiation for new symbols
                         self._ensure_sensors_for_symbol(symbol, logger)
 
-                        # Process sensors for this specific symbol
-                        self._process_sensors(symbol, candle_data, context, logger)
+                        if event_type == "candle":
+                            context = message.get("context")
+                            self._process_sensors(symbol, data, context, logger, "candle")
+                        elif event_type == "tick":
+                            self._process_sensors(symbol, data, None, logger, "tick")
+                        elif event_type == "orderbook":
+                            self._process_sensors(symbol, data, None, logger, "orderbook")
 
                 except KeyboardInterrupt:
                     break
@@ -123,21 +128,27 @@ class SensorWorker(multiprocessing.Process):
 
         self.sensors[symbol] = symbol_sensors
 
-    def _process_sensors(self, symbol: str, candle_data: Dict, context: Any, logger: logging.Logger):
+    def _process_sensors(
+        self, symbol: str, data: Dict, context: Any, logger: logging.Logger, event_type: str = "candle"
+    ):
         """Run calculations for sensors of a specific symbol."""
         # Get sensors only for this symbol to avoid state mixing
         active_sensors = self.sensors.get(symbol, [])
 
         for sensor in active_sensors:
             try:
-                # Standard V3 Sensor: calculate(context)
-                # Fallback to candle_data if context is missing (though it shouldn't be with the fix)
-                signals = sensor.calculate(context if context else candle_data)
+                signals = None
+
+                # Phase 410: Route data based on event type
+                if event_type == "candle" and hasattr(sensor, "calculate"):
+                    signals = sensor.calculate(context if context else data)
+                elif event_type == "tick" and hasattr(sensor, "on_tick"):
+                    signals = sensor.on_tick(data)
+                elif event_type == "orderbook" and hasattr(sensor, "on_orderbook"):
+                    signals = sensor.on_orderbook(data)
 
                 if signals:
-                    # Append symbol to signals if not present (usually contained but good to ensure)
-                    # We pass the symbol in the wrapper message
                     self.output_queue.put({"sensor": sensor.name, "symbol": symbol, "signals": signals})
 
             except Exception as e:
-                logger.error(f"❌ Error in sensor {sensor.name} ({symbol}): {e}")
+                logger.error(f"❌ Error in sensor {sensor.name} ({symbol}) on {event_type}: {e}")

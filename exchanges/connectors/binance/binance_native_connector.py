@@ -148,8 +148,9 @@ class BinanceNativeConnector(BaseConnector):
         self._keepalive_task: Optional[asyncio.Task] = None
         self._order_update_callback = None
 
-        # Phase 37: Push-based event dispatch callbacks
+        # Phase 37/410: Push-based event dispatch callbacks
         self._tick_event_callback = None  # Callback for direct tick event dispatch
+        self._depth_event_callback = None  # Phase 410: Callback for depth event dispatch
 
         # WS Health Tracking
         self._last_market_message_time = time.time()
@@ -2118,6 +2119,10 @@ class BinanceNativeConnector(BaseConnector):
         # Update ticker cache as well since it's most recent price
         self._tickers[native_symbol] = {"symbol": unified_symbol, "last": price, "timestamp": trade["timestamp"]}
 
+        # Phase 410: Push-based event dispatch for real-time Footprint Scalping
+        if self._tick_event_callback:
+            asyncio.create_task(self._tick_event_callback(trade))
+
         # Dispatch to queue if anyone is watching
         if unified_symbol in self._trade_queues:
             queue = self._trade_queues[unified_symbol]
@@ -2174,12 +2179,17 @@ class BinanceNativeConnector(BaseConnector):
             timestamp = data.get("T") or (time.time() * 1000)
 
         self._order_books[native_symbol] = {
+            "symbol": self.denormalize_symbol(native_symbol),
             "bids": bids,
             "asks": asks,
             "timestamp": timestamp,
         }
         # Phase 231: Debug logging to verify cache is being populated
         self.logger.debug(f"🗄️ Cache: Depth snapshot updated for {native_symbol}")
+
+        # Phase 410: Push-based event dispatch for real-time Footprint Scalping
+        if self._depth_event_callback:
+            asyncio.create_task(self._depth_event_callback(self._order_books[native_symbol]))
 
     def get_cached_order_book(self, symbol: str) -> Optional[Dict]:
         """Get last order book from cache (Phase 230)."""
@@ -2391,6 +2401,10 @@ class BinanceNativeConnector(BaseConnector):
     def set_account_update_callback(self, callback) -> None:
         """Phase 46: Set callback for account/balance updates."""
         self._account_update_callback = callback
+
+    def set_depth_callback(self, callback) -> None:
+        """Phase 410: Set callback for depth/orderbook updates."""
+        self._depth_event_callback = callback
 
     # =========================================================
     # HEALTH CHECK

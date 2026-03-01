@@ -15,13 +15,13 @@ Parámetros financieros y de gestión de riesgo.
 STARTING_BALANCE = 10_000.0
 
 # Multiplicadores de salida estática (respaldo si el sensor no provee metadata).
-# Estos valores calculan la distancia porcentual (0.01 = 1.0%) desde el precio de entrada.
-TAKE_PROFIT = 0.01  # Target de salida con ganancias
-STOP_LOSS = 0.01  # Límite de pérdida máximo aceptado
+# En Footprint Scalping (Fase 400), los objetivos son micro-pulsos.
+TAKE_PROFIT = 0.002  # Target de salida estático (0.2%)
+STOP_LOSS = 0.001  # Límite de pérdida máximo (0.1%)
 
-# Límite de tiempo máximo para mantener una posición abierta (en número de velas).
-# Si la posición no toca TP/SL en este tiempo, se activa la salida por tiempo.
-MAX_HOLD_BARS = 180  # 180 velas = 3 horas en temporalidad de 1m
+# Límite de tiempo máximo para mantener una posición abierta.
+# En Scalping, si el impulso no se materializa de inmediato, salimos.
+MAX_HOLD_BARS = 30  # Asumiendo 1m timeframe, 30 velas (o 30s si cambiamos a ticks)
 
 # --- Cierre Progresivo (Fase de Drenaje) ---
 # Duración de la fase de salida suave antes del apagado total del bot.
@@ -48,8 +48,8 @@ GRACEFUL_TP_TIMEOUT = 30.0  # Tolerancia para latencias en la API de Binance/Hyp
 POSITION_SIZING_MODE = "FIXED_NOTIONAL"  # Modo actual activo
 
 # Porcentaje de riesgo máximo del capital por cada operación individual.
-# Solo se utiliza cuando POSITION_SIZING_MODE está en "FIXED_RISK".
-RISK_PER_TRADE = 0.01  # 1% de riesgo total por trade
+# En Footprint Scalping (operaciones muy frecuentes), el riesgo por trade se reduce drásticamente.
+RISK_PER_TRADE = 0.002  # 0.2% de riesgo total por trade
 
 
 # =====================================================
@@ -68,7 +68,8 @@ MAX_POSITION_SIZE = 0.08  # Máximo 8% del balance total por símbolo
 COMMISSION_RATE = 0.00035  # Basado en Hyperliquid Taker Fee (0.035%)
 
 # Diferencia estimada entre el precio esperado y el ejecutado (Slippage).
-SLIPPAGE_DEFAULT = 0.0003  # 0.03% de margen de error en ejecución
+# Vital en scalping: si el slippage pasa de 0.015%, se destruye la ventaja matemática.
+SLIPPAGE_DEFAULT = 0.00015  # 0.015% de margen de error en ejecución
 
 # Margen mínimo requerido para mantener una posición abierta antes de liquidación.
 MAINTENANCE_MARGIN_RATE = 0.003  # 0.3% del nocional de la posición
@@ -85,13 +86,15 @@ DEFAULT_MARGIN_TYPE = "ISOLATED"  # Aislado protege el resto del balance de liqu
 # Dynamic SL that follows price when it moves in favor.
 # Best for Capturing Trends but can be stopped out by noise in Scalping.
 TRAILING_STOP_ENABLED = True  # Shadow Trailing Enabled
-TRAILING_STOP_ACTIVATION_PCT = 0.005  # Profit threshold (0.5%) before SL starts trailing
-TRAILING_STOP_DISTANCE_PCT = 0.003  # Distance (0.3%) from the peak price to set the trailing SL
+# En Footprint scalping, una vez alcanzado el 0.15% (75% del TP esperado),
+# iniciamos el trailing a una distancia de 0.05% para asegurar ganancias.
+TRAILING_STOP_ACTIVATION_PCT = 0.0015  # Profit threshold (0.15%) before SL starts trailing
+TRAILING_STOP_DISTANCE_PCT = 0.0005  # Distance (0.05%) from the peak price to set the trailing SL
 
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
 BREAKEVEN_ENABLED = True
-BREAKEVEN_ACTIVATION_PCT = 0.003  # Profit threshold (0.3%) to trigger SL move to Entry Price
+BREAKEVEN_ACTIVATION_PCT = 0.001  # Profit threshold (0.1%) to trigger SL move to Entry Price
 
 # --- Signal Reversal ---
 # Close position if a strong opposite signal is detected from consensus.
@@ -126,10 +129,10 @@ FLYTEST_DEPTH_CHECK_PCT = 0.01
 PORTFOLIO_GUARD_ENABLED = True
 
 # Drawdown velocity (rolling window)
-# If equity drops by this % within the window → escalate state.
-GUARD_CAUTION_DRAWDOWN_PCT = 0.05  # 5% loss → CAUTION (block new entries)
-GUARD_CRITICAL_DRAWDOWN_PCT = 0.10  # 10% loss → CRITICAL (drain mode)
-GUARD_DRAWDOWN_WINDOW_MINUTES = 30  # Rolling window for drawdown calc
+# En scalping, los drawdowns rápidos (flash crashes) deben apagar el bot.
+GUARD_CAUTION_DRAWDOWN_PCT = 0.02  # 2% loss → CAUTION (block new entries)
+GUARD_CRITICAL_DRAWDOWN_PCT = 0.05  # 5% loss → CRITICAL (drain mode)
+GUARD_DRAWDOWN_WINDOW_MINUTES = 10  # Rolling window for drawdown calc
 
 # Loss streak (consecutive losing trades)
 GUARD_MAX_CONSECUTIVE_LOSSES = 5  # → CRITICAL after N consecutive losses

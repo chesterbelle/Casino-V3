@@ -13,7 +13,7 @@ import time
 from typing import Dict, Tuple
 
 from .bar_aggregator import BarAggregator
-from .events import CandleEvent, EventType, SignalEvent
+from .events import CandleEvent, EventType, OrderBookEvent, SignalEvent, TickEvent
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +75,17 @@ class SensorManager:
         # Start Async Listener
         asyncio.create_task(self._listen_for_signals())
 
-        # Subscribe to Candles
+        # Subscribe to Events (Phase 410: The Ingestion Pivot)
         self.engine.subscribe(EventType.CANDLE, self.on_candle)
+        self.engine.subscribe(EventType.TICK, self.on_tick)
+        self.engine.subscribe(EventType.ORDER_BOOK, self.on_orderbook)
 
-        logger.info("✅ SensorManager initialized in Actor Model mode")
+        # Throttler for High-Frequency events (Phase 420 Prep)
+        self._last_tick_dispatch: Dict[str, float] = {}
+        self._last_ob_dispatch: Dict[str, float] = {}
+        self.throttle_ms = 100  # 100ms max update rate per symbol to workers
+
+        logger.info("✅ SensorManager initialized in Actor Model mode (Tick-Aware)")
 
     def _spawn_workers(self):
         """Load sensors and distribute them among worker processes."""
@@ -180,6 +187,54 @@ class SensorManager:
         for q in self.input_queues:
             # We don't await this inside the loop to avoid sequential blocking,
             # but we use run_in_executor to ensure it happens in a thread.
+            loop.run_in_executor(None, q.put, msg)
+
+    async def on_tick(self, event: TickEvent):
+        """
+        Phase 410: Broadcast new trades (ticks) to workers.
+        Throttled to prevent IPC explosion.
+        """
+        now = time.time()
+        last_dispatch = self._last_tick_dispatch.get(event.symbol, 0)
+
+        # Throttle to max 1 update per 100ms
+        if (now - last_dispatch) * 1000 < self.throttle_ms:
+            return
+
+        self._last_tick_dispatch[event.symbol] = now
+
+        msg = {
+            "event": "tick",
+            "symbol": event.symbol,
+            "data": {"price": event.price, "volume": event.volume, "side": event.side, "timestamp": event.timestamp},
+        }
+
+        loop = asyncio.get_running_loop()
+        for q in self.input_queues:
+            loop.run_in_executor(None, q.put, msg)
+
+    async def on_orderbook(self, event: OrderBookEvent):
+        """
+        Phase 410: Broadcast OrderBook snapshots to workers.
+        Throttled to prevent IPC explosion.
+        """
+        now = time.time()
+        last_dispatch = self._last_ob_dispatch.get(event.symbol, 0)
+
+        # Throttle to max 1 update per 100ms
+        if (now - last_dispatch) * 1000 < self.throttle_ms:
+            return
+
+        self._last_ob_dispatch[event.symbol] = now
+
+        msg = {
+            "event": "orderbook",
+            "symbol": event.symbol,
+            "data": {"bids": event.bids, "asks": event.asks, "timestamp": event.timestamp},
+        }
+
+        loop = asyncio.get_running_loop()
+        for q in self.input_queues:
             loop.run_in_executor(None, q.put, msg)
 
     async def _listen_for_signals(self):
@@ -285,25 +340,8 @@ class SensorManager:
     def _get_all_sensor_classes(self):
         """Helper to return all sensor classes (moved from original _load_sensors)."""
         # ... Import block ...
-        # Import all V3 sensors
-        from sensors.absorption_block import AbsorptionBlockV3
-        from sensors.adaptive_rsi import AdaptiveRSIV3
-        from sensors.adx_filter import ADXFilterV3
-        from sensors.bollinger_rejection import BollingerRejectionV3
-        from sensors.bollinger_squeeze import BollingerSqueezeV3
-        from sensors.bollinger_touch import BollingerTouchV3
-        from sensors.cci_reversion import CCIReversionV3
-        from sensors.consecutive_candles import ConsecutiveCandlesV3
+        # Import only Footprint and Core sensors for Phase 400
         from sensors.debug_heartbeat import DebugHeartbeatV3
-        from sensors.deceleration_candles import DecelerationCandlesV3
-        from sensors.doji_indecision import DojiIndecisionV3
-        from sensors.double_bottom import DoubleBottomV3
-        from sensors.double_top import DoubleTopV3
-        from sensors.ema50_support import EMA50SupportV3
-        from sensors.ema_crossover import EMACrossoverV3
-        from sensors.engulfing_pattern import EngulfingPatternV3
-        from sensors.extreme_candle_ratio import ExtremeCandleRatioV3
-        from sensors.fakeout import FakeoutV3
         from sensors.footprint.absorption import FootprintAbsorptionV3
         from sensors.footprint.advanced import (
             FootprintDeltaDivergence,
@@ -314,58 +352,9 @@ class SensorManager:
         from sensors.footprint.exhaustion import FootprintVolumeExhaustion
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
-        from sensors.fvg_retest import FVGRetestV3
-        from sensors.higher_highs_lower_lows import HigherHighsLowerLowsV3
-        from sensors.higher_tf_trend import HigherTFTrendV3
-        from sensors.hurst_regime import HurstRegimeV3
-        from sensors.inside_bar_breakout import InsideBarBreakoutV3
-        from sensors.island_reversal import IslandReversalV3
-        from sensors.keltner_breakout import KeltnerBreakoutV3
-        from sensors.keltner_reversion import KeltnerReversionV3
-        from sensors.liquidity_void import LiquidityVoidV3
-        from sensors.long_tail import LongTailV3
-        from sensors.macd_crossover import MACDCrossoverV3
-        from sensors.marubozu_momentum import MarubozuMomentumV3
-        from sensors.micro_trend import MicroTrendV3
-        from sensors.momentum_burst import MomentumBurstV3
-        from sensors.morning_star import MorningStarV3
-        from sensors.mtf_impulse import MTFImpulseV3
-        from sensors.narrow_range7 import NarrowRange7V3
-        from sensors.order_block import OrderBlockV3
-        from sensors.parabolic_sar import ParabolicSARV3
-        from sensors.pinbar_reversal import PinBarReversalV3
-        from sensors.rails_pattern import RailsPatternV3
-        from sensors.range_expansion import RangeExpansionV3
-        from sensors.rsi_reversion import RSIReversionV3
-        from sensors.smart_range import SmartRangeV3
-        from sensors.stochastic_reversion import StochasticReversionV3
-        from sensors.supertrend import SupertrendV3
-        from sensors.support_resistance import SupportResistanceV3
-        from sensors.three_bar import ThreeBarV3
-        from sensors.three_black_crows import ThreeBlackCrowsV3
-        from sensors.three_white_soldiers import ThreeWhiteSoldiersV3
-        from sensors.tweezer_pattern import TweezerPatternV3
-        from sensors.vcp_pattern import VCPPatternV3
-        from sensors.volatility_wakeup import VolatilityWakeupV3
-        from sensors.volume_imbalance import VolumeImbalanceV3
-        from sensors.volume_spike import VolumeSpikeV3
-        from sensors.vsa_reversal import VSAReversalV3
-        from sensors.vwap_breakout import VWAPBreakoutV3
-        from sensors.vwap_deviation import VWAPDeviationV3
-        from sensors.vwap_momentum import VWAPMomentumV3
-        from sensors.wick_rejection import WickRejectionV3
-        from sensors.wide_range_bar import WideRangeBarV3
-        from sensors.williams_r_reversion import WilliamsRReversionV3
-        from sensors.wyckoff_spring import WyckoffSpringV3
-        from sensors.zscore_reversion import ZScoreReversionV3
 
         return [
             DebugHeartbeatV3,
-            EMACrossoverV3,
-            PinBarReversalV3,
-            RailsPatternV3,
-            EMA50SupportV3,
-            MarubozuMomentumV3,
             FootprintImbalanceV3,
             FootprintAbsorptionV3,
             FootprintPOCRejection,
@@ -374,60 +363,4 @@ class SensorManager:
             FootprintTrappedTraders,
             FootprintVolumeExhaustion,
             FootprintDeltaPoCShift,
-            VWAPBreakoutV3,
-            ExtremeCandleRatioV3,
-            InsideBarBreakoutV3,
-            DecelerationCandlesV3,
-            VWAPDeviationV3,
-            VCPPatternV3,
-            EngulfingPatternV3,
-            RSIReversionV3,
-            BollingerTouchV3,
-            KeltnerReversionV3,
-            MACDCrossoverV3,
-            SupertrendV3,
-            StochasticReversionV3,
-            CCIReversionV3,
-            WilliamsRReversionV3,
-            ZScoreReversionV3,
-            ADXFilterV3,
-            BollingerSqueezeV3,
-            ParabolicSARV3,
-            MomentumBurstV3,
-            VolumeImbalanceV3,
-            OrderBlockV3,
-            FVGRetestV3,
-            DojiIndecisionV3,
-            MorningStarV3,
-            LongTailV3,
-            AbsorptionBlockV3,
-            LiquidityVoidV3,
-            FakeoutV3,
-            HigherTFTrendV3,
-            MTFImpulseV3,
-            AdaptiveRSIV3,
-            BollingerRejectionV3,
-            HurstRegimeV3,
-            KeltnerBreakoutV3,
-            MicroTrendV3,
-            SmartRangeV3,
-            VolatilityWakeupV3,
-            VSAReversalV3,
-            VWAPMomentumV3,
-            WickRejectionV3,
-            WyckoffSpringV3,
-            VolumeSpikeV3,
-            TweezerPatternV3,
-            ThreeBarV3,
-            SupportResistanceV3,
-            NarrowRange7V3,
-            ConsecutiveCandlesV3,
-            RangeExpansionV3,
-            ThreeWhiteSoldiersV3,
-            ThreeBlackCrowsV3,
-            WideRangeBarV3,
-            DoubleBottomV3,
-            DoubleTopV3,
-            HigherHighsLowerLowsV3,
-            IslandReversalV3,
         ]

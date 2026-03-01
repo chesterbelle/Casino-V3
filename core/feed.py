@@ -38,11 +38,17 @@ class StreamManager:
         await self.adapter.connect()
         self.running = True
 
-        # Phase 37: Register push-based event callback (eliminates per-symbol loops)
-        if hasattr(self.adapter, "connector") and hasattr(self.adapter.connector, "set_tick_callback"):
-            self.adapter.connector.set_tick_callback(self._on_push_tick)
-            logger.info("✅ Push-based tick dispatch enabled")
-            self._push_mode = True
+        # Phase 37/410: Register push-based event callbacks (eliminates per-symbol loops)
+        if hasattr(self.adapter, "connector"):
+            if hasattr(self.adapter.connector, "set_tick_callback"):
+                self.adapter.connector.set_tick_callback(self._on_push_tick)
+                logger.info("✅ Push-based tick dispatch enabled")
+                self._push_mode = True
+
+            # Phase 410: Register Depth callback
+            if hasattr(self.adapter.connector, "set_depth_callback"):
+                self.adapter.connector.set_depth_callback(self._on_push_depth)
+                logger.info("✅ Push-based depth dispatch enabled")
         else:
             logger.warning("⚠️ Connector doesn't support push mode, using legacy loops")
             self._push_mode = False
@@ -90,6 +96,28 @@ class StreamManager:
                 break
             except Exception as e:
                 logger.error(f"❌ Health check failed: {e}")
+
+    async def _on_push_depth(self, depth_data: Dict[str, Any]):
+        """Phase 410: Handle depth event pushed directly from connector."""
+        try:
+            symbol = depth_data.get("symbol", "")
+
+            # Filter: only process subscribed symbols
+            norm_symbol = normalize_symbol(symbol)
+            if norm_symbol not in self._subscribed_symbols:
+                return
+
+            event = OrderBookEvent(
+                type=EventType.ORDER_BOOK,
+                timestamp=depth_data.get("timestamp", time.time() * 1000) / 1000.0,
+                symbol=norm_symbol,
+                bids=depth_data.get("bids", []),
+                asks=depth_data.get("asks", []),
+            )
+            await self.engine.dispatch(event)
+
+        except Exception as e:
+            logger.debug(f"⚠️ Push depth error: {e}")
 
     async def _on_push_tick(self, ticker_data: Dict[str, Any]):
         """Phase 37: Handle tick event pushed directly from connector.
@@ -148,16 +176,21 @@ class StreamManager:
         norm_symbol = normalize_symbol(symbol)
         self._subscribed_symbols.add(norm_symbol)
 
-        # Phase 37: Lazy push callback registration (once, on first subscription)
+        # Phase 37/410: Lazy push callback registration (once, on first subscription)
         if not hasattr(self, "_push_mode"):
-            if hasattr(self.adapter, "connector") and hasattr(self.adapter.connector, "set_tick_callback"):
-                self.adapter.connector.set_tick_callback(self._on_push_tick)
-                logger.info("✅ Push-based tick dispatch enabled")
-                self._push_mode = True
-                # Auto-enable running when push mode is activated (connect() wasn't called)
-                if not self.running:
-                    self.running = True
-                    logger.info("✅ StreamManager auto-started in push mode")
+            if hasattr(self.adapter, "connector"):
+                if hasattr(self.adapter.connector, "set_tick_callback"):
+                    self.adapter.connector.set_tick_callback(self._on_push_tick)
+                    logger.info("✅ Push-based tick dispatch enabled")
+                    self._push_mode = True
+                    # Auto-enable running when push mode is activated (connect() wasn't called)
+                    if not self.running:
+                        self.running = True
+                        logger.info("✅ StreamManager auto-started in push mode")
+
+                if hasattr(self.adapter.connector, "set_depth_callback"):
+                    self.adapter.connector.set_depth_callback(self._on_push_depth)
+                    logger.info("✅ Push-based depth dispatch enabled")
             else:
                 logger.warning("⚠️ Connector doesn't support push mode, using legacy loops")
                 self._push_mode = False

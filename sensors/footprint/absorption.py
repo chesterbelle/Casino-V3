@@ -1,6 +1,8 @@
-from typing import Dict, Optional
+import time
+from typing import Optional
 
 from sensors.base import SensorV3
+from sensors.footprint.matrix import LiveFootprintMatrix
 
 
 class FootprintAbsorptionV3(SensorV3):
@@ -14,74 +16,82 @@ class FootprintAbsorptionV3(SensorV3):
     - High Bid Volume at the Low of the candle -> Absorption (Buyers absorbing Sellers) -> LONG signal.
     """
 
-    def __init__(self, min_volume_ratio: float = 2.0):
+    def __init__(self, min_volume_ratio: float = 2.0, pullback_ticks: int = 5, window_seconds: float = 30.0):
+        super().__init__()
         self.min_volume_ratio = min_volume_ratio
+        self.pullback_ticks = pullback_ticks
+        self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
+
+        self._last_signal_time = 0.0
+        self._signal_cooldown = 2.0  # seconds between signals
 
     @property
     def name(self) -> str:
         return "FootprintAbsorption"
 
-    def calculate(self, context: Dict[str, Optional[dict]]) -> Optional[dict]:
-        candle = context.get("1m")
-        if not candle:
+    def on_tick(self, tick_data: dict) -> Optional[dict]:
+        self.matrix.on_tick(tick_data)
+
+        now = time.time()
+        if now - self._last_signal_time < self._signal_cooldown:
             return None
 
-        profile = candle.get("profile")
-        if not profile:
+        profile = self.matrix.profile
+        if not profile or len(profile) < 3:
             return None
 
-        high = candle["high"]
-        low = candle["low"]
-        open_price = candle["open"]
-        close_price = candle["close"]
-        volume = candle["volume"]
-        delta = candle["delta"]
+        current_price = float(tick_data.get("price", 0))
 
-        # Calculate average volume per level for relative comparison
-        avg_vol_per_level = volume / len(profile) if len(profile) > 0 else 1.0
+        # Find High and Low of the current sliding window
+        prices = list(profile.keys())
+        high = max(prices)
+        low = min(prices)
+
+        # Average volume per level for relative comparison
+        total_vol = self.matrix.total_volume
+        avg_vol_per_level = total_vol / len(profile)
+
+        # We define a "pullback" as retreating from the extreme by a few price ticks
+        # Simple heuristic: Use the average distance between levels
+        prices.sort()
+        avg_tick_size = (
+            sum(prices[i + 1] - prices[i] for i in range(len(prices) - 1)) / len(prices) if len(prices) > 1 else 0.5
+        )
+
+        pullback_distance = avg_tick_size * self.pullback_ticks
+
+        signal = None
 
         # --- Scenario 1: Absorption at High (Bearish) ---
-        # Sellers absorbing Buyers:
-        # 1. High Volume at the top (Aggressive buying met with Limit Sells)
-        # 2. Negative Delta (or weak positive) despite hitting High?
-        #    Actually, Absorption usually means Aggressive Buyers (Positive Delta) got stuck.
-        #    So we look for: High Volume + Positive Delta + Price failed to close near High (Wick).
-
-        # Check top levels
-        top_vol = profile.get(high, {"bid": 0, "ask": 0})
-        # Aggressive buying (Ask volume) is high
+        # 1. High Volume at the top
+        # 2. Price has pulled back from the High
+        top_vol = profile.get(high, {"bid": 0.0, "ask": 0.0})
         if top_vol["ask"] > avg_vol_per_level * self.min_volume_ratio:
-            # But price rejected (Upper Wick)
-            upper_wick = high - max(open_price, close_price)
-            body = abs(close_price - open_price)
-
-            # Significant wick relative to body or total range
-            if upper_wick > body * 0.5:
-                # Strong signal if Delta is Positive (Buyers tried but failed)
-                # Or if Delta is Negative (Sellers took over immediately)
-                return {
+            if current_price <= high - pullback_distance:
+                signal = {
                     "side": "SHORT",
                     "score": 0.9,
-                    "metadata": {"type": "Absorption_High", "vol": top_vol["ask"], "delta": delta, "wick": upper_wick},
+                    "metadata": {"type": "Live_Absorption_High", "vol": top_vol["ask"]},
                 }
 
         # --- Scenario 2: Absorption at Low (Bullish) ---
-        # Buyers absorbing Sellers:
-        # 1. High Volume at the bottom (Aggressive selling met with Limit Buys)
-        # 2. Price failed to close near Low (Lower Wick).
-
-        low_vol = profile.get(low, {"bid": 0, "ask": 0})
-        # Aggressive selling (Bid volume) is high
-        if low_vol["bid"] > avg_vol_per_level * self.min_volume_ratio:
-            # But price rejected (Lower Wick)
-            lower_wick = min(open_price, close_price) - low
-            body = abs(close_price - open_price)
-
-            if lower_wick > body * 0.5:
-                return {
+        # 1. High Volume at the bottom
+        # 2. Price has bounced up from the Low
+        low_vol = profile.get(low, {"bid": 0.0, "ask": 0.0})
+        if not signal and low_vol["bid"] > avg_vol_per_level * self.min_volume_ratio:
+            if current_price >= low + pullback_distance:
+                signal = {
                     "side": "LONG",
                     "score": 0.9,
-                    "metadata": {"type": "Absorption_Low", "vol": low_vol["bid"], "delta": delta, "wick": lower_wick},
+                    "metadata": {"type": "Live_Absorption_Low", "vol": low_vol["bid"]},
                 }
 
+        if signal:
+            self._last_signal_time = now
+            return signal
+
+        return None
+
+    def on_orderbook(self, ob_data: dict) -> Optional[dict]:
+        self.matrix.on_orderbook(ob_data)
         return None

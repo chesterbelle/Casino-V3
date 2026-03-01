@@ -1,6 +1,8 @@
-from typing import Dict, Optional
+import time
+from typing import Optional
 
 from sensors.base import SensorV3
+from sensors.footprint.matrix import LiveFootprintMatrix
 
 
 class FootprintImbalanceV3(SensorV3):
@@ -16,62 +18,86 @@ class FootprintImbalanceV3(SensorV3):
     - Signal is generated if imbalance occurs near the close (pushing price).
     """
 
-    def __init__(self, imbalance_ratio: float = 3.0, min_volume: float = 1.0):
+    def __init__(self, imbalance_ratio: float = 3.0, min_volume: float = 1.0, window_seconds: float = 30.0):
+        super().__init__()
         self.imbalance_ratio = imbalance_ratio
         self.min_volume = min_volume
+        self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
+
+        # Cooldown to avoid blasting the engine with signals for the same imbalance
+        self._last_signal_time = 0.0
+        self._signal_cooldown = 2.0  # 2 seconds cooldown
 
     @property
     def name(self) -> str:
         return "FootprintImbalance"
 
-    def calculate(self, context: Dict[str, Optional[dict]]) -> Optional[dict]:
-        # We only use 1m candle for now as it contains the synthetic footprint
-        candle = context.get("1m")
-        if not candle:
+    def on_tick(self, tick_data: dict) -> Optional[dict]:
+        """React to every new tick."""
+        # 1. Update the memory matrix
+        self.matrix.on_tick(tick_data)
+
+        # 2. Check for signal cooldown
+        now = time.time()
+        if now - self._last_signal_time < self._signal_cooldown:
             return None
 
-        profile = candle.get("profile")
+        # 3. Analyze current matrix profile for Imbalances
+        profile = self.matrix.profile
         if not profile:
             return None
 
         imbalances = []
 
-        # Analyze each price level
+        # Analyze each price level in the sliding window
         for price, vol in profile.items():
-            bid_vol = vol.get("bid", 0)
-            ask_vol = vol.get("ask", 0)
+            bid_vol = vol.get("bid", 0.0)
+            ask_vol = vol.get("ask", 0.0)
 
-            # Skip low volume levels
+            # Skip low volume levels to avoid noise
             if (bid_vol + ask_vol) < self.min_volume:
                 continue
 
-            # Check for Buy Imbalance (Aggressive Buying)
-            if ask_vol > bid_vol * self.imbalance_ratio:
-                imbalances.append({"side": "LONG", "price": price, "ratio": ask_vol / (bid_vol + 0.1)})
+            # Check for Buy Imbalance (Aggressive Buying hit the ask)
+            if ask_vol > (bid_vol * self.imbalance_ratio) and bid_vol > 0:
+                imbalances.append({"side": "LONG", "price": price, "ratio": ask_vol / bid_vol})
+            elif ask_vol > self.min_volume and bid_vol == 0:
+                imbalances.append({"side": "LONG", "price": price, "ratio": 99.9})
 
-            # Check for Sell Imbalance (Aggressive Selling)
-            elif bid_vol > ask_vol * self.imbalance_ratio:
-                imbalances.append({"side": "SHORT", "price": price, "ratio": bid_vol / (ask_vol + 0.1)})
+            # Check for Sell Imbalance (Aggressive Selling hit the bid)
+            elif bid_vol > (ask_vol * self.imbalance_ratio) and ask_vol > 0:
+                imbalances.append({"side": "SHORT", "price": price, "ratio": bid_vol / ask_vol})
+            elif bid_vol > self.min_volume and ask_vol == 0:
+                imbalances.append({"side": "SHORT", "price": price, "ratio": 99.9})
 
         if not imbalances:
             return None
 
-        # Logic: If we have significant imbalances, determine direction
-        # For simplicity, we look at the dominant imbalance side
         long_imbalances = [i for i in imbalances if i["side"] == "LONG"]
         short_imbalances = [i for i in imbalances if i["side"] == "SHORT"]
 
+        # 4. Determine Direction (Simplest: Majority rules for micro-trend)
+        signal = None
         if len(long_imbalances) > len(short_imbalances):
-            return {
+            signal = {
                 "side": "LONG",
                 "score": 1.0,
-                "metadata": {"imbalances": len(long_imbalances), "type": "Buy Imbalance"},
+                "metadata": {"imbalances": len(long_imbalances), "type": "Live Buy Imbalance"},
             }
         elif len(short_imbalances) > len(long_imbalances):
-            return {
+            signal = {
                 "side": "SHORT",
                 "score": 1.0,
-                "metadata": {"imbalances": len(short_imbalances), "type": "Sell Imbalance"},
+                "metadata": {"imbalances": len(short_imbalances), "type": "Live Sell Imbalance"},
             }
 
+        if signal:
+            self._last_signal_time = now
+            return signal
+
+        return None
+
+    def on_orderbook(self, ob_data: dict) -> Optional[dict]:
+        """React to orderbook updates."""
+        self.matrix.on_orderbook(ob_data)
         return None
