@@ -183,6 +183,31 @@ class AdaptivePlayer:
                 if sl_pct is not None:
                     sl_pct = max(0.1, min(sl_pct, 2.0))
 
+        # Phase 650.2: Unfinished Business Exact Targeting
+        unfinished_targets = event.metadata.get("unfinished_business_targets", [])
+        if unfinished_targets and current_price and current_price > 0:
+            for target in unfinished_targets:
+                if event.side == "LONG" and target.get("side") == "LONG_TARGET":
+                    calc_tp = ((target["price"] - current_price) / current_price) * 100
+                    if calc_tp > 0.05:  # ensure it's at least a few ticks away
+                        tp_pct = calc_tp
+                        logger.debug(
+                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {target['price']} ({tp_pct:.2f}%)"
+                        )
+                elif event.side == "SHORT" and target.get("side") == "SHORT_TARGET":
+                    calc_tp = ((current_price - target["price"]) / current_price) * 100
+                    if calc_tp > 0.05:
+                        tp_pct = calc_tp
+                        logger.debug(
+                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {target['price']} ({tp_pct:.2f}%)"
+                        )
+
+        # Phase 650.3: Order Book Confirmation Confidence
+        dom_confirmed = event.metadata.get("dom_wall_confirmed", False)
+        if dom_confirmed and bet_size:
+            bet_size = min(bet_size * 2.0, self.kelly_max if self.use_kelly else self.fixed_pct * 3.0)
+            logger.debug(f"🧱 [Phase 650] Massive DOM Wall confirmed absorption! Doubling bet size to {bet_size:.2%}")
+
         # Phase 600: Trader Dale Absorption Sizing
         intensity = event.metadata.get("absorption_intensity", 1.0)
         if intensity > 3.0 and bet_size:

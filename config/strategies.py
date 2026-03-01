@@ -262,6 +262,7 @@ STRATEGIES: Dict[str, dict] = {
             "FootprintImbalance",
             "FootprintStackedImbalance",
             "FootprintDeltaPoCShift",
+            "CumulativeDelta",
             # --- High Performance Confirmations ---
             "VolumeSpike",  # WR 64%, PF 1.80 (Strongest confirmation)
             "RangeExpansion",  # WR 45%, PF 0.88 (Better than Squeeze)
@@ -469,6 +470,8 @@ STRATEGIES: Dict[str, dict] = {
             "FootprintDeltaDivergence",
             "FootprintStackedImbalance",
             "FootprintTrappedTraders",
+            "FootprintDeltaPoCShift",
+            "CumulativeDelta",
         ],
         "max_positions": 3,
     },

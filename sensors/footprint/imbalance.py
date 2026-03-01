@@ -60,7 +60,25 @@ class FootprintImbalanceV3(SensorV3):
             return None
 
         imbalances = []
+        unfinished_business = []
         poc, vah, val = self.market_profile.calculate_value_area()
+
+        # Phase 650.2: Check for Unfinished Business (Failed Auctions) at extremes
+        prices = list(profile.keys())
+        if prices:
+            high = max(prices)
+            low = min(prices)
+
+            top_vol = profile.get(high, {})
+            bottom_vol = profile.get(low, {})
+
+            # Unfinished Business at High (0 bid volume at the absolute top)
+            if top_vol.get("bid", 0.0) == 0 and top_vol.get("ask", 0.0) > 0:
+                unfinished_business.append({"side": "LONG_TARGET", "price": high, "type": "Unfinished_High"})
+
+            # Unfinished Business at Low (0 ask volume at the absolute bottom)
+            if bottom_vol.get("ask", 0.0) == 0 and bottom_vol.get("bid", 0.0) > 0:
+                unfinished_business.append({"side": "SHORT_TARGET", "price": low, "type": "Unfinished_Low"})
 
         # Analyze each price level in the sliding window
         for p, v in profile.items():
@@ -106,6 +124,7 @@ class FootprintImbalanceV3(SensorV3):
                     "poc": poc,
                     "vah": vah,
                     "val": val,
+                    "unfinished_business_targets": unfinished_business,
                 },
             }
         elif len(short_imbalances) > len(long_imbalances):
@@ -121,6 +140,22 @@ class FootprintImbalanceV3(SensorV3):
                     "poc": poc,
                     "vah": vah,
                     "val": val,
+                    "unfinished_business_targets": unfinished_business,
+                },
+            }
+
+        # If no strict imbalance, but there IS unfinished business, we can still emit a context-only signal
+        if not signal and unfinished_business:
+            signal = {
+                "side": "NEUTRAL",
+                "score": 0.5,
+                "metadata": {
+                    "type": "Unfinished_Business_Context",
+                    "fast_track": False,
+                    "poc": poc,
+                    "vah": vah,
+                    "val": val,
+                    "unfinished_business_targets": unfinished_business,
                 },
             }
 

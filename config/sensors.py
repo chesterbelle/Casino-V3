@@ -22,6 +22,7 @@ ACTIVE_SENSORS = {
     "FootprintTrappedTraders": True,
     "FootprintVolumeExhaustion": True,
     "FootprintDeltaPoCShift": True,
+    "CumulativeDelta": True,
 }
 
 # =====================================================
@@ -39,6 +40,7 @@ SENSOR_TIMEFRAMES = {
     "FootprintTrappedTraders": ["1m"],
     "FootprintVolumeExhaustion": ["1m"],
     "FootprintDeltaPoCShift": ["1m"],
+    "CumulativeDelta": ["1m"],
 }
 
 # =====================================================
@@ -70,6 +72,9 @@ SENSOR_PARAMS = {
     },
     "FootprintDeltaPoCShift": {
         "1m": {"tp_pct": 0.0020, "sl_pct": 0.0010},
+    },
+    "CumulativeDelta": {
+        "1m": {"tp_pct": 0.0030, "sl_pct": 0.0015},
     },
     # === DEFAULT FALLBACK ===
     "_default": {

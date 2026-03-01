@@ -230,7 +230,10 @@ class OCOManager:
             # Step 0.8: Prioritize Supersonic Batch Execution
             # If Market Order and Adapter supports Batch, execute atomically (~2 RTT -> 1 RTT)
             is_market = str(order.get("type", "MARKET")).upper() == "MARKET"
-            if is_market and hasattr(self.adapter, "create_batch_orders") and est_price > 0:
+            # Phase 600 HOTFIX: Binance /fapi/v1/batchOrders rejects STOP_MARKET (-4120)
+            # and reduceOnly LIMIT (-2022) when the Entry hasn't settled yet.
+            # Disabling Supersonic Batch to fall back to the extremely reliable Parallel Bracket Creation.
+            if False and is_market and hasattr(self.adapter, "create_batch_orders") and est_price > 0:
                 return await self._execute_supersonic_batch(order, position, client_order_id, est_price)
 
             # Step 1: Execute main market order
@@ -606,6 +609,7 @@ class OCOManager:
         """Background handler for Supersonic batch confirmation."""
         try:
             results = await self.adapter.create_batch_orders(payloads)
+            self.logger.info(f"DEBUG BATCH RESULTS: {results}")
 
             if not results or not isinstance(results, list) or len(results) < 3:
                 self.logger.error(f"❌ Supersonic Batch Response Corrupted: {results}")

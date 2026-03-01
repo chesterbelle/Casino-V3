@@ -336,20 +336,48 @@ class PreflightValidator:
             logger.info(f"📤 Creating OCO bracket: {order}")
             result = await self.croupier.execute_order(order)
 
-            # Validate result structure
-            assert "main_order" in result, "Missing main_order"
-            assert "tp_order" in result, "Missing tp_order"
-            assert "sl_order" in result, "Missing sl_order"
-            assert result["fill_price"] > 0, "Invalid fill_price"
+            # Handle Phase 240: Project Supersonic async batching
+            if result.get("status") == "optimistic_sent":
+                position = result.get("position")
+                assert position, "Optimistic launch missing position object"
 
-            main_id = result["main_order"].get("order_id") or result["main_order"].get("id")
-            tp_id = result["tp_order"].get("order_id") or result["tp_order"].get("id")
-            sl_id = result["sl_order"].get("order_id") or result["sl_order"].get("id")
+                # Wait for supersonic batch to finalize in background
+                timeout = 5.0
+                start_t = time.time()
+                while time.time() - start_t < timeout:
+                    if position.tp_order_id and position.sl_order_id:
+                        break
+                    await asyncio.sleep(0.1)
+
+                assert position.tp_order_id, "Supersonic batch failed to assign TP order ID"
+                assert position.sl_order_id, "Supersonic batch failed to assign SL order ID"
+
+                # For compatibility with universal funnel check:
+                # We know the client IDs from the optimistic return or the position
+                main_id = position.trade_id  # Actually the client_order_id for main
+                tp_id = position.tp_order_id
+                sl_id = position.sl_order_id
+
+                # We need to construct a compatible result dict for the ID lookup code below
+                result["main_order"] = {"client_order_id": main_id}
+                result["tp_order"] = {"client_order_id": tp_id, "order_id": position.exchange_tp_id}
+                result["sl_order"] = {"client_order_id": sl_id, "order_id": position.exchange_sl_id}
+                result["fill_price"] = position.entry_price
+            else:
+                # Legacy / synchronous fallback
+                assert "main_order" in result, "Missing main_order"
+                assert "tp_order" in result, "Missing tp_order"
+                assert "sl_order" in result, "Missing sl_order"
+                assert result["fill_price"] > 0, "Invalid fill_price"
+
+                main_id = result["main_order"].get("order_id") or result["main_order"].get("id")
+                tp_id = result["tp_order"].get("order_id") or result["tp_order"].get("id")
+                sl_id = result["sl_order"].get("order_id") or result["sl_order"].get("id")
 
             logger.info(f"✅ Main order: {main_id}")
             logger.info(f"✅ TP order: {tp_id}")
             logger.info(f"✅ SL order: {sl_id}")
-            logger.info(f"✅ Fill price: {result['fill_price']:.2f}")
+            logger.info(f"✅ Fill price: {result.get('fill_price', 0):.2f}")
 
             # Universal Funnel Verification: Check CASINO_ Prefix
             # Note: We check the client_order_id, which is what we sent.

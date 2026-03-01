@@ -349,6 +349,7 @@ class SensorManager:
             FootprintStackedImbalance,
             FootprintTrappedTraders,
         )
+        from sensors.footprint.cumulative_delta import CumulativeDeltaSensorV3
         from sensors.footprint.exhaustion import FootprintVolumeExhaustion
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
@@ -363,4 +364,5 @@ class SensorManager:
             FootprintTrappedTraders,
             FootprintVolumeExhaustion,
             FootprintDeltaPoCShift,
+            CumulativeDeltaSensorV3,
         ]

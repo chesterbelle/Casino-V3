@@ -348,21 +348,29 @@ class ExitManager:
             position.shadow_sl_level = position.sl_level  # Initialize to hard SL
 
         if position.side == "LONG":
-            if position.shadow_sl_level >= position.entry_price:
+            if position.shadow_sl_level is not None and position.shadow_sl_level >= position.entry_price:
                 return
             profit_pct = (current_price - position.entry_price) / position.entry_price
             if profit_pct >= config.BREAKEVEN_ACTIVATION_PCT:
                 new_sl = position.entry_price * 1.001
-                if new_sl > position.shadow_sl_level:
+                if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
                     position.shadow_sl_level = new_sl
                     self.logger.info(f"🛡️ High-Frequency Breakeven ACTIVATED for {position.trade_id} @ {new_sl:.6f}")
         elif position.side == "SHORT":
-            if position.shadow_sl_level <= position.entry_price and position.shadow_sl_level > 0:
+            if (
+                position.shadow_sl_level is not None
+                and position.shadow_sl_level <= position.entry_price
+                and position.shadow_sl_level > 0
+            ):
                 return
             profit_pct = (position.entry_price - current_price) / position.entry_price
             if profit_pct >= config.BREAKEVEN_ACTIVATION_PCT:
                 new_sl = position.entry_price * 0.999
-                if new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
+                if (
+                    position.shadow_sl_level is None
+                    or new_sl < position.shadow_sl_level
+                    or position.shadow_sl_level == 0
+                ):
                     position.shadow_sl_level = new_sl
                     self.logger.info(f"🛡️ High-Frequency Breakeven ACTIVATED for {position.trade_id} @ {new_sl:.6f}")
 
@@ -379,7 +387,7 @@ class ExitManager:
                 return
             trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
             new_sl = current_price - trailing_dist
-            if new_sl > position.shadow_sl_level:
+            if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
                 position.shadow_sl_level = new_sl
         elif position.side == "SHORT":
             profit_pct = (position.entry_price - current_price) / position.entry_price
@@ -387,5 +395,5 @@ class ExitManager:
                 return
             trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
             new_sl = current_price + trailing_dist
-            if new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
+            if position.shadow_sl_level is None or new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
                 position.shadow_sl_level = new_sl
