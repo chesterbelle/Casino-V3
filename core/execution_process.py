@@ -11,6 +11,7 @@ from typing import Dict, Optional
 from urllib.parse import urlencode
 
 import aiohttp
+import yarl
 
 # Attempt to use orjson for speed (Step 2 of Protocol), fallback to json
 try:
@@ -178,17 +179,15 @@ class ExecutionProcess(multiprocessing.Process):
     async def _execute_request(self, request_id: str, endpoint: str, method: str, payload: Dict, signed: bool):
         start_ts = time.time()
 
-        # Phase 4: WebSocket Routing
-        # If WS is connected and this is a supported operation (POST /order, DELETE /order)
-        # We route via WS.
         use_ws = False
-        if self._ws is not None and not self._ws.closed:
-            if method == "POST" and endpoint == "/fapi/v1/order":
-                use_ws = True
-            elif method == "DELETE" and endpoint == "/fapi/v1/order":
-                use_ws = True
-            # Batch orders via WS? Not supported on standard WS API usually, check docs.
-            # Assuming NO for batch currently.
+        # Phase 240 Fix: Disable WS routing for now due to Signature Mismatch in WS-FAPI v1
+        # if self._ws is not None and not self._ws.closed:
+        #     if method == "POST" and endpoint == "/fapi/v1/order":
+        #         use_ws = True
+        #     elif method == "DELETE" and endpoint == "/fapi/v1/order":
+        #         use_ws = True
+        # Batch orders via WS? Not supported on standard WS API usually, check docs.
+        # Assuming NO for batch currently.
 
         if use_ws:
             try:
@@ -267,51 +266,68 @@ class ExecutionProcess(multiprocessing.Process):
         url = f"{self.base_url}{endpoint}"
         headers = {"X-MBX-APIKEY": self.api_key}
 
-        # Sign if needed
-        if signed:
-            payload = self._sign_payload(payload)
-
+        # Phase 240: Fast-Track REST Execution
+        latency_ms = 0
         try:
-            # Use params for GET/DELETE, data/json for POST/PUT?
-            # Binance uses query params for everything usually, or body for some POSTs.
-            # Standard connector uses params for most.
-            # Let's assume params for now as per `binance_native_connector._request` logic
-            # which usually passes `params=signed_params`.
+            # Sign if needed
+            if signed:
+                # We use yarl.URL(..., encoded=True) to prevent aiohttp from re-encoding/re-sorting
+                query_string = self._sign_payload(payload)
+                final_url = yarl.URL(f"{url}?{query_string}", encoded=True)
 
-            # Phase 240: Use list of tuples to ensure aiohttp preserves parameter order
-            # Matching the signature exactly is critical for HFT.
-            payload_items = list(payload.items())
+                async with self._session.request(method, final_url, headers=headers, timeout=5.0) as resp:
+                    text = await resp.text()
+                    latency_ms = (time.time() - start_ts) * 1000
 
-            async with self._session.request(method, url, params=payload_items, headers=headers, timeout=5.0) as resp:
-                text = await resp.text()
+                    try:
+                        data = json.loads(text)
+                    except Exception:
+                        data = {"error": "json_parse_error", "raw": text}
 
-                try:
-                    data = json.loads(text)
-                except Exception:
-                    data = {"error": "json_parse_error", "raw": text}
+                    success = 200 <= resp.status < 300
+                    self.res_queue.put(
+                        {
+                            "request_id": request_id,
+                            "status": resp.status,
+                            "data": data,
+                            "latency_ms": latency_ms,
+                            "success": success,
+                        }
+                    )
+            else:
+                async with self._session.request(method, url, params=payload, headers=headers, timeout=5.0) as resp:
+                    text = await resp.text()
+                    latency_ms = (time.time() - start_ts) * 1000
 
-                success = 200 <= resp.status < 300
-                latency_ms = (time.time() - start_ts) * 1000
+                    try:
+                        data = json.loads(text)
+                    except Exception:
+                        data = {"error": "json_parse_error", "raw": text}
 
-                self.res_queue.put(
-                    {
-                        "request_id": request_id,
-                        "status": resp.status,
-                        "data": data,
-                        "latency_ms": latency_ms,
-                        "success": success,
-                    }
-                )
+                    success = 200 <= resp.status < 300
+                    self.res_queue.put(
+                        {
+                            "request_id": request_id,
+                            "status": resp.status,
+                            "data": data,
+                            "latency_ms": latency_ms,
+                            "success": success,
+                        }
+                    )
 
-                if latency_ms > 100:
-                    self.logger.warning(f"🐢 Slow Request: {method} {endpoint} took {latency_ms:.2f}ms")
+            if latency_ms > 100:
+                self.logger.warning(f"🐢 Slow Request: {method} {endpoint} took {latency_ms:.2f}ms")
 
         except Exception as e:
             self.logger.error(f"❌ Network Error for {request_id}: {e}")
             self.res_queue.put({"request_id": request_id, "status": 0, "data": {"error": str(e)}, "success": False})
 
-    def _sign_payload(self, payload: Dict) -> Dict:
-        """Signs the payload using HMAC SHA256 with strict parameter sorting."""
+        except Exception as e:
+            self.logger.error(f"❌ Network Error for {request_id}: {e}")
+            self.res_queue.put({"request_id": request_id, "status": 0, "data": {"error": str(e)}, "success": False})
+
+    def _sign_payload(self, payload: Dict) -> str:
+        """Signs the payload using HMAC SHA256 and returns a URL-encoded string."""
         if "timestamp" not in payload:
             payload["timestamp"] = int(time.time() * 1000) + self.time_offset
 
@@ -322,7 +338,4 @@ class ExecutionProcess(multiprocessing.Process):
 
         signature = hmac.new(self.api_secret.encode("utf-8"), query_string.encode("utf-8"), hashlib.sha256).hexdigest()
 
-        # Reconstruct as an ordered dict with signature at the end
-        signed_payload = dict(items)
-        signed_payload["signature"] = signature
-        return signed_payload
+        return f"{query_string}&signature={signature}"

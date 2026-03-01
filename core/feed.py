@@ -574,7 +574,8 @@ class StreamManager:
         """Handle ticker update."""
         raw_symbol = ticker["symbol"]
         symbol = normalize_symbol(raw_symbol)
-        price = float(ticker["last"])
+        # Phase 410 Fix: Support both 'last' (TICK) and 'price' (TRADE)
+        price = float(ticker.get("last") or ticker.get("price") or 0.0)
 
         # Count ticks
         if not hasattr(self, "_tick_count"):
@@ -595,15 +596,23 @@ class StreamManager:
         if self._tick_count % 1000 == 0:
             logger.info(f"📊 Market Feed: Processed {self._tick_count} total ticks")
 
-        # Ticker events are still useful for price updates, but we don't use them for Footprint anymore
-        # because we have the real trades stream.
+        # Ticker events are still useful for price updates, but we now accurately capture
+        # side and volume from real trades when available (Phase 410 Fix)
+        raw_side = ticker.get("side", "UNKNOWN").upper()
+        if raw_side == "BUY":
+            side = "ASK"
+        elif raw_side == "SELL":
+            side = "BID"
+        else:
+            side = "UNKNOWN"
+
         event = TickEvent(
             type=EventType.TICK,
             timestamp=ticker["timestamp"] / 1000.0,
             symbol=symbol,
-            price=float(ticker["last"]),
-            volume=ticker.get("volume", 0.0),
-            side="UNKNOWN",  # Side comes from trades stream now
+            price=price,
+            volume=float(ticker.get("volume") or ticker.get("amount") or 0.0),
+            side=side,
         )
         await self.engine.dispatch(event)
 

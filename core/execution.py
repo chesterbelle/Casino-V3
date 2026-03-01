@@ -221,7 +221,7 @@ class OrderManager:
 
             # Check for success (support both simple orders and OCO bracket results)
             is_success = False
-            if result.get("status") == "filled":
+            if result.get("status") in ["filled", "optimistic_sent"]:
                 is_success = True
             elif result.get("position") or (result.get("fill_price") and result.get("fill_price") > 0):
                 is_success = True

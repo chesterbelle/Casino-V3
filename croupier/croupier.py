@@ -222,6 +222,8 @@ class Croupier(TimeIterator):
             self._kill_switch_triggered = True
         elif new_state == GuardState.HEALTHY:
             self.logger.info(f"✅ PORTFOLIO GUARD → HEALTHY: {reason}. " "Normal operation resumed.")
+            if self.is_drain_mode:
+                self.set_drain_mode(False)
 
     def _on_trade_close_guard(self, trade_id: str, result: dict):
         """Forward trade close events to PortfolioGuard for loss streak tracking."""
@@ -631,7 +633,9 @@ class Croupier(TimeIterator):
         if margin_used > 0:
             self.balance_manager.reserve_margin(margin_used)
 
-        self.logger.info(f"✅ Position opened: {position.trade_id} | " f"Entry: {result['fill_price']:.2f}")
+        # Use safe get for fill_price as optimistic OCOs won't have it yet
+        entry_p = result.get("fill_price") or getattr(position, "entry_price", 0)
+        self.logger.info(f"✅ Position opened: {position.trade_id} | Entry: {entry_p:.2f}")
 
         return result
 

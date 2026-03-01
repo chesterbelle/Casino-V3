@@ -637,6 +637,15 @@ class ExchangeAdapter(NetworkIterator):
             for o in orders:
                 await self.connector.cancel_order(o["id"], symbol)
 
+    async def create_batch_orders(self, orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Create multiple orders in a single request (Project Supersonic).
+        Delegates to connector if supported.
+        """
+        if hasattr(self.connector, "create_batch_orders"):
+            return await self.connector.create_batch_orders(orders)
+        raise NotImplementedError(f"Connector {self.connector.__class__.__name__} does not support create_batch_orders")
+
     async def create_market_order(
         self, symbol: str, side: str, amount: float, params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:

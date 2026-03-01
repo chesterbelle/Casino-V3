@@ -537,16 +537,21 @@ class OCOManager:
 
         # 4. Construct Batch Payload
         # Entry (Market)
+        side_entry = side.upper()
+        if side_entry not in ["BUY", "SELL"]:
+            # Standardize LONG/SHORT to BUY/SELL for Binance
+            side_entry = "BUY" if side_entry == "LONG" else "SELL"
+
         entry_payload = {
             "symbol": symbol,
-            "side": side.upper(),
+            "side": side_entry,
             "type": "MARKET",
             "quantity": self.adapter.amount_to_precision(symbol, amount),
             "newClientOrderId": client_order_id,
         }
 
         # TP (Limit ReduceOnly)
-        tp_side = "SELL" if side == "LONG" else "BUY"
+        tp_side = "SELL" if side_entry == "BUY" else "BUY"
         tp_payload = {
             "symbol": symbol,
             "side": tp_side,
@@ -569,7 +574,9 @@ class OCOManager:
             "newClientOrderId": sl_client_id,
         }
 
-        self.logger.info(f"🚀 SUPERSONIC LAUNCH: Sending Batch [Entry, TP, SL] for {symbol}")
+        self.logger.info(
+            f"🚀 SUPERSONIC LAUNCH: Sending Batch [Entry {side_entry}, TP {tp_side}, SL {tp_side}] for {symbol}"
+        )
 
         # 5. OPTIMISTIC PROMOTION (Fire-and-Forget)
         # Mark as ACTIVE before we even send, so the strategy can react to exit signals immediately.
@@ -613,7 +620,8 @@ class OCOManager:
                 self.logger.error(f"🔥 Supersonic Entry REJECTED: {entry_res}. Evicting position.")
                 position.status = "CLOSED"
                 position.exit_reason = "REJECTED_BY_EXCHANGE"
-                self.tracker.evict_position(position)
+                # Phase 500 Fix: evict_position -> remove_position
+                await self.tracker.remove_position(position.trade_id)
                 return
 
             # Update with ground truth

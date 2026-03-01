@@ -17,7 +17,7 @@ STARTING_BALANCE = 10_000.0
 # Multiplicadores de salida estática (respaldo si el sensor no provee metadata).
 # En Footprint Scalping (Fase 400), los objetivos son micro-pulsos.
 TAKE_PROFIT = 0.002  # Target de salida estático (0.2%)
-STOP_LOSS = 0.001  # Límite de pérdida máximo (0.1%)
+STOP_LOSS = 0.0015  # Límite de pérdida máximo (0.15%) (Relaxed for Testnet stability)
 
 # Límite de tiempo máximo para mantener una posición abierta.
 # En Scalping, si el impulso no se materializa de inmediato, salimos.
