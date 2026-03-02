@@ -23,6 +23,7 @@ ACTIVE_SENSORS = {
     "FootprintVolumeExhaustion": True,
     "FootprintDeltaPoCShift": True,
     "CumulativeDelta": True,
+    "OneTimeframing": True,
 }
 
 # =====================================================
@@ -41,6 +42,7 @@ SENSOR_TIMEFRAMES = {
     "FootprintVolumeExhaustion": ["1m"],
     "FootprintDeltaPoCShift": ["1m"],
     "CumulativeDelta": ["1m"],
+    "OneTimeframing": ["1m"],
 }
 
 # =====================================================
@@ -50,22 +52,22 @@ SENSOR_TIMEFRAMES = {
 
 SENSOR_PARAMS = {
     "FootprintImbalance": {
-        "1m": {"tp_pct": 0.0020, "sl_pct": 0.0010},  # 0.20% TP / 0.10% SL
+        "1m": {"tp_pct": 0.0045, "sl_pct": 0.0030},  # loosened from 0.0020/0.0010
     },
     "FootprintAbsorption": {
-        "1m": {"tp_pct": 0.0015, "sl_pct": 0.0010},
+        "1m": {"tp_pct": 0.0040, "sl_pct": 0.0030},
     },
     "FootprintPOCRejection": {
-        "1m": {"tp_pct": 0.0025, "sl_pct": 0.0015},
+        "1m": {"tp_pct": 0.0050, "sl_pct": 0.0030},
     },
     "FootprintDeltaDivergence": {
-        "1m": {"tp_pct": 0.0020, "sl_pct": 0.0010},
+        "1m": {"tp_pct": 0.0045, "sl_pct": 0.0030},
     },
     "FootprintStackedImbalance": {
-        "1m": {"tp_pct": 0.0020, "sl_pct": 0.0010},
+        "1m": {"tp_pct": 0.0045, "sl_pct": 0.0030},
     },
     "FootprintTrappedTraders": {
-        "1m": {"tp_pct": 0.0030, "sl_pct": 0.0015},
+        "1m": {"tp_pct": 0.0055, "sl_pct": 0.0035},
     },
     "FootprintVolumeExhaustion": {
         "1m": {"tp_pct": 0.0015, "sl_pct": 0.0010},
@@ -75,6 +77,9 @@ SENSOR_PARAMS = {
     },
     "CumulativeDelta": {
         "1m": {"tp_pct": 0.0030, "sl_pct": 0.0015},
+    },
+    "OneTimeframing": {
+        "1m": {"tp_pct": 0.0000, "sl_pct": 0.0000},  # Context sensor, no TP/SL needed
     },
     # === DEFAULT FALLBACK ===
     "_default": {

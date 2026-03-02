@@ -182,7 +182,7 @@ class SignalAggregatorV3:
             return
 
         # 2. Extract HTF context from ALL context sensors (weighted by count)
-        context_sensors = {"HigherTFTrend", "HurstRegime", "MTFImpulse"}
+        context_sensors = {"HigherTFTrend", "HurstRegime", "MTFImpulse", "OneTimeframing"}
         htf_long_count = 0
         htf_short_count = 0
 

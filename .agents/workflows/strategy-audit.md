@@ -22,7 +22,7 @@ It resets the database first (clean session), runs the bot for a fixed window, t
 
 ## Step 1: Run the Bot (30-minute forward test)
 ```bash
-timeout 1800 .venv/bin/python main.py --mode demo 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+.venv/bin/python main.py --mode demo --symbol MULTI --timeout 30 --close-on-exit 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 ```
 Wait for the bot to run for **30 minutes** to collect at least 10-20 real FootprintScalper trades.
 The bot will stop automatically after 30 minutes (1800 seconds).

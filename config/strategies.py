@@ -117,6 +117,7 @@ SENSOR_TYPES: Dict[str, List[str]] = {
         "MicroTrend",
         "SmartRange",
         "MomentumBurst",
+        "OneTimeframing",
     ],
     # -----------------------------------------------------
     # ORDER FLOW - Footprint & Delta analysis
@@ -263,6 +264,7 @@ STRATEGIES: Dict[str, dict] = {
             "FootprintStackedImbalance",
             "FootprintDeltaPoCShift",
             "CumulativeDelta",
+            "OneTimeframing",
             # --- High Performance Confirmations ---
             "VolumeSpike",  # WR 64%, PF 1.80 (Strongest confirmation)
             "RangeExpansion",  # WR 45%, PF 0.88 (Better than Squeeze)

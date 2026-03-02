@@ -270,10 +270,15 @@ class SensorManager:
             return
 
         # Check cooldown (Centralized cooldown management)
-        # use symbol+sensor key
+        # Context/Regime sensors are exempt from cooldown to provide fresh bias
+        from config.strategies import get_sensor_type
+
+        stype = get_sensor_type(sensor_name)
+        is_context = stype in ("Context", "RegimeFilter", "TrendIndicator")
+
         cooldown_key = f"{symbol}_{sensor_name}" if symbol else sensor_name
 
-        if not self._can_fire(cooldown_key):
+        if not is_context and not self._can_fire(cooldown_key):
             return
 
         # Emit Signal(s)
@@ -353,6 +358,7 @@ class SensorManager:
         from sensors.footprint.exhaustion import FootprintVolumeExhaustion
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
+        from sensors.regime.one_timeframing import OneTimeframingSensor
 
         return [
             DebugHeartbeatV3,
@@ -365,4 +371,5 @@ class SensorManager:
             FootprintVolumeExhaustion,
             FootprintDeltaPoCShift,
             CumulativeDeltaSensorV3,
+            OneTimeframingSensor,
         ]

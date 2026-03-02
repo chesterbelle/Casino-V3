@@ -25,10 +25,12 @@ class FootprintImbalanceV3(SensorV3):
         min_volume: float = 1.0,
         window_seconds: float = 30.0,
         tick_size: float = 0.1,
+        level_proximity_ticks: int = 4,
     ):
         super().__init__()
         self.imbalance_ratio = imbalance_ratio
         self.min_volume = min_volume
+        self.level_proximity_ticks = level_proximity_ticks
         self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
         self.market_profile = MarketProfile(tick_size=tick_size)
 
@@ -62,6 +64,10 @@ class FootprintImbalanceV3(SensorV3):
         imbalances = []
         unfinished_business = []
         poc, vah, val = self.market_profile.calculate_value_area()
+
+        # Phase 660: Trader Dale Level Filter
+        prox = self.level_proximity_ticks * self.market_profile.tick_size
+        at_level = abs(price - poc) <= prox or abs(price - vah) <= prox or abs(price - val) <= prox
 
         # Phase 650.2: Check for Unfinished Business (Failed Auctions) at extremes
         prices = list(profile.keys())
@@ -115,11 +121,12 @@ class FootprintImbalanceV3(SensorV3):
             avg_density = sum(i["density"] for i in long_imbalances) / len(long_imbalances)
             signal = {
                 "side": "LONG",
-                "score": 1.0,
+                "score": 1.0 if at_level else 0.4,
                 "metadata": {
                     "imbalances": len(long_imbalances),
                     "type": "Live Buy Imbalance",
-                    "fast_track": True,
+                    "fast_track": at_level,
+                    "at_volume_level": at_level,
                     "cluster_density": round(avg_density, 2),
                     "poc": poc,
                     "vah": vah,
@@ -131,11 +138,12 @@ class FootprintImbalanceV3(SensorV3):
             avg_density = sum(i["density"] for i in short_imbalances) / len(short_imbalances)
             signal = {
                 "side": "SHORT",
-                "score": 1.0,
+                "score": 1.0 if at_level else 0.4,
                 "metadata": {
                     "imbalances": len(short_imbalances),
                     "type": "Live Sell Imbalance",
-                    "fast_track": True,
+                    "fast_track": at_level,
+                    "at_volume_level": at_level,
                     "cluster_density": round(avg_density, 2),
                     "poc": poc,
                     "vah": vah,

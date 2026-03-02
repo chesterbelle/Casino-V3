@@ -23,10 +23,12 @@ class FootprintAbsorptionV3(SensorV3):
         pullback_ticks: int = 5,
         window_seconds: float = 30.0,
         tick_size: float = 0.1,
+        level_proximity_ticks: int = 4,
     ):
         super().__init__()
         self.min_volume_ratio = min_volume_ratio
         self.pullback_ticks = pullback_ticks
+        self.level_proximity_ticks = level_proximity_ticks
         self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
         self.market_profile = MarketProfile(tick_size=tick_size)
 
@@ -81,6 +83,13 @@ class FootprintAbsorptionV3(SensorV3):
 
         poc, vah, val = self.market_profile.calculate_value_area()
 
+        # Phase 660: Trader Dale Level Filter
+        # A signal is only high-probability if it occurs at a key volume level
+        prox = self.level_proximity_ticks * self.market_profile.tick_size
+        at_level = (
+            abs(current_price - poc) <= prox or abs(current_price - vah) <= prox or abs(current_price - val) <= prox
+        )
+
         signal = None
 
         # --- Scenario 1: Absorption at High (Bearish) ---
@@ -104,14 +113,15 @@ class FootprintAbsorptionV3(SensorV3):
 
                 signal = {
                     "side": "SHORT",
-                    "score": 0.9 if wall_confirmed else 0.6,  # Higher score if DOM confirms
+                    "score": 0.9 if wall_confirmed else (0.75 if at_level else 0.4),  # Context-aware scoring
                     "metadata": {
                         "type": "Live_Absorption_High",
                         "vol": top_vol["ask"],
-                        "fast_track": wall_confirmed,  # Only fast-track if confirmed by DOM
+                        "fast_track": wall_confirmed and at_level,  # Only fast-track if confirmed by DOM AND at level
                         "absorption_intensity": round(intensity, 2),
                         "dom_wall_confirmed": wall_confirmed,
                         "dom_wall_size": wall_size,
+                        "at_volume_level": at_level,
                         "poc": poc,
                         "vah": vah,
                         "val": val,
@@ -138,14 +148,15 @@ class FootprintAbsorptionV3(SensorV3):
 
                 signal = {
                     "side": "LONG",
-                    "score": 0.9 if wall_confirmed else 0.6,
+                    "score": 0.9 if wall_confirmed else (0.75 if at_level else 0.4),
                     "metadata": {
                         "type": "Live_Absorption_Low",
                         "vol": low_vol["bid"],
-                        "fast_track": wall_confirmed,
+                        "fast_track": wall_confirmed and at_level,
                         "absorption_intensity": round(intensity, 2),
                         "dom_wall_confirmed": wall_confirmed,
                         "dom_wall_size": wall_size,
+                        "at_volume_level": at_level,
                         "poc": poc,
                         "vah": vah,
                         "val": val,
