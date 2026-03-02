@@ -2,13 +2,14 @@
 description: Audit the FootprintScalper strategy's edge metrics (Win Rate, Profit Factor, MFE/MAE proxy) from the historian database.
 ---
 
-# Phase 650 — Strategy Audit Protocol
+# Phase 650 — Strategy Audit Protocol (Single Round)
 
 // turbo-all
 
 ## Overview
-This protocol validates whether the **FootprintScalper strategy has a positive edge**.
-It resets the database first (clean session), runs the bot for a fixed window, then audits the results.
+This protocol performs a **Single Round** validation of the **FootprintScalper strategy edge**.
+It follows a 3-step sequence: Reset → Run → Analyze.
+After Step 2, the agent **MUST STOP** and report the result. No further actions or iterations without user approval.
 
 **Goals**: Win Rate > 55% | Profit Factor > 1.2
 

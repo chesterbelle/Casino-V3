@@ -181,7 +181,7 @@ class AdaptivePlayer:
                 if tp_pct is not None:
                     tp_pct = max(0.1, min(tp_pct, 2.0))
                 if sl_pct is not None:
-                    sl_pct = max(0.1, min(sl_pct, 2.0))
+                    sl_pct = max(0.25, min(sl_pct, 2.0))
 
         # Phase 650.2: Unfinished Business Exact Targeting
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])

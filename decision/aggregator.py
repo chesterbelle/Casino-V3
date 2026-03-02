@@ -50,6 +50,9 @@ class SignalAggregatorV3:
         # Initialize sensor tracker
         self.tracker = SensorTracker()
 
+        # Phase 420: Cache for latest structural context per symbol (0-latency Fast-Track lookup)
+        self.latest_context: Dict[str, Dict[str, SignalEvent]] = defaultdict(dict)
+
         # Phase 103: Forensic Traceability
         self.auditor = DecisionAuditor()
 
@@ -109,10 +112,18 @@ class SignalAggregatorV3:
         self.signal_buffer[symbol][candle_ts].append(event)
 
         # Phase 240: Fast-Track Execution for HFT/OrderFlow sensors
-        # If an ultra-fast sensor fires, we don't wait 500ms for MACD/RSI to catch up
+        # If an ultra-fast sensor fires, we don't wait for late-arriving noise indicators.
+        # RegimeFilter sensors (Dalton) are also fast-tracked to ensure they are available for consensus.
         sensor_type = get_sensor_type(event.sensor_id)
+        is_context = sensor_type in ("RegimeFilter", "Context")
+
+        # Cache the context for 0-latency injection during Fast-Track
+        if is_context:
+            self.latest_context[symbol][event.sensor_id] = event
+            logger.debug(f"📊 CONTEXT: Cached {event.sensor_id} for {symbol}.")
+
         if sensor_type == "OrderFlow" or getattr(event, "fast_track", False):
-            logger.info(f"⚡ FAST-TRACK: {event.sensor_id} fired for {symbol}. Bypassing 500ms consensus delay.")
+            logger.info(f"⚡ FAST-TRACK: {event.sensor_id} fired for {symbol}. Bypassing delay (0ms latency).")
             # Cancel any pending timeout task for this symbol if exists
             if symbol in self.timeout_tasks and not self.timeout_tasks[symbol].done():
                 self.timeout_tasks[symbol].cancel()
@@ -122,8 +133,7 @@ class SignalAggregatorV3:
             return
 
         current_count = len(self.signal_buffer[symbol][candle_ts])
-
-        # If this is the first signal for this candle, start timeout
+        # If this is the first signal for this candle, start standard timeout
         if current_count == 1:
             # Store task reference to allow cancellation
             task = asyncio.create_task(self._timeout_handler(symbol, candle_ts))
@@ -150,7 +160,18 @@ class SignalAggregatorV3:
         if candle_ts in self.processed_candles[symbol]:
             return
 
-        signals = self.signal_buffer[symbol].get(candle_ts, [])
+        signals = list(self.signal_buffer[symbol].get(candle_ts, []))
+
+        # Phase 420: Inject cached structural context if missing from this exact candle's buffer.
+        # This solves the Context Race Condition with ZERO latency penalty.
+        existing_sensor_ids = set()
+        for s in signals:
+            existing_sensor_ids.add(s.sensor_id)
+
+        for ctx_sensor_id, ctx_event in self.latest_context[symbol].items():
+            if ctx_sensor_id not in existing_sensor_ids:
+                signals.append(ctx_event)
+                logger.debug(f"💉 FAST-TRACK: Injected cached {ctx_sensor_id} context for {symbol}")
 
         if not signals:
             return
@@ -181,8 +202,8 @@ class SignalAggregatorV3:
                 del self.signal_buffer[candle_ts]
             return
 
-        # 2. Extract HTF context from ALL context sensors (weighted by count)
-        context_sensors = {"HigherTFTrend", "HurstRegime", "MTFImpulse", "OneTimeframing"}
+        # 2. Extract HTF context from strictly structural sensors (Dalton)
+        context_sensors = {"OneTimeframing"}
         htf_long_count = 0
         htf_short_count = 0
 

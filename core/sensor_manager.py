@@ -69,6 +69,10 @@ class SensorManager:
         self.input_queues = []  # One per worker to avoid contention/ordering issues
         self.output_queue = multiprocessing.Queue()  # Shared output queue for all workers
 
+        # Capability Mapping (Phase 660 Optimization)
+        self.tick_queues = []
+        self.ob_queues = []
+
         # Load and Distribute Sensors
         self._spawn_workers()
 
@@ -125,16 +129,35 @@ class SensorManager:
         from .sensor_worker import SensorWorker
 
         chunks = [[] for _ in range(num_workers)]
+        capabilities = [{"tick": False, "ob": False} for _ in range(num_workers)]
+
         for i, cls in enumerate(enabled_classes):
-            chunks[i % num_workers].append(cls)
+            worker_idx = i % num_workers
+            chunks[worker_idx].append(cls)
+
+            # Detect capabilities
+            try:
+                tmp = cls()
+                if hasattr(tmp, "on_tick"):
+                    capabilities[worker_idx]["tick"] = True
+                if hasattr(tmp, "on_orderbook"):
+                    capabilities[worker_idx]["ob"] = True
+            except Exception:
+                pass
 
         # 4. Create Processes
         for i in range(num_workers):
             if not chunks[i]:
                 continue  # Skip empty workers if few sensors
 
-            q_in = multiprocessing.Queue()
+            q_in = multiprocessing.Queue(maxsize=10000)  # Phase 660: Add cap to prevent OOM if main process stalls
             self.input_queues.append(q_in)
+
+            # Register for targeted broadcast
+            if capabilities[i]["tick"]:
+                self.tick_queues.append(q_in)
+            if capabilities[i]["ob"]:
+                self.ob_queues.append(q_in)
 
             worker = SensorWorker(
                 worker_id=i, sensor_classes=chunks[i], input_queue=q_in, output_queue=self.output_queue
@@ -142,7 +165,10 @@ class SensorManager:
             worker.start()
             self.workers.append(worker)
 
-        logger.info(f"🚀 {len(self.workers)} Workers started.")
+        logger.info(
+            f"🚀 {len(self.workers)} Workers started | "
+            f"Tick-Aware: {len(self.tick_queues)} | OB-Aware: {len(self.ob_queues)}"
+        )
 
     async def on_candle(self, event: CandleEvent):
         """
@@ -210,7 +236,8 @@ class SensorManager:
         }
 
         loop = asyncio.get_running_loop()
-        for q in self.input_queues:
+        # Phase 660: Targeted broadcast (Only to workers that have tick-aware sensors)
+        for q in self.tick_queues:
             loop.run_in_executor(None, q.put, msg)
 
     async def on_orderbook(self, event: OrderBookEvent):
@@ -234,7 +261,8 @@ class SensorManager:
         }
 
         loop = asyncio.get_running_loop()
-        for q in self.input_queues:
+        # Phase 660: Targeted broadcast (Only to workers that have OB-aware sensors)
+        for q in self.ob_queues:
             loop.run_in_executor(None, q.put, msg)
 
     async def _listen_for_signals(self):
@@ -249,11 +277,16 @@ class SensorManager:
                 # wrapper or a non-blocking get loop with sleep
 
                 # Option A: Polling with sleep (simplest, low overhead if sleep is small)
-                while not self.output_queue.empty():
+                processed = 0
+                while not self.output_queue.empty() and processed < 1000:
                     msg = self.output_queue.get_nowait()
                     await self._handle_worker_message(msg)
+                    processed += 1
 
-                await asyncio.sleep(0.01)  # 10ms poll interval
+                if processed == 0:
+                    await asyncio.sleep(0.01)  # 10ms poll interval
+                else:
+                    await asyncio.sleep(0)  # Yield for other tasks if busy
 
             except Exception as e:
                 if not isinstance(e, asyncio.CancelledError):
@@ -361,6 +394,7 @@ class SensorManager:
         from sensors.regime.one_timeframing import OneTimeframingSensor
 
         return [
+            OneTimeframingSensor,
             DebugHeartbeatV3,
             FootprintImbalanceV3,
             FootprintAbsorptionV3,
@@ -371,5 +405,4 @@ class SensorManager:
             FootprintVolumeExhaustion,
             FootprintDeltaPoCShift,
             CumulativeDeltaSensorV3,
-            OneTimeframingSensor,
         ]

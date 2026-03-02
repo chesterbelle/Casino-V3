@@ -216,8 +216,8 @@ class BinanceWorker(multiprocessing.Process):
                         self.output_queue.put_nowait(normalized)
                         self.msg_count += 1
                     except Exception:
-                        if self.msg_count % 100 == 0:
-                            logger.warning(f"⚠️ [{self.worker_id}] Output queue full, dropping message")
+                        if self.msg_count % 10000 == 0:
+                            logger.warning(f"⚠️ [{self.worker_id}] Output queue full (x10000), dropping message")
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
             elif msg.type == aiohttp.WSMsgType.ERROR:

@@ -174,8 +174,8 @@ class BinanceNativeConnector(BaseConnector):
             self.logger.warning(f"⚠️ Missing API Keys for mode {self._mode}. Operations requiring auth will fail.")
 
         # Phase 91: Ingestion Airlock (Market Data) -> SHARDED Phase 1
-        self._num_shards = 4
-        self._shards_out_queues = [multiprocessing.Queue(maxsize=10000) for _ in range(self._num_shards)]
+        self._num_shards = 8  # Scale from 4 to 8 for HFT MULTI-Asset
+        self._shards_out_queues = [multiprocessing.Queue(maxsize=50000) for _ in range(self._num_shards)]
         self._shards_in_queues = [multiprocessing.Queue() for _ in range(self._num_shards)]
         self._shards_processes = []
         self._shards_tasks = []
@@ -1811,7 +1811,7 @@ class BinanceNativeConnector(BaseConnector):
         self._bridge_active = True
         while self._bridge_active:
             try:
-                processed = await self._process_queue_burst(queue, source, max_processed=100)
+                processed = await self._process_queue_burst(queue, source, max_processed=500)
 
                 if processed == 0:
                     await asyncio.sleep(0.005)  # Market shards can be slightly less aggressive
@@ -1889,7 +1889,7 @@ class BinanceNativeConnector(BaseConnector):
                             asyncio.create_task(self._reconnect_user_data_stream())
 
                     processed_count += 1
-                    if source.startswith("market") and processed_count >= 100:
+                    if source.startswith("market") and processed_count >= 500:
                         return processed_count
                     continue
 
@@ -1965,7 +1965,7 @@ class BinanceNativeConnector(BaseConnector):
                 # Market data is limited to 100 per burst to prevent main loop starvation.
                 # User data (critical) is NOT limited to ensure atomic processing of state changes.
                 processed_count += 1
-                if source.startswith("market") and processed_count >= 100:
+                if source.startswith("market") and processed_count >= 500:
                     # Return and let _consume_shard_loop yield
                     return processed_count
                 # Note: For user events, we drain up to max_processed without intermediate sleeps.

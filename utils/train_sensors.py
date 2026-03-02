@@ -66,114 +66,51 @@ class SensorTrainer:
         logger.info(f"   Timeframe: {self.timeframe} | Using sensor-specific TP/SL from config")
 
     def _load_sensors(self) -> List:
-        """Load all V3 sensors."""
-        # Import all sensors
+        """Load Dale/Dalton sensors for pure Order Flow training."""
+        # 1. Volume Analysis (Dale)
         from sensors.absorption_block import AbsorptionBlockV3
-        from sensors.adaptive_rsi import AdaptiveRSIV3
-        from sensors.adx_filter import ADXFilterV3
-        from sensors.bollinger_rejection import BollingerRejectionV3
-        from sensors.bollinger_squeeze import BollingerSqueezeV3
-        from sensors.bollinger_touch import BollingerTouchV3
-        from sensors.cci_reversion import CCIReversionV3
-        from sensors.deceleration_candles import DecelerationCandlesV3
-        from sensors.doji_indecision import DojiIndecisionV3
-        from sensors.ema50_support import EMA50SupportV3
-        from sensors.ema_crossover import EMACrossoverV3
-        from sensors.engulfing_pattern import EngulfingPatternV3
-        from sensors.extreme_candle_ratio import ExtremeCandleRatioV3
-        from sensors.fakeout import FakeoutV3
-        from sensors.fvg_retest import FVGRetestV3
-        from sensors.higher_tf_trend import HigherTFTrendV3
-        from sensors.hurst_regime import HurstRegimeV3
-        from sensors.inside_bar_breakout import InsideBarBreakoutV3
-        from sensors.keltner_breakout import KeltnerBreakoutV3
-        from sensors.keltner_reversion import KeltnerReversionV3
-        from sensors.liquidity_void import LiquidityVoidV3
-        from sensors.long_tail import LongTailV3
-        from sensors.macd_crossover import MACDCrossoverV3
-        from sensors.marubozu_momentum import MarubozuMomentumV3
-        from sensors.micro_trend import MicroTrendV3
-        from sensors.momentum_burst import MomentumBurstV3
-        from sensors.morning_star import MorningStarV3
-        from sensors.mtf_impulse import MTFImpulseV3
-        from sensors.order_block import OrderBlockV3
-        from sensors.parabolic_sar import ParabolicSARV3
-        from sensors.pinbar_reversal import PinBarReversalV3
-        from sensors.rails_pattern import RailsPatternV3
-        from sensors.rsi_reversion import RSIReversionV3
-        from sensors.smart_range import SmartRangeV3
-        from sensors.stochastic_reversion import StochasticReversionV3
-        from sensors.supertrend import SupertrendV3
-        from sensors.support_resistance import SupportResistanceV3
-        from sensors.three_bar import ThreeBarV3
-        from sensors.tweezer_pattern import TweezerPatternV3
-        from sensors.vcp_pattern import VCPPatternV3
-        from sensors.volatility_wakeup import VolatilityWakeupV3
+
+        # 3. Footprint (Dale/Dalton)
+        from sensors.footprint.absorption import FootprintAbsorptionV3
+        from sensors.footprint.advanced import (
+            FootprintDeltaDivergence,
+            FootprintPOCRejection,
+            FootprintStackedImbalance,
+            FootprintTrappedTraders,
+        )
+        from sensors.footprint.cumulative_delta import CumulativeDeltaSensorV3
+        from sensors.footprint.exhaustion import FootprintVolumeExhaustion
+        from sensors.footprint.flow_shift import FootprintDeltaPoCShift
+        from sensors.footprint.imbalance import FootprintImbalanceV3
+
+        # 2. Structural Context (Dalton)
+        from sensors.regime.one_timeframing import OneTimeframingSensor
         from sensors.volume_imbalance import VolumeImbalanceV3
         from sensors.volume_spike import VolumeSpikeV3
         from sensors.vsa_reversal import VSAReversalV3
-        from sensors.vwap_breakout import VWAPBreakoutV3
-        from sensors.vwap_deviation import VWAPDeviationV3
-        from sensors.vwap_momentum import VWAPMomentumV3
-        from sensors.wick_rejection import WickRejectionV3
-        from sensors.williams_r_reversion import WilliamsRReversionV3
-        from sensors.wyckoff_spring import WyckoffSpringV3
-        from sensors.zscore_reversion import ZScoreReversionV3
 
-        # Instantiate all sensors
+        # Instantiate
         sensors = [
-            EMACrossoverV3(),
-            PinBarReversalV3(),
-            RailsPatternV3(),
-            EMA50SupportV3(),
-            MarubozuMomentumV3(),
-            VWAPBreakoutV3(),
-            ExtremeCandleRatioV3(),
-            InsideBarBreakoutV3(),
-            DecelerationCandlesV3(),
-            VWAPDeviationV3(),
-            VCPPatternV3(),
-            EngulfingPatternV3(),
-            RSIReversionV3(),
-            BollingerTouchV3(),
-            KeltnerReversionV3(),
-            MACDCrossoverV3(),
-            SupertrendV3(),
-            StochasticReversionV3(),
-            CCIReversionV3(),
-            WilliamsRReversionV3(),
-            ZScoreReversionV3(),
-            ADXFilterV3(),
-            BollingerSqueezeV3(),
-            ParabolicSARV3(),
-            MomentumBurstV3(),
+            # Volume
             VolumeImbalanceV3(),
-            OrderBlockV3(),
-            FVGRetestV3(),
-            DojiIndecisionV3(),
-            MorningStarV3(),
-            LongTailV3(),
-            AbsorptionBlockV3(),
-            LiquidityVoidV3(),
-            FakeoutV3(),
-            HigherTFTrendV3(),
-            MTFImpulseV3(),
-            AdaptiveRSIV3(),
-            BollingerRejectionV3(),
-            HurstRegimeV3(),
-            KeltnerBreakoutV3(),
-            MicroTrendV3(),
-            SmartRangeV3(),
-            VolatilityWakeupV3(),
-            VSAReversalV3(),
-            VWAPMomentumV3(),
-            WickRejectionV3(),
-            WyckoffSpringV3(),
             VolumeSpikeV3(),
-            TweezerPatternV3(),
-            ThreeBarV3(),
-            SupportResistanceV3(),
+            VSAReversalV3(),
+            AbsorptionBlockV3(),
+            # Structural
+            OneTimeframingSensor(),
+            # Footprint
+            FootprintImbalanceV3(),
+            FootprintAbsorptionV3(),
+            FootprintPOCRejection(),
+            FootprintDeltaDivergence(),
+            FootprintStackedImbalance(),
+            FootprintTrappedTraders(),
+            FootprintVolumeExhaustion(),
+            FootprintDeltaPoCShift(),
+            CumulativeDeltaSensorV3(),
         ]
+
+        return sensors
 
         return sensors
 
