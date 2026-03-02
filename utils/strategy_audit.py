@@ -22,7 +22,6 @@ import argparse
 import sqlite3
 import sys
 from collections import defaultdict
-from datetime import datetime, timezone
 from pathlib import Path
 
 # ─── ANSI colours ───────────────────────────────────────────
@@ -81,6 +80,17 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None):
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+def reset_db(db_path: str):
+    """Wipes all trades from historian.db for a clean slate."""
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+    conn.execute("DELETE FROM trades")
+    conn.execute("DELETE FROM sqlite_sequence WHERE name='trades'")
+    conn.commit()
+    conn.close()
+    print(f"{YELLOW}🗑️  DB Reset: {count} trades removed. Starting clean.{RESET}")
 
 
 # ─── Core Metrics ────────────────────────────────────────────
@@ -320,9 +330,26 @@ def main():
     parser.add_argument("--db", default="data/historian.db", help="Path to historian SQLite database")
     parser.add_argument("--session", default=None, help="Filter by session_id")
     parser.add_argument("--last", type=int, default=None, help="Analyse only the last N trades")
+    parser.add_argument(
+        "--reset-db",
+        action="store_true",
+        help="Wipe the historian DB before analysis (use before running the bot for a clean session)",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db)
+    if not db_path.exists() and not args.reset_db:
+        print(f"{RED}❌ Database not found: {db_path}{RESET}")
+        sys.exit(1)
+
+    if args.reset_db:
+        if db_path.exists():
+            reset_db(str(db_path))
+        else:
+            print(f"{YELLOW}⚠️  DB does not exist yet — will be created fresh when the bot runs.{RESET}")
+        # Exit after reset — the workflow will run the bot next
+        sys.exit(0)
+
     if not db_path.exists():
         print(f"{RED}❌ Database not found: {db_path}{RESET}")
         sys.exit(1)

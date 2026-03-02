@@ -7,40 +7,38 @@ description: Audit the FootprintScalper strategy's edge metrics (Win Rate, Profi
 // turbo-all
 
 ## Overview
-This protocol validates whether the FootprintScalper strategy has a **positive edge**.
-It must be run periodically during live forward-testing to measure progress towards the Phase 650 goals:
-- **Win Rate > 55%**
-- **Profit Factor > 1.2**
+This protocol validates whether the **FootprintScalper strategy has a positive edge**.
+It resets the database first (clean session), runs the bot for a fixed window, then audits the results.
 
-> **Important:** This is NOT an infrastructure test. It tests if the **strategy makes money**.
-> Run `/validate-all` first to confirm the engine is healthy. Then run this to assess profitability.
+**Goals**: Win Rate > 55% | Profit Factor > 1.2
 
 ---
 
-## Step 1: Quick Overview (Last 50 trades)
+## Step 0: Reset DB (Clean Slate)
 ```bash
-.venv/bin/python utils/strategy_audit.py --last 50
+.venv/bin/python utils/strategy_audit.py --reset-db
 ```
-**Check**: Win Rate ≥ 55% and Profit Factor ≥ 1.2? If YES, edge is confirmed. If NO, proceed to next steps.
+**Must output**: `🗑️ DB Reset: N trades removed. Starting clean.`
 
-## Step 2: Full Historical Audit
+## Step 1: Run the Bot (30-minute forward test)
+```bash
+timeout 1800 .venv/bin/python main.py --mode demo 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+```
+Wait for the bot to run for **30 minutes** to collect at least 10-20 real FootprintScalper trades.
+The bot will stop automatically after 30 minutes (1800 seconds).
+
+## Step 2: Analyse Results
 ```bash
 .venv/bin/python utils/strategy_audit.py
 ```
-**Check**: Review all 7 sections carefully:
-1. **Edge Metrics** — Is WR > 55% and PF > 1.2?
+**Review all 7 sections**:
+1. **Edge Metrics** — Is WR ≥ 55% and PF ≥ 1.2?
 2. **Exit Breakdown** — What % are TP hits vs SL hits vs Recon/Shadow exits?
-3. **Early Exit Audit** — Are Shadow SL or Recon exits eating more than 20% of trades?
+3. **Early Exit Audit** — Are Shadow SL / Recon exits eating > 20% of trades?
 4. **Directional Bias** — Is LONG or SHORT significantly better? Consider direction filter.
 5. **Per-Symbol** — Which symbols are profitable? Consider disabling underperformers.
 6. **Latency** — Is T0→T4 latency still < 500ms avg?
 7. **Verdict** — ✅ PASS or ❌ FAIL
-
-## Step 3: Per-Session Audit (After a specific run)
-```bash
-.venv/bin/python utils/strategy_audit.py --session <SESSION_ID>
-```
-Use this to isolate metrics from a specific live-run session.
 
 ---
 
@@ -48,8 +46,8 @@ Use this to isolate metrics from a specific live-run session.
 
 | Metric | Goal | Action if failing |
 |---|---|---|
-| **Win Rate** | ≥ 55% | Tighten entry filters (min_cluster_density, delta thresholds) |
-| **Profit Factor** | ≥ 1.2 | Adjust TP/SL ratio; check if Shadow SL is triggering too early |
+| **Win Rate** | ≥ 55% | Tighten entry filters (`min_cluster_density`, delta thresholds) |
+| **Profit Factor** | ≥ 1.2 | Adjust TP/SL ratio; check if Shadow SL triggers too early |
 | **Early Exit Rate** | ≤ 20% | Widen Shadow SL or increase cooldown before breakeven triggers |
 | **Directional Bias** | < 15% gap LONG vs SHORT WR | Add trend filter (HTF alignment) |
-| **Latency T0→T4** | < 500ms avg | Check DOM scan loop; review absorption.py cache size |
+| **Latency T0→T4** | < 500ms avg | Check DOM scan loop; review `absorption.py` cache size |
