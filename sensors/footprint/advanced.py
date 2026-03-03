@@ -158,6 +158,13 @@ class FootprintDeltaDivergence(SensorV3):
 class FootprintStackedImbalance(SensorV3):
     """
     Detects Stacked Imbalances (3+ consecutive levels with imbalance).
+
+    Enhanced to detect:
+    1. Initial stacked imbalance (trend direction)
+    2. Continuation after pullback (high win rate setup)
+
+    Trader Dale: "Stacked imbalances show institutional footprints.
+    When price pulls back to the stack and bounces, it's a continuation signal."
     """
 
     @property
@@ -168,6 +175,8 @@ class FootprintStackedImbalance(SensorV3):
         self.timeframe = "1m"
         self.imbalance_ratio = 3.0  # Aggressive side > Passive side * 3
         self.min_stack_size = 3  # Minimum consecutive levels
+        self.pullback_pct = 0.38  # Fibonacci 38% pullback threshold
+        self.history = deque(maxlen=10)  # Track recent stacks for continuation
 
     def calculate(self, context: Dict[str, Any]) -> Optional[Dict]:
         candle = context.get(self.timeframe)
@@ -178,71 +187,174 @@ class FootprintStackedImbalance(SensorV3):
         if not profile:
             return None
 
+        # Helper to get attr
+        def get_val(obj, key):
+            return getattr(obj, key) if hasattr(obj, key) else obj.get(key)
+
+        curr_high = get_val(candle, "high")
+        curr_low = get_val(candle, "low")
+        curr_close = get_val(candle, "close")
+
         # Sort levels by price
-        sorted_levels = sorted(profile.items(), key=lambda x: x[0])
+        sorted_levels = sorted(profile.items(), key=lambda x: float(x[0]))
 
         # Check for Bid Stack (Aggressive Selling)
-        # Bid > Ask * Ratio
-        bid_stack_count = 0
-        bid_stack_levels = []
-
-        for price, vol in sorted_levels:
-            bid_vol = vol["bid"]
-            ask_vol = vol["ask"]
-
-            # Avoid division by zero
-            if ask_vol == 0:
-                ratio = bid_vol if bid_vol > 0 else 0
-            else:
-                ratio = bid_vol / ask_vol
-
-            if ratio >= self.imbalance_ratio and bid_vol > 1.0:  # Min volume filter
-                bid_stack_count += 1
-                bid_stack_levels.append(price)
-            else:
-                # Reset if sequence breaks
-                if bid_stack_count >= self.min_stack_size:
-                    # Found a stack!
-                    break
-                bid_stack_count = 0
-                bid_stack_levels = []
-
-        if bid_stack_count >= self.min_stack_size:
-            return {
-                "side": "SHORT",
-                "score": 0.9,
-                "metadata": {"pattern": "Stacked_Imbalance_Bid", "levels": bid_stack_levels, "count": bid_stack_count},
-            }
+        bid_stack = self._find_stack(sorted_levels, "bid", "ask")
 
         # Check for Ask Stack (Aggressive Buying)
-        # Ask > Bid * Ratio
-        ask_stack_count = 0
-        ask_stack_levels = []
+        ask_stack = self._find_stack(sorted_levels, "ask", "bid")
 
-        for price, vol in sorted_levels:
-            bid_vol = vol["bid"]
-            ask_vol = vol["ask"]
+        # Store stack info for continuation detection
+        if bid_stack:
+            self.history.append(
+                {
+                    "type": "BID_STACK",
+                    "levels": bid_stack["levels"],
+                    "high": curr_high,
+                    "low": curr_low,
+                    "time": get_val(candle, "timestamp"),
+                }
+            )
+            return {
+                "side": "SHORT",
+                "score": 0.85,
+                "metadata": {
+                    "pattern": "Stacked_Imbalance_Bid",
+                    "levels": bid_stack["levels"],
+                    "count": bid_stack["count"],
+                    "setup_type": "initial",
+                },
+            }
 
-            if bid_vol == 0:
-                ratio = ask_vol if ask_vol > 0 else 0
-            else:
-                ratio = ask_vol / bid_vol
-
-            if ratio >= self.imbalance_ratio and ask_vol > 1.0:
-                ask_stack_count += 1
-                ask_stack_levels.append(price)
-            else:
-                if ask_stack_count >= self.min_stack_size:
-                    break
-                ask_stack_count = 0
-                ask_stack_levels = []
-
-        if ask_stack_count >= self.min_stack_size:
+        if ask_stack:
+            self.history.append(
+                {
+                    "type": "ASK_STACK",
+                    "levels": ask_stack["levels"],
+                    "high": curr_high,
+                    "low": curr_low,
+                    "time": get_val(candle, "timestamp"),
+                }
+            )
             return {
                 "side": "LONG",
-                "score": 0.9,
-                "metadata": {"pattern": "Stacked_Imbalance_Ask", "levels": ask_stack_levels, "count": ask_stack_count},
+                "score": 0.85,
+                "metadata": {
+                    "pattern": "Stacked_Imbalance_Ask",
+                    "levels": ask_stack["levels"],
+                    "count": ask_stack["count"],
+                    "setup_type": "initial",
+                },
             }
+
+        # No new stack - check for continuation after pullback
+        continuation = self._check_continuation(candle, curr_high, curr_low, curr_close)
+        if continuation:
+            return continuation
+
+        return None
+
+    def _find_stack(self, sorted_levels: list, aggressive_key: str, passive_key: str) -> Optional[Dict]:
+        """Find stacked imbalance in profile."""
+        stack_count = 0
+        stack_levels = []
+
+        for price, vol in sorted_levels:
+            agg_vol = vol[aggressive_key]
+            pas_vol = vol[passive_key]
+
+            # Avoid division by zero
+            if pas_vol == 0:
+                ratio = agg_vol if agg_vol > 0 else 0
+            else:
+                ratio = agg_vol / pas_vol
+
+            if ratio >= self.imbalance_ratio and agg_vol > 1.0:
+                stack_count += 1
+                stack_levels.append(float(price))
+            else:
+                # Reset if sequence breaks
+                if stack_count >= self.min_stack_size:
+                    break
+                stack_count = 0
+                stack_levels = []
+
+        if stack_count >= self.min_stack_size:
+            return {"count": stack_count, "levels": stack_levels}
+        return None
+
+    def _check_continuation(self, candle: dict, curr_high: float, curr_low: float, curr_close: float) -> Optional[Dict]:
+        """
+        Check for continuation after pullback to previous stack.
+
+        Logic:
+        1. Find recent stack in history
+        2. Check if price pulled back to stack zone
+        3. Check if price is now bouncing (continuation)
+        """
+        if not self.history:
+            return None
+
+        # Look at recent stacks
+        for past in list(self.history)[-5:]:
+            stack_type = past["type"]
+            stack_levels = past["levels"]
+            stack_high = max(stack_levels)
+            stack_low = min(stack_levels)
+            past_high = past["high"]
+            past_low = past["low"]
+
+            # Calculate pullback
+            if stack_type == "ASK_STACK":
+                # Bullish continuation - price pulled back to stack
+                # Stack was support, price should bounce
+                move_high = past_high - past_low
+                if move_high <= 0:
+                    continue
+
+                pullback = past_high - curr_low
+                pullback_pct = pullback / move_high if move_high > 0 else 0
+
+                # Check if pullback reached stack zone (38-62% retracement)
+                if 0.38 <= pullback_pct <= 0.62:
+                    # Check if price is bouncing (close > low)
+                    if curr_close > curr_low:
+                        # Continuation signal
+                        return {
+                            "side": "LONG",
+                            "score": 0.90,  # Higher score for continuation
+                            "metadata": {
+                                "pattern": "Stacked_Imbalance_Continuation",
+                                "original_stack": "ASK_STACK",
+                                "stack_zone": [stack_low, stack_high],
+                                "pullback_pct": round(pullback_pct, 2),
+                                "setup_type": "continuation",
+                            },
+                        }
+
+            elif stack_type == "BID_STACK":
+                # Bearish continuation - price pulled back to stack
+                # Stack was resistance, price should drop
+                move_low = past_high - past_low
+                if move_low <= 0:
+                    continue
+
+                pullback = curr_high - past_low
+                pullback_pct = pullback / move_low if move_low > 0 else 0
+
+                if 0.38 <= pullback_pct <= 0.62:
+                    if curr_close < curr_high:
+                        return {
+                            "side": "SHORT",
+                            "score": 0.90,
+                            "metadata": {
+                                "pattern": "Stacked_Imbalance_Continuation",
+                                "original_stack": "BID_STACK",
+                                "stack_zone": [stack_low, stack_high],
+                                "pullback_pct": round(pullback_pct, 2),
+                                "setup_type": "continuation",
+                            },
+                        }
 
         return None
 

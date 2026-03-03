@@ -387,6 +387,7 @@ class SensorManager:
             FootprintStackedImbalance,
             FootprintTrappedTraders,
         )
+        from sensors.footprint.big_orders import BigOrderSensor
         from sensors.footprint.cumulative_delta import CumulativeDeltaSensorV3
         from sensors.footprint.exhaustion import FootprintVolumeExhaustion
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
@@ -407,4 +408,5 @@ class SensorManager:
             FootprintVolumeExhaustion,
             FootprintDeltaPoCShift,
             CumulativeDeltaSensorV3,
+            BigOrderSensor,
         ]

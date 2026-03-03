@@ -13,7 +13,7 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from config.strategies import get_sensor_type, get_strategy_for_sensor
 from core.events import AggregatedSignalEvent, EventType, SignalEvent
@@ -27,6 +27,31 @@ logger = logging.getLogger(__name__)
 SIGNAL_TIMEOUT_MS = 20  # Phase 310: Compressed from 500ms to 20ms to eliminate T0-T1 latency bottlenecks
 MIN_SCORE_THRESHOLD = 0.5  # Only sensors with proven/neutral performance participate
 MIN_MARGIN_RATIO = 0.10  # Winner must have 10% higher Σ than loser for conviction
+
+# =============================================================================
+# WINDOW TYPE COMPATIBILITY (Liquidity Windows Adaptation)
+# =============================================================================
+# Maps sensors to compatible window types (adapted from Dalton's Day Type)
+# TREND_WINDOW: Follow direction, no fading
+# RANGE_WINDOW: Fade extremes, reversal plays
+# NORMAL_WINDOW: Mixed approach, most sensors work
+
+SENSOR_WINDOW_TYPE_COMPAT = {
+    # OrderFlow Sensors (Dale)
+    "FootprintImbalanceV3": ["TREND_WINDOW", "NORMAL_WINDOW", "RANGE_WINDOW"],  # Works in all
+    "FootprintAbsorptionV3": ["RANGE_WINDOW", "NORMAL_WINDOW"],  # Best in range (reversal)
+    "FootprintStackedImbalance": ["TREND_WINDOW", "NORMAL_WINDOW"],  # Trend continuation
+    "FootprintTrappedTraders": ["RANGE_WINDOW", "NORMAL_WINDOW"],  # Reversal at extremes
+    "FootprintVolumeExhaustion": ["RANGE_WINDOW"],  # Only in range (volume dries at extremes)
+    "CumulativeDeltaSensorV3": ["TREND_WINDOW", "NORMAL_WINDOW", "RANGE_WINDOW"],  # Works in all
+    "FootprintDeltaPoCShift": ["TREND_WINDOW", "NORMAL_WINDOW"],  # Trend following
+    "FootprintDeltaDivergence": ["RANGE_WINDOW", "NORMAL_WINDOW"],  # Reversal signal
+    "FootprintPOCRejection": ["RANGE_WINDOW", "NORMAL_WINDOW"],  # Reversal at POC
+    "BigOrderSensor": ["TREND_WINDOW", "NORMAL_WINDOW", "RANGE_WINDOW"],  # Confirmation at key levels
+    # Structural Sensors (Dalton) - Context, always allowed
+    "SessionValueArea": ["TREND_WINDOW", "NORMAL_WINDOW", "RANGE_WINDOW", "DEVELOPING"],
+    "OneTimeframing": ["TREND_WINDOW", "NORMAL_WINDOW", "RANGE_WINDOW", "DEVELOPING"],
+}
 
 
 class SignalAggregatorV3:
@@ -208,6 +233,11 @@ class SignalAggregatorV3:
         htf_short_count = 0
         structural_levels = {}
 
+        # Initialize window context (will be set by SessionValueArea)
+        window_type_ctx = "DEVELOPING"
+        liquidity_window_ctx = "unknown"
+        window_volatility_ctx = "unknown"
+
         for signal in valid_signals:
             if signal.sensor_id in context_sensors:
                 if signal.side == "LONG":
@@ -215,7 +245,7 @@ class SignalAggregatorV3:
                 elif signal.side == "SHORT":
                     htf_short_count += 1
 
-                # Extract levels for Gap 1 confirmation
+                # Extract levels for Gap 1 confirmation and window context
                 if signal.sensor_id == "SessionValueArea" and signal.metadata:
                     structural_levels = {
                         "poc": signal.metadata.get("poc"),
@@ -225,6 +255,14 @@ class SignalAggregatorV3:
                         "ibl": signal.metadata.get("ib_low"),
                         "mtf_side": signal.metadata.get("mtf_30m_side"),
                     }
+                    # Extract Liquidity Window context
+                    window_type_ctx = signal.metadata.get("window_type", "DEVELOPING")
+                    liquidity_window_ctx = signal.metadata.get("liquidity_window", "unknown")
+                    window_volatility_ctx = signal.metadata.get("window_volatility", "unknown")
+                    logger.debug(
+                        f"📊 Window Context: {liquidity_window_ctx} | Type: {window_type_ctx} | "
+                        f"Volatility: {window_volatility_ctx}"
+                    )
                 logger.debug(f"📊 HTF Context: {signal.sensor_id} = {signal.side}")
 
         # Determine HTF consensus (majority of context sensors)
@@ -292,6 +330,9 @@ class SignalAggregatorV3:
             if not mtf_alignment:
                 logger.debug(f"⚠️ [Gap 6] MTF Divergence for {signal.sensor_id} {signal.side}: Against 30m POC flow.")
                 signal.score *= 0.5  # Penalize instead of hard reject for MTF
+
+            # WindowType removed - not suitable for HFT scalping
+            # All footprint sensors now operate freely without context filtering
 
             filtered_valid_signals.append(signal)
 
@@ -390,6 +431,52 @@ class SignalAggregatorV3:
             winner_sum = sigma_short
             winner_signals = short_signals
             loser_sum = sigma_long
+
+        # 4.5 Multi-Confirmation Boost (Dale/Dalton)
+        # "4 confirmations → Alta probabilidad de éxito"
+        # Boost score when multiple sensors confirm the same setup at the same level
+        MULTI_CONFIRMATION_BOOST = 0.15  # +15% score per additional confirmation
+
+        def get_signal_level(sig_data: dict) -> Optional[float]:
+            """Extract price level from signal metadata."""
+            metadata = sig_data["signal"].metadata
+            if not metadata:
+                return None
+            # Try various level keys
+            for key in ["level_price", "poc", "vah", "val", "ib_high", "ib_low", "at_price", "price"]:
+                if key in metadata and metadata[key] is not None:
+                    return float(metadata[key])
+            return None
+
+        # Check for multi-confirmation on winning side
+        if len(winner_signals) >= 2:
+            confirmation_levels = {}
+            for sig_data in winner_signals:
+                level = get_signal_level(sig_data)
+                if level is None:
+                    continue
+                # Round to tick granularity for grouping
+                rounded_level = round(level * 10) / 10  # 0.1 tick precision
+                if rounded_level not in confirmation_levels:
+                    confirmation_levels[rounded_level] = []
+                confirmation_levels[rounded_level].append(sig_data["sensor_id"])
+
+            # Find the level with most confirmations
+            max_confirmations = 0
+            confirmed_level = None
+            for level, sensors in confirmation_levels.items():
+                if len(sensors) > max_confirmations:
+                    max_confirmations = len(sensors)
+                    confirmed_level = level
+
+            # Apply boost if 2+ confirmations at same level
+            if max_confirmations >= 2:
+                boost = MULTI_CONFIRMATION_BOOST * (max_confirmations - 1)
+                winner_sum *= 1 + boost
+                logger.info(
+                    f"🎯 Multi-Confirmation Boost: {max_confirmations} sensors at level {confirmed_level} "
+                    f"(+{boost:.0%} score) | Sensors: {confirmation_levels[confirmed_level]}"
+                )
 
         # 5. Minimum Margin Check (conviction filter)
         # If both sides are close, skip - not enough conviction

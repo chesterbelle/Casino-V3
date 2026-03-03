@@ -1,4 +1,17 @@
+"""
+Cumulative Volume Delta (CVD) Sensor with Delta Divergence Detection.
+
+Implements Trader Dale's Delta Divergence setup:
+- Price goes UP, Delta goes DOWN/FLAT → Bearish Divergence (SHORT signal)
+- Price goes DOWN, Delta goes UP/FLAT → Bullish Divergence (LONG signal)
+
+Key principle: "Price ALWAYS follows Delta eventually"
+
+Win Rate: 70-75% (Dale's favorite setup)
+"""
+
 import time
+from collections import deque
 from typing import Optional
 
 from core.market_profile import MarketProfile
@@ -10,34 +23,51 @@ class CumulativeDeltaSensorV3(SensorV3):
     """
     Cumulative Volume Delta (CVD) Sensor.
 
-    Tracks the ongoing battle between aggressive buyers and sellers over a sliding window.
-    Identifies 'Delta Divergence' (e.g., price makes a new high, but CVD drops, signaling exhaustion).
+    Tracks the ongoing battle between aggressive buyers and sellers.
+    Implements Dale's Delta Divergence: compare PRICE direction vs DELTA direction.
     """
 
     def __init__(
         self,
         window_seconds: float = 60.0,
-        divergence_threshold: float = 2.0,  # Ratio of price move vs delta move needed for signal
+        lookback_periods: int = 5,  # Number of periods to compare direction
+        min_price_move_pct: float = 0.001,  # Minimum price move to consider (0.1%)
+        min_delta_change_pct: float = 0.1,  # Minimum delta change as % of volume
         tick_size: float = 0.1,
+        level_proximity_ticks: int = 4,
     ):
         super().__init__()
         self.window_seconds = window_seconds
-        self.divergence_threshold = divergence_threshold
+        self.lookback_periods = lookback_periods
+        self.min_price_move_pct = min_price_move_pct
+        self.min_delta_change_pct = min_delta_change_pct
+        self.tick_size = tick_size
+        self.level_proximity_ticks = level_proximity_ticks
+
         self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
         self.market_profile = MarketProfile(tick_size=tick_size)
 
         # CVD Tracking
         self.current_cvd = 0.0
-        self.cvd_history = []  # List of (timestamp, price, cvd)
 
-        # Highs/Lows for divergence checks
+        # Price and Delta history for divergence calculation
+        # Each entry: (timestamp, price, cvd)
+        self.price_delta_history = deque(maxlen=100)
+
+        # Periodic snapshots for direction comparison
+        # Each entry: (timestamp, price, cvd)
+        self.period_snapshots = deque(maxlen=20)
+
+        # Session extremes (for context)
         self.session_high = float("-inf")
         self.session_low = float("inf")
         self.cvd_at_high = 0.0
         self.cvd_at_low = 0.0
 
         self._last_signal_time = 0.0
-        self._signal_cooldown = 5.0  # seconds
+        self._signal_cooldown = 3.0  # seconds (shorter for HFT)
+        self._last_snapshot_time = 0.0
+        self._snapshot_interval = 5.0  # Take snapshot every 5 seconds
 
     @property
     def name(self) -> str:
@@ -54,15 +84,14 @@ class CumulativeDeltaSensorV3(SensorV3):
 
         now = time.time()
 
-        # Update CVD: If buyer is maker, it means a seller was the aggressive taker (hit the bid)
+        # Update CVD: If buyer is maker, seller was aggressive (hit bid)
         if is_buyer_maker:
             self.current_cvd -= vol
         else:
             self.current_cvd += vol
 
-        # Maintain history for divergence calculation (cleanup old entries)
-        self.cvd_history.append((now, price, self.current_cvd))
-        self.cvd_history = [x for x in self.cvd_history if now - x[0] <= self.window_seconds]
+        # Track history
+        self.price_delta_history.append((now, price, self.current_cvd))
 
         # Update session extremes
         if price > self.session_high:
@@ -72,57 +101,113 @@ class CumulativeDeltaSensorV3(SensorV3):
             self.session_low = price
             self.cvd_at_low = self.current_cvd
 
-        # Check coercion timeline
-        if now - self._last_signal_time < self._signal_cooldown or len(self.cvd_history) < 10:
+        # Take periodic snapshot for direction comparison
+        if now - self._last_snapshot_time >= self._snapshot_interval:
+            self.period_snapshots.append((now, price, self.current_cvd))
+            self._last_snapshot_time = now
+
+        # Check cooldown
+        if now - self._last_signal_time < self._signal_cooldown:
             return None
 
-        # Check for Divergence
-        # 1. Bearish Divergence: Price near session high, but CVD is dropping significantly lower than when we made that high
-        if price >= self.session_high * 0.9999:  # Very close to high
-            # Is current CVD significantly lower than the CVD when we hit the absolute high?
-            if self.current_cvd < self.cvd_at_high - (
-                self.matrix.total_volume * 0.1
-            ):  # delta gap > 10% of total volume
-                intensity = abs(self.current_cvd - self.cvd_at_high) / (
-                    self.matrix.total_volume if self.matrix.total_volume > 0 else 1.0
-                )
-                poc, vah, val = self.market_profile.calculate_value_area()
-                self._last_signal_time = now
-                return {
-                    "side": "SHORT",
-                    "score": 0.85,
-                    "metadata": {
-                        "type": "Live_Delta_Bearish_Divergence",
-                        "fast_track": True,
-                        "cvd": round(self.current_cvd, 2),
-                        "intensity": round(intensity, 2),
-                        "poc": poc,
-                        "vah": vah,
-                        "val": val,
-                    },
-                }
+        # Need enough snapshots
+        if len(self.period_snapshots) < self.lookback_periods:
+            return None
 
-        # 2. Bullish Divergence: Price near session low, but CVD is rising significantly higher than when we made that low
-        if price <= self.session_low * 1.0001:  # Very close to low
-            if self.current_cvd > self.cvd_at_low + (self.matrix.total_volume * 0.1):
-                intensity = abs(self.current_cvd - self.cvd_at_low) / (
-                    self.matrix.total_volume if self.matrix.total_volume > 0 else 1.0
-                )
-                poc, vah, val = self.market_profile.calculate_value_area()
-                self._last_signal_time = now
-                return {
-                    "side": "LONG",
-                    "score": 0.85,
-                    "metadata": {
-                        "type": "Live_Delta_Bullish_Divergence",
-                        "fast_track": True,
-                        "cvd": round(self.current_cvd, 2),
-                        "intensity": round(intensity, 2),
-                        "poc": poc,
-                        "vah": vah,
-                        "val": val,
-                    },
-                }
+        # Calculate direction of Price and Delta
+        divergence = self._detect_divergence()
+
+        if divergence:
+            poc, vah, val = self.market_profile.calculate_value_area()
+
+            # Level Context Filter - enhance score if at key level
+            prox = self.level_proximity_ticks * self.tick_size
+            at_level = abs(price - poc) <= prox or abs(price - vah) <= prox or abs(price - val) <= prox
+
+            self._last_signal_time = now
+
+            base_score = 0.75  # Dale's setup has 70-75% win rate
+            score = base_score + (0.15 if at_level else 0.0)
+
+            return {
+                "side": divergence["side"],
+                "score": score,
+                "metadata": {
+                    "type": f"Delta_Divergence_{divergence['type']}",
+                    "fast_track": at_level,  # Fast-track if at key level
+                    "cvd": round(self.current_cvd, 2),
+                    "price_direction": divergence["price_dir"],
+                    "delta_direction": divergence["delta_dir"],
+                    "price_change_pct": round(divergence["price_change_pct"], 4),
+                    "delta_change": round(divergence["delta_change"], 2),
+                    "at_volume_level": at_level,
+                    "poc": poc,
+                    "vah": vah,
+                    "val": val,
+                },
+            }
+
+        return None
+
+    def _detect_divergence(self) -> Optional[dict]:
+        """
+        Detect divergence between price direction and delta direction.
+
+        Dale's method:
+        - Compare price movement over last N periods
+        - Compare delta movement over same periods
+        - If they diverge, signal in direction of delta
+        """
+        snapshots = list(self.period_snapshots)[-self.lookback_periods :]
+        if len(snapshots) < 2:
+            return None
+
+        # Get start and end points
+        start = snapshots[0]
+        end = snapshots[-1]
+
+        start_price = start[1]
+        start_cvd = start[2]
+        end_price = end[1]
+        end_cvd = end[2]
+
+        # Calculate price change
+        price_change = end_price - start_price
+        price_change_pct = price_change / start_price if start_price > 0 else 0
+
+        # Calculate delta change
+        delta_change = end_cvd - start_cvd
+
+        # Skip if price move is too small (noise)
+        if abs(price_change_pct) < self.min_price_move_pct:
+            return None
+
+        # Determine directions
+        price_dir = "UP" if price_change > 0 else "DOWN"
+        delta_dir = "UP" if delta_change > 0 else ("DOWN" if delta_change < 0 else "FLAT")
+
+        # Detect divergences
+        # Bearish: Price UP, Delta DOWN or FLAT
+        if price_dir == "UP" and delta_dir in ("DOWN", "FLAT"):
+            return {
+                "side": "SHORT",
+                "type": "Bearish",
+                "price_dir": price_dir,
+                "delta_dir": delta_dir,
+                "price_change_pct": price_change_pct,
+                "delta_change": delta_change,
+            }
+
+        # Bullish: Price DOWN, Delta UP or FLAT
+        if price_dir == "DOWN" and delta_dir in ("UP", "FLAT"):
+            return {
+                "side": "LONG",
+                "type": "Bullish",
+                "price_dir": price_dir,
+                "delta_dir": delta_dir,
+                "price_change_pct": price_change_pct,
+                "delta_change": delta_change,
+            }
 
         return None
 
