@@ -21,12 +21,12 @@ After Step 2, the agent **MUST STOP** and report the result. No further actions 
 ```
 **Must output**: `🗑️ DB Reset: N trades removed. Starting clean.`
 
-## Step 1: Run the Bot (30-minute forward test)
+## Step 1: Run the Bot (150-minute forward test)
 ```bash
-.venv/bin/python main.py --mode demo --symbol MULTI --timeout 30 --close-on-exit 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+.venv/bin/python main.py --mode demo --symbol MULTI --timeout 150 --close-on-exit 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 ```
-Wait for the bot to run for **30 minutes** to collect at least 10-20 real FootprintScalper trades.
-The bot will stop automatically after 30 minutes (1800 seconds).
+Wait for the bot to run for **150 minutes** to collect real FootprintScalper trades.
+The bot will stop automatically after 150 minutes.
 
 ## Step 2: Analyse Results
 ```bash

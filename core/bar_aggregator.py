@@ -18,6 +18,7 @@ TIMEFRAME_MINUTES = {
     "1m": 1,
     "5m": 5,
     "15m": 15,
+    "30m": 30,
     "1h": 60,
     "4h": 240,
 }
@@ -132,28 +133,78 @@ class BarAggregator:
     def _aggregate_candles(self, candles: List[dict], timeframe: str, is_complete: bool = True) -> dict:
         """
         Aggregate multiple 1m candles into a single HTF candle.
-
-        Args:
-            candles: List of 1m candles to aggregate
-            timeframe: Target timeframe string
-            is_complete: Whether this is a complete HTF candle
-
-        Returns:
-            Aggregated OHLCV candle dict
+        Includes merging of Footprint profiles and recalculation of levels.
         """
         if not candles:
             return None
 
-        return {
-            "timestamp": candles[0]["timestamp"],  # Start of the HTF candle
+        # 1. Basic OHLCV Aggregation
+        aggregated = {
+            "timestamp": candles[0]["timestamp"],
             "open": candles[0]["open"],
             "high": max(c["high"] for c in candles),
             "low": min(c["low"] for c in candles),
             "close": candles[-1]["close"],
             "volume": sum(c.get("volume", 0) for c in candles),
+            "delta": sum(c.get("delta", 0.0) for c in candles),
+            "profile": {},
             "timeframe": timeframe,
             "is_complete": is_complete,
         }
+
+        # 2. Merge Footprint Profiles
+        profile = aggregated["profile"]
+        for c in candles:
+            p = c.get("profile", {})
+            for price, data in p.items():
+                if price not in profile:
+                    profile[price] = {"bid": 0.0, "ask": 0.0}
+                profile[price]["bid"] += data.get("bid", 0.0)
+                profile[price]["ask"] += data.get("ask", 0.0)
+
+        # 3. Recalculate Structural Levels (POC, VAH, VAL)
+        poc, vah, val = self._calculate_footprint_stats(profile, aggregated["volume"])
+        aggregated.update({"poc": poc, "vah": vah, "val": val})
+
+        return aggregated
+
+    def _calculate_footprint_stats(self, profile: dict, total_volume: float) -> tuple:
+        """Lightweight POC/VA calculation for aggregation."""
+        if not profile or total_volume == 0:
+            return 0.0, 0.0, 0.0
+
+        try:
+            sorted_levels = sorted(profile.items(), key=lambda x: x[0])
+            max_vol = -1
+            poc_price = 0.0
+            levels_vol = []
+            for price, data in sorted_levels:
+                vol = data["bid"] + data["ask"]
+                levels_vol.append((price, vol))
+                if vol > max_vol:
+                    max_vol = vol
+                    poc_price = price
+
+            target_vol = total_volume * 0.70
+            current_vol = max_vol
+            poc_idx = next((i for i, x in enumerate(levels_vol) if x[0] == poc_price), -1)
+
+            up_idx = down_idx = poc_idx
+            while current_vol < target_vol:
+                vol_up = levels_vol[up_idx + 1][1] if up_idx + 1 < len(levels_vol) else 0
+                vol_down = levels_vol[down_idx - 1][1] if down_idx - 1 >= 0 else 0
+                if vol_up == 0 and vol_down == 0:
+                    break
+                if vol_up > vol_down:
+                    current_vol += vol_up
+                    up_idx += 1
+                else:
+                    current_vol += vol_down
+                    down_idx -= 1
+
+            return poc_price, levels_vol[up_idx][0], levels_vol[down_idx][0]
+        except Exception:
+            return 0.0, 0.0, 0.0
 
     def get_history(self, timeframe: str, lookback: int = 10) -> List[dict]:
         """

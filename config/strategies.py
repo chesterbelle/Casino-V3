@@ -31,6 +31,7 @@ SENSOR_TYPES: Dict[str, List[str]] = {
     # -----------------------------------------------------
     "RegimeFilter": [
         "OneTimeframing",
+        "SessionValueArea",
     ],
     # -----------------------------------------------------
     # ORDER FLOW - Footprint & Delta analysis (Dale/Dalton)
@@ -73,6 +74,7 @@ STRATEGIES: Dict[str, dict] = {
             "FootprintDeltaPoCShift",
             "CumulativeDelta",
             "OneTimeframing",
+            "SessionValueArea",
             # --- High Performance Confirmations ---
             "VolumeSpike",
         ],

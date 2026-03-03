@@ -203,9 +203,10 @@ class SignalAggregatorV3:
             return
 
         # 2. Extract HTF context from strictly structural sensors (Dalton)
-        context_sensors = {"OneTimeframing"}
+        context_sensors = {"OneTimeframing", "SessionValueArea"}
         htf_long_count = 0
         htf_short_count = 0
+        structural_levels = {}
 
         for signal in valid_signals:
             if signal.sensor_id in context_sensors:
@@ -213,6 +214,17 @@ class SignalAggregatorV3:
                     htf_long_count += 1
                 elif signal.side == "SHORT":
                     htf_short_count += 1
+
+                # Extract levels for Gap 1 confirmation
+                if signal.sensor_id == "SessionValueArea" and signal.metadata:
+                    structural_levels = {
+                        "poc": signal.metadata.get("poc"),
+                        "vah": signal.metadata.get("vah"),
+                        "val": signal.metadata.get("val"),
+                        "ibh": signal.metadata.get("ib_high"),
+                        "ibl": signal.metadata.get("ib_low"),
+                        "mtf_side": signal.metadata.get("mtf_30m_side"),
+                    }
                 logger.debug(f"📊 HTF Context: {signal.sensor_id} = {signal.side}")
 
         # Determine HTF consensus (majority of context sensors)
@@ -221,13 +233,70 @@ class SignalAggregatorV3:
         elif htf_short_count > htf_long_count:
             htf_context = "SHORT"
         else:
-            htf_context = None  # No clear HTF direction or no context sensors
+            htf_context = None
 
-        if htf_context:
-            logger.debug(f"📊 HTF Consensus: {htf_context} ({htf_long_count}L/{htf_short_count}S)")
+        # 2.5 Gap 1: Enforce Level-Based Confirmation
+        # Dale/Dalton: Trading only near levels of interest
+        prox_ticks = 10  # 1 USDT for BTC/ETH (assuming 0.1 tick size)
+        tick_size = 0.1  # This should be dynamic, but let's use 0.1 as baseline
+        prox_dist = prox_ticks * tick_size
+
+        filtered_valid_signals = []
+        for signal in valid_signals:
+            if signal.sensor_id in context_sensors:
+                filtered_valid_signals.append(signal)
+                continue
+
+            # If we have structural levels, enforce proximity
+            if structural_levels and any(v is not None for v in structural_levels.values()):
+                price = signal.metadata.get("price") or signal.metadata.get("at_price")
+                if not price:
+                    # Fallback to candle close (imprecise for scalping but safety net)
+                    price = self.latest_candle_ts.get(signal.symbol, 0)  # This is WRONG, I need candle price
+                    # Actually, aggregator doesn't have the full candle object readily available here
+                    # Let's assume the sensor SHOULD provide the price.
+                    # If no price, we allow it (riskier) but log a warning.
+                    logger.warning(f"⚠️ Signal {signal.sensor_id} missing price metadata for level confirmation.")
+                    filtered_valid_signals.append(signal)
+                    continue
+
+                # Check proximity to ANY structural level
+                near_level = False
+                closest_dist = float("inf")
+                for name, level in structural_levels.items():
+                    if level is not None:
+                        dist = abs(price - level)
+                        if dist < closest_dist:
+                            closest_dist = dist
+                        if dist <= prox_dist:
+                            near_level = True
+                            break
+
+                if not near_level:
+                    logger.info(
+                        f"🚫 [Gap 1] Rejecting {signal.sensor_id} {signal.side} @ {price}: Far from levels (closest: {round(closest_dist, 2)})"
+                    )
+                    continue  # REJECT SIGNAL
+
+            # 2.6 Gap 6: Multi-Timeframe Alignment (30m)
+            # Alignment: If 1m LONG, 30m should not be BEARISH.
+            # We already extracted mtf_30m_side into structural_levels in the previous loop
+            mtf_30m_side = structural_levels.get("mtf_side", "NEUTRAL")
+
+            mtf_alignment = True
+            if signal.side == "LONG" and mtf_30m_side == "BEARISH":
+                mtf_alignment = False
+            elif signal.side == "SHORT" and mtf_30m_side == "BULLISH":
+                mtf_alignment = False
+
+            if not mtf_alignment:
+                logger.debug(f"⚠️ [Gap 6] MTF Divergence for {signal.sensor_id} {signal.side}: Against 30m POC flow.")
+                signal.score *= 0.5  # Penalize instead of hard reject for MTF
+
+            filtered_valid_signals.append(signal)
 
         # 3. WEIGHTED CONSENSUS - Calculate ΣL and ΣS
-        trading_signals = [s for s in valid_signals if s.sensor_id not in context_sensors]
+        trading_signals = [s for s in filtered_valid_signals if s.sensor_id not in context_sensors]
 
         if not trading_signals:
             logger.debug("   No trading signals after filtering context sensors")

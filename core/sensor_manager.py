@@ -391,10 +391,12 @@ class SensorManager:
         from sensors.footprint.exhaustion import FootprintVolumeExhaustion
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
+        from sensors.footprint.session import SessionValueArea
         from sensors.regime.one_timeframing import OneTimeframingSensor
 
         return [
             OneTimeframingSensor,
+            SessionValueArea,
             DebugHeartbeatV3,
             FootprintImbalanceV3,
             FootprintAbsorptionV3,

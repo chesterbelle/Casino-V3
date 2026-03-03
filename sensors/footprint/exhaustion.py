@@ -28,25 +28,75 @@ class FootprintVolumeExhaustion(SensorV3):
         if not candle:
             return None
 
-        vol = candle["volume"]
-        self.history_vol.append(vol)
-        if len(self.history_vol) > 20:
-            self.history_vol.pop(0)
-
-        if len(self.history_vol) < 10:
+        profile = candle.get("profile")
+        if not profile:
             return None
 
-        avg_vol = sum(self.history_vol[:-1]) / (len(self.history_vol) - 1)
+        # Prices in the profile are usually strings because of JSON, or floats
+        # Let's ensure they are sorted floats
+        prices = sorted([float(p) for p in profile.keys()])
+        if len(prices) < 3:
+            return None
 
-        # Check for Exhaustion (Low Volume)
-        if vol < avg_vol * self.volume_threshold:
-            # Context:
-            # If Red Candle + Low Volume -> Selling Exhaustion -> LONG
-            # If Green Candle + Low Volume -> Buying Exhaustion -> SHORT
+        # 1. Calculate Average Volume per level for the "Exhaustion" filter
+        # Dale defining exhaustion: extreme level volume < average volume * threshold
+        total_vol = 0
+        level_count = 0
+        for p_str, vols in profile.items():
+            level_vol = vols.get("bid", 0) + vols.get("ask", 0)
+            total_vol += level_vol
+            level_count += 1
 
-            is_green = candle["close"] > candle["open"]
-            side = "SHORT" if is_green else "LONG"
+        if level_count == 0:
+            return None
+        avg_vol = total_vol / level_count
 
-            return {"side": side, "score": 0.6, "metadata": {"type": "Volume_Exhaustion", "vol_ratio": vol / avg_vol}}
+        # 2. Check for Bullish Exhaustion (at the Low)
+        # Condition: Price at Low + Very Low Ask Volume (Sellers disappeared)
+        low_price_str = str(prices[0]) if prices[0] in profile else next(k for k in profile if float(k) == prices[0])
+        low_vols = profile[low_price_str]
+        low_ask = low_vols.get("ask", 0.0)
+        low_bid = low_vols.get("bid", 0.0)
+        low_total = low_ask + low_bid
+
+        if low_total < (avg_vol * self.volume_threshold):
+            # Bullish Exhaustion: No one wants to SELL at the bottom
+            # We look for a "Finished Auction" at the bottom where Ask is 0 or tiny
+            if low_ask <= (low_bid * 0.1) or low_ask < 1.0:
+                return {
+                    "side": "LONG",
+                    "score": 0.75,
+                    "metadata": {
+                        "type": "Footprint_Exhaustion_Low",
+                        "ratio": round(low_total / avg_vol, 2),
+                        "low_ask": low_ask,
+                        "low_bid": low_bid,
+                    },
+                }
+
+        # 3. Check for Bearish Exhaustion (at the High)
+        # Condition: Price at High + Very Low Bid Volume (Buyers disappeared)
+        high_price_str = (
+            str(prices[-1]) if prices[-1] in profile else next(k for k in profile if float(k) == prices[-1])
+        )
+        high_vols = profile[high_price_str]
+        high_bid = high_vols.get("bid", 0.0)
+        high_ask = high_vols.get("ask", 0.0)
+        high_total = high_bid + high_ask
+
+        if high_total < (avg_vol * self.volume_threshold):
+            # Bearish Exhaustion: No one wants to BUY at the top
+            # Finished Auction at top where Bid is 0 or tiny
+            if high_bid <= (high_ask * 0.1) or high_bid < 1.0:
+                return {
+                    "side": "SHORT",
+                    "score": 0.75,
+                    "metadata": {
+                        "type": "Footprint_Exhaustion_High",
+                        "ratio": round(high_total / avg_vol, 2),
+                        "high_bid": high_bid,
+                        "high_ask": high_ask,
+                    },
+                }
 
         return None

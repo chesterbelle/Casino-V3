@@ -49,409 +49,19 @@ class SensorMeta(TypedDict):
 
 SENSOR_METADATA: Dict[str, SensorMeta] = {
     # ==========================================
-    # PRICE ACTION (Pure OHLC, no indicators)
-    # ==========================================
-    "DojiIndecision": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Detects doji candles indicating indecision/reversal",
-    },
-    "PinBarReversal": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Long wick rejection candles at extremes",
-    },
-    "EngulfingPattern": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Bullish/bearish engulfing reversal pattern",
-    },
-    "RailsPattern": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Two opposite candles of similar size (railroad tracks)",
-    },
-    "MorningStar": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Three-candle reversal pattern at bottoms",
-    },
-    "TweezerPattern": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Two candles with matching highs/lows",
-    },
-    "ThreeBar": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Three-bar reversal pattern",
-    },
-    "MarubozuMomentum": {
-        "function": "Momentum",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Full-body candle indicating strong momentum",
-    },
-    "WickRejection": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Price rejected via long wick",
-    },
-    "LongTail": {
-        "function": "MeanReversion",
-        "methodology": "PriceAction",
-        "data_required": ["ohlc"],
-        "description": "Long lower/upper shadow indicating rejection",
-    },
-    # ==========================================
-    # STRUCTURAL (Multi-bar price patterns)
-    # ==========================================
-    "VCPPattern": {
-        "function": "Breakout",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Volatility Contraction Pattern before breakout",
-    },
-    "InsideBarBreakout": {
-        "function": "Breakout",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Inside bar followed by breakout",
-    },
-    "DecelerationCandles": {
-        "function": "MeanReversion",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Decreasing candle sizes indicating exhaustion",
-    },
-    "ExtremeCandleRatio": {
-        "function": "MeanReversion",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Extreme body/wick ratio indicating reversal",
-    },
-    "Fakeout": {
-        "function": "MeanReversion",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Failed breakout followed by reversal",
-    },
-    # ==========================================
-    # INDICATOR-DERIVED (Calculated indicators)
-    # ==========================================
-    "EMACrossover": {
-        "function": "TrendFollowing",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "EMA fast/slow crossover",
-    },
-    "MACDCrossover": {
-        "function": "TrendFollowing",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "MACD line crossing signal line",
-    },
-    "Supertrend": {
-        "function": "TrendFollowing",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Supertrend indicator direction change",
-    },
-    "ADXFilter": {
-        "function": "Context",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "ADX strength filter for trend confirmation",
-    },
-    "ParabolicSAR": {
-        "function": "TrendFollowing",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Parabolic SAR flip",
-    },
-    "RSIReversion": {
-        "function": "MeanReversion",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "RSI at overbought/oversold levels",
-    },
-    "StochasticReversion": {
-        "function": "MeanReversion",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Stochastic at extreme levels",
-    },
-    "CCIReversion": {
-        "function": "MeanReversion",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "CCI at extreme levels",
-    },
-    "WilliamsRReversion": {
-        "function": "MeanReversion",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Williams %R at extreme levels",
-    },
-    "AdaptiveRSI": {
-        "function": "MeanReversion",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "RSI with dynamic thresholds",
-    },
-    "EMA50Support": {
-        "function": "Confirmation",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Price bouncing off EMA50",
-    },
-    # ==========================================
-    # STATISTICAL (σ, Hurst, regression)
-    # ==========================================
-    "BollingerTouch": {
-        "function": "MeanReversion",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Price touching Bollinger Bands",
-    },
-    "BollingerSqueeze": {
-        "function": "Breakout",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Bollinger band compression before breakout",
-    },
-    "BollingerRejection": {
-        "function": "MeanReversion",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Price rejected at Bollinger Bands",
-    },
-    "KeltnerReversion": {
-        "function": "MeanReversion",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Price at Keltner channel extremes",
-    },
-    "KeltnerBreakout": {
-        "function": "Breakout",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Price breaking Keltner channels",
-    },
-    "ZScoreReversion": {
-        "function": "MeanReversion",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Price at extreme Z-score levels",
-    },
-    "HurstRegime": {
-        "function": "Context",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Hurst exponent regime detection (trending/ranging)",
-    },
-    "VolatilityWakeup": {
-        "function": "Breakout",
-        "methodology": "Statistical",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Volatility expanding from low levels",
-    },
-    # ==========================================
-    # VOLUME-BASED (Requires volume data)
-    # ==========================================
-    "VolumeSpike": {
-        "function": "Confirmation",
-        "methodology": "VolumeBased",
-        "data_required": ["ohlc", "volume"],
-        "description": "Unusual volume spike",
-    },
-    "VolumeImbalance": {
-        "function": "Confirmation",
-        "methodology": "VolumeBased",
-        "data_required": ["ohlc", "volume"],
-        "description": "Buy/sell volume imbalance",
-    },
-    "VSAReversal": {
-        "function": "MeanReversion",
-        "methodology": "VolumeBased",
-        "data_required": ["ohlc", "volume"],
-        "description": "Volume Spread Analysis reversal signals",
-    },
-    "AbsorptionBlock": {
-        "function": "Confirmation",
-        "methodology": "VolumeBased",
-        "data_required": ["ohlc", "volume"],
-        "description": "Large volume absorbed at price level",
-    },
-    # ==========================================
-    # HYBRID (Multiple methodologies)
-    # ==========================================
-    "VWAPDeviation": {
-        "function": "MeanReversion",
-        "methodology": "Hybrid",
-        "data_required": ["ohlc", "volume", "indicator"],
-        "description": "Price deviation from VWAP (volume + price)",
-    },
-    "VWAPBreakout": {
-        "function": "Breakout",
-        "methodology": "Hybrid",
-        "data_required": ["ohlc", "volume", "indicator"],
-        "description": "Price breaking through VWAP",
-    },
-    "VWAPMomentum": {
-        "function": "TrendFollowing",
-        "methodology": "Hybrid",
-        "data_required": ["ohlc", "volume", "indicator"],
-        "description": "Price momentum relative to VWAP",
-    },
-    "OrderBlock": {
-        "function": "Confirmation",
-        "methodology": "Hybrid",
-        "data_required": ["ohlc", "volume"],
-        "description": "ICT order block detection (price + volume structure)",
-    },
-    "LiquidityVoid": {
-        "function": "Breakout",
-        "methodology": "Hybrid",
-        "data_required": ["ohlc", "volume"],
-        "description": "Fair value gaps / liquidity voids",
-    },
-    "FVGRetest": {
-        "function": "MeanReversion",
-        "methodology": "Hybrid",
-        "data_required": ["ohlc"],
-        "description": "Fair Value Gap retest",
-    },
-    "WyckoffSpring": {
-        "function": "MeanReversion",
-        "methodology": "Hybrid",
-        "data_required": ["ohlc", "volume"],
-        "description": "Wyckoff spring/upthrust pattern",
-    },
-    # ==========================================
-    # CONTEXT SENSORS (HTF / Regime filters)
-    # ==========================================
-    "HigherTFTrend": {
-        "function": "Context",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Higher timeframe trend direction",
-    },
-    "MTFImpulse": {
-        "function": "Context",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Multi-timeframe impulse alignment",
-    },
-    "SupportResistance": {
-        "function": "Context",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Key support/resistance levels",
-    },
-    "MicroTrend": {
-        "function": "Context",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Short-term trend detection",
-    },
-    "SmartRange": {
-        "function": "Context",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Range-bound market detection",
-    },
-    "MomentumBurst": {
-        "function": "Momentum",
-        "methodology": "IndicatorDerived",
-        "data_required": ["ohlc", "indicator"],
-        "description": "Sudden momentum acceleration",
-    },
-    # ==========================================
-    # NEW STRUCTURAL SENSORS (2024-12)
-    # ==========================================
-    "NarrowRange7": {
-        "function": "Breakout",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Smallest range of last 7 bars - volatility compression",
-    },
-    "ConsecutiveCandles": {
-        "function": "MeanReversion",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "N consecutive same-direction candles - exhaustion signal",
-    },
-    "RangeExpansion": {
-        "function": "Momentum",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Current range > 2x average - momentum breakout",
-    },
-    "ThreeWhiteSoldiers": {
-        "function": "TrendFollowing",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Three consecutive bullish candles with higher closes",
-    },
-    "ThreeBlackCrows": {
-        "function": "TrendFollowing",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Three consecutive bearish candles with lower closes",
-    },
-    "WideRangeBar": {
-        "function": "Momentum",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Unusually wide range bar indicating strong momentum",
-    },
-    "DoubleBottom": {
-        "function": "MeanReversion",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "W-pattern with two similar lows - bullish reversal",
-    },
-    "DoubleTop": {
-        "function": "MeanReversion",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "M-pattern with two similar highs - bearish reversal",
-    },
-    "HigherHighsLowerLows": {
-        "function": "TrendFollowing",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Swing structure HH/HL or LH/LL trend detection",
-    },
-    "IslandReversal": {
-        "function": "MeanReversion",
-        "methodology": "Structural",
-        "data_required": ["ohlc"],
-        "description": "Price isolated by gaps on both sides - strong reversal",
-    },
-    # ==========================================
-    # FOOTPRINT / ORDER FLOW (Synthetic)
+    # FOOTPRINT / ORDER FLOW (Dale/Dalton)
     # ==========================================
     "FootprintImbalance": {
         "function": "Momentum",
         "methodology": "VolumeBased",
-        "data_required": ["ohlc", "volume"],  # Synthetic uses OHLCV
-        "description": "Aggressive buying/selling imbalance (Synthetic)",
+        "data_required": ["ohlc", "volume"],
+        "description": "Aggressive buying/selling imbalance at specific price levels",
     },
     "FootprintAbsorption": {
         "function": "MeanReversion",
         "methodology": "VolumeBased",
-        "data_required": ["ohlc", "volume"],  # Synthetic uses OHLCV
-        "description": "High volume at extremes without price progression (Synthetic)",
+        "data_required": ["ohlc", "volume"],
+        "description": "High volume absorbed at extremes without price progression",
     },
     "FootprintPOCRejection": {
         "function": "MeanReversion",
@@ -476,6 +86,39 @@ SENSOR_METADATA: Dict[str, SensorMeta] = {
         "methodology": "VolumeBased",
         "data_required": ["ohlc", "volume"],
         "description": "High volume at wicks followed by reversal",
+    },
+    "FootprintVolumeExhaustion": {
+        "function": "MeanReversion",
+        "methodology": "VolumeBased",
+        "data_required": ["ohlc", "volume"],
+        "description": "Volume exhaustion at price extremes",
+    },
+    "FootprintDeltaPoCShift": {
+        "function": "TrendFollowing",
+        "methodology": "VolumeBased",
+        "data_required": ["ohlc", "volume"],
+        "description": "Delta and POC shifting in the same direction (strong impulse)",
+    },
+    "CumulativeDelta": {
+        "function": "Confirmation",
+        "methodology": "VolumeBased",
+        "data_required": ["ohlc", "volume"],
+        "description": "Cumulative Delta tracking buyer/seller pressure over time",
+    },
+    # ==========================================
+    # STRUCTURAL CONTEXT (Dalton Market Profile)
+    # ==========================================
+    "OneTimeframing": {
+        "function": "Context",
+        "methodology": "Structural",
+        "data_required": ["ohlc"],
+        "description": "Dalton One-Timeframing directional conviction filter",
+    },
+    "SessionValueArea": {
+        "function": "Context",
+        "methodology": "Structural",
+        "data_required": ["ohlc", "volume"],
+        "description": "Session-wide Value Area (VAH/VAL/POC) and Initial Balance context",
     },
 }
 
