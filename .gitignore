@@ -17,6 +17,7 @@ data/
 
 # Logs (all)
 *.log
+logs/audit_trail.jsonl
 logs/
 
 # State

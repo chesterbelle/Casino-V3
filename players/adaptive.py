@@ -138,6 +138,9 @@ class AdaptivePlayer:
         tp_pct = event.metadata.get("tp_pct")
         sl_pct = event.metadata.get("sl_pct")
 
+        setup_type = event.metadata.get("setup_type", "unknown")
+        tp_sl_source = "sensor_config"
+
         # Phase 600: James Dalton Contextual Exits
         if "poc" in event.metadata and "vah" in event.metadata and "val" in event.metadata:
             # We have Market Profile data
@@ -152,6 +155,7 @@ class AdaptivePlayer:
                 current_price = event.metadata["price"]
 
             if current_price and current_price > 0:
+                tp_sl_source = "dalton_context"
                 if event.side == "LONG":
                     # If entering a LONG near or below VAL, target the POC or VAH
                     if current_price <= poc:
@@ -182,6 +186,23 @@ class AdaptivePlayer:
                     tp_pct = max(0.1, min(tp_pct, 2.0))
                 if sl_pct is not None:
                     sl_pct = max(0.25, min(sl_pct, 2.0))
+
+        # Phase 3: Setup-type specific TP/SL shaping
+        # Keep conservative defaults; only clamp/shape if we have values.
+        if setup_type == "reversion":
+            # Reversion scalps: tighter TP/SL to reduce time-in-trade and avoid trend steamroll.
+            if tp_pct is not None:
+                tp_pct = max(0.10, min(tp_pct, 0.60))
+            if sl_pct is not None:
+                sl_pct = max(0.15, min(sl_pct, 0.45))
+            tp_sl_source = f"{tp_sl_source}+reversion_clamp"
+        elif setup_type == "continuation":
+            # Continuation: allow a bit more room on TP, keep SL tight-ish.
+            if tp_pct is not None:
+                tp_pct = max(0.15, min(tp_pct, 0.90))
+            if sl_pct is not None:
+                sl_pct = max(0.15, min(sl_pct, 0.55))
+            tp_sl_source = f"{tp_sl_source}+continuation_clamp"
 
         # Phase 650.2: Unfinished Business Exact Targeting
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
@@ -216,7 +237,8 @@ class AdaptivePlayer:
 
         logger.info(
             f"🎯 Decision: {event.side} | {sizing_method} Bet: {bet_size:.2%} of {equity:.2f} | "
-            f"Sensor: {event.selected_sensor} | TP: {tp_pct}% SL: {sl_pct}% (Intensity: {intensity})"
+            f"Sensor: {event.selected_sensor} | Setup: {setup_type} | TP: {tp_pct}% SL: {sl_pct}% "
+            f"(TP/SL: {tp_sl_source}, Intensity: {intensity})"
         )
 
         # Emit Decision with unique ID for tracking

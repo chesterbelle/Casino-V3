@@ -55,6 +55,19 @@ SENSOR_WINDOW_TYPE_COMPAT = {
 }
 
 
+SETUP_TYPE_MAP = {
+    # Reversion / return-to-value
+    "FootprintAbsorptionV3": "reversion",
+    "FootprintDeltaDivergence": "reversion",
+    "FootprintPOCRejection": "reversion",
+    "FootprintTrappedTraders": "reversion",
+    "FootprintVolumeExhaustion": "reversion",
+    # Continuation / breakout-confirmation
+    "FootprintStackedImbalance": "continuation",
+    "FootprintDeltaPoCShift": "continuation",
+}
+
+
 class SignalAggregatorV3:
     """
     Aggregates signals from multiple sensors using intelligent scoring.
@@ -81,6 +94,9 @@ class SignalAggregatorV3:
 
         # Phase 103: Forensic Traceability
         self.auditor = DecisionAuditor()
+
+        # Reduce warning spam for missing trigger price (Level Confirmation)
+        self._missing_price_warned: set = set()  # (symbol, candle_ts, sensor_id)
 
         # Subscribe to SIGNAL events
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
@@ -266,10 +282,98 @@ class SignalAggregatorV3:
         else:
             htf_context = None
 
-        # 2.5 Gap 1: Enforce Level-Based Confirmation
-        # Dale/Dalton: Trading only near levels of interest
-        prox_ticks = 10  # 1 USDT for BTC/ETH (assuming 0.1 tick size)
-        _ = prox_ticks * 0.1  # prox_dist calculated but not yet used
+        # 2.5 Option 1: Fast-Track with Minimum Confirmation
+        # For OrderFlow / fast-track triggers, require at least ONE confirmation:
+        # - Level confirmation near structural levels (POC/VAH/VAL/IB)
+        # - OR microstructure confirmation (DOM wall / absorption intensity)
+        prox_ticks = 10  # default proximity in ticks
+        prox_dist = prox_ticks * 0.1  # fallback distance if we don't know tick size
+
+        def _get_trigger_price(sig: SignalEvent) -> Optional[float]:
+            md = sig.metadata or {}
+            price = md.get("price") or md.get("at_price")
+            if price is None:
+                return None
+            try:
+                return float(price)
+            except (TypeError, ValueError):
+                return None
+
+        def _microstructure_confirmed(sig: SignalEvent) -> bool:
+            md = sig.metadata or {}
+            if bool(md.get("dom_wall_confirmed", False)):
+                return True
+
+            # Continuation-friendly confirmations
+            try:
+                stack_count = int(md.get("count", 0) or 0)
+            except (TypeError, ValueError):
+                stack_count = 0
+            if stack_count >= 3:
+                return True
+
+            # Some sensors mark continuation explicitly (e.g. stacked imbalance continuation)
+            if md.get("setup_type") in ("continuation", "initial") and "Stacked_Imbalance" in str(
+                md.get("pattern", "")
+            ):
+                return True
+
+            try:
+                density = float(md.get("cluster_density", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                density = 0.0
+            if density >= 2.0:
+                return True
+
+            try:
+                size_ratio = float(md.get("size_ratio", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                size_ratio = 0.0
+            if size_ratio >= 3.0:
+                return True
+
+            try:
+                intensity = float(md.get("absorption_intensity", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                intensity = 0.0
+            return intensity >= 3.0
+
+        def _level_confirmed(price: float) -> bool:
+            if not structural_levels:
+                return False
+            levels = []
+            for k in ("poc", "vah", "val", "ibh", "ibl"):
+                v = structural_levels.get(k)
+                if v is None:
+                    continue
+                try:
+                    levels.append(float(v))
+                except (TypeError, ValueError):
+                    continue
+            if not levels:
+                return False
+            return any(abs(price - lvl) <= prox_dist for lvl in levels)
+
+        def _level_ref(price: float) -> Optional[str]:
+            if not structural_levels:
+                return None
+            best = None
+            best_dist = None
+            for k, ref in (("poc", "POC"), ("vah", "VAH"), ("val", "VAL"), ("ibh", "IBH"), ("ibl", "IBL")):
+                v = structural_levels.get(k)
+                if v is None:
+                    continue
+                try:
+                    lvl = float(v)
+                except (TypeError, ValueError):
+                    continue
+                d = abs(price - lvl)
+                if best_dist is None or d < best_dist:
+                    best_dist = d
+                    best = ref
+            if best_dist is None:
+                return None
+            return best if best_dist <= prox_dist else None
 
         filtered_valid_signals = []
         for signal in valid_signals:
@@ -277,20 +381,72 @@ class SignalAggregatorV3:
                 filtered_valid_signals.append(signal)
                 continue
 
-            # If we have structural levels, enforce proximity
-            if structural_levels and any(v is not None for v in structural_levels.values()):
-                price = signal.metadata.get("price") or signal.metadata.get("at_price")
-                if not price:
-                    # Fallback to candle close (imprecise for scalping but safety net)
-                    price = self.latest_candle_ts.get(signal.symbol, 0)  # This is WRONG, I need candle price
-                    # Actually, aggregator doesn't have the full candle object readily available here
-                    # Let's assume the sensor SHOULD provide the price.
-                    # If no price, we allow it (riskier) but log a warning.
-                    logger.warning(f"⚠️ Signal {signal.sensor_id} missing price metadata for level confirmation.")
-                    filtered_valid_signals.append(signal)
+            # Minimum confirmation gate for fast-track / OrderFlow triggers.
+            sensor_type = get_sensor_type(signal.sensor_id)
+            is_order_flow = sensor_type == "OrderFlow"
+            is_fast_track = bool(
+                getattr(signal, "fast_track", False) or (signal.metadata or {}).get("fast_track", False)
+            )
+
+            if is_order_flow or is_fast_track:
+                trig_price = _get_trigger_price(signal)
+                level_ok = False
+                level_ref = None
+                if trig_price is None:
+                    key = (signal.symbol, candle_ts, signal.sensor_id)
+                    if key not in self._missing_price_warned:
+                        self._missing_price_warned.add(key)
+                        logger.warning(
+                            f"⚠️ Signal {signal.sensor_id} missing price metadata for level confirmation. "
+                            f"Fast-track will require microstructure confirmation for {signal.symbol}."
+                        )
+                else:
+                    level_ok = _level_confirmed(trig_price)
+                    level_ref = _level_ref(trig_price)
+
+                micro_ok = _microstructure_confirmed(signal)
+
+                # Classify into setup type for differentiated gating
+                setup_type = (signal.metadata or {}).get("setup_type")
+                if not setup_type:
+                    setup_type = SETUP_TYPE_MAP.get(signal.sensor_id)
+                if not setup_type:
+                    setup_type = "unknown"
+
+                # Setup-specific gates
+                if setup_type == "reversion":
+                    gate_ok = level_ok
+                    gate_reason = f"reversion_requires_level(level_ok={level_ok})"
+                elif setup_type == "continuation":
+                    gate_ok = micro_ok
+                    gate_reason = f"continuation_requires_micro(micro_ok={micro_ok})"
+                else:
+                    # Unknown setup: fallback to Option 1 behavior
+                    gate_ok = level_ok or micro_ok
+                    gate_reason = f"unknown_setup_fallback(level_ok={level_ok}, micro_ok={micro_ok})"
+
+                if not gate_ok:
+                    logger.debug(
+                        f"⏭️ Fast-track gated: {signal.sensor_id} {signal.side} {signal.symbol} " f"({gate_reason})"
+                    )
                     continue
 
-                # Check proximity to ANY structural level
+                logger.info(
+                    f"✅ Fast-track confirmed: {signal.sensor_id} {signal.side} {signal.symbol} "
+                    f"(setup_type={setup_type}, level_ok={level_ok}, micro_ok={micro_ok}, level_ref={level_ref})"
+                )
+
+                # Annotate for downstream (Decision/telemetry)
+                if signal.metadata is None:
+                    signal.metadata = {}
+                signal.metadata.setdefault("setup_type", setup_type)
+                signal.metadata.setdefault("confirm_level", level_ok)
+                signal.metadata.setdefault("confirm_micro", micro_ok)
+                if trig_price is not None:
+                    signal.metadata.setdefault("price", trig_price)
+                if level_ref is not None:
+                    signal.metadata.setdefault("level_ref", level_ref)
+
             mtf_30m_side = structural_levels.get("mtf_side", "NEUTRAL")
 
             mtf_alignment = True
@@ -352,25 +508,27 @@ class SignalAggregatorV3:
             # Signal strength: 0-1, default 1.0 if not provided
             signal_strength = getattr(signal, "score", 1.0)
             # Combined weight: historical performance * current signal strength
-            combined_score = historical_score * signal_strength
+            weight = historical_score * signal_strength
 
             if signal.side == "LONG":
-                sigma_long += combined_score
+                sigma_long += weight
                 long_signals.append(
                     {
                         "signal": signal,
                         "sensor_id": signal.sensor_id,
-                        "score": combined_score,
+                        "score": weight,
+                        "weight": weight,
                         "strength": signal_strength,
                     }
                 )
             elif signal.side == "SHORT":
-                sigma_short += combined_score
+                sigma_short += weight
                 short_signals.append(
                     {
                         "signal": signal,
                         "sensor_id": signal.sensor_id,
-                        "score": combined_score,
+                        "score": weight,
+                        "weight": weight,
                         "strength": signal_strength,
                     }
                 )

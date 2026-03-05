@@ -339,6 +339,21 @@ class SensorManager:
         metadata = signal_data.get("metadata", {})
         signal_tf = signal_data.get("timeframe", self.timeframe)
 
+        # Strategy contract: always attach a reliable trigger price for level confirmation.
+        # Priority:
+        # 1) Explicit metadata price (sensor-provided)
+        # 2) Top-level signal_data price
+        # 3) Candle close from context (if available)
+        if metadata.get("price") is None and metadata.get("at_price") is None:
+            if signal_data.get("price") is not None:
+                metadata["price"] = signal_data.get("price")
+            else:
+                ctx = signal_data.get("context")
+                if isinstance(ctx, dict):
+                    candle_1m = ctx.get("1m") if "1m" in ctx else None
+                    if isinstance(candle_1m, dict) and candle_1m.get("close") is not None:
+                        metadata["price"] = candle_1m.get("close")
+
         sensor_config = get_sensor_params(sensor_name, signal_tf)
         if "tp_pct" in sensor_config:
             metadata["tp_pct"] = sensor_config["tp_pct"]
@@ -359,6 +374,7 @@ class SensorManager:
             sensor_id=sensor_name,
             score=signal_data.get("score", 1.0),
             metadata=metadata,
+            fast_track=bool(metadata.get("fast_track", False)),
         )
         # Phase 180: Silent Sensors (Switch to DEBUG to reduce minute-boundary log burst)
         logger.debug(f"📡 Signal Detected: {sensor_name}@{signal_tf} -> {signal_data['side']} [{target_symbol}]")
