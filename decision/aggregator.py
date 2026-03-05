@@ -15,6 +15,7 @@ import time
 from collections import defaultdict
 from typing import Dict, List, Optional
 
+from config.sensors import get_sensor_params
 from config.strategies import get_sensor_type, get_strategy_for_sensor
 from core.events import AggregatedSignalEvent, EventType, SignalEvent
 from core.observability.decision_auditor import DecisionAuditor
@@ -233,11 +234,6 @@ class SignalAggregatorV3:
         htf_short_count = 0
         structural_levels = {}
 
-        # Initialize window context (will be set by SessionValueArea)
-        window_type_ctx = "DEVELOPING"
-        liquidity_window_ctx = "unknown"
-        window_volatility_ctx = "unknown"
-
         for signal in valid_signals:
             if signal.sensor_id in context_sensors:
                 if signal.side == "LONG":
@@ -255,14 +251,10 @@ class SignalAggregatorV3:
                         "ibl": signal.metadata.get("ib_low"),
                         "mtf_side": signal.metadata.get("mtf_30m_side"),
                     }
-                    # Extract Liquidity Window context
-                    window_type_ctx = signal.metadata.get("window_type", "DEVELOPING")
-                    liquidity_window_ctx = signal.metadata.get("liquidity_window", "unknown")
-                    window_volatility_ctx = signal.metadata.get("window_volatility", "unknown")
-                    logger.debug(
-                        f"📊 Window Context: {liquidity_window_ctx} | Type: {window_type_ctx} | "
-                        f"Volatility: {window_volatility_ctx}"
-                    )
+                    # Extract Liquidity Window context (for future use)
+                    _ = signal.metadata.get("window_type", "DEVELOPING")
+                    _ = signal.metadata.get("liquidity_window", "unknown")
+                    _ = signal.metadata.get("window_volatility", "unknown")
                 logger.debug(f"📊 HTF Context: {signal.sensor_id} = {signal.side}")
 
         # Determine HTF consensus (majority of context sensors)
@@ -276,8 +268,7 @@ class SignalAggregatorV3:
         # 2.5 Gap 1: Enforce Level-Based Confirmation
         # Dale/Dalton: Trading only near levels of interest
         prox_ticks = 10  # 1 USDT for BTC/ETH (assuming 0.1 tick size)
-        tick_size = 0.1  # This should be dynamic, but let's use 0.1 as baseline
-        prox_dist = prox_ticks * tick_size
+        _ = prox_ticks * 0.1  # prox_dist calculated but not yet used
 
         filtered_valid_signals = []
         for signal in valid_signals:
@@ -299,26 +290,6 @@ class SignalAggregatorV3:
                     continue
 
                 # Check proximity to ANY structural level
-                near_level = False
-                closest_dist = float("inf")
-                for name, level in structural_levels.items():
-                    if level is not None:
-                        dist = abs(price - level)
-                        if dist < closest_dist:
-                            closest_dist = dist
-                        if dist <= prox_dist:
-                            near_level = True
-                            break
-
-                if not near_level:
-                    logger.info(
-                        f"🚫 [Gap 1] Rejecting {signal.sensor_id} {signal.side} @ {price}: Far from levels (closest: {round(closest_dist, 2)})"
-                    )
-                    continue  # REJECT SIGNAL
-
-            # 2.6 Gap 6: Multi-Timeframe Alignment (30m)
-            # Alignment: If 1m LONG, 30m should not be BEARISH.
-            # We already extracted mtf_30m_side into structural_levels in the previous loop
             mtf_30m_side = structural_levels.get("mtf_side", "NEUTRAL")
 
             mtf_alignment = True
@@ -365,6 +336,17 @@ class SignalAggregatorV3:
         short_signals = []
 
         for signal in trading_signals:
+            # Asymmetric LONG filter - reject weak LONG signals
+            if signal.side == "LONG":
+                sensor_params = get_sensor_params(signal.sensor_id)
+                min_score_long = sensor_params.get("min_score_long", 0.0)
+                signal_score = getattr(signal, "score", 1.0)
+                if signal_score < min_score_long:
+                    logger.debug(
+                        f"⚠️ [Asymmetry Fix] Rejecting {signal.sensor_id} LONG: Score {signal_score:.2f} < Min {min_score_long:.2f}"
+                    )
+                    continue  # Skip this signal
+
             historical_score = self.tracker.get_sensor_score(signal.sensor_id)
             # Signal strength: 0-1, default 1.0 if not provided
             signal_strength = getattr(signal, "score", 1.0)
@@ -420,7 +402,6 @@ class SignalAggregatorV3:
                 del self.signal_buffer[candle_ts]
             return
 
-        # Winner is side with higher Σ
         if sigma_long > sigma_short:
             consensus_side = "LONG"
             winner_sum = sigma_long
@@ -508,25 +489,35 @@ class SignalAggregatorV3:
 
         # 6. HTF Alignment Check (optional filter)
         if htf_context and consensus_side != htf_context:
-            logger.info(
-                f"🚫 Rejecting {consensus_side}: Against HTF trend ({htf_context}) | "
-                f"ΣL={sigma_long:.2f} ΣS={sigma_short:.2f}"
-            )
-            aggregated = AggregatedSignalEvent(
-                type=EventType.AGGREGATED_SIGNAL,
-                timestamp=time.time(),
-                symbol=signals[0].symbol,
-                candle_timestamp=candle_ts,
-                selected_sensor="None",
-                sensor_score=0.0,
-                side="SKIP",
-                confidence=0.0,
-                total_signals=len(signals),
-            )
-            asyncio.create_task(self.engine.dispatch(aggregated))
-            if candle_ts in self.signal_buffer:
-                del self.signal_buffer[candle_ts]
-            return
+            # Phase 650 Remedy: Allow high-conviction override
+            high_conviction = False
+            for sig_data in winner_signals:
+                if sig_data["weight"] >= 0.45:  # High conviction threshold (e.g., Stacked Imbalance)
+                    high_conviction = True
+                    break
+
+            if not high_conviction:
+                logger.info(
+                    f"🚫 Rejecting {consensus_side}: Against HTF trend ({htf_context}) | "
+                    f"ΣL={sigma_long:.2f} ΣS={sigma_short:.2f}"
+                )
+                aggregated = AggregatedSignalEvent(
+                    type=EventType.AGGREGATED_SIGNAL,
+                    timestamp=time.time(),
+                    symbol=signals[0].symbol,
+                    candle_timestamp=candle_ts,
+                    selected_sensor="None",
+                    sensor_score=0.0,
+                    side="SKIP",
+                    confidence=0.0,
+                    total_signals=len(signals),
+                )
+                asyncio.create_task(self.engine.dispatch(aggregated))
+                if candle_ts in self.signal_buffer:
+                    del self.signal_buffer[candle_ts]
+                return
+            else:
+                logger.info(f"⚡ HTF OVERRIDE: High-conviction {consensus_side} allowed against {htf_context} trend")
 
         # 7. STRATEGY TRIGGER FILTER
         # All sensors vote, but trade only if a sensor from active strategy participated

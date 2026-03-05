@@ -8,6 +8,7 @@ Detects absorption patterns where high volume on both sides occurs but price fai
 Trader Dale: "Absorption can be distributed across multiple cells, not just one price level."
 """
 
+import logging
 import time
 from collections import deque
 from typing import Optional
@@ -106,6 +107,10 @@ class FootprintAbsorptionV3(SensorV3):
         at_level = (
             abs(current_price - poc) <= prox or abs(current_price - vah) <= prox or abs(current_price - val) <= prox
         )
+
+        # DEBUG: Log state if we are at a level but no signal yet
+        if at_level:
+            logging.debug(f"🔍 [Absorption Debug] {self.name} at level {current_price} | POC:{poc} VAH:{vah} VAL:{val}")
 
         signal = None
 
@@ -280,7 +285,7 @@ class FootprintAbsorptionV3(SensorV3):
             return None
 
         # Calculate zone intensity
-        zone_total_vol = sum(level["total"] for level in zone_levels)
+        zone_total_vol = sum(lvl["total"] for lvl in zone_levels)
         zone_intensity = zone_total_vol / (avg_vol * len(zone_levels))
 
         # Determine signal direction based on price position in zone

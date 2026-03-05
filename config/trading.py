@@ -16,8 +16,8 @@ STARTING_BALANCE = 10_000.0
 
 # Multiplicadores de salida estática (respaldo si el sensor no provee metadata).
 # En Footprint Scalping (Fase 400), los objetivos son micro-pulsos.
-TAKE_PROFIT = 0.002  # Target de salida estático (0.2%)
-STOP_LOSS = 0.0015  # Límite de pérdida máximo (0.15%) (Relaxed for Testnet stability)
+TAKE_PROFIT = 0.003  # Target de salida estático (0.3%)
+STOP_LOSS = 0.002  # Límite de pérdida máximo (0.2%) (Relaxed for Testnet stability)
 
 # Límite de tiempo máximo para mantener una posición abierta.
 # En Scalping, si el impulso no se materializa de inmediato, salimos.
@@ -86,15 +86,15 @@ DEFAULT_MARGIN_TYPE = "ISOLATED"  # Aislado protege el resto del balance de liqu
 # Dynamic SL that follows price when it moves in favor.
 # Best for Capturing Trends but can be stopped out by noise in Scalping.
 TRAILING_STOP_ENABLED = True  # Shadow Trailing Enabled
-# En Footprint scalping, una vez alcanzado el 0.15% (75% del TP esperado),
-# iniciamos el trailing a una distancia de 0.05% para asegurar ganancias.
-TRAILING_STOP_ACTIVATION_PCT = 0.0015  # Profit threshold (0.15%) before SL starts trailing
-TRAILING_STOP_DISTANCE_PCT = 0.0005  # Distance (0.05%) from the peak price to set the trailing SL
+# En Footprint scalping, una vez alcanzado el 0.20% (66% del TP esperado),
+# iniciamos el trailing a una distancia de 0.08% para asegurar ganancias pero dar más aire.
+TRAILING_STOP_ACTIVATION_PCT = 0.0020  # Profit threshold (0.20%) before SL starts trailing
+TRAILING_STOP_DISTANCE_PCT = 0.0008  # Distance (0.08%) from the peak price to set the trailing SL
 
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
 BREAKEVEN_ENABLED = True
-BREAKEVEN_ACTIVATION_PCT = 0.001  # Profit threshold (0.1%) to trigger SL move to Entry Price
+BREAKEVEN_ACTIVATION_PCT = 0.0015  # Profit threshold (0.15%) to trigger SL move to Entry Price
 
 # --- Signal Reversal ---
 # Close position if a strong opposite signal is detected from consensus.

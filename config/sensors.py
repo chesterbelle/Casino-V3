@@ -24,6 +24,8 @@ ACTIVE_SENSORS = {
     "FootprintDeltaPoCShift": True,
     "CumulativeDelta": True,
     "OneTimeframing": True,
+    "BigOrderSensor": True,
+    "SessionValueArea": True,
 }
 
 # =====================================================
@@ -43,6 +45,8 @@ SENSOR_TIMEFRAMES = {
     "FootprintDeltaPoCShift": ["1m"],
     "CumulativeDelta": ["1m"],
     "OneTimeframing": ["1m"],
+    "BigOrderSensor": ["1m"],
+    "SessionValueArea": ["1m"],
 }
 
 # =====================================================
@@ -52,38 +56,44 @@ SENSOR_TIMEFRAMES = {
 
 SENSOR_PARAMS = {
     "FootprintImbalance": {
-        "1m": {"tp_pct": 0.0045, "sl_pct": 0.0030},  # loosened from 0.0020/0.0010
+        "1m": {"tp_pct": 0.25, "sl_pct": 0.15, "min_score_long": 0.85},
     },
     "FootprintAbsorption": {
-        "1m": {"tp_pct": 0.0040, "sl_pct": 0.0030},
+        "1m": {"tp_pct": 0.30, "sl_pct": 0.20, "min_score_long": 0.85},
     },
     "FootprintPOCRejection": {
-        "1m": {"tp_pct": 0.0050, "sl_pct": 0.0030},
+        "1m": {"tp_pct": 0.35, "sl_pct": 0.20, "min_score_long": 0.85},
     },
     "FootprintDeltaDivergence": {
-        "1m": {"tp_pct": 0.0045, "sl_pct": 0.0030},
+        "1m": {"tp_pct": 0.30, "sl_pct": 0.20, "min_score_long": 0.85},
     },
     "FootprintStackedImbalance": {
-        "1m": {"tp_pct": 0.0045, "sl_pct": 0.0030},
+        "1m": {"tp_pct": 0.30, "sl_pct": 0.20, "min_score_long": 0.85},
     },
     "FootprintTrappedTraders": {
-        "1m": {"tp_pct": 0.0055, "sl_pct": 0.0035},
+        "1m": {"tp_pct": 0.40, "sl_pct": 0.25, "min_score_long": 0.85},
     },
     "FootprintVolumeExhaustion": {
-        "1m": {"tp_pct": 0.0015, "sl_pct": 0.0010},
+        "1m": {"tp_pct": 0.15, "sl_pct": 0.10, "min_score_long": 0.85},
     },
     "FootprintDeltaPoCShift": {
-        "1m": {"tp_pct": 0.0020, "sl_pct": 0.0010},
+        "1m": {"tp_pct": 0.20, "sl_pct": 0.15, "min_score_long": 0.85},
     },
     "CumulativeDelta": {
-        "1m": {"tp_pct": 0.0030, "sl_pct": 0.0015},
+        "1m": {"tp_pct": 0.25, "sl_pct": 0.15, "min_score_long": 0.85},
+    },
+    "BigOrderSensor": {
+        "1m": {"tp_pct": 0.35, "sl_pct": 0.20, "min_score_long": 0.85},
+    },
+    "SessionValueArea": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},
     },
     "OneTimeframing": {
-        "1m": {"tp_pct": 0.0000, "sl_pct": 0.0000},  # Context sensor, no TP/SL needed
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor, no TP/SL needed
     },
     # === DEFAULT FALLBACK ===
     "_default": {
-        "1m": {"tp_pct": 0.0015, "sl_pct": 0.0010},
+        "1m": {"tp_pct": 0.20, "sl_pct": 0.15},
     },
 }
 
