@@ -234,6 +234,7 @@ class SignalAggregatorV3:
         htf_short_count = 0
         structural_levels = {}
 
+        # Window context extracted from SessionValueArea metadata (used downstream)
         for signal in valid_signals:
             if signal.sensor_id in context_sensors:
                 if signal.side == "LONG":

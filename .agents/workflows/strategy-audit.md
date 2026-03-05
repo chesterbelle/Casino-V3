@@ -8,12 +8,27 @@ description: Audit the FootprintScalper strategy's edge metrics (Win Rate, Profi
 
 ## Overview
 This protocol performs a **Single Round** validation of the **FootprintScalper strategy edge**.
-It follows a 3-step sequence: Reset → Run → Analyze.
-After Step 2, the agent **MUST STOP** and report the result. No further actions or iterations without user approval.
+It follows a 4-step sequence: Clean Exchange → Reset → Run → Analyze.
+After Step 3, the agent **MUST STOP** and report the result. No further actions or iterations without user approval.
 
 **Goals**: Win Rate > 55% | Profit Factor > 1.2
 
 ---
+
+## Step -1: Clean Exchange (Remove Orphans)
+**CRITICAL**: This step prevents orphan positions from triggering PortfolioGuard CRITICAL state.
+
+```bash
+.venv/bin/python utils/emergency_cleanup.py
+```
+**Must output**: `✨ Cleanup complete!`
+
+This script:
+1. Fetches ALL active symbols with positions/orders
+2. Cancels ALL open orders
+3. Closes ALL open positions (market)
+
+**Why**: Orphan positions from previous runs are processed as losses by Reconciliation, incrementing the PortfolioGuard loss streak counter and potentially triggering CRITICAL state before the audit even starts.
 
 ## Step 0: Reset DB (Clean Slate)
 ```bash
