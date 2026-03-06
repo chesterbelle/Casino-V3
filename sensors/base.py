@@ -58,12 +58,20 @@ class SensorV3(ABC):
         """Emit a trading signal."""
         from core.events import SignalEvent
 
+        md = dict(metadata or {})
+        if md.get("price") is None and md.get("at_price") is None:
+            try:
+                if isinstance(getattr(self, "last_candle", None), dict) and self.last_candle.get("close") is not None:
+                    md["price"] = self.last_candle.get("close")
+            except Exception:
+                pass
+
         signal = SignalEvent(
             timestamp=self.last_candle["timestamp"],
             symbol=self.symbol,
             side=side,
             sensor_id=self.__class__.__name__,  # Use class name as sensor ID
             score=score,
-            metadata=metadata,
+            metadata=md,
         )
         await self.engine.dispatch(signal)
