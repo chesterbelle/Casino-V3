@@ -84,6 +84,7 @@ class SignalAggregatorV3:
         self.processed_candles: Dict[str, set] = defaultdict(set)
         # Track latest candle timestamp per symbol
         self.latest_candle_ts: Dict[str, float] = {}
+        self.latest_candle_close: Dict[str, float] = {}
         self.timeout_tasks: Dict[str, asyncio.Task] = {}
 
         # Initialize sensor tracker
@@ -110,6 +111,12 @@ class SignalAggregatorV3:
         """Track new candles to reset signal buffer."""
         symbol = event.symbol
         new_ts = event.timestamp
+
+        try:
+            if getattr(event, "close", None) is not None:
+                self.latest_candle_close[symbol] = float(event.close)
+        except (TypeError, ValueError):
+            pass
 
         last_ts = self.latest_candle_ts.get(symbol)
 
@@ -289,11 +296,7 @@ class SignalAggregatorV3:
         prox_ticks = 10  # default proximity in ticks
         prox_dist = prox_ticks * 0.1  # fallback distance if we don't know tick size
 
-        candle_close = None
-        try:
-            candle_close = self.engine.data_feed.get_price(symbol)
-        except Exception:
-            candle_close = None
+        candle_close = self.latest_candle_close.get(symbol)
 
         def _get_trigger_price(sig: SignalEvent) -> Optional[float]:
             md = sig.metadata or {}
