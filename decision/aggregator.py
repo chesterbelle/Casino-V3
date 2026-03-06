@@ -289,6 +289,12 @@ class SignalAggregatorV3:
         prox_ticks = 10  # default proximity in ticks
         prox_dist = prox_ticks * 0.1  # fallback distance if we don't know tick size
 
+        candle_close = None
+        try:
+            candle_close = self.engine.data_feed.get_price(symbol)
+        except Exception:
+            candle_close = None
+
         def _get_trigger_price(sig: SignalEvent) -> Optional[float]:
             md = sig.metadata or {}
             price = md.get("price") or md.get("at_price")
@@ -389,6 +395,15 @@ class SignalAggregatorV3:
             )
 
             if is_order_flow or is_fast_track:
+                if signal.metadata is None:
+                    signal.metadata = {}
+                if (
+                    signal.metadata.get("price") is None
+                    and signal.metadata.get("at_price") is None
+                    and candle_close is not None
+                ):
+                    signal.metadata["price"] = candle_close
+
                 trig_price = _get_trigger_price(signal)
                 level_ok = False
                 level_ref = None
