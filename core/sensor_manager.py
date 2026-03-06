@@ -336,7 +336,7 @@ class SensorManager:
         """Emit SignalEvent."""
         from config.sensors import get_sensor_params
 
-        metadata = signal_data.get("metadata", {})
+        metadata = dict(signal_data.get("metadata") or {})
         signal_tf = signal_data.get("timeframe", self.timeframe)
 
         # Strategy contract: always attach a reliable trigger price for level confirmation.

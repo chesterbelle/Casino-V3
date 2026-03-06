@@ -19,6 +19,7 @@ Usage:
 
 """
 import argparse
+import re
 import sqlite3
 import sys
 from collections import defaultdict
@@ -48,6 +49,132 @@ def warn(msg):
 def header(msg):
     line = "=" * 70
     return f"\n{BOLD}{CYAN}{line}\n  {msg}\n{line}{RESET}"
+
+
+def _safe_int(v, default: int = 0) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(v, default: float = 0.0) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _iter_log_files(log_glob: str) -> list[Path]:
+    matches = sorted(Path(".").glob(log_glob))
+    return [p for p in matches if p.is_file()]
+
+
+def audit_strategy_logs(log_glob: str) -> int:
+    """Option 2: Audit by parsing logs (no DB schema dependency).
+
+    This is intentionally conservative and only relies on stable log signatures.
+    """
+
+    log_files = _iter_log_files(log_glob)
+    if not log_files:
+        print(f"{RED}❌ No log files match: {log_glob}{RESET}")
+        return 1
+
+    print(header(f"STRATEGY LOG AUDIT — Setup Segmentation (glob={log_glob})"))
+
+    rx_fast_track = re.compile(
+        r"✅ Fast-track confirmed: .*?\(setup_type=(?P<setup>[^,\)]+), "
+        r"level_ok=(?P<level_ok>True|False), micro_ok=(?P<micro_ok>True|False), "
+        r"level_ref=(?P<level_ref>[^\)]+)\)"
+    )
+
+    regressions = {
+        "missing_price_metadata": 0,
+        "traceback": 0,
+        "critical": 0,
+        "error": 0,
+        "exception": 0,
+    }
+
+    by_setup = defaultdict(
+        lambda: {"count": 0, "level_ok": 0, "micro_ok": 0, "both_ok": 0, "level_ref": defaultdict(int)}
+    )
+
+    for fp in log_files:
+        try:
+            content = fp.read_text(errors="replace")
+        except Exception as e:
+            print(f"{RED}❌ Failed to read {fp}: {e}{RESET}")
+            return 1
+
+        regressions["missing_price_metadata"] += content.count("missing price metadata for level confirmation")
+        regressions["traceback"] += content.count("Traceback (most recent call last)")
+        regressions["critical"] += len(re.findall(r"\bCRITICAL\b", content))
+        regressions["error"] += len(re.findall(r"\bERROR\b", content))
+        regressions["exception"] += len(re.findall(r"\bException\b", content))
+
+        for m in rx_fast_track.finditer(content):
+            setup = (m.group("setup") or "unknown").strip()
+            level_ok = m.group("level_ok") == "True"
+            micro_ok = m.group("micro_ok") == "True"
+            level_ref = (m.group("level_ref") or "None").strip()
+
+            rec = by_setup[setup]
+            rec["count"] += 1
+            if level_ok:
+                rec["level_ok"] += 1
+            if micro_ok:
+                rec["micro_ok"] += 1
+            if level_ok and micro_ok:
+                rec["both_ok"] += 1
+            rec["level_ref"][level_ref] += 1
+
+    total_fast_track = sum(v["count"] for v in by_setup.values())
+    print(f"\n{BOLD}[A] FAST-TRACK SETUP BREAKDOWN (from logs){RESET}")
+    print(f"  Log files scanned : {len(log_files)}")
+    print(f"  Fast-track confirms: {total_fast_track}")
+
+    if total_fast_track == 0:
+        print(
+            warn(
+                "No '✅ Fast-track confirmed' lines found. Ensure the bot run produced signals and logs include fast-track confirmations."
+            )
+        )
+    else:
+        for setup, rec in sorted(by_setup.items(), key=lambda x: -x[1]["count"]):
+            n = rec["count"]
+            lvl = rec["level_ok"]
+            mic = rec["micro_ok"]
+            both = rec["both_ok"]
+            print(f"\n  setup_type={setup}")
+            print(f"    n={n}")
+            print(f"    confirm_level : {lvl} ({(lvl / n * 100):.1f}%)")
+            print(f"    confirm_micro : {mic} ({(mic / n * 100):.1f}%)")
+            print(f"    both          : {both} ({(both / n * 100):.1f}%)")
+
+            lr = rec["level_ref"]
+            if lr:
+                top = sorted(lr.items(), key=lambda kv: -kv[1])[:8]
+                top_str = ", ".join([f"{k}:{v}" for k, v in top])
+                print(f"    level_ref(top): {top_str}")
+
+    print(f"\n{BOLD}[B] REGRESSION SCAN (execution + telemetry){RESET}")
+    print(f"  missing price metadata: {regressions['missing_price_metadata']}")
+    print(f"  tracebacks            : {regressions['traceback']}")
+    print(f"  CRITICAL lines        : {regressions['critical']}")
+    print(f"  ERROR lines           : {regressions['error']}")
+    print(f"  Exception tokens      : {regressions['exception']}")
+
+    if regressions["missing_price_metadata"] > 0:
+        print(fail("Regression detected: missing price metadata for level confirmation"))
+        return 1
+    if regressions["traceback"] > 0:
+        print(fail("Regression detected: Python traceback"))
+        return 1
+
+    print(ok("Log audit PASS (no critical regressions detected by signature scan)"))
+    return 0
 
 
 # ─── DB helpers ─────────────────────────────────────────────
@@ -331,11 +458,22 @@ def main():
     parser.add_argument("--session", default=None, help="Filter by session_id")
     parser.add_argument("--last", type=int, default=None, help="Analyse only the last N trades")
     parser.add_argument(
+        "--log",
+        default=None,
+        help=(
+            "Option 2: parse logs for setup segmentation + regression scan. "
+            "Example: --log 'logs/strategy_audit_*.log' or --log 'bot.log'"
+        ),
+    )
+    parser.add_argument(
         "--reset-db",
         action="store_true",
         help="Wipe the historian DB before analysis (use before running the bot for a clean session)",
     )
     args = parser.parse_args()
+
+    if args.log:
+        sys.exit(audit_strategy_logs(args.log))
 
     db_path = Path(args.db)
     if not db_path.exists() and not args.reset_db:

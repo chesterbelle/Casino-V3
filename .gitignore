@@ -20,6 +20,9 @@ data/
 logs/audit_trail.jsonl
 logs/
 
+# Local runtime locks
+.bot.pid.lock
+
 # State
 state/
 
