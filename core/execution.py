@@ -112,7 +112,11 @@ class OrderManager:
         # Calculate sizing via centralized OrderExecutor logic (Phase 46)
         try:
             # Phase 230: Fast-Track Pricing (<1ms vs ~300ms)
+            # Priority: estimated_price (DecisionEvent) -> metadata["price"] (AggregatedSignalEvent)
             current_price = getattr(event, "estimated_price", None)
+            if not current_price or current_price <= 0:
+                metadata = getattr(event, "metadata", None) or {}
+                current_price = metadata.get("price")
 
             # Phase 240: Hard-bypass REST for fast-tracked HFT signals
             is_fast_track = getattr(event, "fast_track", False)
