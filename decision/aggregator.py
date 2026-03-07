@@ -68,6 +68,47 @@ SETUP_TYPE_MAP = {
 }
 
 
+def detect_level_confluence(metadata: dict, tolerance_pct: float = 0.001) -> list:
+    """
+    Phase 700: Detect levels where multiple HTF timeframes have POC/VAH/VAL close together.
+
+    Returns list of confluence levels with their sources.
+    A confluence level has 2+ timeframe hits within tolerance.
+    """
+    levels = {}
+
+    for tf in ("15m", "1h", "4h"):
+        for level_type in ("poc", "vah", "val"):
+            key = f"{tf}_{level_type}"
+            price = metadata.get(key)
+            if price and price > 0:
+                # Bucket by price proximity
+                bucket = round(price / (price * tolerance_pct)) if price > 0 else 0
+                levels.setdefault(bucket, []).append(
+                    {
+                        "tf": tf,
+                        "type": level_type,
+                        "price": price,
+                    }
+                )
+
+    # Filter buckets with 2+ hits (confluence)
+    confluence = []
+    for bucket, hits in levels.items():
+        if len(hits) >= 2:
+            avg_price = sum(h["price"] for h in hits) / len(hits)
+            confluence.append(
+                {
+                    "price": avg_price,
+                    "timeframes": [h["tf"] for h in hits],
+                    "types": [h["type"] for h in hits],
+                    "strength": len(hits),  # 2 = moderate, 3+ = strong
+                }
+            )
+
+    return sorted(confluence, key=lambda x: -x["strength"])
+
+
 class SignalAggregatorV3:
     """
     Aggregates signals from multiple sensors using intelligent scoring.
@@ -435,9 +476,10 @@ class SignalAggregatorV3:
                 if setup_type == "reversion":
                     gate_ok = level_ok
                     gate_reason = f"reversion_requires_level(level_ok={level_ok})"
-                elif setup_type == "continuation":
+                elif setup_type in ("continuation", "initial"):
+                    # Continuation and initial breakouts: require microstructure confirmation
                     gate_ok = micro_ok
-                    gate_reason = f"continuation_requires_micro(micro_ok={micro_ok})"
+                    gate_reason = f"{setup_type}_requires_micro(micro_ok={micro_ok})"
                 else:
                     # Unknown setup: fallback to Option 1 behavior
                     gate_ok = level_ok or micro_ok
@@ -464,6 +506,16 @@ class SignalAggregatorV3:
                     signal.metadata.setdefault("price", trig_price)
                 if level_ref is not None:
                     signal.metadata.setdefault("level_ref", level_ref)
+
+                # Phase 700: Detect HTF level confluence
+                confluence = detect_level_confluence(signal.metadata or {})
+                if confluence:
+                    signal.metadata["htf_confluence"] = confluence
+                    logger.debug(
+                        f"🎯 HTF Confluence detected for {signal.symbol}: "
+                        f"{len(confluence)} levels, strongest at {confluence[0]['price']:.4f} "
+                        f"(strength={confluence[0]['strength']})"
+                    )
 
             mtf_30m_side = structural_levels.get("mtf_side", "NEUTRAL")
 

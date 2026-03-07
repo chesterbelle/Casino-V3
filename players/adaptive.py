@@ -94,6 +94,72 @@ class AdaptivePlayer:
             f"Max Positions: {max_positions}"
         )
 
+    def _get_best_htf_levels(self, metadata: dict) -> dict:
+        """
+        Phase 700: Get the most relevant HTF levels from metadata.
+        Priority: 1h > 15m > 4h (1h is optimal balance for scalping).
+        Returns dict with poc, vah, val and source_tf.
+        """
+        for tf in ("1h", "15m", "4h"):
+            poc = metadata.get(f"{tf}_poc")
+            vah = metadata.get(f"{tf}_vah")
+            val = metadata.get(f"{tf}_val")
+            if poc and poc > 0 and vah and vah > 0 and val and val > 0:
+                return {"poc": poc, "vah": vah, "val": val, "source_tf": tf}
+        return {}
+
+    def _calculate_structural_tp_sl(self, side: str, entry_price: float, htf_levels: dict, setup_type: str) -> tuple:
+        """
+        Phase 700: Calculate TP/SL based on structural levels.
+
+        Returns (tp_pct, sl_pct) or (None, None) if levels invalid.
+        """
+        poc = htf_levels.get("poc")
+        vah = htf_levels.get("vah")
+        val = htf_levels.get("val")
+
+        if not all([poc, vah, val]) or entry_price <= 0:
+            return None, None
+
+        tp_price = None
+        sl_price = None
+
+        if setup_type == "reversion":
+            # Reversion: target POC from VAH/VAL
+            if side == "LONG" and entry_price <= val * 1.001:
+                # Entering near VAL, target POC
+                tp_price = poc
+                sl_price = val * 0.998  # Just below VAL
+            elif side == "SHORT" and entry_price >= vah * 0.999:
+                # Entering near VAH, target POC
+                tp_price = poc
+                sl_price = vah * 1.002  # Just above VAH
+
+        elif setup_type == "initial":
+            # Initial breakout: target VA boundary
+            if side == "LONG":
+                tp_price = vah
+                sl_price = entry_price * 0.998  # Tight SL for breakout
+            else:
+                tp_price = val
+                sl_price = entry_price * 1.002
+
+        elif setup_type == "continuation":
+            # Continuation: target VA boundary, SL behind POC
+            if side == "LONG":
+                tp_price = vah
+                sl_price = poc * 0.999
+            else:
+                tp_price = val
+                sl_price = poc * 1.001
+
+        if tp_price and sl_price:
+            tp_pct = abs((tp_price - entry_price) / entry_price) * 100
+            sl_pct = abs((sl_price - entry_price) / entry_price) * 100
+            return tp_pct, sl_pct
+
+        return None, None
+
     async def on_aggregated_signal(self, event: AggregatedSignalEvent):
         """Process aggregated signal and place bet."""
         if event.side == "SKIP":
@@ -141,7 +207,23 @@ class AdaptivePlayer:
         setup_type = event.metadata.get("setup_type", "unknown")
         tp_sl_source = "sensor_config"
 
-        # Phase 600: James Dalton Contextual Exits
+        # Phase 700: Structural TP/SL from HTF levels (Trader Dale Ready)
+        htf_levels = self._get_best_htf_levels(event.metadata or {})
+        current_price = event.metadata.get("price")
+
+        if htf_levels and current_price and current_price > 0:
+            struct_tp, struct_sl = self._calculate_structural_tp_sl(event.side, current_price, htf_levels, setup_type)
+            if struct_tp is not None and struct_sl is not None:
+                tp_pct = struct_tp
+                sl_pct = struct_sl
+                tp_sl_source = f"structural_{htf_levels['source_tf']}"
+                logger.debug(
+                    f"🎯 Structural TP/SL from {htf_levels['source_tf']}: "
+                    f"TP={tp_pct:.3f}% SL={sl_pct:.3f}% | "
+                    f"POC={htf_levels['poc']:.4f} VAH={htf_levels['vah']:.4f} VAL={htf_levels['val']:.4f}"
+                )
+
+        # Phase 600: James Dalton Contextual Exits (fallback if no HTF levels)
         if "poc" in event.metadata and "vah" in event.metadata and "val" in event.metadata:
             # We have Market Profile data
             poc = event.metadata["poc"]
@@ -203,6 +285,14 @@ class AdaptivePlayer:
             if sl_pct is not None:
                 sl_pct = max(0.15, min(sl_pct, 0.55))
             tp_sl_source = f"{tp_sl_source}+continuation_clamp"
+        elif setup_type == "initial":
+            # Initial breakout (FootprintStackedImbalance new stack): wider SL for entry volatility.
+            # Breakouts can have false starts; give more room while keeping TP reasonable.
+            if tp_pct is not None:
+                tp_pct = max(0.20, min(tp_pct, 0.80))
+            if sl_pct is not None:
+                sl_pct = max(0.20, min(sl_pct, 0.50))
+            tp_sl_source = f"{tp_sl_source}+initial_clamp"
 
         # Phase 650.2: Unfinished Business Exact Targeting
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])

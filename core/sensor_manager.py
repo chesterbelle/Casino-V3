@@ -354,6 +354,22 @@ class SensorManager:
                     if isinstance(candle_1m, dict) and candle_1m.get("close") is not None:
                         metadata["price"] = candle_1m.get("close")
 
+        # Phase 700: Extract HTF structural levels for Trader Dale context
+        ctx = signal_data.get("context")
+        if isinstance(ctx, dict):
+            for tf in ("15m", "1h", "4h"):
+                tf_candle = ctx.get(tf)
+                if isinstance(tf_candle, dict):
+                    poc = tf_candle.get("poc")
+                    vah = tf_candle.get("vah")
+                    val = tf_candle.get("val")
+                    if poc and poc > 0:
+                        metadata[f"{tf}_poc"] = poc
+                    if vah and vah > 0:
+                        metadata[f"{tf}_vah"] = vah
+                    if val and val > 0:
+                        metadata[f"{tf}_val"] = val
+
         sensor_config = get_sensor_params(sensor_name, signal_tf)
         if "tp_pct" in sensor_config:
             metadata["tp_pct"] = sensor_config["tp_pct"]
