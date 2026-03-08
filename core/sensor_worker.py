@@ -148,7 +148,11 @@ class SensorWorker(multiprocessing.Process):
                     signals = sensor.on_orderbook(data)
 
                 if signals:
-                    self.output_queue.put({"sensor": sensor.name, "symbol": symbol, "signals": signals})
+                    # Phase 700: Include context in output for HTF level extraction
+                    output = {"sensor": sensor.name, "symbol": symbol, "signals": signals}
+                    if context:
+                        output["context"] = context
+                    self.output_queue.put(output)
 
             except Exception as e:
                 logger.error(f"❌ Error in sensor {sensor.name} ({symbol}) on {event_type}: {e}")

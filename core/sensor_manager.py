@@ -315,12 +315,13 @@ class SensorManager:
             return
 
         # Emit Signal(s)
+        context = msg.get("context")  # Phase 700: Get context from worker
         if isinstance(signals, dict):
-            await self._emit_signal(signals, sensor_name, symbol)
+            await self._emit_signal(signals, sensor_name, symbol, context)
         elif isinstance(signals, list):
             for s in signals:
                 if s:
-                    await self._emit_signal(s, sensor_name, symbol)
+                    await self._emit_signal(s, sensor_name, symbol, context)
 
         # Update cooldown
         self._last_trigger[cooldown_key] = self._candle_index
@@ -332,7 +333,7 @@ class SensorManager:
             return True
         return (self._candle_index - last_index) >= self.cooldown_bars
 
-    async def _emit_signal(self, signal_data: dict, sensor_name: str, symbol: str = None):
+    async def _emit_signal(self, signal_data: dict, sensor_name: str, symbol: str = None, context: dict = None):
         """Emit SignalEvent."""
         from config.sensors import get_sensor_params
 
@@ -355,10 +356,9 @@ class SensorManager:
                         metadata["price"] = candle_1m.get("close")
 
         # Phase 700: Extract HTF structural levels for Trader Dale context
-        ctx = signal_data.get("context")
-        if isinstance(ctx, dict):
+        if isinstance(context, dict):
             for tf in ("15m", "1h", "4h"):
-                tf_candle = ctx.get(tf)
+                tf_candle = context.get(tf)
                 if isinstance(tf_candle, dict):
                     poc = tf_candle.get("poc")
                     vah = tf_candle.get("vah")
