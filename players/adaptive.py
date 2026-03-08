@@ -294,6 +294,16 @@ class AdaptivePlayer:
                 sl_pct = max(0.20, min(sl_pct, 0.50))
             tp_sl_source = f"{tp_sl_source}+initial_clamp"
 
+        # Phase 700.1: Absolute max clamp to prevent PERCENT_PRICE filter errors (-4131)
+        # Binance rejects limit orders too far from current market price.
+        # Keep TP/SL within reasonable bounds to avoid error storms.
+        MAX_TP_PCT = 2.0  # Max 2% TP (conservative for PERCENT_PRICE)
+        MAX_SL_PCT = 1.0  # Max 1% SL (conservative for PERCENT_PRICE)
+        if tp_pct is not None:
+            tp_pct = min(tp_pct, MAX_TP_PCT)
+        if sl_pct is not None:
+            sl_pct = min(sl_pct, MAX_SL_PCT)
+
         # Phase 650.2: Unfinished Business Exact Targeting
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
         if unfinished_targets and current_price and current_price > 0:
