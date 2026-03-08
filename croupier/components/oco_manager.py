@@ -920,19 +920,23 @@ class OCOManager:
         Args:
             entry_price: Entry price
             side: "LONG" or "SHORT"
-            tp_pct: TP percentage (e.g., 0.01 for 1%)
-            sl_pct: SL percentage (e.g., 0.01 for 1%)
+            tp_pct: TP percentage (e.g., 0.2 for 0.2%)
+            sl_pct: SL percentage (e.g., 0.2 for 0.2%)
             symbol: Trading symbol (for precision formatting)
 
         Returns:
             (tp_price, sl_price) tuple with proper tick size precision
         """
+        # Convert percentage to decimal (0.2% -> 0.002)
+        tp_decimal = tp_pct / 100.0
+        sl_decimal = sl_pct / 100.0
+
         if side == "LONG":
-            tp_price = entry_price * (1 + tp_pct)
-            sl_price = entry_price * (1 - sl_pct)
+            tp_price = entry_price * (1 + tp_decimal)
+            sl_price = entry_price * (1 - sl_decimal)
         else:  # SHORT
-            tp_price = entry_price * (1 - tp_pct)
-            sl_price = entry_price * (1 + sl_pct)
+            tp_price = entry_price * (1 - tp_decimal)
+            sl_price = entry_price * (1 + sl_decimal)
 
         # Apply exchange precision (tick size) to avoid "Price not increased by tick size" error
         tp_price = float(self.adapter.price_to_precision(symbol, tp_price))
