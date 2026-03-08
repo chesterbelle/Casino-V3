@@ -99,6 +99,10 @@ rg -n "Traceback|ERROR|CRITICAL|Exception|leaked semaphore|resource_tracker" log
 
 ## Success Criteria (Phase 650 Goals)
 
+**Important**: Edge metrics (WR, PF, Expectancy) are calculated from **Active Strategy trades only**.
+Drain phase trades (DRAIN_DEFENSIVE_ESCALATION, DRAIN_PANIC, DRAIN_AGGRESSIVE_ESCALATION) are excluded
+as they represent forced exits during timeout/shutdown, not strategy performance.
+
 | Metric | Goal | Action if failing |
 |---|---|---|
 | **Win Rate** | ≥ 55% | Tighten entry filters (`min_cluster_density`, delta thresholds) |

@@ -33,6 +33,10 @@ CYAN = "\033[96m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
+# ─── Exit Reason Categories ───────────────────────────────────
+DRAIN_EXIT_REASONS = {"DRAIN_DEFENSIVE_ESCALATION", "DRAIN_PANIC", "DRAIN_AGGRESSIVE_ESCALATION"}
+ACTIVE_EXIT_REASONS = {"SHADOW_SL", "TP_SL_HIT", "TRADE_CONFIRMED", "SL_HIT", "TP_HIT"}
+
 
 def ok(msg):
     return f"{GREEN}✅ {msg}{RESET}"
@@ -209,6 +213,19 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None):
     return rows
 
 
+def categorize_trades(trades: list) -> tuple[list, list]:
+    """Separate active strategy trades from drain phase trades.
+
+    Drain phase trades are forced exits due to timeout/shutdown and don't
+    represent the strategy's true performance.
+
+    Returns: (active_trades, drain_trades)
+    """
+    active = [t for t in trades if t["exit_reason"] not in DRAIN_EXIT_REASONS]
+    drain = [t for t in trades if t["exit_reason"] in DRAIN_EXIT_REASONS]
+    return active, drain
+
+
 def reset_db(db_path: str):
     """Wipes all trades from historian.db for a clean slate."""
     conn = sqlite3.connect(db_path)
@@ -350,19 +367,37 @@ def print_report(trades, session_id=None, last_n=None):
 
     print(header(f"STRATEGY AUDIT — Phase 650 ({label_str})"))
 
-    edge = compute_edge_metrics(trades)
+    # Separate active strategy trades from drain phase trades
+    active_trades, drain_trades = categorize_trades(trades)
+
+    # ── 0. Trade Classification Summary ─────────────────────
+    print(f"\n{BOLD}[0] TRADE CLASSIFICATION{RESET}")
+    print(f"  Total Trades       : {len(trades)}")
+    print(f"  Active Strategy    : {len(active_trades)} trades")
+    print(f"  Drain Phase        : {len(drain_trades)} trades (excluded from edge metrics)")
+
+    if drain_trades:
+        drain_pnl = sum(t["net_pnl"] for t in drain_trades)
+        drain_wins = len([t for t in drain_trades if t["net_pnl"] > 0])
+        drain_color = GREEN if drain_pnl >= 0 else RED
+        print(
+            f"  Drain Phase PnL    : {drain_color}${drain_pnl:+.4f}{RESET} (WR: {drain_wins}/{len(drain_trades)} = {drain_wins/len(drain_trades)*100:.1f}%)"
+        )
+
+    # Use active trades for all strategy metrics
+    edge = compute_edge_metrics(active_trades)
     if not edge:
-        print(f"\n{RED}No trades found in the database matching filters.{RESET}\n")
+        print(f"\n{RED}No active strategy trades found in the database matching filters.{RESET}\n")
         return 1
 
-    # ── 1. Core Edge Metrics ──────────────────────────────
-    print(f"\n{BOLD}[1] EDGE METRICS{RESET}  (Phase 650 Goals: WR > 55%, PF > 1.2)")
+    # ── 1. Core Edge Metrics (Active Strategy Only) ──────────────────────────────
+    print(f"\n{BOLD}[1] EDGE METRICS{RESET}  (Active Strategy Only | Phase 650 Goals: WR > 55%, PF > 1.2)")
     wr_c = _wr_color(edge["win_rate"])
     pf_c = _pf_color(edge["profit_factor"])
     wr_pass = edge["win_rate"] >= 55
     pf_pass = edge["profit_factor"] >= 1.2
 
-    print(f"  Total Trades   : {edge['n']}")
+    print(f"  Active Trades  : {edge['n']}")
     print(f"  Wins / Losses  : {edge['wins']} / {edge['losses']}")
     print(f"  Win Rate       : {wr_c}{edge['win_rate']:.1f}%{RESET}  {'✅' if wr_pass else '❌'}  (goal: ≥55%)")
     print(f"  Profit Factor  : {pf_c}{edge['profit_factor']:.3f}{RESET}  {'✅' if pf_pass else '❌'}  (goal: ≥1.2)")
@@ -371,11 +406,16 @@ def print_report(trades, session_id=None, last_n=None):
     exp_str = f"${edge['expectancy']:+.4f}"
     pnl_str = f"${edge['total_pnl']:+.4f}"
     print(f"  Expectancy     : {exp_str:>12}  per trade")
-    print(f"  Total Net PnL  : {pnl_str:>12}")
+    print(f"  Active PnL     : {pnl_str:>12}")
+
+    # Show total including drain
+    if drain_trades:
+        total_pnl = edge["total_pnl"] + sum(t["net_pnl"] for t in drain_trades)
+        print(f"  Total PnL (all): ${total_pnl:+.4f} (includes drain phase)")
 
     # ── 2. Exit Breakdown (MFE/MAE proxy) ─────────────────
-    print(f"\n{BOLD}[2] EXIT BREAKDOWN{RESET}  (MFE/MAE Proxy)")
-    exits = compute_exit_breakdown(trades)
+    print(f"\n{BOLD}[2] EXIT BREAKDOWN{RESET}  (Active Strategy | MFE/MAE Proxy)")
+    exits = compute_exit_breakdown(active_trades)
     total = edge["n"]
     for reason, data in sorted(exits.items(), key=lambda x: -x[1]["count"]):
         pct = data["count"] / total * 100
@@ -386,7 +426,7 @@ def print_report(trades, session_id=None, last_n=None):
 
     # ── 3. Early Exit Audit ────────────────────────────────
     print(f"\n{BOLD}[3] EARLY EXIT AUDIT{RESET}  (Shadow SL / Recon leakage)")
-    early = compute_early_exit_rate(trades)
+    early = compute_early_exit_rate(active_trades)
     color = RED if early["early_exit_pct"] > 20 else YELLOW if early["early_exit_pct"] > 10 else GREEN
     print(f"  Early exits    : {color}{early['early_exit_count']} ({early['early_exit_pct']:.1f}%){RESET}")
     print(f"  Of those lost  : {early['early_exits_that_lost']}")
@@ -396,7 +436,7 @@ def print_report(trades, session_id=None, last_n=None):
 
     # ── 4. Long vs Short Bias ─────────────────────────────
     print(f"\n{BOLD}[4] DIRECTIONAL BIAS{RESET}")
-    bias = compute_side_bias(trades)
+    bias = compute_side_bias(active_trades)
     lwr_c = _wr_color(bias["long_win_rate"])
     swr_c = _wr_color(bias["short_win_rate"])
     print(
@@ -409,8 +449,8 @@ def print_report(trades, session_id=None, last_n=None):
         print(warn("  Large asymmetry between LONG/SHORT WR. Consider direction filter."))
 
     # ── 5. Per-Symbol Breakdown ───────────────────────────
-    print(f"\n{BOLD}[5] PER-SYMBOL STATS{RESET}")
-    per_sym = compute_per_symbol(trades)
+    print(f"\n{BOLD}[5] PER-SYMBOL STATS{RESET}  (Active Strategy)")
+    per_sym = compute_per_symbol(active_trades)
     for sym, m in sorted(per_sym.items(), key=lambda x: -x[1]["total_pnl"]):
         wr_c2 = _wr_color(m["win_rate"])
         pf_c2 = _pf_color(m["profit_factor"])
@@ -423,7 +463,7 @@ def print_report(trades, session_id=None, last_n=None):
 
     # ── 6. Latency (T0 signal → T4 fill) ─────────────────
     print(f"\n{BOLD}[6] SIGNAL-TO-FILL LATENCY{RESET}")
-    lat = compute_latency_stats(trades)
+    lat = compute_latency_stats(active_trades)
     if lat:
         color = GREEN if lat["avg_ms"] < 500 else YELLOW if lat["avg_ms"] < 1000 else RED
         print(
