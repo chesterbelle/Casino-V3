@@ -211,8 +211,9 @@ class HFTLatencyBenchmark:
                 self.adapter.get_cached_price(symbol)
 
                 # Phase 800: Compute absolute TP/SL prices
-                tp_price = round(current_price * 1.03, 2)  # +3% above
-                sl_price = round(current_price * 0.97, 2)  # -3% below
+                # Use ±5% to avoid -2021 during rapid benchmark loops
+                tp_price = round(current_price * 1.05, 2)
+                sl_price = round(current_price * 0.95, 2)
 
                 order = {
                     "symbol": symbol,
@@ -307,8 +308,9 @@ class HFTLatencyBenchmark:
                 amount = float(self.adapter.amount_to_precision(symbol, self.size / current_price))
 
                 # Phase 800: Compute absolute TP/SL prices (SHORT side)
-                tp_price = round(current_price * 0.97, 2)  # SHORT TP below
-                sl_price = round(current_price * 1.03, 2)  # SHORT SL above
+                # Use ±5% to avoid -2021 during rapid benchmark loops
+                tp_price = round(current_price * 0.95, 2)  # SHORT TP below
+                sl_price = round(current_price * 1.05, 2)  # SHORT SL above
 
                 order = {
                     "symbol": symbol,
@@ -416,8 +418,9 @@ class HFTLatencyBenchmark:
             amount = float(self.adapter.amount_to_precision(symbol, self.size / current_price))
 
             # Phase 800: Compute absolute TP/SL prices
-            tp_price = round(current_price * 1.03, 2)  # +3% above
-            sl_price = round(current_price * 0.97, 2)  # -3% below
+            # Use ±5% to avoid -2021 during rapid benchmark loops
+            tp_price = round(current_price * 1.05, 2)
+            sl_price = round(current_price * 0.95, 2)
 
             order = {
                 "symbol": symbol,

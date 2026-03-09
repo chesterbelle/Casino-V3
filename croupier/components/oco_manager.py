@@ -299,8 +299,22 @@ class OCOManager:
             # We just need to update the object with the ACTUAL fill price.
 
             # Phase 800: Use absolute TP/SL prices directly, apply tick-size precision
+            # NOTE: These prices come from structural levels (POC, VAH, VAL) in production.
+            # They are market-anchored and should NOT be re-calculated from fill price.
             tp_price = float(self.adapter.price_to_precision(symbol, order["tp_price"]))
             sl_price = float(self.adapter.price_to_precision(symbol, order["sl_price"]))
+
+            # Safety log: warn if TP/SL would trigger immediately (helps debug -2021)
+            if side == "LONG" and (tp_price <= fill_price or sl_price >= fill_price):
+                self.logger.warning(
+                    f"⚠️ TP/SL side check: LONG fill={fill_price:.4f} "
+                    f"TP={tp_price:.4f} SL={sl_price:.4f} — risk of -2021"
+                )
+            elif side == "SHORT" and (tp_price >= fill_price or sl_price <= fill_price):
+                self.logger.warning(
+                    f"⚠️ TP/SL side check: SHORT fill={fill_price:.4f} "
+                    f"TP={tp_price:.4f} SL={sl_price:.4f} — risk of -2021"
+                )
 
             # The position object was returned by register_inflight_position
             # and is already in self.tracker.open_positions.
