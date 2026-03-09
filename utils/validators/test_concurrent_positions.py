@@ -155,8 +155,8 @@ class ConcurrentPositionsTest:
             "symbol": self.symbol,
             "side": "LONG",
             "size": 0.01,
-            "tp_price": round(current_price * 1.003, 2),  # +0.3%
-            "sl_price": round(current_price * 0.997, 2),  # -0.3%
+            "tp_price": current_price * 1.003,  # +0.3%
+            "sl_price": current_price * 0.997,  # -0.3%
             "leverage": 5,
             "trade_id": "concurrent_pos1_tight",
         }
@@ -171,8 +171,8 @@ class ConcurrentPositionsTest:
             "symbol": self.symbol,
             "side": "LONG",
             "size": 0.01,
-            "tp_price": round(current_price * 1.05, 2),  # +5%
-            "sl_price": round(current_price * 0.95, 2),  # -5%
+            "tp_price": current_price * 1.05,  # +5%
+            "sl_price": current_price * 0.95,  # -5%
             "leverage": 5,
             "trade_id": "concurrent_pos2_wide",
         }

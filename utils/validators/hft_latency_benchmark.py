@@ -212,8 +212,9 @@ class HFTLatencyBenchmark:
 
                 # Phase 800: Compute absolute TP/SL prices
                 # Use ±5% to avoid -2021 during rapid benchmark loops
-                tp_price = round(current_price * 1.05, 2)
-                sl_price = round(current_price * 0.95, 2)
+                # Do NOT pre-round — oco_manager.price_to_precision handles tick-size
+                tp_price = current_price * 1.05
+                sl_price = current_price * 0.95
 
                 order = {
                     "symbol": symbol,
@@ -309,8 +310,9 @@ class HFTLatencyBenchmark:
 
                 # Phase 800: Compute absolute TP/SL prices (SHORT side)
                 # Use ±5% to avoid -2021 during rapid benchmark loops
-                tp_price = round(current_price * 0.95, 2)  # SHORT TP below
-                sl_price = round(current_price * 1.05, 2)  # SHORT SL above
+                # Do NOT pre-round — oco_manager.price_to_precision handles tick-size
+                tp_price = current_price * 0.95  # SHORT TP below
+                sl_price = current_price * 1.05  # SHORT SL above
 
                 order = {
                     "symbol": symbol,
@@ -419,8 +421,9 @@ class HFTLatencyBenchmark:
 
             # Phase 800: Compute absolute TP/SL prices
             # Use ±5% to avoid -2021 during rapid benchmark loops
-            tp_price = round(current_price * 1.05, 2)
-            sl_price = round(current_price * 0.95, 2)
+            # Do NOT pre-round — oco_manager.price_to_precision handles tick-size
+            tp_price = current_price * 1.05
+            sl_price = current_price * 0.95
 
             order = {
                 "symbol": symbol,

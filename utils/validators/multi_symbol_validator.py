@@ -234,8 +234,9 @@ class MultiSymbolValidator:
             logger.info(f"🔍 [{symbol}] Calculated amount: {amount} (Raw: {test_size / current_price})")
 
             # Phase 800: Compute absolute TP/SL prices from market price
-            tp_price = round(current_price * 1.05, 2)  # +5% above entry
-            sl_price = round(current_price * 0.95, 2)  # -5% below entry
+            # Do NOT pre-round — oco_manager.price_to_precision handles tick-size
+            tp_price = current_price * 1.05  # +5% above entry
+            sl_price = current_price * 0.95  # -5% below entry
 
             order = {
                 "symbol": symbol,

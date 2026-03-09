@@ -326,8 +326,8 @@ class PreflightValidator:
             # This validates the full pipeline: adaptive -> execution -> oco_manager
             tp_distance_pct = 0.02  # 2% TP distance
             sl_distance_pct = 0.02  # 2% SL distance
-            tp_price = round(price * (1 + tp_distance_pct), 2)
-            sl_price = round(price * (1 - sl_distance_pct), 2)
+            tp_price = price * (1 + tp_distance_pct)
+            sl_price = price * (1 - sl_distance_pct)
 
             order = {
                 "symbol": self.symbol,
@@ -642,8 +642,8 @@ class PreflightValidator:
             amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
 
             # Phase 800: Create SHORT position with absolute TP/SL prices
-            tp_price = round(price * (1 - 0.02), 2)  # TP 2% below (SHORT)
-            sl_price = round(price * (1 + 0.02), 2)  # SL 2% above (SHORT)
+            tp_price = price * (1 - 0.02)  # TP 2% below (SHORT)
+            sl_price = price * (1 + 0.02)  # SL 2% above (SHORT)
 
             order = {
                 "symbol": self.symbol,
