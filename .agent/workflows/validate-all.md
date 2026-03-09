@@ -1,5 +1,5 @@
 ---
-description: Multi-layered validation pipeline for Phase 240 HFT optimizations (4 layers, ~20 min total)
+description: Multi-layered validation pipeline for Phase 800 TP/SL architecture (4 layers, ~20 min total)
 ---
 
 # Multi-Layered Validation Pipeline

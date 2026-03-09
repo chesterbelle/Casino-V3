@@ -61,13 +61,23 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                 amount = self.size / price
 
                 trade_id = f"chaos_{symbol}_{uuid.uuid4().hex[:6]}"
+                side = random.choice(["LONG", "SHORT"])
+
+                # Phase 800: Compute absolute TP/SL prices from market price
+                if side == "LONG":
+                    tp_price = round(price * 1.05, 2)  # +5% above
+                    sl_price = round(price * 0.95, 2)  # -5% below
+                else:
+                    tp_price = round(price * 0.95, 2)  # +5% below (SHORT TP)
+                    sl_price = round(price * 1.05, 2)  # -5% above (SHORT SL)
+
                 order = {
                     "symbol": symbol,
-                    "side": random.choice(["LONG", "SHORT"]),
+                    "side": side,
                     "size": self.size,
                     "amount": amount,
-                    "take_profit": 5.0,  # +5% (PORCENTAJE)
-                    "stop_loss": 5.0,  # -5% (PORCENTAJE)
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
                     "trade_id": trade_id,
                 }
 

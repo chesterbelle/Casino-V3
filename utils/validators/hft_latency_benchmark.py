@@ -210,13 +210,17 @@ class HFTLatencyBenchmark:
                 # Warm cache
                 self.adapter.get_cached_price(symbol)
 
+                # Phase 800: Compute absolute TP/SL prices
+                tp_price = round(current_price * 1.03, 2)  # +3% above
+                sl_price = round(current_price * 0.97, 2)  # -3% below
+
                 order = {
                     "symbol": symbol,
                     "side": "LONG",
                     "size": self.size,
                     "amount": amount,
-                    "take_profit": 3.0,  # +3% (PORCENTAJE)
-                    "stop_loss": 3.0,  # -3% (PORCENTAJE)
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
                     "trade_id": f"bench_{symbol}_{iteration}_{int(time.time())}",
                     "estimated_price": current_price,  # Phase 240: pass cached price
                     "t0_signal_ts": time.time(),  # Phase 8: Signal Generation Timestamp
@@ -302,13 +306,17 @@ class HFTLatencyBenchmark:
                 current_price = float(ticker["last"])
                 amount = float(self.adapter.amount_to_precision(symbol, self.size / current_price))
 
+                # Phase 800: Compute absolute TP/SL prices (SHORT side)
+                tp_price = round(current_price * 0.97, 2)  # SHORT TP below
+                sl_price = round(current_price * 1.03, 2)  # SHORT SL above
+
                 order = {
                     "symbol": symbol,
                     "side": "SHORT",
                     "size": self.size,
                     "amount": amount,
-                    "take_profit": 3.0,  # +3% (PORCENTAJE)
-                    "stop_loss": 3.0,  # -3% (PORCENTAJE)
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
                     "trade_id": f"parallel_{symbol}_{iteration}_{int(time.time())}",
                     "estimated_price": current_price,
                 }
@@ -407,13 +415,17 @@ class HFTLatencyBenchmark:
             current_price = float(ticker["last"])
             amount = float(self.adapter.amount_to_precision(symbol, self.size / current_price))
 
+            # Phase 800: Compute absolute TP/SL prices
+            tp_price = round(current_price * 1.03, 2)  # +3% above
+            sl_price = round(current_price * 0.97, 2)  # -3% below
+
             order = {
                 "symbol": symbol,
                 "side": "LONG",
                 "size": self.size,
                 "amount": amount,
-                "take_profit": 3.0,  # +3% (PORCENTAJE)
-                "stop_loss": 3.0,  # -3% (PORCENTAJE)
+                "tp_price": tp_price,
+                "sl_price": sl_price,
                 "trade_id": f"cache_{symbol}_{int(time.time())}",
                 "estimated_price": current_price,  # This should prevent REST
             }

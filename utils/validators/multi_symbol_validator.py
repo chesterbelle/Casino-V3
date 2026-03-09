@@ -233,14 +233,18 @@ class MultiSymbolValidator:
             amount = float(self.multi_adapter.amount_to_precision(symbol, test_size / current_price))
             logger.info(f"🔍 [{symbol}] Calculated amount: {amount} (Raw: {test_size / current_price})")
 
+            # Phase 800: Compute absolute TP/SL prices from market price
+            tp_price = round(current_price * 1.05, 2)  # +5% above entry
+            sl_price = round(current_price * 0.95, 2)  # -5% below entry
+
             order = {
                 "symbol": symbol,
                 "side": "LONG",
                 "size": self.size,
                 "amount": amount,
                 "qty": amount,
-                "take_profit": 5.0,  # +5% (PORCENTAJE)
-                "stop_loss": 5.0,  # -5% (PORCENTAJE)
+                "tp_price": tp_price,
+                "sl_price": sl_price,
                 "trade_id": f"multi_{symbol}_{int(time.time())}",
             }
 

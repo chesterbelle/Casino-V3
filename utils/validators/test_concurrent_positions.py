@@ -145,14 +145,18 @@ class ConcurrentPositionsTest:
 
         await self.setup()
 
+        # Phase 800: Fetch current price for absolute TP/SL computation
+        current_price = await self.adapter.get_current_price(self.symbol)
+        logger.info(f"📊 Current price: {current_price:.2f}")
+
         # 1. Crear Posición 1 (TP/SL ajustados - 0.3%)
         logger.info("\n--- PASO 1: Crear Posición 1 (TP/SL ajustados 0.3%) ---")
         position1 = {
             "symbol": self.symbol,
             "side": "LONG",
             "size": 0.01,
-            "take_profit": 0.003,  # 0.3%
-            "stop_loss": 0.003,  # 0.3%
+            "tp_price": round(current_price * 1.003, 2),  # +0.3%
+            "sl_price": round(current_price * 0.997, 2),  # -0.3%
             "leverage": 5,
             "trade_id": "concurrent_pos1_tight",
         }
@@ -167,8 +171,8 @@ class ConcurrentPositionsTest:
             "symbol": self.symbol,
             "side": "LONG",
             "size": 0.01,
-            "take_profit": 0.05,  # 5%
-            "stop_loss": 0.05,  # 5%
+            "tp_price": round(current_price * 1.05, 2),  # +5%
+            "sl_price": round(current_price * 0.95, 2),  # -5%
             "leverage": 5,
             "trade_id": "concurrent_pos2_wide",
         }
