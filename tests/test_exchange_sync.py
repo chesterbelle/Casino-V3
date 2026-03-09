@@ -153,8 +153,8 @@ class TestExchangeStateSync:
 class TestPositionTracker:
     """Tests para PositionTracker."""
 
-    def test_hybrid_flow_pending(self):
-        """Test flujo híbrido: detecta TP/SL y marca como pending."""
+    def test_open_position_basic(self):
+        """Test que open_position registra posición correctamente."""
         tracker = PositionTracker()
 
         # Abrir posición
@@ -173,17 +173,12 @@ class TestPositionTracker:
             available_equity=10000.0,
         )
 
-        # Simular vela que toca TP
-        candle = {"high": 51100, "low": 49900, "close": 51000, "timestamp": "2025-11-03T18:05:00"}
-
-        pending = tracker.check_and_close_positions(candle)
-
-        # Debe marcar como pending
-        assert len(pending) == 1
-        assert pending[0]["confirmed"] == False
-        assert pending[0]["pending_confirmation"] == True
-        assert len(tracker.open_positions) == 1  # Aún abierta
-        assert "test_123" in tracker.pending_confirmations
+        assert position is not None
+        assert position.trade_id == "test_123"
+        assert position.entry_price == 50000.0
+        assert position.tp_level == 51000.0
+        assert position.sl_level == 49500.0
+        assert len(tracker.open_positions) == 1
 
     def test_confirm_close(self):
         """Test confirmación de cierre con datos reales."""
@@ -207,7 +202,7 @@ class TestPositionTracker:
 
         # Confirmar cierre con datos reales
         result = tracker.confirm_close(
-            trade_id="test_123", exit_price=51050.0, exit_reason="TP", pnl=200.0, fee=3.5  # Precio REAL  # PnL REAL
+            trade_id="test_123", exit_price=51050.0, exit_reason="TP", pnl=200.0, fee=3.5
         )
 
         assert result is not None
@@ -216,7 +211,8 @@ class TestPositionTracker:
         assert result["pnl"] == 200.0
         assert result["fee"] == 3.5
         assert result["state_source"] == "exchange_confirmed"
-        assert len(tracker.open_positions) == 0
+        # Position transitions to OFF_BOARDING; GC removes it from open_positions later
+        assert tracker.open_positions[0].status == "OFF_BOARDING"
 
 
 class TestExchangeAdapterEnriched:

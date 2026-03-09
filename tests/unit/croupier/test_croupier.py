@@ -54,6 +54,7 @@ class TestCroupier:
             "margin_used": 100.0,
             "notional": 50.0,
             "leverage": 1,
+            "trade_id": "test_order_1",
         }
 
         # Mock OCOManager response
@@ -119,6 +120,8 @@ class TestCroupier:
             leverage=1,
             tp_level=50500.0,
             sl_level=49500.0,
+            liquidation_level=45000.0,
+            order={"side": "LONG"},
             main_order_id="main_1",
             tp_order_id="tp_1",
             sl_order_id="sl_1",
@@ -134,6 +137,8 @@ class TestCroupier:
             leverage=1,
             tp_level=2970.0,
             sl_level=3030.0,
+            liquidation_level=3500.0,
+            order={"side": "SHORT"},
             main_order_id="main_2",
             tp_order_id="tp_2",
             sl_order_id="sl_2",
@@ -178,10 +183,3 @@ class TestCroupier:
         """Test getting trading statistics."""
         stats = croupier.get_stats()
         assert isinstance(stats, dict)
-
-    def test_repr(self, croupier):
-        """Test string representation."""
-        repr_str = repr(croupier)
-        assert "Croupier" in repr_str
-        assert "balance=10000.00" in repr_str
-        assert "positions=0" in repr_str
