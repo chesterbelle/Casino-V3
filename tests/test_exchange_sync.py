@@ -165,8 +165,8 @@ class TestPositionTracker:
                 "side": "LONG",
                 "size": 0.01,
                 "leverage": 10,
-                "take_profit": 1.02,
-                "stop_loss": 0.99,
+                "tp_price": 51000.0,  # +2% of 50000
+                "sl_price": 49500.0,  # -1% of 50000
             },
             entry_price=50000.0,
             entry_timestamp="2025-11-03T18:00:00",
@@ -197,8 +197,8 @@ class TestPositionTracker:
                 "side": "LONG",
                 "size": 0.01,
                 "leverage": 10,
-                "take_profit": 1.02,
-                "stop_loss": 0.99,
+                "tp_price": 51000.0,  # +2% of 50000
+                "sl_price": 49500.0,  # -1% of 50000
             },
             entry_price=50000.0,
             entry_timestamp="2025-11-03T18:00:00",

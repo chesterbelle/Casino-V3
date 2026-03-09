@@ -48,12 +48,13 @@ async def main():
         print("📝 Creating order with aggressive TP/SL...")
         print("   TP: 0.2% (very close)")
         print("   SL: 0.5% (very close)")
+        entry_est = candle.close
         order = {
             "symbol": "LTC/USD:USD",
             "side": "LONG",
             "size": 0.0025,  # 0.25% of equity
-            "take_profit": 1.002,  # 0.2% profit
-            "stop_loss": 0.995,  # 0.5% loss
+            "tp_price": round(entry_est * 1.002, 2),  # 0.2% profit
+            "sl_price": round(entry_est * 0.995, 2),  # 0.5% loss
             "leverage": 10,
         }
 

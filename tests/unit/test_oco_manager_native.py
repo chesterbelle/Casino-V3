@@ -46,8 +46,8 @@ class TestOCOManagerNative(unittest.IsolatedAsyncioTestCase):
             "symbol": "BTC/USDT:USDT",
             "side": "LONG",
             "amount": 10.0,
-            "take_profit": 0.05,
-            "stop_loss": 0.02,
+            "tp_price": 105.0,  # +5% of 100.0
+            "sl_price": 98.0,  # -2% of 100.0
             "leverage": 10,
             "margin_used": 10.0,
             "notional": 100.0,

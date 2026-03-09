@@ -9,8 +9,8 @@ def test_open_position_and_basic_properties():
         "side": "LONG",
         "size": 0.1,
         "leverage": 10,
-        "take_profit": 1.02,
-        "stop_loss": 0.98,
+        "tp_price": 51000.0,  # +2% of 50000
+        "sl_price": 49000.0,  # -2% of 50000
     }
 
     pos = tracker.open_position(
@@ -32,8 +32,8 @@ def test_simulation_close_on_tp_sl():
         "side": "LONG",
         "size": 0.1,
         "leverage": 1,
-        "take_profit": 1.02,
-        "stop_loss": 0.98,
+        "tp_price": 102.0,  # +2% of 100
+        "sl_price": 98.0,  # -2% of 100
     }
     # Open position at 100
     pos = tracker.open_position(
