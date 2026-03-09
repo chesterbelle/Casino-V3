@@ -322,15 +322,20 @@ class PreflightValidator:
             if amount == 0.0:
                 amount = 0.001
 
-            # Create order with OCO
-            # CONVENCIÓN: tp_pct/sl_pct en PORCENTAJE (2.0 = 2%) - Consistente con config/sensors.py
+            # Phase 800: Create order with absolute TP/SL prices
+            # This validates the full pipeline: adaptive -> execution -> oco_manager
+            tp_distance_pct = 0.02  # 2% TP distance
+            sl_distance_pct = 0.02  # 2% SL distance
+            tp_price = round(price * (1 + tp_distance_pct), 2)
+            sl_price = round(price * (1 - sl_distance_pct), 2)
+
             order = {
                 "symbol": self.symbol,
                 "side": "LONG",
                 "size": self.size,
                 "amount": amount,  # REQUIRED by Phase 42
-                "take_profit": 2.0,  # +2% (PORCENTAJE, no decimal)
-                "stop_loss": 2.0,  # -2% (PORCENTAJE, no decimal)
+                "tp_price": tp_price,  # Absolute TP price
+                "sl_price": sl_price,  # Absolute SL price
                 "trade_id": f"preflight_{int(time.time())}",
             }
 
@@ -429,6 +434,19 @@ class PreflightValidator:
             assert tp_id in order_ids, f"TP order {tp_id} not in exchange!"
             assert sl_id in order_ids, f"SL order {sl_id} not in exchange!"
             logger.info(f"✅ TP/SL verified in exchange")
+
+            # Phase 800: Validate TP/SL prices are within expected bounds
+            fill_price = result.get("fill_price", 0)
+            if fill_price > 0:
+                tp_dist = abs(tp_price - fill_price) / fill_price
+                sl_dist = abs(sl_price - fill_price) / fill_price
+                # TP/SL should be within 0.1% - 5% of fill price
+                assert 0.001 < tp_dist < 0.05, f"TP distance {tp_dist:.4%} out of bounds!"
+                assert 0.001 < sl_dist < 0.05, f"SL distance {sl_dist:.4%} out of bounds!"
+                logger.info(
+                    f"✅ TP/SL price validation: TP={tp_price:.2f} ({tp_dist:.2%} from fill) | "
+                    f"SL={sl_price:.2f} ({sl_dist:.2%} from fill)"
+                )
 
             # Store for next tests
             self._last_result = result
@@ -623,14 +641,17 @@ class PreflightValidator:
             raw_amount = notional / price
             amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
 
-            # Create a new position with OCO
+            # Phase 800: Create SHORT position with absolute TP/SL prices
+            tp_price = round(price * (1 - 0.02), 2)  # TP 2% below (SHORT)
+            sl_price = round(price * (1 + 0.02), 2)  # SL 2% above (SHORT)
+
             order = {
                 "symbol": self.symbol,
                 "side": "SHORT",
                 "size": self.size,
                 "amount": amount,  # REQUIRED by Phase 42
-                "take_profit": 2.0,  # +2% (PORCENTAJE)
-                "stop_loss": 2.0,  # -2% (PORCENTAJE)
+                "tp_price": tp_price,  # Absolute TP price (below for SHORT)
+                "sl_price": sl_price,  # Absolute SL price (above for SHORT)
                 "trade_id": f"shutdown_test_{int(time.time())}",
             }
 
@@ -701,13 +722,13 @@ class PreflightValidator:
         logger.info("=" * 70)
 
         try:
-            # Test 1: Order without required fields
+            # Test 1: Order without required fields (Phase 800: tp_price/sl_price required)
             try:
                 await self.croupier.execute_order(
                     {
                         "symbol": self.symbol,
                         "side": "LONG",
-                        # Missing size/amount, take_profit, stop_loss
+                        # Missing amount, tp_price, sl_price
                     }
                 )
                 logger.error("❌ Should have raised ValueError")

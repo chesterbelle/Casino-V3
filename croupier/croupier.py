@@ -576,8 +576,8 @@ class Croupier(TimeIterator):
                 - side: "LONG" or "SHORT"
                 - size: Position size fraction (e.g., 0.05 = 5% of equity)
                 - amount: Order amount in contracts (optional, calculated from size if missing)
-                - take_profit: TP multiplier
-                - stop_loss: SL multiplier
+                - tp_price: Absolute TP price (e.g., 50500.0)
+                - sl_price: Absolute SL price (e.g., 49500.0)
             wait_for_fill: Wait for main order fill confirmation (default: False for speed)
 
         Returns:
