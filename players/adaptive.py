@@ -243,29 +243,6 @@ class AdaptivePlayer:
                         tp_price = poc if (current_price - poc) / current_price > 0.001 else val
                     sl_price = vah * 1.001  # Just above VAH
 
-        # Phase 800: PERCENT_PRICE guard on absolute prices
-        # Binance rejects limit orders too far from current market price (-4131).
-        # Clamp TP/SL within 2% max distance from entry.
-        MAX_DISTANCE_PCT = 0.02  # 2% max distance from entry
-        if tp_price and current_price and current_price > 0:
-            max_tp_dist = current_price * MAX_DISTANCE_PCT
-            if abs(tp_price - current_price) > max_tp_dist:
-                if event.side == "LONG":
-                    tp_price = current_price + max_tp_dist
-                else:
-                    tp_price = current_price - max_tp_dist
-                tp_sl_source = f"{tp_sl_source}+clamped"
-                logger.debug(f"⚠️ TP clamped to max {MAX_DISTANCE_PCT:.0%} distance: {tp_price:.4f}")
-
-        if sl_price and current_price and current_price > 0:
-            max_sl_dist = current_price * 0.01  # 1% max SL distance
-            if abs(sl_price - current_price) > max_sl_dist:
-                if event.side == "LONG":
-                    sl_price = current_price - max_sl_dist
-                else:
-                    sl_price = current_price + max_sl_dist
-                logger.debug(f"⚠️ SL clamped to max 1% distance: {sl_price:.4f}")
-
         # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
         if unfinished_targets and current_price and current_price > 0:
@@ -274,16 +251,60 @@ class AdaptivePlayer:
                     dist_pct = (target["price"] - current_price) / current_price
                     if dist_pct > 0.0005:  # at least 0.05% away
                         tp_price = target["price"]
-                        logger.debug(
-                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {tp_price:.4f} ({dist_pct:.3%})"
-                        )
+                        logger.debug(f"🎯 Unfinished Business TARGET: Override TP to {tp_price:.4f}")
+                        tp_sl_source = "unfinished_business"
                 elif event.side == "SHORT" and target.get("side") == "SHORT_TARGET":
                     dist_pct = (current_price - target["price"]) / current_price
                     if dist_pct > 0.0005:
                         tp_price = target["price"]
-                        logger.debug(
-                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {tp_price:.4f} ({dist_pct:.3%})"
-                        )
+                        logger.debug(f"🎯 Unfinished Business TARGET: Override TP to {tp_price:.4f}")
+                        tp_sl_source = "unfinished_business"
+
+        # Phase 800: PERCENT_PRICE guard on absolute prices
+        # Binance rejects limit orders too far from current market price (-4131).
+        # Clamp TP/SL within 2% max distance from entry, and minimum 0.1% to avoid -2021.
+        MAX_DISTANCE_PCT = 0.02  # 2% max distance from entry
+        MIN_DISTANCE_PCT = 0.001  # 0.1% min distance from entry
+
+        if tp_price and current_price and current_price > 0:
+            # 1. Check Max Distance
+            max_tp_dist = current_price * MAX_DISTANCE_PCT
+            if abs(tp_price - current_price) > max_tp_dist:
+                if event.side == "LONG":
+                    tp_price = current_price + max_tp_dist
+                else:
+                    tp_price = current_price - max_tp_dist
+                tp_sl_source = f"{tp_sl_source}+clamped_max"
+                logger.debug(f"⚠️ TP clamped to max {MAX_DISTANCE_PCT:.0%} distance: {tp_price:.4f}")
+
+            # 2. Check Min Distance (-2021 Prevention)
+            min_tp_dist = current_price * MIN_DISTANCE_PCT
+            if abs(tp_price - current_price) < min_tp_dist:
+                if event.side == "LONG":
+                    tp_price = current_price + min_tp_dist
+                else:
+                    tp_price = current_price - min_tp_dist
+                tp_sl_source = f"{tp_sl_source}+clamped_min"
+                logger.debug(f"⚠️ TP clamped to MIN {MIN_DISTANCE_PCT:.1%} distance: {tp_price:.4f}")
+
+        if sl_price and current_price and current_price > 0:
+            # 1. Check Max Distance
+            max_sl_dist = current_price * 0.01  # 1% max SL distance
+            if abs(sl_price - current_price) > max_sl_dist:
+                if event.side == "LONG":
+                    sl_price = current_price - max_sl_dist
+                else:
+                    sl_price = current_price + max_sl_dist
+                logger.debug(f"⚠️ SL clamped to max 1% distance: {sl_price:.4f}")
+
+            # 2. Check Min Distance (-2021 Prevention)
+            min_sl_dist = current_price * MIN_DISTANCE_PCT
+            if abs(sl_price - current_price) < min_sl_dist:
+                if event.side == "LONG":
+                    sl_price = current_price - min_sl_dist
+                else:
+                    sl_price = current_price + min_sl_dist
+                logger.debug(f"⚠️ SL clamped to MIN {MIN_DISTANCE_PCT:.1%} distance: {sl_price:.4f}")
 
         # Phase 650.3: Order Book Confirmation Confidence
         dom_confirmed = event.metadata.get("dom_wall_confirmed", False)

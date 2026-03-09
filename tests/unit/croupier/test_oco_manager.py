@@ -228,4 +228,3 @@ class TestOCOManager:
         # Act & Assert
         with pytest.raises(OCOAtomicityError, match="no order_id"):
             oco_manager._validate_oco_complete({"status": "filled"}, {"order_id": "456"}, {"order_id": "789"})
-

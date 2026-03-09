@@ -201,9 +201,7 @@ class TestPositionTracker:
         )
 
         # Confirmar cierre con datos reales
-        result = tracker.confirm_close(
-            trade_id="test_123", exit_price=51050.0, exit_reason="TP", pnl=200.0, fee=3.5
-        )
+        result = tracker.confirm_close(trade_id="test_123", exit_price=51050.0, exit_reason="TP", pnl=200.0, fee=3.5)
 
         assert result is not None
         assert result["confirmed"] == True
