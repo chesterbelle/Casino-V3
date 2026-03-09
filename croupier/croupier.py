@@ -56,8 +56,8 @@ class Croupier(TimeIterator):
             "symbol": "BTC/USDT:USDT",
             "side": "LONG",
             "size": 0.01,
-            "take_profit": 1.01,
-            "stop_loss": 0.99
+            "tp_price": 50500.0,
+            "sl_price": 49500.0
         })
     """
 

@@ -512,19 +512,26 @@ class ExchangeAdapter(NetworkIterator):
         self, order: Dict, entry_price: Optional[float] = None
     ) -> tuple[Optional[float], Optional[float]]:
         """
-        Calcula los precios absolutos de TP/SL a partir de porcentajes.
+        Phase 800: Returns absolute TP/SL prices.
+
+        Priority 1: Use tp_price/sl_price directly if present in order.
+        Priority 2: Legacy fallback using decimal percentages (take_profit/stop_loss).
 
         Args:
-            order: Diccionario de la orden. Debe contener:
-                   - symbol: Símbolo del par
-                   - side: 'buy' (LONG) o 'sell' (SHORT)
-                   - take_profit: Porcentaje de TP (ej: 0.01 para 1%)
-                   - stop_loss: Porcentaje de SL (ej: 0.01 para 1%)
-            entry_price: Precio de entrada (opcional). Si no se da, se busca el actual.
+            order: Order dict with tp_price/sl_price (absolute) or take_profit/stop_loss (decimal pct)
+            entry_price: Entry price (optional, fetched if not provided).
 
         Returns:
             Tuple (tp_price, sl_price)
         """
+        # Phase 800: Absolute price pass-through (primary path)
+        if "tp_price" in order and "sl_price" in order:
+            tp = order["tp_price"]
+            sl = order["sl_price"]
+            if tp and sl and tp > 0 and sl > 0:
+                return float(tp), float(sl)
+
+        # Legacy fallback: decimal percentage calculation
         if "take_profit" not in order or "stop_loss" not in order:
             return None, None
 
@@ -534,26 +541,16 @@ class ExchangeAdapter(NetworkIterator):
             else:
                 current_price = entry_price
 
-            # Asumimos que vienen como porcentajes (ej: 0.01)
             tp_pct = float(order["take_profit"])
             sl_pct = float(order["stop_loss"])
 
-            # Validación de seguridad: si parecen multiplicadores (ej: > 0.5), advertir o convertir
-            # Pero para limpiar la arquitectura, asumiremos que el caller (Gemini) ya se actualizó.
-            # Si alguien manda 1.01 pensando que es 1%, obtendrá un TP de +101% (aceptable error de usuario)
-            # Si manda 1.01 pensando que es precio, fallará la lógica de porcentaje.
-
-            safety_margin_factor = 0.0005  # 0.05% de margen extra para asegurar ejecución
-
             side = order.get("side", "").lower()
-            if side in ["buy", "long"]:  # LONG
-                # TP arriba, SL abajo
+            if side in ["buy", "long"]:
                 tp_price = current_price * (1 + tp_pct)
-                sl_price = current_price * (1 - sl_pct) * (1 - safety_margin_factor)
-            else:  # SHORT
-                # TP abajo, SL arriba
+                sl_price = current_price * (1 - sl_pct)
+            else:
                 tp_price = current_price * (1 - tp_pct)
-                sl_price = current_price * (1 + sl_pct) * (1 + safety_margin_factor)
+                sl_price = current_price * (1 + sl_pct)
 
             return tp_price, sl_price
         except Exception as e:

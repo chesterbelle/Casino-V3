@@ -239,8 +239,8 @@ class MultiSymbolValidator:
                 "size": self.size,
                 "amount": amount,
                 "qty": amount,
-                "take_profit": 0.05,  # +5%
-                "stop_loss": 0.05,  # -5%
+                "take_profit": 5.0,  # +5% (PORCENTAJE)
+                "stop_loss": 5.0,  # -5% (PORCENTAJE)
                 "trade_id": f"multi_{symbol}_{int(time.time())}",
             }
 

@@ -92,18 +92,16 @@ class OrderManager:
             logger.warning(f"🛡️ GUARD: Rejecting entry for {symbol} " f"(state={guard.state.name})")
             return
 
-        # Construct Order Payload
-        trade_id = f"V3_{int(time.time()*1000)}"
+        # Phase 800: Absolute TP/SL prices (primary path)
+        tp_price = getattr(event, "tp_price", None)
+        sl_price = getattr(event, "sl_price", None)
 
-        # Calculate multipliers from config or event
-        tp_pct = getattr(event, "tp_pct", None) or config.trading.TAKE_PROFIT
-        sl_pct = getattr(event, "sl_pct", None) or config.trading.STOP_LOSS
+        # Fallback: compute from config decimal percentages + estimated price
+        # (tp_price/sl_price will be finalized after we have current_price below)
+        bet_size = getattr(event, "bet_size", 0.01)
 
         # Get current equity from croupier
         current_equity = self.croupier.get_equity()
-
-        # Determine Bet Size
-        bet_size = getattr(event, "bet_size", 0.01)
 
         # Mode 1: Fixed Notional (Default) -> Size = Equity * Bet_Size
         # Mode 2: Fixed Risk -> Size = (Equity * Bet_Size) / SL_Distance
@@ -150,9 +148,25 @@ class OrderManager:
                 bet_size=bet_size,
                 current_equity=current_equity,
                 current_price=current_price,
-                sl_pct=sl_pct,
+                sl_pct=config.trading.DEFAULT_SL_PCT,
                 sizing_mode=sizing_mode,
             )
+
+            # Phase 800: Compute fallback TP/SL prices if strategy didn't provide them
+            if not tp_price or not sl_price:
+                tp_pct = config.trading.DEFAULT_TP_PCT
+                sl_pct = config.trading.DEFAULT_SL_PCT
+                if current_price and current_price > 0:
+                    if side == "LONG":
+                        tp_price = current_price * (1 + tp_pct)
+                        sl_price = current_price * (1 - sl_pct)
+                    else:  # SHORT
+                        tp_price = current_price * (1 - tp_pct)
+                        sl_price = current_price * (1 + sl_pct)
+                    logger.info(
+                        f"📐 Config fallback TP/SL: TP={tp_price:.4f} SL={sl_price:.4f} "
+                        f"(±{tp_pct:.3%}/{sl_pct:.3%} from {current_price:.2f})"
+                    )
         except Exception as e:
             logger.error(f"❌ Sizing calculation failed for {symbol}: {e}")
             return
@@ -193,14 +207,16 @@ class OrderManager:
             f"Price={current_price:.2f} | Amount={amount:.8f}"
         )
 
+        trade_id = f"V3_{int(time.time()*1000)}"
+
         order_payload = {
             "trade_id": trade_id,
             "symbol": symbol,
             "side": side,  # LONG/SHORT (AdaptivePlayer provides this)
             "size": bet_size,
             "amount": amount,
-            "take_profit": tp_pct,
-            "stop_loss": sl_pct,
+            "tp_price": tp_price,  # Phase 800: Absolute price
+            "sl_price": sl_price,  # Phase 800: Absolute price
             "timestamp": str(event.timestamp),
             "t0_signal_ts": getattr(event, "t0_timestamp", None),  # Phase 85: Signal Latency
             "t1_decision_ts": getattr(event, "t1_decision_ts", None),  # Phase 10: Decision Latency

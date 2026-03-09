@@ -499,7 +499,7 @@ async def main():
             total_balance=initial_balance,
             bet_size=args.bet_size,
             sizing_mode=getattr(trading_config, "POSITION_SIZING_MODE", "FIXED_NOTIONAL"),
-            stop_loss=getattr(trading_config, "STOP_LOSS", 0.01),
+            stop_loss=getattr(trading_config, "DEFAULT_SL_PCT", 0.002),
             retry_config=startup_retry,
             context="flytest",
         )

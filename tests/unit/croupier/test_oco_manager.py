@@ -50,8 +50,8 @@ class TestOCOManager:
             "side": "LONG",
             "size": 0.01,
             "amount": 0.001,
-            "take_profit": 1.01,
-            "stop_loss": 0.99,
+            "tp_price": 50500.0,
+            "sl_price": 49500.0,
         }
 
         mock_executor.execute_market_order.return_value = {
@@ -90,8 +90,8 @@ class TestOCOManager:
             "side": "LONG",
             "size": 0.01,
             "amount": 0.001,
-            "take_profit": 1.01,
-            "stop_loss": 0.99,
+            "tp_price": 50500.0,
+            "sl_price": 49500.0,
         }
 
         mock_executor.execute_market_order.return_value = {
@@ -112,35 +112,35 @@ class TestOCOManager:
 
     @pytest.mark.asyncio
     async def test_calculate_tp_sl_prices_long(self, oco_manager):
-        """Test TP/SL calculation for LONG positions."""
-        # Arrange
+        """Test TP/SL calculation for LONG positions (legacy decimal path)."""
+        # Arrange: 0.01 = 1% (decimal)
         entry_price = 50000.0
         side = "LONG"
-        tp_multiplier = 1.01
-        sl_multiplier = 0.99
+        tp_pct = 0.01  # 1%
+        sl_pct = 0.01  # 1%
 
         # Act
-        tp_price, sl_price = oco_manager._calculate_tp_sl_prices(entry_price, side, tp_multiplier, sl_multiplier)
+        tp_price, sl_price = oco_manager._calculate_tp_sl_prices(entry_price, side, tp_pct, sl_pct, "BTC/USDT")
 
         # Assert
-        assert tp_price == 50500.0  # 50000 * 1.01
-        assert sl_price == 49500.0  # 50000 * 0.99
+        assert tp_price == 50500.0  # 50000 * (1 + 0.01)
+        assert sl_price == 49500.0  # 50000 * (1 - 0.01)
 
     @pytest.mark.asyncio
     async def test_calculate_tp_sl_prices_short(self, oco_manager):
-        """Test TP/SL calculation for SHORT positions."""
-        # Arrange
+        """Test TP/SL calculation for SHORT positions (legacy decimal path)."""
+        # Arrange: 0.01 = 1% (decimal)
         entry_price = 50000.0
         side = "SHORT"
-        tp_multiplier = 1.01
-        sl_multiplier = 0.99
+        tp_pct = 0.01  # 1%
+        sl_pct = 0.01  # 1%
 
         # Act
-        tp_price, sl_price = oco_manager._calculate_tp_sl_prices(entry_price, side, tp_multiplier, sl_multiplier)
+        tp_price, sl_price = oco_manager._calculate_tp_sl_prices(entry_price, side, tp_pct, sl_pct, "BTC/USDT")
 
         # Assert
-        assert tp_price == 49500.0  # TP is lower for shorts
-        assert sl_price == 50500.0  # SL is higher for shorts
+        assert tp_price == 49500.0  # 50000 * (1 - 0.01)
+        assert sl_price == 50500.0  # 50000 * (1 + 0.01)
 
     @pytest.mark.asyncio
     async def test_wait_for_fill_timeout(self, oco_manager, mock_adapter):

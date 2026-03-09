@@ -14,10 +14,15 @@ Parámetros financieros y de gestión de riesgo.
 # En live trading, se sincroniza automáticamente con el balance real del exchange.
 STARTING_BALANCE = 10_000.0
 
-# Multiplicadores de salida estática (respaldo si el sensor no provee metadata).
-# En Footprint Scalping (Fase 400), los objetivos son micro-pulsos.
-TAKE_PROFIT = 0.003  # Target de salida estático (0.3%)
-STOP_LOSS = 0.002  # Límite de pérdida máximo (0.2%) (Relaxed for Testnet stability)
+# TP/SL fallback percentages (DECIMAL: 0.003 = 0.3%).
+# Used ONLY when sensors don't provide structural price levels.
+# These are converted to absolute prices in execution.py.
+DEFAULT_TP_PCT = 0.003  # 0.3% from entry
+DEFAULT_SL_PCT = 0.002  # 0.2% from entry
+
+# Backward-compatible aliases (used by position_tracker, multi_asset_manager, etc.)
+TAKE_PROFIT = DEFAULT_TP_PCT
+STOP_LOSS = DEFAULT_SL_PCT
 
 # Límite de tiempo máximo para mantener una posición abierta.
 # En Scalping, si el impulso no se materializa de inmediato, salimos.

@@ -215,8 +215,8 @@ class HFTLatencyBenchmark:
                     "side": "LONG",
                     "size": self.size,
                     "amount": amount,
-                    "take_profit": 0.03,
-                    "stop_loss": 0.03,
+                    "take_profit": 3.0,  # +3% (PORCENTAJE)
+                    "stop_loss": 3.0,  # -3% (PORCENTAJE)
                     "trade_id": f"bench_{symbol}_{iteration}_{int(time.time())}",
                     "estimated_price": current_price,  # Phase 240: pass cached price
                     "t0_signal_ts": time.time(),  # Phase 8: Signal Generation Timestamp
@@ -307,8 +307,8 @@ class HFTLatencyBenchmark:
                     "side": "SHORT",
                     "size": self.size,
                     "amount": amount,
-                    "take_profit": 0.03,
-                    "stop_loss": 0.03,
+                    "take_profit": 3.0,  # +3% (PORCENTAJE)
+                    "stop_loss": 3.0,  # -3% (PORCENTAJE)
                     "trade_id": f"parallel_{symbol}_{iteration}_{int(time.time())}",
                     "estimated_price": current_price,
                 }
@@ -412,8 +412,8 @@ class HFTLatencyBenchmark:
                 "side": "LONG",
                 "size": self.size,
                 "amount": amount,
-                "take_profit": 0.03,
-                "stop_loss": 0.03,
+                "take_profit": 3.0,  # +3% (PORCENTAJE)
+                "stop_loss": 3.0,  # -3% (PORCENTAJE)
                 "trade_id": f"cache_{symbol}_{int(time.time())}",
                 "estimated_price": current_price,  # This should prevent REST
             }

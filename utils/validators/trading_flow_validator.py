@@ -323,13 +323,14 @@ class PreflightValidator:
                 amount = 0.001
 
             # Create order with OCO
+            # CONVENCIÓN: tp_pct/sl_pct en PORCENTAJE (2.0 = 2%) - Consistente con config/sensors.py
             order = {
                 "symbol": self.symbol,
                 "side": "LONG",
                 "size": self.size,
                 "amount": amount,  # REQUIRED by Phase 42
-                "take_profit": 0.02,  # +2%
-                "stop_loss": 0.02,  # -2%
+                "take_profit": 2.0,  # +2% (PORCENTAJE, no decimal)
+                "stop_loss": 2.0,  # -2% (PORCENTAJE, no decimal)
                 "trade_id": f"preflight_{int(time.time())}",
             }
 
@@ -628,8 +629,8 @@ class PreflightValidator:
                 "side": "SHORT",
                 "size": self.size,
                 "amount": amount,  # REQUIRED by Phase 42
-                "take_profit": 0.02,
-                "stop_loss": 0.02,
+                "take_profit": 2.0,  # +2% (PORCENTAJE)
+                "stop_loss": 2.0,  # -2% (PORCENTAJE)
                 "trade_id": f"shutdown_test_{int(time.time())}",
             }
 

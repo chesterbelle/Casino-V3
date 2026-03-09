@@ -53,8 +53,8 @@ class OCOManager:
             "symbol": "BTC/USDT:USDT",
             "side": "LONG",
             "size": 0.01,
-            "take_profit": 1.01,
-            "stop_loss": 0.99
+            "tp_price": 50500.0,   # Absolute TP price
+            "sl_price": 49500.0,   # Absolute SL price
         })
     """
 
@@ -113,8 +113,8 @@ class OCOManager:
                 - symbol: Trading symbol
                 - side: "LONG" or "SHORT"
                 - size: Position size (fraction of equity)
-                - take_profit: TP multiplier (e.g., 1.01 = +1%)
-                - stop_loss: SL multiplier (e.g., 0.99 = -1%)
+                - tp_price: Absolute TP price (e.g., 50500.0)
+                - sl_price: Absolute SL price (e.g., 49500.0)
             wait_for_fill: Whether to wait for main order fill
             fill_timeout: Timeout for fill confirmation (seconds)
 
@@ -143,12 +143,12 @@ class OCOManager:
 
         self.logger.info(
             f"🛡️ Creating OCO bracket for {symbol} {side} | "
-            f"TP: {order.get('take_profit', 0):.4f} | SL: {order.get('stop_loss', 0):.4f}"
+            f"TP: {order.get('tp_price', 0):.4f} | SL: {order.get('sl_price', 0):.4f}"
         )
 
-        # Validate TP/SL presence
-        if "take_profit" not in order or "stop_loss" not in order:
-            raise ValueError("Order must contain 'take_profit' and 'stop_loss'")
+        # Validate TP/SL presence (Phase 800: absolute prices)
+        if "tp_price" not in order or "sl_price" not in order:
+            raise ValueError("Order must contain 'tp_price' and 'sl_price' (absolute prices)")
         main_order = None
         tp_order = None
         sl_order = None
@@ -197,9 +197,9 @@ class OCOManager:
 
             if est_price > 0:
                 watchdog.heartbeat(operation_id, f"Got price {est_price}")
-                tp_est, sl_est = self._calculate_tp_sl_prices(
-                    est_price, side, order["take_profit"], order["stop_loss"], symbol
-                )
+                # Phase 800: Use absolute prices directly, just apply tick-size precision
+                tp_est = float(self.adapter.price_to_precision(symbol, order["tp_price"]))
+                sl_est = float(self.adapter.price_to_precision(symbol, order["sl_price"]))
                 if tp_est <= 0 or sl_est <= 0:
                     raise OCOAtomicityError(
                         f"Pre-validation failed: TP/SL would round to 0.0 (Price: {est_price}, tick_size check needed)"
@@ -298,10 +298,9 @@ class OCOManager:
             # Logic now handled by register_inflight_position above.
             # We just need to update the object with the ACTUAL fill price.
 
-            # Re-calculate TP/SL based on ACTUAL fill price
-            tp_price, sl_price = self._calculate_tp_sl_prices(
-                fill_price, side, order["take_profit"], order["stop_loss"], symbol
-            )
+            # Phase 800: Use absolute TP/SL prices directly, apply tick-size precision
+            tp_price = float(self.adapter.price_to_precision(symbol, order["tp_price"]))
+            sl_price = float(self.adapter.price_to_precision(symbol, order["sl_price"]))
 
             # The position object was returned by register_inflight_position
             # and is already in self.tracker.open_positions.
@@ -526,10 +525,9 @@ class OCOManager:
         side = order["side"]
         amount = order["amount"]
 
-        # 1. Calculate TP/SL Prices based on ESTIMATE (Speed > Precision)
-        tp_price, sl_price = self._calculate_tp_sl_prices(
-            est_price, side, order["take_profit"], order["stop_loss"], symbol
-        )
+        # 1. Phase 800: Use absolute TP/SL prices directly, apply tick-size precision
+        tp_price = float(self.adapter.price_to_precision(symbol, order["tp_price"]))
+        sl_price = float(self.adapter.price_to_precision(symbol, order["sl_price"]))
 
         # 2. Generate Client IDs
         tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
@@ -927,16 +925,26 @@ class OCOManager:
         Returns:
             (tp_price, sl_price) tuple with proper tick size precision
         """
-        # Convert percentage to decimal (0.2% -> 0.002)
-        tp_decimal = tp_pct / 100.0
-        sl_decimal = sl_pct / 100.0
+        # DEBUG: Log inputs to trace calculation
+        self.logger.info(
+            f"🔍 TP/SL CALC INPUTS: entry={entry_price:.6f} | side={side} | "
+            f"tp_pct={tp_pct} | sl_pct={sl_pct} | symbol={symbol}"
+        )
+        self.logger.info(f"🔍 TP/SL SIDE CHECK: side='{side}' | is_LONG={side == 'LONG'} | is_SHORT={side == 'SHORT'}")
+
+        # Phase 800: _calculate_tp_sl_prices is now a LEGACY UTILITY
+        # Used only by Smart Healing when no absolute prices are stored.
+        # Expects tp_pct/sl_pct as DECIMAL (0.003 = 0.3%).
+        # The /100 from commit 05448fc has been reverted.
 
         if side == "LONG":
-            tp_price = entry_price * (1 + tp_decimal)
-            sl_price = entry_price * (1 - sl_decimal)
+            tp_price = entry_price * (1 + tp_pct)
+            sl_price = entry_price * (1 - sl_pct)
         else:  # SHORT
-            tp_price = entry_price * (1 - tp_decimal)
-            sl_price = entry_price * (1 + sl_decimal)
+            tp_price = entry_price * (1 - tp_pct)
+            sl_price = entry_price * (1 + sl_pct)
+
+        self.logger.info(f"🔍 TP/SL RAW PRICES: tp_price={tp_price:.6f} | sl_price={sl_price:.6f}")
 
         # Apply exchange precision (tick size) to avoid "Price not increased by tick size" error
         tp_price = float(self.adapter.price_to_precision(symbol, tp_price))
@@ -1143,6 +1151,37 @@ class OCOManager:
         sl_side = "sell" if side == "LONG" else "buy"
 
         self.logger.info(f"📉 Creating SL order @ stop {sl_price}")
+
+        # =========================================================
+        # SL PRICE VALIDATION (Prevent -2021 "Order would immediately trigger")
+        # For LONG: SL must be BELOW current price
+        # For SHORT: SL must be ABOVE current price
+        # =========================================================
+        try:
+            current_price = await self.adapter.get_current_price(symbol)
+            tick_size = 0.0001  # Default fallback
+            connector = getattr(self.adapter, "connector", None) or getattr(self.adapter, "_connector", None)
+            if connector and hasattr(connector, "get_tick_size"):
+                tick_size = connector.get_tick_size(symbol) or tick_size
+
+            if side == "LONG" and sl_price >= current_price:
+                # SL is above or at current price for LONG - would trigger immediately
+                # Adjust SL to be safely below current price (minimum 1 tick gap)
+                sl_price = current_price - (tick_size * 2)
+                self.logger.warning(
+                    f"⚠️ SL price adjusted: {sl_price + tick_size * 2:.6f} -> {sl_price:.6f} "
+                    f"(was >= current {current_price:.6f}, would trigger -2021)"
+                )
+            elif side == "SHORT" and sl_price <= current_price:
+                # SL is below or at current price for SHORT - would trigger immediately
+                # Adjust SL to be safely above current price (minimum 1 tick gap)
+                sl_price = current_price + (tick_size * 2)
+                self.logger.warning(
+                    f"⚠️ SL price adjusted: {sl_price - tick_size * 2:.6f} -> {sl_price:.6f} "
+                    f"(was <= current {current_price:.6f}, would trigger -2021)"
+                )
+        except Exception as price_err:
+            self.logger.warning(f"⚠️ Could not validate SL price: {price_err}. Proceeding with original SL.")
 
         # =========================================================
         # NOTIONAL PRE-CHECK
@@ -1453,19 +1492,28 @@ class OCOManager:
             self.logger.warning(f"🚑 Cannot heal {trade_id}: Missing order params or entry price.")
             return False
 
-        original_tp_pct = position.order.get("take_profit")
-        original_sl_pct = position.order.get("stop_loss")
-        amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
+        # Phase 800: Prefer absolute prices if stored in position.order
+        stored_tp_price = position.order.get("tp_price")
+        stored_sl_price = position.order.get("sl_price")
 
-        if not original_tp_pct or not original_sl_pct:
-            self.logger.warning(f"🚑 Cannot heal {trade_id}: Missing TP/SL intent in position.order.")
-            return False
+        if stored_tp_price and stored_sl_price:
+            # Use absolute prices directly (just apply tick-size precision)
+            tp_price = float(self.adapter.price_to_precision(symbol, stored_tp_price))
+            sl_price = float(self.adapter.price_to_precision(symbol, stored_sl_price))
+        else:
+            # Legacy fallback: use decimal percentage from config
+            import config.trading
 
-        # Phase 60: RE-CALCULATE ACTUAL PRICES from multipliers
-        # Previously, these multipliers were erroneously used as absolute prices.
-        tp_price, sl_price = self._calculate_tp_sl_prices(
-            position.entry_price, position.side, original_tp_pct, original_sl_pct, symbol
-        )
+            original_tp_pct = position.order.get("take_profit", config.trading.DEFAULT_TP_PCT)
+            original_sl_pct = position.order.get("stop_loss", config.trading.DEFAULT_SL_PCT)
+            if not original_tp_pct or not original_sl_pct:
+                self.logger.warning(f"🚑 Cannot heal {trade_id}: Missing TP/SL intent in position.order.")
+                return False
+
+            # Phase 60: Calculate prices from decimal percentages
+            tp_price, sl_price = self._calculate_tp_sl_prices(
+                position.entry_price, position.side, original_tp_pct, original_sl_pct, symbol
+            )
 
         # 2. Lock Position
         old_status = position.status

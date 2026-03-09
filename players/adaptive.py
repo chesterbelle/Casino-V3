@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class DecisionEvent(Event):
-    """Decision event with bet sizing."""
+    """Decision event with bet sizing and absolute TP/SL prices."""
 
     def __init__(
         self,
@@ -27,6 +27,8 @@ class DecisionEvent(Event):
         bet_size: float,
         tp_pct: float = None,
         sl_pct: float = None,
+        tp_price: float = None,
+        sl_price: float = None,
         selected_sensor: str = None,
         t0_timestamp: float = None,
         t1_decision_ts: float = None,
@@ -41,6 +43,8 @@ class DecisionEvent(Event):
         self.bet_size = bet_size
         self.tp_pct = tp_pct
         self.sl_pct = sl_pct
+        self.tp_price = tp_price  # Absolute TP price (primary)
+        self.sl_price = sl_price  # Absolute SL price (primary)
         self.selected_sensor = selected_sensor
         # Compatibility fields for logging/Paroli
         self.paroli_step = 0
@@ -112,7 +116,7 @@ class AdaptivePlayer:
         """
         Phase 700: Calculate TP/SL based on structural levels.
 
-        Returns (tp_pct, sl_pct) or (None, None) if levels invalid.
+        Returns (tp_price, sl_price) as absolute prices, or (None, None) if levels invalid.
         """
         poc = htf_levels.get("poc")
         vah = htf_levels.get("vah")
@@ -127,11 +131,9 @@ class AdaptivePlayer:
         if setup_type == "reversion":
             # Reversion: target POC from VAH/VAL
             if side == "LONG" and entry_price <= val * 1.001:
-                # Entering near VAL, target POC
                 tp_price = poc
                 sl_price = val * 0.998  # Just below VAL
             elif side == "SHORT" and entry_price >= vah * 0.999:
-                # Entering near VAH, target POC
                 tp_price = poc
                 sl_price = vah * 1.002  # Just above VAH
 
@@ -154,9 +156,7 @@ class AdaptivePlayer:
                 sl_price = poc * 1.001
 
         if tp_price and sl_price:
-            tp_pct = abs((tp_price - entry_price) / entry_price) * 100
-            sl_pct = abs((sl_price - entry_price) / entry_price) * 100
-            return tp_pct, sl_pct
+            return tp_price, sl_price
 
         return None, None
 
@@ -200,12 +200,12 @@ class AdaptivePlayer:
             bet_size = self.fixed_pct
             sizing_method = "Fixed"
 
-        # Extract TP/SL from metadata if available (Dynamic Exits Phase 600)
-        tp_pct = event.metadata.get("tp_pct")
-        sl_pct = event.metadata.get("sl_pct")
+        # Phase 800: Unified TP/SL pipeline — absolute prices are primary
+        tp_price = None
+        sl_price = None
 
         setup_type = event.metadata.get("setup_type", "unknown")
-        tp_sl_source = "sensor_config"
+        tp_sl_source = "config_fallback"
 
         # Phase 700: Structural TP/SL from HTF levels (Trader Dale Ready)
         htf_levels = self._get_best_htf_levels(event.metadata or {})
@@ -214,113 +214,75 @@ class AdaptivePlayer:
         if htf_levels and current_price and current_price > 0:
             struct_tp, struct_sl = self._calculate_structural_tp_sl(event.side, current_price, htf_levels, setup_type)
             if struct_tp is not None and struct_sl is not None:
-                tp_pct = struct_tp
-                sl_pct = struct_sl
+                tp_price = struct_tp
+                sl_price = struct_sl
                 tp_sl_source = f"structural_{htf_levels['source_tf']}"
                 logger.debug(
                     f"🎯 Structural TP/SL from {htf_levels['source_tf']}: "
-                    f"TP={tp_pct:.3f}% SL={sl_pct:.3f}% | "
+                    f"TP={tp_price:.4f} SL={sl_price:.4f} | "
                     f"POC={htf_levels['poc']:.4f} VAH={htf_levels['vah']:.4f} VAL={htf_levels['val']:.4f}"
                 )
 
-        # Phase 600: James Dalton Contextual Exits (fallback if no HTF levels)
-        if "poc" in event.metadata and "vah" in event.metadata and "val" in event.metadata:
-            # We have Market Profile data
+        # Phase 600: James Dalton Contextual Exits (fallback if no structural levels already set)
+        if tp_price is None and "poc" in event.metadata and "vah" in event.metadata and "val" in event.metadata:
             poc = event.metadata["poc"]
             vah = event.metadata["vah"]
             val = event.metadata["val"]
-            current_price = event.metadata.get("price")  # We need price. If missing, we skip dynamic calc
-
-            # Rough estimation if current_price not explicitly in metadata: use the signal price or assume tight spread
-            # Best practice is for sensor to pass current price. Let's assume we have it or we can't calculate a relative %
-            if not current_price and "price" in event.metadata:
-                current_price = event.metadata["price"]
+            if not current_price:
+                current_price = event.metadata.get("price")
 
             if current_price and current_price > 0:
                 tp_sl_source = "dalton_context"
                 if event.side == "LONG":
-                    # If entering a LONG near or below VAL, target the POC or VAH
                     if current_price <= poc:
-                        # Target POC if below POC, VAH if near POC
-                        target_price = poc if (poc - current_price) / current_price > 0.001 else vah
-                        tp_pct = ((target_price - current_price) / current_price) * 100
-
-                    # Stop loss tightly below VAL if entering near VAL
-                    sl_target = val * 0.999  # Just below VAL
-                    calc_sl = ((current_price - sl_target) / current_price) * 100
-                    if calc_sl > 0:
-                        sl_pct = calc_sl
+                        tp_price = poc if (poc - current_price) / current_price > 0.001 else vah
+                    sl_price = val * 0.999  # Just below VAL
 
                 elif event.side == "SHORT":
-                    # If entering a SHORT near or above VAH, target POC or VAL
                     if current_price >= poc:
-                        target_price = poc if (current_price - poc) / current_price > 0.001 else val
-                        tp_pct = ((current_price - target_price) / current_price) * 100
+                        tp_price = poc if (current_price - poc) / current_price > 0.001 else val
+                    sl_price = vah * 1.001  # Just above VAH
 
-                    # Stop loss tightly above VAH
-                    sl_target = vah * 1.001
-                    calc_sl = ((sl_target - current_price) / current_price) * 100
-                    if calc_sl > 0:
-                        sl_pct = calc_sl
+        # Phase 800: PERCENT_PRICE guard on absolute prices
+        # Binance rejects limit orders too far from current market price (-4131).
+        # Clamp TP/SL within 2% max distance from entry.
+        MAX_DISTANCE_PCT = 0.02  # 2% max distance from entry
+        if tp_price and current_price and current_price > 0:
+            max_tp_dist = current_price * MAX_DISTANCE_PCT
+            if abs(tp_price - current_price) > max_tp_dist:
+                if event.side == "LONG":
+                    tp_price = current_price + max_tp_dist
+                else:
+                    tp_price = current_price - max_tp_dist
+                tp_sl_source = f"{tp_sl_source}+clamped"
+                logger.debug(f"⚠️ TP clamped to max {MAX_DISTANCE_PCT:.0%} distance: {tp_price:.4f}")
 
-                # Ensure minimum logical TP/SLs for HFT
-                if tp_pct is not None:
-                    tp_pct = max(0.1, min(tp_pct, 2.0))
-                if sl_pct is not None:
-                    sl_pct = max(0.25, min(sl_pct, 2.0))
+        if sl_price and current_price and current_price > 0:
+            max_sl_dist = current_price * 0.01  # 1% max SL distance
+            if abs(sl_price - current_price) > max_sl_dist:
+                if event.side == "LONG":
+                    sl_price = current_price - max_sl_dist
+                else:
+                    sl_price = current_price + max_sl_dist
+                logger.debug(f"⚠️ SL clamped to max 1% distance: {sl_price:.4f}")
 
-        # Phase 3: Setup-type specific TP/SL shaping
-        # Keep conservative defaults; only clamp/shape if we have values.
-        if setup_type == "reversion":
-            # Reversion scalps: tighter TP/SL to reduce time-in-trade and avoid trend steamroll.
-            if tp_pct is not None:
-                tp_pct = max(0.10, min(tp_pct, 0.60))
-            if sl_pct is not None:
-                sl_pct = max(0.15, min(sl_pct, 0.45))
-            tp_sl_source = f"{tp_sl_source}+reversion_clamp"
-        elif setup_type == "continuation":
-            # Continuation: allow a bit more room on TP, keep SL tight-ish.
-            if tp_pct is not None:
-                tp_pct = max(0.15, min(tp_pct, 0.90))
-            if sl_pct is not None:
-                sl_pct = max(0.15, min(sl_pct, 0.55))
-            tp_sl_source = f"{tp_sl_source}+continuation_clamp"
-        elif setup_type == "initial":
-            # Initial breakout (FootprintStackedImbalance new stack): wider SL for entry volatility.
-            # Breakouts can have false starts; give more room while keeping TP reasonable.
-            if tp_pct is not None:
-                tp_pct = max(0.20, min(tp_pct, 0.80))
-            if sl_pct is not None:
-                sl_pct = max(0.20, min(sl_pct, 0.50))
-            tp_sl_source = f"{tp_sl_source}+initial_clamp"
-
-        # Phase 700.1: Absolute max clamp to prevent PERCENT_PRICE filter errors (-4131)
-        # Binance rejects limit orders too far from current market price.
-        # Keep TP/SL within reasonable bounds to avoid error storms.
-        MAX_TP_PCT = 2.0  # Max 2% TP (conservative for PERCENT_PRICE)
-        MAX_SL_PCT = 1.0  # Max 1% SL (conservative for PERCENT_PRICE)
-        if tp_pct is not None:
-            tp_pct = min(tp_pct, MAX_TP_PCT)
-        if sl_pct is not None:
-            sl_pct = min(sl_pct, MAX_SL_PCT)
-
-        # Phase 650.2: Unfinished Business Exact Targeting
+        # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
         if unfinished_targets and current_price and current_price > 0:
             for target in unfinished_targets:
                 if event.side == "LONG" and target.get("side") == "LONG_TARGET":
-                    calc_tp = ((target["price"] - current_price) / current_price) * 100
-                    if calc_tp > 0.05:  # ensure it's at least a few ticks away
-                        tp_pct = calc_tp
+                    dist_pct = (target["price"] - current_price) / current_price
+                    if dist_pct > 0.0005:  # at least 0.05% away
+                        tp_price = target["price"]
                         logger.debug(
-                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {target['price']} ({tp_pct:.2f}%)"
+                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {tp_price:.4f} ({dist_pct:.3%})"
                         )
                 elif event.side == "SHORT" and target.get("side") == "SHORT_TARGET":
-                    calc_tp = ((current_price - target["price"]) / current_price) * 100
-                    if calc_tp > 0.05:
-                        tp_pct = calc_tp
+                    dist_pct = (current_price - target["price"]) / current_price
+                    if dist_pct > 0.0005:
+                        tp_price = target["price"]
                         logger.debug(
-                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {target['price']} ({tp_pct:.2f}%)"
+                            f"🎯 [Phase 650] Overriding TP to Unfinished Business at {tp_price:.4f} ({dist_pct:.3%})"
                         )
 
         # Phase 650.3: Order Book Confirmation Confidence
@@ -335,10 +297,23 @@ class AdaptivePlayer:
             # Highly asymmetric absorption -> slightly increase bet size confidence
             bet_size = min(bet_size * 1.5, self.kelly_max if self.use_kelly else self.fixed_pct * 2.0)
 
-        logger.info(
-            f"🎯 Decision: {event.side} | {sizing_method} Bet: {bet_size:.2%} of {equity:.2f} | "
-            f"Sensor: {event.selected_sensor} | Setup: {setup_type} | TP: {tp_pct}% SL: {sl_pct}% "
-            f"(TP/SL: {tp_sl_source}, Intensity: {intensity})"
+        # Calculate percentage for logging (human-readable)
+        tp_pct_log = abs((tp_price - current_price) / current_price) * 100 if tp_price and current_price else 0
+        sl_pct_log = abs((sl_price - current_price) / current_price) * 100 if sl_price and current_price else 0
+
+        (
+            logger.info(
+                f"🎯 Decision: {event.side} | {sizing_method} Bet: {bet_size:.2%} of {equity:.2f} | "
+                f"Sensor: {event.selected_sensor} | Setup: {setup_type} | "
+                f"TP: {tp_price:.4f} ({tp_pct_log:.2f}%) SL: {sl_price:.4f} ({sl_pct_log:.2f}%) "
+                f"(Source: {tp_sl_source}, Intensity: {intensity})"
+            )
+            if tp_price and sl_price
+            else logger.info(
+                f"🎯 Decision: {event.side} | {sizing_method} Bet: {bet_size:.2%} of {equity:.2f} | "
+                f"Sensor: {event.selected_sensor} | Setup: {setup_type} | "
+                f"TP/SL: config fallback (Source: {tp_sl_source}, Intensity: {intensity})"
+            )
         )
 
         # Emit Decision with unique ID for tracking
@@ -347,8 +322,8 @@ class AdaptivePlayer:
             symbol=event.symbol,
             side=event.side,
             bet_size=bet_size,
-            tp_pct=tp_pct,
-            sl_pct=sl_pct,
+            tp_price=tp_price,
+            sl_price=sl_price,
             selected_sensor=event.selected_sensor,
             t0_timestamp=getattr(event, "t0_timestamp", None),
             t1_decision_ts=getattr(event, "t1_decision_ts", None),

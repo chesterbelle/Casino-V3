@@ -66,8 +66,8 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                     "side": random.choice(["LONG", "SHORT"]),
                     "size": self.size,
                     "amount": amount,
-                    "take_profit": 0.05,
-                    "stop_loss": 0.05,
+                    "take_profit": 5.0,  # +5% (PORCENTAJE)
+                    "stop_loss": 5.0,  # -5% (PORCENTAJE)
                     "trade_id": trade_id,
                 }
 

@@ -924,45 +924,28 @@ class PositionTracker:
 
             margin_used = notional / leverage if leverage > 0 else notional
 
-            # Calcular niveles de TP/SL
-            tp_raw = order.get("take_profit", config.trading.TAKE_PROFIT)
-            sl_raw = order.get("stop_loss", config.trading.STOP_LOSS)
+            # Phase 800: Use absolute TP/SL prices directly if available
+            tp_price_abs = order.get("tp_price")
+            sl_price_abs = order.get("sl_price")
 
-            # Normalizar a multiplicadores si vienen como porcentajes (ej: 0.01 -> 1.01)
-            # Asumimos que si el valor es < 0.5, es un porcentaje
-            if tp_raw < 0.5:
-                tp_mult_long = 1.0 + tp_raw
-                tp_mult_short = 1.0 - tp_raw
+            if tp_price_abs and sl_price_abs and tp_price_abs > 0 and sl_price_abs > 0:
+                # Absolute prices provided by strategy — use directly
+                tp_level = tp_price_abs
+                sl_level = sl_price_abs
             else:
-                tp_mult_long = tp_raw
-                tp_mult_short = tp_raw
-
-            if sl_raw < 0.5:
-                sl_mult_long = 1.0 - sl_raw
-                sl_mult_short = 1.0 + sl_raw
-            else:
-                sl_mult_long = sl_raw
-                sl_mult_short = sl_raw
+                # Legacy fallback: decimal percentage from config
+                tp_pct = order.get("take_profit", config.trading.DEFAULT_TP_PCT)
+                sl_pct = order.get("stop_loss", config.trading.DEFAULT_SL_PCT)
+                if side == "LONG":
+                    tp_level = entry_price * (1 + tp_pct)
+                    sl_level = entry_price * (1 - sl_pct)
+                else:
+                    tp_level = entry_price * (1 - tp_pct)
+                    sl_level = entry_price * (1 + sl_pct)
 
             if side == "LONG":
-                tp_level = entry_price * tp_mult_long
-                sl_level = entry_price * sl_mult_long
                 liquidation_level = entry_price * (1.0 - (1.0 / leverage) + 0.005)
             elif side == "SHORT":
-                # Para SHORT, el TP debe ser menor al entry (ej: 0.99)
-                # Si recibimos 1.01 (formato LONG), lo invertimos: 2.0 - 1.01 = 0.99
-                if tp_mult_short > 1.0:
-                    tp_level = entry_price * (2.0 - tp_mult_short)
-                else:
-                    tp_level = entry_price * tp_mult_short
-
-                # Para SL, debe ser mayor al entry (ej: 1.01)
-                # Si recibimos 0.99 (formato LONG), lo invertimos: 2.0 - 0.99 = 1.01
-                if sl_mult_short < 1.0:
-                    sl_level = entry_price * (2.0 - sl_mult_short)
-                else:
-                    sl_level = entry_price * sl_mult_short
-
                 liquidation_level = entry_price * (1.0 + (1.0 / leverage) - 0.005)
             else:
                 return None
