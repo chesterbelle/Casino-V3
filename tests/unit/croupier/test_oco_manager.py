@@ -50,6 +50,8 @@ class TestOCOManager:
         adapter.get_cached_price = Mock(return_value=50000.0)
         # amount_to_precision is sync
         adapter.amount_to_precision = Mock(side_effect=lambda s, a: str(a))
+        # get_min_notional is sync, located on connector
+        adapter.connector.get_min_notional = Mock(return_value=5.0)
         return adapter
 
     @pytest.fixture
@@ -71,7 +73,7 @@ class TestOCOManager:
             "trade_id": "test_bracket_1",
         }
 
-        # Mock adapter methods needed by Phase 800 side-check
+        # Mock adapter methods needed by Phase 800 side-check and slippage clamp
         mock_adapter.get_current_price = AsyncMock(return_value=50000.0)
         mock_adapter.fetch_order = AsyncMock(return_value={"status": "closed", "average": 50000.0})
 
@@ -125,8 +127,8 @@ class TestOCOManager:
             "average": 50000.0,
             "amount": 0.001,
         }
-        # TP order fails
-        mock_executor.execute_limit_order.side_effect = Exception("TP order failed")
+        # TP order fails (Phase 43: TP uses execute_stop_order now)
+        mock_executor.execute_stop_order.side_effect = Exception("TP order failed")
 
         # Act & Assert
         with pytest.raises(OCOAtomicityError, match="Failed to create OCO bracket"):
@@ -184,7 +186,7 @@ class TestOCOManager:
         """Test successful fill confirmation."""
         # Arrange
         order_id = "test_123"
-        mock_adapter.connector.fetch_order.return_value = {
+        mock_adapter.fetch_order.return_value = {
             "status": "closed",
             "average": 50000.0,
         }
@@ -193,7 +195,7 @@ class TestOCOManager:
         fill_price = await oco_manager._wait_for_fill(order_id, symbol="BTC/USDT:USDT", timeout=1.0)
 
         # Assert
-        assert fill_price == 50000.0
+        assert fill_price["average"] == 50000.0
 
     def test_validate_oco_complete_success(self, oco_manager):
         """Test validation passes for complete OCO."""

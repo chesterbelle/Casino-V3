@@ -357,6 +357,58 @@ class OCOManager:
                 # Phase 52/82: Pre-register bracket IDs to prevent "WS Event UNMATCHED" race
                 self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
 
+                # =====================================================================
+                # THE EXECUTION-TIME DANGER CLAMP (Phase 800 Slippage Protection)
+                # =====================================================================
+                # Binance enforces a hard minimum distance between the current price and TP/SL
+                # (usually 0.1%). If Micro-Slippage pushes our fill_price too close to the
+                # Strategy's mathematically perfect target, we will get rejected (-2021).
+                # We MUST shift the Target out by the minimum distance to save the trade.
+                MIN_DISTANCE_PCT = 0.0010  # 0.1% hard limit for Binance Futures
+                min_distance_abs = fill_price * MIN_DISTANCE_PCT
+
+                tp_distance = abs(tp_price - fill_price)
+                sl_distance = abs(sl_price - fill_price)
+
+                # Check TP
+                if tp_distance < min_distance_abs:
+                    old_tp = tp_price
+                    if side == "LONG":
+                        tp_price = fill_price + min_distance_abs
+                    else:
+                        tp_price = fill_price - min_distance_abs
+                    # Re-apply tick precision
+                    tp_price = float(self.adapter.price_to_precision(symbol, tp_price))
+                    self.logger.warning(
+                        f"🛡️ EXECUTION CLAMP: TP adjusted {old_tp:.6f} -> {tp_price:.6f} "
+                        f"(Too close to fill {fill_price}, absorbed Micro-Slippage)"
+                    )
+                    position.tp_level = tp_price  # Sync back to tracker
+
+                # Check SL
+                if sl_distance < min_distance_abs:
+                    old_sl = sl_price
+                    if side == "LONG":
+                        sl_price = fill_price - min_distance_abs
+                    else:
+                        sl_price = fill_price + min_distance_abs
+                    # Re-apply tick precision
+                    sl_price = float(self.adapter.price_to_precision(symbol, sl_price))
+                    self.logger.warning(
+                        f"🛡️ EXECUTION CLAMP: SL adjusted {old_sl:.6f} -> {sl_price:.6f} "
+                        f"(Too close to fill {fill_price}, absorbed Micro-Slippage)"
+                    )
+                    position.sl_level = sl_price  # Sync back to tracker
+
+                # Ensure no inversion occurred due to math
+                if side == "LONG" and (tp_price <= fill_price or sl_price >= fill_price):
+                    raise OCOAtomicityError(f"FATAL MATH INVERSION: LONG TP={tp_price} SL={sl_price} Fill={fill_price}")
+                if side == "SHORT" and (tp_price >= fill_price or sl_price <= fill_price):
+                    raise OCOAtomicityError(
+                        f"FATAL MATH INVERSION: SHORT TP={tp_price} SL={sl_price} Fill={fill_price}"
+                    )
+                # =====================================================================
+
                 # Phase 240: HFT Parallel Bracket Creation
                 # TP and SL are independent — fire both simultaneously (~150-300ms savings)
                 tp_order, sl_order = await asyncio.gather(
