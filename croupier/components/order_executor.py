@@ -190,17 +190,32 @@ class OrderExecutor:
         )
 
         self.logger.debug(f"[TRACE] OrderExecutor: Starting execution with 5s timeout for {symbol}...")
-        result = await asyncio.wait_for(
-            self.error_handler.execute_with_breaker(
-                f"exchange_orders_{symbol}",
-                self.adapter.execute_order,
-                order,
-                retry_config=retry_cfg,
-                timeout=timeout,
-            ),
-            timeout=5.0,  # Phase 56: Strict Execution Timeout
-        )
-        self.logger.debug(f"[TRACE] OrderExecutor: Execution SUCCESS for {symbol}.")
+
+        try:
+            result = await asyncio.wait_for(
+                self.error_handler.execute_with_breaker(
+                    f"exchange_orders_{symbol}",
+                    self.adapter.execute_order,
+                    order,
+                    retry_config=retry_cfg,
+                    timeout=timeout,
+                ),
+                timeout=5.0,  # Phase 56: Strict Execution Timeout
+            )
+            self.logger.debug(f"[TRACE] OrderExecutor: Execution SUCCESS for {symbol}.")
+        except Exception as e:
+            err_str = str(e).lower()
+            if "-4116" in err_str or "clientorderid is duplicated" in err_str:
+                cid = order.get("params", {}).get("clientOrderId") or order.get("clientOrderId")
+                self.logger.warning(f"⚠️ Order actually succeeded previously (Duplicate UUID). Recovering {cid}...")
+                try:
+                    result = await self.adapter.fetch_order(cid, symbol)
+                    self.logger.info(f"✅ Successfully recovered duplicated order {cid}")
+                except Exception as fetch_err:
+                    self.logger.error(f"❌ Failed to recover duplicated order {cid}: {fetch_err}")
+                    raise e
+            else:
+                raise e
 
         # LOCAL TRACKING: Register in OrderTracker if available
         if self.order_tracker:
@@ -328,6 +343,20 @@ class OrderExecutor:
             self._log_execution(result, "Limit")
             return result
         except Exception as e:
+            err_str = str(e).lower()
+            if "-4116" in err_str or "clientorderid is duplicated" in err_str:
+                cid = order.get("params", {}).get("clientOrderId") or order.get("clientOrderId")
+                self.logger.warning(
+                    f"⚠️ Limit order actually succeeded previously (Duplicate UUID). Recovering {cid}..."
+                )
+                try:
+                    recovered = await self.adapter.fetch_order(cid, symbol)
+                    self.logger.info(f"✅ Successfully recovered duplicated limit order {cid}")
+                    if self.order_tracker:
+                        self.order_tracker.track_local_order(recovered)
+                    return recovered
+                except Exception:
+                    pass
             self.logger.error(f"❌ Limit order failed: {e}")
             raise
 
@@ -381,12 +410,26 @@ class OrderExecutor:
             f"[OCO] 📤 Executing Stop Order: {side} {amount} {symbol} @ stop {stop_price} | ID: {order.get('clientOrderId')}"
         )
 
-        result = await asyncio.wait_for(
-            self.error_handler.execute_with_breaker(
-                f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
-            ),
-            timeout=5.0,  # Phase 56: Strict Execution Timeout
-        )
+        try:
+            result = await asyncio.wait_for(
+                self.error_handler.execute_with_breaker(
+                    f"exchange_orders_{symbol}", self.adapter.execute_order, order, retry_config=retry_cfg
+                ),
+                timeout=5.0,  # Phase 56: Strict Execution Timeout
+            )
+        except Exception as e:
+            err_str = str(e).lower()
+            if "-4116" in err_str or "clientorderid is duplicated" in err_str:
+                cid = order.get("params", {}).get("clientOrderId") or order.get("clientOrderId")
+                self.logger.warning(f"⚠️ Stop order actually succeeded previously (Duplicate UUID). Recovering {cid}...")
+                try:
+                    result = await self.adapter.fetch_order(cid, symbol)
+                    self.logger.info(f"✅ Successfully recovered duplicated stop order {cid}")
+                except Exception as fetch_err:
+                    self.logger.error(f"❌ Failed to recover duplicated stop order {cid}: {fetch_err}")
+                    raise e
+            else:
+                raise e
 
         # LOCAL TRACKING: Register in OrderTracker if available
         if self.order_tracker:

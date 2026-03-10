@@ -173,6 +173,7 @@ class ErrorClassifier:
         (r"-2021", ErrorCategory.INVALID_ORDER),  # Order would immediately trigger
         (r"-4131", ErrorCategory.INVALID_ORDER),  # Percent price is out of range
         (r"-1111", ErrorCategory.INVALID_ORDER),  # Precision is over max limit
+        (r"-4116", ErrorCategory.INVALID_ORDER),  # ClientOrderId is duplicated
         (r"-1116", ErrorCategory.INVALID_ORDER),  # Invalid orderType
         (r"-1117", ErrorCategory.INVALID_ORDER),  # Invalid side
         (r"-2011", ErrorCategory.ORDER_NOT_FOUND),  # Binance: Unknown order sent (cancel failed)

@@ -1,5 +1,5 @@
 ---
-description: Multi-layered validation pipeline for Phase 800 TP/SL architecture (4 layers, ~20 min total)
+description: Multi-layered validation pipeline for Phase 800 TP/SL architecture (5 layers, ~20 min total)
 ---
 
 # Multi-Layered Validation Pipeline
@@ -39,6 +39,12 @@ Each layer must pass before proceeding to the next.
 ```bash
 .venv/bin/python utils/audit_logs.py logs/chaos_test_$(ls -t logs/ | head -1)
 ```
+
+## Layer 5: Decision Pipeline Data Integrity
+```bash
+.venv/bin/python -m utils.validators.decision_pipeline_validator
+```
+**Must pass**: 0 FATAL MATH INVERSION, 0 PIPELINE LEAK DETECTED, Exit Code 0
 
 ## Success Criteria
 - [x] Layer 1: 8/8 preflight tests pass

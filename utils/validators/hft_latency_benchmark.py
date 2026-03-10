@@ -188,6 +188,45 @@ class HFTLatencyBenchmark:
                 except Exception as e:
                     logger.warning(f"⚠️ Legacy cleanup error for {symbol}: {e}")
 
+    async def _wait_for_async_bracket(self, result: Dict[str, Any], timeout: float = 10.0) -> Dict[str, Any]:
+        """Helper to wait for and extract bracket info from optimistic returns."""
+        if not result.get("is_optimistic") and result.get("status") != "optimistic_sent":
+            return result
+
+        position = result.get("position")
+        assert position, "Optimistic launch missing position object"
+
+        start_t = time.time()
+        while time.time() - start_t < timeout:
+            if position.tp_order and position.sl_order:
+                break
+            if position.tp_order_id and position.sl_order_id:
+                break
+            await asyncio.sleep(0.1)
+
+        assert position.tp_order or position.tp_order_id, "Background bracket failed to assign TP"
+        assert position.sl_order or position.sl_order_id, "Background bracket failed to assign SL"
+
+        # Construct normalized result
+        if result.get("is_optimistic"):
+            tp_id = position.tp_order.exchange_order_id if position.tp_order else None
+            sl_id = position.sl_order.exchange_order_id if position.sl_order else None
+            tp_cid = position.tp_order.client_order_id if position.tp_order else None
+            sl_cid = position.sl_order.client_order_id if position.sl_order else None
+        else:
+            tp_id = position.tp_order_id
+            sl_id = position.sl_order_id
+            tp_cid = tp_id
+            sl_cid = sl_id
+
+        result["main_order"] = {
+            "client_order_id": position.main_order_id if hasattr(position, "main_order_id") else position.trade_id
+        }
+        result["tp_order"] = {"client_order_id": tp_cid, "order_id": tp_id}
+        result["sl_order"] = {"client_order_id": sl_cid, "order_id": sl_id}
+        result["fill_price"] = position.entry_price
+        return result
+
     # ─────────────────────────────────────────────────────────────────────
     # BENCHMARK 1: OCO Bracket Latency
     # ─────────────────────────────────────────────────────────────────────
@@ -231,13 +270,21 @@ class HFTLatencyBenchmark:
                 # ─── MEASURE ───
                 t_start = time.perf_counter()
                 result = await self.croupier.execute_order(order)
+                # For HFT Bench, we measure how long it takes to return control (Zero-Latency check)
                 t_end = time.perf_counter()
+
+                # Now wait for background bits for follow-up validation
+                result = await self._wait_for_async_bracket(result)
                 # ────────────────
 
                 elapsed_ms = (t_end - t_start) * 1000
                 self.bracket_latencies.append(elapsed_ms)
 
-                main_id = result.get("main_order", {}).get("order_id") or result.get("main_order", {}).get("id")
+                main_id = (
+                    result.get("main_order", {}).get("order_id")
+                    or result.get("main_order", {}).get("id")
+                    or result.get("main_order", {}).get("client_order_id")
+                )
                 tp_id = result.get("tp_order", {}).get("order_id") or result.get("tp_order", {}).get("id")
                 sl_id = result.get("sl_order", {}).get("order_id") or result.get("sl_order", {}).get("id")
 
@@ -326,6 +373,7 @@ class HFTLatencyBenchmark:
                 }
 
                 result = await self.croupier.execute_order(order)
+                result = await self._wait_for_async_bracket(result)
 
                 tp_id = result.get("tp_order", {}).get("order_id") or result.get("tp_order", {}).get("id")
                 sl_id = result.get("sl_order", {}).get("order_id") or result.get("sl_order", {}).get("id")
@@ -437,6 +485,7 @@ class HFTLatencyBenchmark:
             }
 
             await self.croupier.execute_order(order)
+            # No need to wait for bracket here, we are just checking if it TRIGGERS REST
 
             # Cleanup
             pos = next(

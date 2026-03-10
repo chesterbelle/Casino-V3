@@ -171,6 +171,27 @@ class OrderManager:
             logger.error(f"❌ Sizing calculation failed for {symbol}: {e}")
             return
 
+        # Phase 800: Pre-Flight Slippage Math Check
+        # Reject the decision BEFORE executing if the live current_price has already
+        # slipped past the structural TP/SL (causing Math Inversion).
+        if tp_price and sl_price and current_price and current_price > 0:
+            is_inverted = False
+            if side == "LONG":
+                if tp_price <= current_price or sl_price >= current_price:
+                    is_inverted = True
+            elif side == "SHORT":
+                if tp_price >= current_price or sl_price <= current_price:
+                    is_inverted = True
+
+            if is_inverted:
+                logger.warning(
+                    f"🚫 PRE-FLIGHT REJECT (Slippage/Math Inversion) | {symbol} {side} @ {current_price:.4f} | "
+                    f"Signal TP: {tp_price:.4f} | Signal SL: {sl_price:.4f}. "
+                    f"Market has moved past our targets since signal generation. "
+                    f"Discarding trade to save capital."
+                )
+                return
+
         # Phase 249: Min Notional Solvency Gate
         try:
             min_notional = self.croupier.exchange_adapter.get_min_notional(symbol)

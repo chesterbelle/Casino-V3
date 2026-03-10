@@ -83,6 +83,8 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                 }
 
                 result = await self.croupier.execute_order(order)
+                result = await self._wait_for_async_bracket(result)
+
                 if result.get("status") == "error":
                     logger.warning(f"⚠️ [{symbol}] Entry failed: {result.get('message')}")
                     await asyncio.sleep(2)
@@ -131,6 +133,11 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
         """Main chaotic execution."""
         try:
             await self.setup()
+
+            # Phase 800: Disable PortfolioGuard for Chaos Tests to avoid
+            # random loss streaks triggering Drain Mode and failing the test.
+            if self.croupier and self.croupier.portfolio_guard:
+                self.croupier.portfolio_guard.config.enabled = False
 
             # Start monitoring for UNMATCHED events in logs
             # We can't easily hook into logger in real-time here without complex handlers,

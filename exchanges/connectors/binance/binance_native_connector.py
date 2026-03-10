@@ -441,14 +441,16 @@ class BinanceNativeConnector(BaseConnector):
                     raise e
 
                 # Await result (RPC style) or timeout
-                return await asyncio.wait_for(future, timeout=timeout or 5.0)
+                return await asyncio.wait_for(future, timeout=timeout or 0.5)
 
             except (asyncio.TimeoutError, multiprocessing.queues.Full, BrokenPipeError, ConnectionResetError) as e:
                 # If timeout or channel error, fallback to local execution
                 if isinstance(e, asyncio.TimeoutError):
                     # Remove future
                     self._exec_futures.pop(request_id, None)
-                    self.logger.error(f"❌ Airlock Request {request_id} Timed Out. Retrying locally...")
+                    self.logger.warning(
+                        f"⏩ Airlock Request {request_id} Timed Out (0.5s). Retrying locally for Zero-Latency."
+                    )
                 else:
                     self.logger.warning(f"⚠️ Airlock Channel Error ({type(e).__name__}). Fallback to local execution.")
 

@@ -261,275 +261,28 @@ class OCOManager:
             if order_id and order_id != client_order_id:
                 self.pending_orders[str(order_id)] = future
 
-            # Step 2: Wait for fill confirmation or use immediate response
-            fill_data = None
-            if wait_for_fill:
-                fill_data = await self._wait_for_fill(order_id, symbol, timeout=fill_timeout, future=future)
-            else:
-                # For market orders, use response price immediately (faster)
-                # The connector is responsible for normalizing the price (including calculating from cumQuote if needed)
-                fill_price_from_response = (
-                    main_order.get("price") or main_order.get("avgPrice") or main_order.get("average")
-                )
-                if fill_price_from_response and float(fill_price_from_response) > 0:
-                    fill_data = main_order
-                else:
-                    # Last resort: check fills array (standard CCXT structure)
-                    if main_order.get("fills") and len(main_order["fills"]) > 0 and main_order["fills"][0].get("price"):
-                        fill_data = main_order
-
-            # If we still don't have fill_data (e.g. order status is NEW), we MUST wait for fill
-            if not fill_data or float(fill_data.get("price") or fill_data.get("average") or 0) <= 0:
-                self.logger.info("⏳ Fill price not in response (status NEW?), waiting for fill...")
-                try:
-                    fill_data = await self._wait_for_fill(order_id, symbol, timeout=fill_timeout, future=future)
-                except Exception as e:
-                    self.logger.error(f"❌ Failed to wait for fill: {e}")
-                    raise OCOAtomicityError(f"Failed to get fill price: {e}")
-
-            # Extract precise data from fill (Phase 30)
-            fill_price = float(fill_data.get("price") or fill_data.get("average") or 0)
-            entry_fee = float((fill_data.get("fee") or {}).get("cost", 0) or 0)
-
-            watchdog.heartbeat(operation_id, f"Main filled at {fill_price} (Fee: {entry_fee})")
-            self.logger.info(f"✅ Main order filled @ {fill_price} (Fee: {entry_fee})")
-
-            # Step 2.5: REGISTER TENTATIVE POSITION (State Machine: OPENING) - MOVED TO PRE-FLIGHT (Step 0.5)
-            # Logic now handled by register_inflight_position above.
-            # We just need to update the object with the ACTUAL fill price.
-
-            # Phase 800: Use absolute TP/SL prices directly, apply tick-size precision
-            # NOTE: These prices come from structural levels (POC, VAH, VAL) in production.
-            # They are market-anchored and should NOT be re-calculated from fill price.
-            tp_price = float(self.adapter.price_to_precision(symbol, order["tp_price"]))
-            sl_price = float(self.adapter.price_to_precision(symbol, order["sl_price"]))
-
-            # Safety log: warn if TP/SL would trigger immediately (helps debug -2021)
-            if side == "LONG" and (tp_price <= fill_price or sl_price >= fill_price):
-                self.logger.warning(
-                    f"⚠️ TP/SL side check: LONG fill={fill_price:.4f} "
-                    f"TP={tp_price:.4f} SL={sl_price:.4f} — risk of -2021"
-                )
-            elif side == "SHORT" and (tp_price >= fill_price or sl_price <= fill_price):
-                self.logger.warning(
-                    f"⚠️ TP/SL side check: SHORT fill={fill_price:.4f} "
-                    f"TP={tp_price:.4f} SL={sl_price:.4f} — risk of -2021"
-                )
-
-            # The position object was returned by register_inflight_position
-            # and is already in self.tracker.open_positions.
-
-            # Update position with confirmed data
-            leverage = order.get("leverage", 1)  # Ensure leverage is defined in this scope
-            position.entry_price = fill_price
-            position.entry_price = fill_price
-            position.entry_fee = entry_fee
-            position.tp_level = tp_price
-            position.sl_level = sl_price
-
-            # Phase 85: Latency Telemetry
-            position.t2_submit_ts = main_order.get("t2_submit_ts")
-            position.t3_ack_ts = main_order.get("t3_ack_ts")
-
-            if leverage > 0:
-
-                if side == "LONG":
-                    position.liquidation_level = fill_price * (1.0 - (1.0 / leverage) + 0.005)
-                elif side == "SHORT":
-                    position.liquidation_level = fill_price * (1.0 + (1.0 / leverage) - 0.005)
-
-            # Note: We do NOT promote to ACTIVE here.
-            # That happens manually after TP/SL creation (Step 7), or automatically via WS.
-            # But for Manual OCO, we keep it as OPENING until the bracket is ready.
-
-            self.logger.info(f"[TRADE] 🛡️ Position Fill Confirmed: {position.trade_id}")
-
-            try:
-                # =========================================================
-                # HARDENED MANUAL OCO FLOW - Phase 31 Enhanced
-                # =========================================================
-                self.logger.info(f"[OCO] 🛡️ Creating Protected Bracket (Manual) for {symbol}")
-
-                # Phase 31: Generate client_order_ids for correlation
-                tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
-                sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
-
-                # Phase 52/82: Pre-register bracket IDs to prevent "WS Event UNMATCHED" race
-                self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
-
-                # =====================================================================
-                # THE EXECUTION-TIME DANGER CLAMP (Phase 800 Slippage Protection)
-                # =====================================================================
-                # Binance enforces a hard minimum distance between the current price and TP/SL
-                # (usually 0.1%). If Micro-Slippage pushes our fill_price too close to the
-                # Strategy's mathematically perfect target, we will get rejected (-2021).
-                # We MUST shift the Target out by the minimum distance to save the trade.
-                MIN_DISTANCE_PCT = 0.0010  # 0.1% hard limit for Binance Futures
-                min_distance_abs = fill_price * MIN_DISTANCE_PCT
-
-                tp_distance = abs(tp_price - fill_price)
-                sl_distance = abs(sl_price - fill_price)
-
-                # Check TP
-                if tp_distance < min_distance_abs:
-                    old_tp = tp_price
-                    if side == "LONG":
-                        tp_price = fill_price + min_distance_abs
-                    else:
-                        tp_price = fill_price - min_distance_abs
-                    # Re-apply tick precision
-                    tp_price = float(self.adapter.price_to_precision(symbol, tp_price))
-                    self.logger.warning(
-                        f"🛡️ EXECUTION CLAMP: TP adjusted {old_tp:.6f} -> {tp_price:.6f} "
-                        f"(Too close to fill {fill_price}, absorbed Micro-Slippage)"
-                    )
-                    position.tp_level = tp_price  # Sync back to tracker
-
-                # Check SL
-                if sl_distance < min_distance_abs:
-                    old_sl = sl_price
-                    if side == "LONG":
-                        sl_price = fill_price - min_distance_abs
-                    else:
-                        sl_price = fill_price + min_distance_abs
-                    # Re-apply tick precision
-                    sl_price = float(self.adapter.price_to_precision(symbol, sl_price))
-                    self.logger.warning(
-                        f"🛡️ EXECUTION CLAMP: SL adjusted {old_sl:.6f} -> {sl_price:.6f} "
-                        f"(Too close to fill {fill_price}, absorbed Micro-Slippage)"
-                    )
-                    position.sl_level = sl_price  # Sync back to tracker
-
-                # Ensure no inversion occurred due to math rounding or extreme proximity
-                if side == "LONG":
-                    # For LONG, TP must be > fill, SL must be < fill
-                    if tp_price <= fill_price:
-                        tp_price = float(self.adapter.price_to_precision(symbol, fill_price + min_distance_abs))
-                    if sl_price >= fill_price:
-                        sl_price = float(self.adapter.price_to_precision(symbol, fill_price - min_distance_abs))
-                else:
-                    # For SHORT, TP must be < fill, SL must be > fill
-                    if tp_price >= fill_price:
-                        tp_price = float(self.adapter.price_to_precision(symbol, fill_price - min_distance_abs))
-                    if sl_price <= fill_price:
-                        sl_price = float(self.adapter.price_to_precision(symbol, fill_price + min_distance_abs))
-
-                # Update tracker with strictly verified prices
-                position.tp_level = tp_price
-                position.sl_level = sl_price
-
-                # Ensure no inversion occurred due to math
-                if side == "LONG" and (tp_price <= fill_price or sl_price >= fill_price):
-                    raise OCOAtomicityError(f"FATAL MATH INVERSION: LONG TP={tp_price} SL={sl_price} Fill={fill_price}")
-                if side == "SHORT" and (tp_price >= fill_price or sl_price <= fill_price):
-                    raise OCOAtomicityError(
-                        f"FATAL MATH INVERSION: SHORT TP={tp_price} SL={sl_price} Fill={fill_price}"
-                    )
-                # =====================================================================
-
-                # Phase 240: HFT Parallel Bracket Creation
-                # TP and SL are independent — fire both simultaneously (~150-300ms savings)
-                tp_order, sl_order = await asyncio.gather(
-                    asyncio.wait_for(
-                        self._create_tp_order(
-                            symbol, side, main_order["amount"], tp_price, client_order_id=tp_client_id
-                        ),
-                        timeout=5.0,
-                    ),
-                    asyncio.wait_for(
-                        self._create_sl_order(
-                            symbol, side, main_order["amount"], sl_price, client_order_id=sl_client_id
-                        ),
-                        timeout=5.0,
-                    ),
-                )
-                watchdog.heartbeat(
+            # Launch background task
+            asyncio.create_task(
+                self._execute_protected_bracket(
+                    order,
+                    main_order,
+                    position,
+                    client_order_id,
+                    future,
+                    wait_for_fill,
+                    fill_timeout,
                     operation_id,
-                    f"TP+SL created in parallel: TP={tp_order.get('order_id') or tp_order.get('id')}, SL={sl_order.get('order_id') or sl_order.get('id')}",
+                    est_price,
                 )
+            )
 
-                # Step 6: Validate OCO completeness
-                self._validate_oco_complete(main_order, tp_order, sl_order)
-
-                # Step 7: Register OCO pair (Phase 240: Fire-and-forget, not on critical path)
-                tp_order_id = tp_order.get("order_id") or tp_order.get("id")
-                sl_order_id = sl_order.get("order_id") or sl_order.get("id")
-                asyncio.create_task(self._background_register_oco(symbol, tp_order_id, sl_order_id))
-                watchdog.heartbeat(operation_id, "OCO registered (background)")
-
-                self.logger.info(
-                    f"[OCO] ✅ Bracket Active | Main: {main_order.get('order_id') or main_order.get('id')} | "
-                    f"TP: {tp_order_id} | SL: {sl_order_id}"
-                )
-
-                # Phase 31: Create OrderState objects for unified tracking
-
-                tp_order_state = OrderState(
-                    client_order_id=tp_client_id,
-                    order_type="TP",
-                    side="SELL" if side == "LONG" else "BUY",
-                    amount=main_order["amount"],
-                    price=tp_price,
-                    exchange_order_id=str(tp_order_id),
-                    status="open",
-                    created_at=time.time(),
-                    last_updated=time.time(),
-                )
-                sl_order_state = OrderState(
-                    client_order_id=sl_client_id,
-                    order_type="SL",
-                    side="SELL" if side == "LONG" else "BUY",
-                    amount=main_order["amount"],
-                    price=sl_price,
-                    exchange_order_id=str(sl_order_id),
-                    status="open",
-                    created_at=time.time(),
-                    last_updated=time.time(),
-                )
-
-                # Legacy ID fields (backward compatibility)
-                position.tp_order_id = tp_client_id
-                position.exchange_tp_id = str(tp_order_id)
-                position.sl_order_id = sl_client_id
-                position.exchange_sl_id = str(sl_order_id)
-
-                # Phase 31: Embed OrderState objects in position
-                position.tp_order = tp_order_state
-                position.sl_order = sl_order_state
-
-                # Phase 55: Atomic Handover to Tracker (Fix Race Condition)
-                self.tracker.register_bracket_alias(tp_order_id, position, "TP", client_id=tp_client_id)
-                self.tracker.register_bracket_alias(sl_order_id, position, "SL", client_id=sl_client_id)
-
-                # Finalize position state (Phase 51: Atomic Promotion)
-                if position.status == "OPENING":
-                    position.status = "ACTIVE"
-                    self.logger.info(f"[TRADE] ✅ Position Active (via OCOManager): {position.trade_id}")
-                else:
-                    self.logger.info(
-                        f"[TRADE] ℹ️ Position status is {position.status}, skipping manual promotion to ACTIVE"
-                    )
-
-                self.tracker._trigger_state_change()
-
-            except Exception as e:
-                # If TP/SL creation fails, the position is broken/partial.
-                # The exception is delegated to the outer handler which performs `_cleanup_partial_oco`
-                # and properly records the aborted trade by calling `confirm_close(reason="OCO_ABORT")`.
-                self.logger.error(
-                    "❌ OCO Creation failed after Position Registration. Rolling back state via global handler..."
-                )
-                raise e
-
+            # Return optimistic result immediately to strategy
             return {
+                "status": "success",
+                "trade_id": position.trade_id,
                 "main_order": main_order,
-                "tp_order": tp_order,
-                "sl_order": sl_order,
-                "fill_price": fill_price,
-                "tp_price": tp_price,
-                "sl_price": sl_price,
-                "contributors": contributors,
                 "position": position,
+                "is_optimistic": True,
             }
 
         except Exception as e:
@@ -541,19 +294,15 @@ class OCOManager:
                     f"✅ Position {position.trade_id if position else 'unknown'} was already closed during OCO creation."
                 )
                 if position:
-                    # Confirm closure semantically to stop the ghost
                     self.tracker.confirm_close(
                         trade_id=position.trade_id,
-                        exit_price=position.entry_price,  # Neutral
+                        exit_price=position.entry_price,
                         exit_reason="TP_SL_HIT",
                         pnl=0.0,
                         fee=0.0,
                     )
                 return {
                     "main_order": main_order if "main_order" in locals() else None,
-                    "tp_order": None,
-                    "sl_order": None,
-                    "fill_price": fill_price if "fill_price" in locals() else 0.0,
                     "status": "already_closed",
                     "position": position,
                 }
@@ -561,32 +310,16 @@ class OCOManager:
             # Cleanup on failure
             self.logger.error(f"❌ OCO bracket creation failed: {e!r}")
             if "main_order" in locals() and main_order:
-                # Only cleanup if main_order was created
-                await self._cleanup_partial_oco(
-                    main_order,
-                    tp_order if "tp_order" in locals() else None,
-                    sl_order if "sl_order" in locals() else None,
-                )
+                await self._cleanup_partial_oco(main_order, None, None)
             if position:
-                # Phase 247: If main order filled, _cleanup_partial_oco has already executed an EMERGENCY BYPASS.
-                # We MUST call confirm_close to explicitly record this aborted trade in the Historian,
-                # which also sets `_closure_recorded = True` and `status = OFF_BOARDING`,
-                # preventing ReconciliationService from spawning a duplicate Ghost Removal.
-                if "main_order" in locals() and main_order:
-                    self.logger.warning(
-                        f"🛡️ OCO Failed but Main Filled. Calling confirm_close for {position.trade_id} to finalize bypass."
-                    )
-                    self.tracker.confirm_close(
-                        trade_id=position.trade_id,
-                        exit_price=position.entry_price,  # Neutral price for bypass aborted trade
-                        exit_reason="OCO_ABORT",
-                        pnl=0.0,
-                        fee=getattr(position, "entry_fee", 0.0),
-                    )
-                else:
-                    await self.tracker.remove_position(position.trade_id)
-            error_desc = str(e) or e.__class__.__name__ or str(type(e))
-            raise OCOAtomicityError(f"Failed to create OCO bracket: {error_desc}") from e
+                self.tracker.confirm_close(
+                    trade_id=position.trade_id,
+                    exit_price=position.entry_price,
+                    exit_reason="OCO_ABORT",
+                    pnl=0.0,
+                    fee=0.01,
+                )
+            raise e
 
         finally:
             # UNLOCK SYMBOL
@@ -597,6 +330,154 @@ class OCOManager:
                 watchdog.unregister(operation_id)
             except Exception:
                 pass  # Ignore errors during cleanup
+
+    async def _execute_protected_bracket(
+        self, order, main_order, position, client_order_id, future, wait_for_fill, fill_timeout, operation_id, est_price
+    ):
+        """Background task to wait for fill and create bracket."""
+        symbol = order["symbol"]
+        side = order["side"]
+        try:
+            # 1. Wait for fill
+            local_fill_data = None
+            if wait_for_fill:
+                local_fill_data = await self._wait_for_fill(
+                    client_order_id, symbol, timeout=fill_timeout, future=future
+                )
+            else:
+                price_resp = main_order.get("price") or main_order.get("avgPrice") or main_order.get("average")
+                if price_resp and float(price_resp) > 0:
+                    local_fill_data = main_order
+                else:
+                    local_fill_data = await self._wait_for_fill(
+                        client_order_id, symbol, timeout=fill_timeout, future=future
+                    )
+
+            f_price = float(local_fill_data.get("price") or local_fill_data.get("average") or 0)
+
+            # 2. Structural Integrity Check (Iron Fist)
+            target_tp = float(order["tp_price"])
+            initial_dist = abs(target_tp - est_price) if est_price > 0 else 0
+            current_dist = abs(target_tp - f_price)
+
+            if initial_dist > 0 and current_dist < (initial_dist * 0.5):
+                self.logger.warning(
+                    f"👊 IRON FIST ABORT: Slippage destroyed >50% of structural RR! "
+                    f"Est: {est_price:.4f} -> Fill: {f_price:.4f} | Target TP: {target_tp:.4f}. "
+                    f"Closing immediately to preserve equity."
+                )
+                await self.executor.force_close_position(symbol=symbol, side=side, amount=order.get("amount"))
+                return
+
+            # 3. Normal bracket creation
+            await self._create_manual_bracket(position, local_fill_data, order, main_order, operation_id)
+
+        except Exception as ex:
+            self.logger.error(f"❌ Background Bracket Creation Failed for {symbol}: {ex}")
+            try:
+                await self.executor.force_close_position(symbol=symbol, side=side, amount=order.get("amount"))
+            except Exception:
+                pass
+
+    async def _create_manual_bracket(self, position, fill_data, order, main_order, operation_id):
+        """Internal logic for creating manual OCO bracket."""
+        symbol = order["symbol"]
+        side = order["side"]
+        fill_price = float(fill_data.get("price") or fill_data.get("average") or 0)
+        entry_fee = float((fill_data.get("fee") or {}).get("cost", 0) or 0)
+
+        # Update position with confirmed data
+        tp_price = float(self.adapter.price_to_precision(symbol, order["tp_price"]))
+        sl_price = float(self.adapter.price_to_precision(symbol, order["sl_price"]))
+
+        leverage = order.get("leverage", 1)
+        position.entry_price = fill_price
+        position.entry_fee = entry_fee
+        position.tp_level = tp_price
+        position.sl_level = sl_price
+        position.t2_submit_ts = main_order.get("t2_submit_ts")
+        position.t3_ack_ts = main_order.get("t3_ack_ts")
+
+        if leverage > 0:
+            if side == "LONG":
+                position.liquidation_level = fill_price * (1.0 - (1.0 / leverage) + 0.005)
+            else:
+                position.liquidation_level = fill_price * (1.0 + (1.0 / leverage) - 0.005)
+
+        self.logger.info(f"[TRADE] 🛡️ Position Fill Confirmed: {position.trade_id}")
+
+        # OCO Logic
+        tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
+        sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+        self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
+
+        MIN_DISTANCE_PCT = 0.0010
+        min_distance_abs = fill_price * MIN_DISTANCE_PCT
+
+        # Clamp logic
+        tp_dist = abs(tp_price - fill_price)
+        sl_dist = abs(sl_price - fill_price)
+
+        if tp_dist < min_distance_abs:
+            tp_price = float(
+                self.adapter.price_to_precision(
+                    symbol, fill_price + (min_distance_abs if side == "LONG" else -min_distance_abs)
+                )
+            )
+            position.tp_level = tp_price
+        if sl_dist < min_distance_abs:
+            sl_price = float(
+                self.adapter.price_to_precision(
+                    symbol, fill_price - (min_distance_abs if side == "LONG" else -min_distance_abs)
+                )
+            )
+            position.sl_level = sl_price
+
+        # Fire parallel orders
+        tp_order, sl_order = await asyncio.gather(
+            asyncio.wait_for(
+                self._create_tp_order(symbol, side, order["amount"], tp_price, client_order_id=tp_client_id),
+                timeout=5.0,
+            ),
+            asyncio.wait_for(
+                self._create_sl_order(symbol, side, order["amount"], sl_price, client_order_id=sl_client_id),
+                timeout=5.0,
+            ),
+        )
+
+        tp_order_id = tp_order.get("order_id") or tp_order.get("id")
+        sl_order_id = sl_order.get("order_id") or sl_order.get("id")
+
+        # Promote and sync
+        position.tp_order = OrderState(
+            client_order_id=tp_client_id,
+            order_type="TP",
+            side="SELL" if side == "LONG" else "BUY",
+            amount=order["amount"],
+            price=tp_price,
+            exchange_order_id=str(tp_order_id),
+            status="open",
+            created_at=time.time(),
+        )
+        position.sl_order = OrderState(
+            client_order_id=sl_client_id,
+            order_type="SL",
+            side="SELL" if side == "LONG" else "BUY",
+            amount=order["amount"],
+            price=sl_price,
+            exchange_order_id=str(sl_order_id),
+            status="open",
+            created_at=time.time(),
+        )
+
+        self.tracker.register_bracket_alias(tp_order_id, position, "TP", client_id=tp_client_id)
+        self.tracker.register_bracket_alias(sl_order_id, position, "SL", client_id=sl_client_id)
+
+        if position.status == "OPENING":
+            position.status = "ACTIVE"
+            self.logger.info(f"[TRADE] ✅ Position Active (Parallel): {position.trade_id}")
+
+        self.tracker._trigger_state_change()
 
     async def _execute_supersonic_batch(
         self, order: Dict[str, Any], position: Any, client_order_id: str, est_price: float

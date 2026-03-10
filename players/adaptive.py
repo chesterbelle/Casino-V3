@@ -132,10 +132,10 @@ class AdaptivePlayer:
             # Reversion: target POC from VAH/VAL
             if side == "LONG" and entry_price <= val * 1.001:
                 tp_price = poc
-                sl_price = val * 0.998  # Just below VAL
+                sl_price = min(entry_price * 0.998, val * 0.998)  # Just below VAL or entry
             elif side == "SHORT" and entry_price >= vah * 0.999:
                 tp_price = poc
-                sl_price = vah * 1.002  # Just above VAH
+                sl_price = max(entry_price * 1.002, vah * 1.002)  # Just above VAH or entry
 
         elif setup_type == "initial":
             # Initial breakout: target VA boundary
@@ -150,10 +150,10 @@ class AdaptivePlayer:
             # Continuation: target VA boundary, SL behind POC
             if side == "LONG":
                 tp_price = vah
-                sl_price = poc * 0.999
+                sl_price = min(entry_price * 0.998, poc * 0.999)
             else:
                 tp_price = val
-                sl_price = poc * 1.001
+                sl_price = max(entry_price * 1.002, poc * 1.001)
 
         if tp_price and sl_price:
             return tp_price, sl_price
