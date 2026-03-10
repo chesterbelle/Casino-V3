@@ -10,6 +10,12 @@ description: Multi-layered validation pipeline for Phase 800 TP/SL architecture 
 Progressive validation from basic sanity → latency benchmarks → chaos stress.
 Each layer must pass before proceeding to the next.
 
+## Layer 0: Static Math & Regime Gating (Strategy 2.0)
+```bash
+.venv/bin/python utils/validators/sensor_math_validator.py
+```
+**Must pass**: All regime scenarios (TREND/RANGE) must calculate correct multipliers and targets without math inversion.
+
 ## Layer 1: Preflight (Single-Symbol Lifecycle)
 ```bash
 .venv/bin/python -m utils.validators.trading_flow_validator --exchange binance --symbol LTCUSDT --mode demo --size 0.05 --execute-orders
@@ -40,15 +46,17 @@ Each layer must pass before proceeding to the next.
 .venv/bin/python utils/audit_logs.py logs/chaos_test_$(ls -t logs/ | head -1)
 ```
 
-## Layer 5: Decision Pipeline Data Integrity
+## Layer 5: Decision Pipeline Data Integrity (Zero-Lag Check)
 ```bash
 .venv/bin/python -m utils.validators.decision_pipeline_validator
 ```
-**Must pass**: 0 FATAL MATH INVERSION, 0 PIPELINE LEAK DETECTED, Exit Code 0
+**Must pass**: 0 FATAL MATH INVERSION, 0 PIPELINE LEAK DETECTED, Context Mirror Integrity ✅.
 
 ## Success Criteria
-- [x] Layer 1: 8/8 preflight tests pass
-- [x] Layer 2: Multi-symbol concurrency + integrity pass
-- [x] Layer 3: Bracket latency < 500ms avg, TP/SL parallel
-- [x] Layer 4: 0 UNMATCHED, 0 error trades, clean integrity
+- [x] Layer 0: Strategy 2.0 Math & Regime logic verified.
+- [x] Layer 1: 8/8 preflight tests pass.
+- [x] Layer 2: Multi-symbol concurrency + integrity pass.
+- [x] Layer 3: Bracket latency < 500ms avg, TP/SL parallel.
+- [x] Layer 4: 0 UNMATCHED, 0 error trades, clean integrity.
+- [x] Layer 5: 0 Mutations under chaos (Zero-Lag Mirror verified).
 - [x] Statistical Health: Audit V2 PASS (Ratio < 1.5, 0 Ghosts)
