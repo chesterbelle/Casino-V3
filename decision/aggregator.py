@@ -117,8 +117,9 @@ class SignalAggregatorV3:
     performance (expectancy, win rate, profit factor, etc).
     """
 
-    def __init__(self, engine):
+    def __init__(self, engine, context_registry=None):
         self.engine = engine
+        self.context_registry = context_registry
         # Multi-Asset: Symbol -> Timestamp -> List[Signal]
         self.signal_buffer: Dict[str, Dict[float, List[SignalEvent]]] = defaultdict(lambda: defaultdict(list))
         # Keep track of which candles have already been processed to avoid double-firing fast-tracked signals
@@ -212,6 +213,15 @@ class SignalAggregatorV3:
             self.latest_context[symbol][event.sensor_id] = event
             logger.debug(f"📊 CONTEXT: Cached {event.sensor_id} for {symbol}.")
 
+            # Phase 650: Update Synchronous Mirror (Zero-Lag)
+            if self.context_registry:
+                if event.sensor_id == "SessionValueArea" and event.metadata:
+                    regime = event.metadata.get("window_type", "NORMAL")
+                    self.context_registry.set_regime(symbol, regime)
+                elif event.sensor_id == "OneTimeframing" and event.metadata:
+                    otf = event.metadata.get("regime", "NEUTRAL")
+                    self.context_registry.set_otf(symbol, otf)
+
         if sensor_type == "OrderFlow" or getattr(event, "fast_track", False):
             logger.info(f"⚡ FAST-TRACK: {event.sensor_id} fired for {symbol}. Bypassing delay (0ms latency).")
             # Cancel any pending timeout task for this symbol if exists
@@ -292,21 +302,39 @@ class SignalAggregatorV3:
                 del self.signal_buffer[candle_ts]
             return
 
-        # 2. Extract HTF context from strictly structural sensors (Dalton)
+        # 2. Synchronous Context Extraction (Zero-Lag Mirror)
+        structural_levels = {}
+        htf_context = None
+        current_regime = "NORMAL"
+        pulse = {"speed": 0.0}
+        gravity = {"btc_delta": 0.0, "btc_trend": "NEUTRAL"}
+
+        if self.context_registry:
+            poc, vah, val = self.context_registry.get_structural(symbol)
+            if poc > 0:
+                structural_levels = {"poc": poc, "vah": vah, "val": val}
+
+            current_regime = self.context_registry.get_regime(symbol)
+            pulse = self.context_registry.get_pulse(symbol)
+            gravity = self.context_registry.get_gravity()
+
+            # TODO: Future OTF and Global Delta integration
+            logger.debug(
+                f"🏛️ Zero-Lag Check [{symbol}]: Regime={current_regime}, Pulse={pulse['speed']:.1f} tps, Gravity={gravity['btc_trend']}"
+            )
+
+        # Extraction for legacy compatibility (if Registry missed something or is disabled)
         context_sensors = {"OneTimeframing", "SessionValueArea"}
         htf_long_count = 0
         htf_short_count = 0
-        structural_levels = {}
+        if not structural_levels:
+            for signal in valid_signals:
+                if signal.sensor_id in context_sensors:
+                    if signal.side == "LONG":
+                        htf_long_count += 1
+                    elif signal.side == "SHORT":
+                        htf_short_count += 1
 
-        # Window context extracted from SessionValueArea metadata (used downstream)
-        for signal in valid_signals:
-            if signal.sensor_id in context_sensors:
-                if signal.side == "LONG":
-                    htf_long_count += 1
-                elif signal.side == "SHORT":
-                    htf_short_count += 1
-
-                # Extract levels for Gap 1 confirmation and window context
                 if signal.sensor_id == "SessionValueArea" and signal.metadata:
                     structural_levels = {
                         "poc": signal.metadata.get("poc"),
@@ -316,11 +344,7 @@ class SignalAggregatorV3:
                         "ibl": signal.metadata.get("ib_low"),
                         "mtf_side": signal.metadata.get("mtf_30m_side"),
                     }
-                    # Extract Liquidity Window context (for future use)
-                    _ = signal.metadata.get("window_type", "DEVELOPING")
-                    _ = signal.metadata.get("liquidity_window", "unknown")
-                    _ = signal.metadata.get("window_volatility", "unknown")
-                logger.debug(f"📊 HTF Context: {signal.sensor_id} = {signal.side}")
+                    current_regime = signal.metadata.get("window_type", "NORMAL")
 
         # Determine HTF consensus (majority of context sensors)
         if htf_long_count > htf_short_count:
@@ -517,20 +541,27 @@ class SignalAggregatorV3:
                         f"(strength={confluence[0]['strength']})"
                     )
 
-            mtf_30m_side = structural_levels.get("mtf_side", "NEUTRAL")
+            # Phase 650: REGIME-AWARE GATING (Zero-Lag Mirror)
+            # Hard rejection if sensor is incompatible with current regime
+            allowed_windows = SENSOR_WINDOW_TYPE_COMPAT.get(signal.sensor_id, [])
+            if allowed_windows and current_regime not in allowed_windows:
+                logger.debug(f"🚫 [Regime Gate] Rejecting {signal.sensor_id} - Incompatible with {current_regime}")
+                continue
 
-            mtf_alignment = True
-            if signal.side == "LONG" and mtf_30m_side == "BEARISH":
-                mtf_alignment = False
-            elif signal.side == "SHORT" and mtf_30m_side == "BULLISH":
-                mtf_alignment = False
+            # Layer 5: Pulse Gate (Dead Market Protection)
+            # If tick speed < 1.0 tps, reject lower-confidence continuation signals
+            if pulse["speed"] < 1.0 and signal.sensor_id in ("FootprintStackedImbalance", "FootprintDeltaPoCShift"):
+                logger.debug(
+                    f"🚫 [Pulse Gate] Rejecting {signal.sensor_id} - Low market activity ({pulse['speed']:.1f} tps)"
+                )
+                continue
 
-            if not mtf_alignment:
-                logger.debug(f"⚠️ [Gap 6] MTF Divergence for {signal.sensor_id} {signal.side}: Against 30m POC flow.")
-                signal.score *= 0.5  # Penalize instead of hard reject for MTF
-
-            # WindowType removed - not suitable for HFT scalping
-            # All footprint sensors now operate freely without context filtering
+            # Layer 6: Gravity Gate (Flash Crash Protection)
+            # Example: Block ALT longs if BTC is tanking (btc_delta highly negative)
+            # (threshold -100 is illustrative, would be calibrated per asset)
+            if signal.side == "LONG" and gravity["btc_delta"] < -500 and symbol != "BTCUSDT":
+                logger.warning(f"🚫 [Gravity Gate] Blocking {symbol} LONG - BTC Global Pressure detected.")
+                continue
 
             filtered_valid_signals.append(signal)
 

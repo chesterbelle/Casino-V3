@@ -9,6 +9,7 @@ Supports optional Kelly Criterion sizing based on sensor performance.
 import asyncio
 import logging
 import time
+from typing import Optional, Tuple
 
 from core.events import Event, EventType
 from decision.aggregator import AggregatedSignalEvent
@@ -68,6 +69,7 @@ class AdaptivePlayer:
         max_positions: int = 1,
         use_kelly: bool = True,
         kelly_max: float = 0.10,
+        context_registry=None,
     ):
         """
         Args:
@@ -84,6 +86,7 @@ class AdaptivePlayer:
         self.max_positions = max_positions
         self.use_kelly = use_kelly
         self.kelly_max = kelly_max
+        self.context_registry = context_registry
 
         # SensorTracker for Kelly calculations
         self.tracker = SensorTracker()
@@ -112,12 +115,9 @@ class AdaptivePlayer:
                 return {"poc": poc, "vah": vah, "val": val, "source_tf": tf}
         return {}
 
-    def _calculate_structural_tp_sl(self, side: str, entry_price: float, htf_levels: dict, setup_type: str) -> tuple:
-        """
-        Phase 700: Calculate TP/SL based on structural levels.
-
-        Returns (tp_price, sl_price) as absolute prices, or (None, None) if levels invalid.
-        """
+    def _calculate_structural_tp_sl(
+        self, side: str, entry_price: float, htf_levels: dict, setup_type: str, regime: str = "NORMAL"
+    ) -> Tuple[Optional[float], Optional[float]]:
         poc = htf_levels.get("poc")
         vah = htf_levels.get("vah")
         val = htf_levels.get("val")
@@ -128,35 +128,46 @@ class AdaptivePlayer:
         tp_price = None
         sl_price = None
 
-        if setup_type == "reversion":
-            # Reversion: target POC from VAH/VAL
-            if side == "LONG" and entry_price <= val * 1.001:
-                tp_price = poc
-                sl_price = min(entry_price * 0.998, val * 0.998)  # Just below VAL or entry
-            elif side == "SHORT" and entry_price >= vah * 0.999:
-                tp_price = poc
-                sl_price = max(entry_price * 1.002, vah * 1.002)  # Just above VAH or entry
-
-        elif setup_type == "initial":
-            # Initial breakout: target VA boundary
+        # Phase 650: REGIME-AWARE EXIT STRATEGIES
+        if regime == "TREND_WINDOW":
+            # In TREND, we give the trade more room to breathe and target extensions
+            # SL is tighter to entry (protecting capital) but TP is wider
             if side == "LONG":
-                tp_price = vah
-                sl_price = entry_price * 0.998  # Tight SL for breakout
+                tp_price = vah * 1.005  # Target extension above VAH
+                sl_price = entry_price * 0.998  # Tighter 0.2% SL
             else:
-                tp_price = val
+                tp_price = val * 0.995  # Target extension below VAL
                 sl_price = entry_price * 1.002
-
-        elif setup_type == "continuation":
-            # Continuation: target VA boundary, SL behind POC
+        elif regime == "RANGE_WINDOW":
+            # In RANGE, we scalp specifically between POC and extremes
+            # TP is hard-gated at the opposite boundary
             if side == "LONG":
-                tp_price = vah
-                sl_price = min(entry_price * 0.998, poc * 0.999)
+                tp_price = vah if entry_price < poc else vah * 1.002
+                sl_price = min(entry_price * 0.998, val * 0.999)
             else:
-                tp_price = val
-                sl_price = max(entry_price * 1.002, poc * 1.001)
+                tp_price = val if entry_price > poc else val * 0.998
+                sl_price = max(entry_price * 1.002, vah * 1.001)
+        else:
+            # NORMAL/DEVELOPING: Legacy structural logic
+            if setup_type == "reversion":
+                if side == "LONG":
+                    tp_price = poc
+                    sl_price = min(entry_price * 0.998, val * 0.999)
+                else:
+                    tp_price = poc
+                    sl_price = max(entry_price * 1.002, vah * 1.001)
+            else:
+                if side == "LONG":
+                    tp_price = vah
+                    sl_price = min(entry_price * 0.998, poc * 0.999)
+                else:
+                    tp_price = val
+                    sl_price = max(entry_price * 1.002, poc * 1.001)
 
         if tp_price and sl_price:
             return tp_price, sl_price
+
+        return None, None
 
         return None, None
 
@@ -189,6 +200,11 @@ class AdaptivePlayer:
         # Get current equity
         equity = self.croupier.get_equity()
 
+        # Phase 650: Synchronous Regime Lookup (Zero-Lag Mirror)
+        regime = "NORMAL"
+        if self.context_registry:
+            regime = self.context_registry.get_regime(event.symbol)
+
         # Calculate bet size
         if self.use_kelly:
             # Use Kelly sizing based on sensor performance
@@ -199,6 +215,12 @@ class AdaptivePlayer:
             # Use fixed percentage
             bet_size = self.fixed_pct
             sizing_method = "Fixed"
+
+        # Apply Sizing Multipliers based on Regime
+        if regime == "TREND_WINDOW":
+            bet_size *= 1.25  # Aggressive in trend
+        elif regime == "RANGE_WINDOW":
+            bet_size *= 0.75  # Defensive in range (mean reversion is noisier)
 
         # Phase 800: Unified TP/SL pipeline — absolute prices are primary
         tp_price = None
@@ -212,7 +234,9 @@ class AdaptivePlayer:
         current_price = event.metadata.get("price")
 
         if htf_levels and current_price and current_price > 0:
-            struct_tp, struct_sl = self._calculate_structural_tp_sl(event.side, current_price, htf_levels, setup_type)
+            struct_tp, struct_sl = self._calculate_structural_tp_sl(
+                event.side, current_price, htf_levels, setup_type, regime=regime
+            )
             if struct_tp is not None and struct_sl is not None:
                 tp_price = struct_tp
                 sl_price = struct_sl

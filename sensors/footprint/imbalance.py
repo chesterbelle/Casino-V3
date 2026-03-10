@@ -86,13 +86,19 @@ class FootprintImbalanceV3(SensorV3):
             if bottom_vol.get("ask", 0.0) == 0 and bottom_vol.get("bid", 0.0) > 0:
                 unfinished_business.append({"side": "SHORT_TARGET", "price": low, "type": "Unfinished_Low"})
 
+        # Phase 650: Dynamic Volume Thresholds
+        # Scale min_volume relative to current profile's average cluster density
+        avg_density = self.market_profile.get_avg_cluster_density()
+        dynamic_min = max(self.min_volume, avg_density * 0.75)
+
         # Analyze each price level in the sliding window
         for p, v in profile.items():
             bid_vol = v.get("bid", 0.0)
             ask_vol = v.get("ask", 0.0)
+            total_vol = bid_vol + ask_vol
 
-            # Skip low volume levels to avoid noise
-            if (bid_vol + ask_vol) < self.min_volume:
+            # Skip low volume levels relative to current market liquidity
+            if total_vol < dynamic_min:
                 continue
 
             density = self.market_profile.get_cluster_density(p)
@@ -100,13 +106,13 @@ class FootprintImbalanceV3(SensorV3):
             # Check for Buy Imbalance (Aggressive Buying hit the ask)
             if ask_vol > (bid_vol * self.imbalance_ratio) and bid_vol > 0:
                 imbalances.append({"side": "LONG", "price": p, "ratio": ask_vol / bid_vol, "density": density})
-            elif ask_vol > self.min_volume and bid_vol == 0:
+            elif ask_vol > dynamic_min and bid_vol == 0:
                 imbalances.append({"side": "LONG", "price": p, "ratio": 99.9, "density": density})
 
             # Check for Sell Imbalance (Aggressive Selling hit the bid)
             elif bid_vol > (ask_vol * self.imbalance_ratio) and ask_vol > 0:
                 imbalances.append({"side": "SHORT", "price": p, "ratio": bid_vol / ask_vol, "density": density})
-            elif bid_vol > self.min_volume and ask_vol == 0:
+            elif bid_vol > dynamic_min and ask_vol == 0:
                 imbalances.append({"side": "SHORT", "price": p, "ratio": 99.9, "density": density})
 
         if not imbalances:

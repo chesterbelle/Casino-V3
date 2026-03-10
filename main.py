@@ -42,7 +42,7 @@ from core.candle_maker import CandleMaker
 from core.clock import Clock
 from core.engine import Engine
 from core.error_handling.error_handler import RetryConfig, get_error_handler
-from core.events import AccountUpdateEvent, EventType
+from core.events import AccountUpdateEvent, EventType, TickEvent
 from core.execution import OrderManager
 from core.feed import StreamManager
 
@@ -380,21 +380,35 @@ async def main():
     # 6. Initialize Sensor Manager (Candle → Signal)
     sensor_manager = SensorManager(engine)
 
-    # 7. Initialize Signal Aggregator (Signal → Aggregated Signal)
-    aggregator = SignalAggregatorV3(engine)
+    # 7. Initialize Context Registry (Zero-Lag Mirror)
+    from core.context_registry import ContextRegistry
+
+    # Use tick_size from args if available, else default
+    context_registry = ContextRegistry(tick_size=args.tick_size if hasattr(args, "tick_size") else 0.1)
+
+    # 8. Initialize Signal Aggregator (Signal → Aggregated Signal)
+    aggregator = SignalAggregatorV3(engine, context_registry=context_registry)
     tracker = aggregator.tracker  # Get tracker from aggregator
 
-    # 8. Initialize Player (Aggregated Signal → Decision)
+    # 9. Initialize Player (Aggregated Signal → Decision)
     from players.adaptive import AdaptivePlayer
 
     logger.info(f"🎰 Using Adaptive Player (bet_size={args.bet_size:.2%})")
     # Initialize Player (bet sizing) - max_positions defaults to 1 per symbol in Player
-    player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size)
+    player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size, context_registry=context_registry)
 
-    # 9. Initialize Order Manager (Decision → Execution)
+    # 10. Initialize Order Manager (Decision → Execution)
     order_manager = OrderManager(engine, croupier, player, tracker)
 
-    # 10. Initialize State Manager (for crash recovery)
+    # 11. Link Real-Time Events to Context Registry
+    # This ensures the 0-latency mirror stays updated BEFORE any signal processing
+    async def context_tick_handler(event: TickEvent):
+        context_registry.on_tick(event.symbol, event.price, event.volume, event.side)
+
+    engine.subscribe(EventType.TICK, context_tick_handler)
+    logger.info("🏛️ Context Registry linked to Tick Feed (Zero-Lag Mirror ACTIVE)")
+
+    # 12. Initialize State Manager (for crash recovery)
     from core.state import StateManager
 
     state_manager = StateManager(
