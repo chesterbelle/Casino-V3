@@ -400,6 +400,24 @@ class OCOManager:
                     )
                     position.sl_level = sl_price  # Sync back to tracker
 
+                # Ensure no inversion occurred due to math rounding or extreme proximity
+                if side == "LONG":
+                    # For LONG, TP must be > fill, SL must be < fill
+                    if tp_price <= fill_price:
+                        tp_price = float(self.adapter.price_to_precision(symbol, fill_price + min_distance_abs))
+                    if sl_price >= fill_price:
+                        sl_price = float(self.adapter.price_to_precision(symbol, fill_price - min_distance_abs))
+                else:
+                    # For SHORT, TP must be < fill, SL must be > fill
+                    if tp_price >= fill_price:
+                        tp_price = float(self.adapter.price_to_precision(symbol, fill_price - min_distance_abs))
+                    if sl_price <= fill_price:
+                        sl_price = float(self.adapter.price_to_precision(symbol, fill_price + min_distance_abs))
+
+                # Update tracker with strictly verified prices
+                position.tp_level = tp_price
+                position.sl_level = sl_price
+
                 # Ensure no inversion occurred due to math
                 if side == "LONG" and (tp_price <= fill_price or sl_price >= fill_price):
                     raise OCOAtomicityError(f"FATAL MATH INVERSION: LONG TP={tp_price} SL={sl_price} Fill={fill_price}")
