@@ -96,6 +96,11 @@ TRAILING_STOP_ENABLED = True  # Shadow Trailing Enabled
 TRAILING_STOP_ACTIVATION_PCT = 0.0020  # Profit threshold (0.20%) before SL starts trailing
 TRAILING_STOP_DISTANCE_PCT = 0.0008  # Distance (0.08%) from the peak price to set the trailing SL
 
+# --- ATR-Based Dynamic Exits (Phase 710) ---
+# Multipliers used to calculate dynamic distances: Distance = Multiplier * ATR
+EXIT_ATR_MULT_TS = 1.5  # Trailing Stop distance (e.g., 1.5x ATR)
+EXIT_ATR_MULT_BE = 2.0  # Breakeven Activation (e.g., 2.0x ATR profit)
+
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
 BREAKEVEN_ENABLED = True
@@ -106,6 +111,16 @@ BREAKEVEN_ACTIVATION_PCT = 0.0015  # Profit threshold (0.15%) to trigger SL move
 SIGNAL_REVERSAL_ENABLED = False  # Deactivated as per user request (threshold mismatch)
 SIGNAL_REVERSAL_THRESHOLD = 0.8  # Required confidence (0-1) to trigger an immediate market close
 GRACEFUL_SL_TIMEOUT = 10.0  # Seconds to wait for SL modification before considering it a failure
+
+# --- Setup-Specific Risk/Reward (RR) Ratios (Phase 712) ---
+# High-frequency survival math: Minimum RR required to offset fees/slippage per setup.
+SETUP_RR_RATIOS = {
+    "FootprintTrappedTraders": 1.2,  # Fast reversion - target wick recovery
+    "FootprintDeltaDivergence": 2.0,  # Structural reversal - target opposite Value Area
+    "FootprintStackedImbalance": 1.5,  # Trend continuation - target previous move extension
+    "FootprintPOCRejection": 1.2,  # Local SR test - target internal candle POC
+    "DEFAULT": 1.1,  # Survival floor for all trades
+}
 
 # =====================================================
 # 💧 FILTROS DE LIQUIDEZ (FLYTEST)

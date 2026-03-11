@@ -3,7 +3,7 @@ import logging
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
-from typing import Dict
+from typing import Dict, List
 
 from .events import EventType, FootprintCandleEvent, TickEvent
 
@@ -92,6 +92,9 @@ class CandleMaker:
         # Multi-symbol safe: Dict[symbol, candle_data]
         self.current_candles: Dict[str, dict] = {}
         self.last_candle_times: Dict[str, int] = {}
+        self.prev_closes: Dict[str, float] = {}
+        self.tr_history: Dict[str, List[float]] = {}  # Symbol -> List of True Ranges
+        self.atr_window = 14
 
         # Phase 180: Parallel Footprint Calculation
         # Use a small pool to offload intensive sort/math operations
@@ -168,6 +171,25 @@ class CandleMaker:
             logger.error(f"❌ Footprint Calculation Failed for {candle_data['symbol']}: {e}")
             poc, vah, val = 0.0, 0.0, 0.0
 
+        # Calculate ATR
+        symbol = candle_data["symbol"]
+        high = candle_data["high"]
+        low = candle_data["low"]
+        close = candle_data["close"]
+        prev_close = self.prev_closes.get(symbol, candle_data["open"])
+
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+
+        if symbol not in self.tr_history:
+            self.tr_history[symbol] = []
+
+        self.tr_history[symbol].append(tr)
+        if len(self.tr_history[symbol]) > self.atr_window:
+            self.tr_history[symbol].pop(0)
+
+        atr = sum(self.tr_history[symbol]) / len(self.tr_history[symbol])
+        self.prev_closes[symbol] = close
+
         event = FootprintCandleEvent(
             type=EventType.CANDLE,
             timestamp=time.time(),  # Event timestamp
@@ -180,6 +202,7 @@ class CandleMaker:
             volume=candle_data["volume"],
             profile=candle_data["profile"],
             delta=candle_data["delta"],
+            atr=atr,
             poc=poc,
             vah=vah,
             val=val,

@@ -6,6 +6,7 @@ import sys
 # Ensure Casino-V3 is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
+from core.context_registry import ContextRegistry
 from core.events import EventType
 from decision.aggregator import AggregatedSignalEvent
 from players.adaptive import AdaptivePlayer, DecisionEvent
@@ -41,8 +42,15 @@ async def run_validator():
 
     engine = MockEngine()
     croupier = MockCroupier()
+    context_registry = ContextRegistry()
 
-    player = AdaptivePlayer(engine=engine, croupier=croupier, fixed_pct=0.01, use_kelly=False)
+    player = AdaptivePlayer(
+        engine=engine,
+        croupier=croupier,
+        fixed_pct=0.01,
+        use_kelly=False,
+        context_registry=context_registry,
+    )
 
     # Test Scenarios
     scenarios = [
@@ -102,6 +110,84 @@ async def run_validator():
                 "val": 1.485,
             },
         },
+        # Scenario 5: TREND_WINDOW (Aggressive Target)
+        {
+            "name": "LONG TREND (Post-Breakout)",
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "current_price": 60500.0,
+            "regime": "TREND_WINDOW",
+            "metadata": {
+                "setup_type": "continuation",
+                "price": 60500.0,
+                "vah": 60400.0,
+                "val": 60200.0,
+                "poc": 60300.0,
+            },
+        },
+        # Scenario 6: RANGE_WINDOW (Mean Reversion)
+        {
+            "name": "SHORT RANGE (Mean Reversion)",
+            "symbol": "ETHUSDT",
+            "side": "SHORT",
+            "current_price": 2510.0,
+            "regime": "RANGE_WINDOW",
+            "metadata": {
+                "setup_type": "reversion",
+                "price": 2510.0,
+                "vah": 2515.0,
+                "val": 2485.0,
+                "poc": 2500.0,
+                "atr_1m": 5.0,
+            },
+        },
+        # Scenario 7: ATR Breathing Room Floor
+        {
+            "name": "ATR Floor (SL Expansion)",
+            "symbol": "LTCUSDT",
+            "side": "LONG",
+            "current_price": 100.0,
+            "metadata": {
+                "setup_type": "reversion",
+                "price": 100.0,
+                "1h_poc": 102.0,
+                "1h_vah": 105.0,
+                "1h_val": 99.8,  # Tiny structural SL (0.2 ticks)
+                "atr_1m": 1.0,  # 1% ATR -> Floor should be 1.2%
+            },
+        },
+        # Scenario 8: Proximity Reject (TP too close)
+        {
+            "name": "Proximity Rejection (Target < 0.08%)",
+            "symbol": "XRPUSDT",
+            "side": "LONG",
+            "current_price": 0.5000,
+            "metadata": {
+                "setup_type": "reversion",
+                "price": 0.5000,
+                "1h_poc": 0.5002,  # 0.04% distance -> should reject
+                "1h_vah": 0.5100,
+                "1h_val": 0.4900,
+                "atr_1m": 0.0005,
+            },
+            "expect_reject": True,
+        },
+        # Scenario 9: RR Rejection (SL > TP)
+        {
+            "name": "RR Rejection (High ATR, Low Target)",
+            "symbol": "SOLUSDT",
+            "side": "LONG",
+            "current_price": 100.0,
+            "metadata": {
+                "setup_type": "reversion",
+                "price": 100.0,
+                "1h_poc": 100.2,  # 0.2% TP
+                "1h_vah": 105.0,
+                "1h_val": 99.0,
+                "atr_1m": 0.5,  # 1.2 * 0.5 = 0.6% SL -> RR 0.2/0.6 = 0.33 < 1.0 -> should reject
+            },
+            "expect_reject": True,
+        },
     ]
 
     failed = False
@@ -127,11 +213,27 @@ async def run_validator():
             trace_id="trc_test",
         )
 
+        # Phase 660: Force Regime in Registry
+        if "regime" in s:
+            context_registry.set_regime(s["symbol"], s["regime"])
+        else:
+            context_registry.set_regime(s["symbol"], "NORMAL")
+
         await player.on_aggregated_signal(event)
         await asyncio.sleep(0.1)
 
         if not engine.dispatched_events:
-            logger.error(f"❌ Scenario {s['name']} failed to dispatch a DecisionEvent.")
+            if s.get("expect_reject"):
+                logger.info(f"✅ Scenario {s['name']} correctly REJECTED.")
+                continue
+            else:
+                logger.error(
+                    f"❌ Scenario {s['name']} failed to dispatch a DecisionEvent and was NOT expected to reject."
+                )
+                failed = True
+                continue
+        elif s.get("expect_reject"):
+            logger.error(f"❌ Scenario {s['name']} dispatched a decision but was EXPECTED to REJECT.")
             failed = True
             continue
 

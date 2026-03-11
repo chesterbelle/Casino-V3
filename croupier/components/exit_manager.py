@@ -351,7 +351,15 @@ class ExitManager:
             if position.shadow_sl_level is not None and position.shadow_sl_level >= position.entry_price:
                 return
             profit_pct = (current_price - position.entry_price) / position.entry_price
-            if profit_pct >= config.BREAKEVEN_ACTIVATION_PCT:
+
+            # Phase 710: ATR-based Breakeven Activation
+            activation_threshold = config.BREAKEVEN_ACTIVATION_PCT
+            if getattr(position, "entry_atr", 0) > 0:
+                atr_profit_dist = position.entry_atr * config.EXIT_ATR_MULT_BE
+                activation_threshold = atr_profit_dist / position.entry_price
+                self.logger.debug(f"📐 ATR Breakeven Threshold for {position.symbol}: {activation_threshold:.4%}")
+
+            if profit_pct >= activation_threshold:
                 new_sl = position.entry_price * 1.001
                 if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
                     position.shadow_sl_level = new_sl
@@ -364,7 +372,15 @@ class ExitManager:
             ):
                 return
             profit_pct = (position.entry_price - current_price) / position.entry_price
-            if profit_pct >= config.BREAKEVEN_ACTIVATION_PCT:
+
+            # Phase 710: ATR-based Breakeven Activation
+            activation_threshold = config.BREAKEVEN_ACTIVATION_PCT
+            if getattr(position, "entry_atr", 0) > 0:
+                atr_profit_dist = position.entry_atr * config.EXIT_ATR_MULT_BE
+                activation_threshold = atr_profit_dist / position.entry_price
+                self.logger.debug(f"📐 ATR Breakeven Threshold for {position.symbol}: {activation_threshold:.4%}")
+
+            if profit_pct >= activation_threshold:
                 new_sl = position.entry_price * 0.999
                 if (
                     position.shadow_sl_level is None
@@ -385,7 +401,13 @@ class ExitManager:
             profit_pct = (current_price - position.entry_price) / position.entry_price
             if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT:
                 return
-            trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
+
+            # Phase 710: ATR-based Trailing Distance
+            if getattr(position, "entry_atr", 0) > 0:
+                trailing_dist = position.entry_atr * config.EXIT_ATR_MULT_TS
+            else:
+                trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
+
             new_sl = current_price - trailing_dist
             if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
                 position.shadow_sl_level = new_sl
@@ -393,7 +415,13 @@ class ExitManager:
             profit_pct = (position.entry_price - current_price) / position.entry_price
             if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT:
                 return
-            trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
+
+            # Phase 710: ATR-based Trailing Distance
+            if getattr(position, "entry_atr", 0) > 0:
+                trailing_dist = position.entry_atr * config.EXIT_ATR_MULT_TS
+            else:
+                trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
+
             new_sl = current_price + trailing_dist
             if position.shadow_sl_level is None or new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
                 position.shadow_sl_level = new_sl

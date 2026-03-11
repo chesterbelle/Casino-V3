@@ -188,6 +188,7 @@ class SensorManager:
             "volume": event.volume,
             "profile": getattr(event, "profile", None),
             "delta": getattr(event, "delta", 0.0),
+            "atr": getattr(event, "atr", 0.0),
         }
 
         # Update local aggregator (per symbol)
@@ -369,6 +370,11 @@ class SensorManager:
                         metadata[f"{tf}_vah"] = vah
                     if val and val > 0:
                         metadata[f"{tf}_val"] = val
+
+            # Phase 710: ATR-based Breathing Room (Volatility Awareness)
+            candle_1m = context.get("1m")
+            if isinstance(candle_1m, dict) and candle_1m.get("atr"):
+                metadata["atr_1m"] = candle_1m["atr"]
 
         sensor_config = get_sensor_params(sensor_name, signal_tf)
         if "tp_pct" in sensor_config:

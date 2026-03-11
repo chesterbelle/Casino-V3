@@ -108,6 +108,7 @@ class OpenPosition:
     liquidation_level: Optional[float]
     order: Dict[str, Any]
     shadow_sl_level: Optional[float] = None
+    entry_atr: float = 0.0  # Phase 710: ATR at time of entry
     # Legacy ID fields (for backward compatibility during migration)
     main_order_id: Optional[str] = None
     tp_order_id: Optional[str] = None
@@ -1581,6 +1582,7 @@ class PositionTracker:
             t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
             t1_decision_ts=order_params.get("t1_decision_ts"),  # Phase 10: Decision Latency
             trace_id=trace_id or order_params.get("trace_id"),
+            entry_atr=float(order_params.get("atr_1m", 0.0)),
         )
         main_order_state = OrderState(
             client_order_id=client_order_id,

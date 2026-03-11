@@ -79,7 +79,7 @@ TRADE_RESULTS_LOG_PATH = "gemini/data/gemini_trade_results.csv"
 # =====================================================
 
 # Nivel de detalle del log (DEBUG, INFO, WARNING, ERROR)
-LOG_LEVEL = "INFO"
+LOG_LEVEL = "DEBUG"
 
 
 # =====================================================

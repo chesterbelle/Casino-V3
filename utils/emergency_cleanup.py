@@ -1,6 +1,10 @@
 import asyncio
 import logging
 import os
+import sys
+
+# Ensure Casino-V3 is in path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 
 from exchanges.connectors.binance.binance_native_connector import BinanceNativeConnector
 

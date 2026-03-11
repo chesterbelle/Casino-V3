@@ -35,6 +35,7 @@ class CandleEvent(Event):
     low: float
     close: float
     volume: float
+    atr: float = 0.0  # Average True Range (Volatility)
 
     def __post_init__(self):
         self.type = EventType.CANDLE

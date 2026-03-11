@@ -23,6 +23,10 @@ import sys
 import time
 import uuid
 
+# Ensure Casino-V3 is in path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
+from core.context_registry import ContextRegistry
 from core.events import AggregatedSignalEvent, EventType
 from core.execution import OrderManager
 from core.portfolio.position_tracker import PositionTracker
@@ -264,8 +268,16 @@ class TraceBulletValidator:
 
         self.adapter.symbol_trace_map = {}  # Share map reference
 
+        self.context_registry = ContextRegistry()
+
         # Initialize the actual strategy
-        self.strategy = AdaptivePlayer(engine=self.engine, croupier=self.croupier, fixed_pct=0.01, use_kelly=False)
+        self.strategy = AdaptivePlayer(
+            engine=self.engine,
+            croupier=self.croupier,
+            fixed_pct=0.01,
+            use_kelly=False,
+            context_registry=self.context_registry,
+        )
 
         # Initialize the actual Orchestrator
         self.order_manager = OrderManager(engine=self.engine, croupier=self.croupier)
@@ -315,6 +327,10 @@ class TraceBulletValidator:
         poc = (base_price + 0.5) if side == "LONG" else (base_price - 0.5)
         val = base_price - 1.0
         vah = base_price + 1.0
+
+        # Phase 660: Stress test Zero-Lag Mirror with random real-time regime shifts
+        regime = random.choice(["TREND_WINDOW", "RANGE_WINDOW", "NORMAL"])
+        self.context_registry.set_regime(symbol, regime)
 
         signal_event = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,

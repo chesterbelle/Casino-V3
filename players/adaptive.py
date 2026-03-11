@@ -11,6 +11,7 @@ import logging
 import time
 from typing import Optional, Tuple
 
+import config.trading as config
 from core.events import Event, EventType
 from decision.aggregator import AggregatedSignalEvent
 from decision.sensor_tracker import SensorTracker
@@ -34,6 +35,7 @@ class DecisionEvent(Event):
         t0_timestamp: float = None,
         t1_decision_ts: float = None,
         trace_id: str = None,
+        atr_1m: float = 0.0,
     ):
         super().__init__(type=EventType.DECISION, timestamp=time.time())
         self.t0_timestamp = t0_timestamp
@@ -47,6 +49,7 @@ class DecisionEvent(Event):
         self.tp_price = tp_price  # Absolute TP price (primary)
         self.sl_price = sl_price  # Absolute SL price (primary)
         self.selected_sensor = selected_sensor
+        self.atr_1m = atr_1m
         # Compatibility fields for logging/Paroli
         self.paroli_step = 0
         self.unit_size = 0.0
@@ -280,18 +283,40 @@ class AdaptivePlayer:
                 elif event.side == "SHORT" and target.get("side") == "SHORT_TARGET":
                     dist_pct = (current_price - target["price"]) / current_price
                     if dist_pct > 0.0005:
-                        tp_price = target["price"]
-                        logger.debug(f"🎯 Unfinished Business TARGET: Override TP to {tp_price:.4f}")
                         tp_sl_source = "unfinished_business"
 
-        # Phase 800: PERCENT_PRICE guard on absolute prices
+        # Phase 800: Direct Metadata Fallback (if sensors provide absolute prices)
+        if tp_price is None:
+            tp_price = event.metadata.get("tp_price")
+            if tp_price:
+                tp_sl_source = "metadata_direct"
+        if sl_price is None:
+            sl_price = event.metadata.get("sl_price")
+            if sl_price:
+                tp_sl_source = "metadata_direct"
+
         # Binance rejects limit orders too far from current market price (-4131).
-        # Clamp TP/SL within 2% max distance from entry, and minimum 0.1% to avoid -2021.
-        MAX_DISTANCE_PCT = 0.02  # 2% max distance from entry
-        MIN_DISTANCE_PCT = 0.001  # 0.1% min distance from entry
+        # Phase 710: Dynamic Breathing Room (ATR-based)
+        MAX_DISTANCE_PCT = getattr(config, "MAX_POSITION_SIZE", 0.02)  # Use config or default
+        MIN_DISTANCE_PCT = 0.001  # 0.1% hard floor for exchange safety
+        ATR_SL_MULT = 1.2  # SL must be at least 1.2x ATR from entry
+        MIN_TP_PROXIMITY = 0.0008  # 0.08% min structural proximity for edge
+
+        atr_1m = event.metadata.get("atr_1m", 0.0)
+        atr_sl_dist = atr_1m * ATR_SL_MULT if atr_1m > 0 else current_price * 0.002
 
         if tp_price and current_price and current_price > 0:
-            # 1. Check Max Distance
+            # 1. Phase 710: Proximity Gate (Edge Validator) - MUST BE BEFORE CLAMPING
+            # If the structural edge is already too thin, reject the trade completely.
+            if abs(tp_price - current_price) / current_price < MIN_TP_PROXIMITY:
+                logger.warning(
+                    f"🚫 GATING REJECT (Proximity): {event.symbol} {event.side} "
+                    f"Target is too close to entry ({abs(tp_price - current_price)/current_price:.4%}). "
+                    f"Required: {MIN_TP_PROXIMITY:.2%}. Skipping to avoid noise trap."
+                )
+                return
+
+            # 2. Check Max Distance
             max_tp_dist = current_price * MAX_DISTANCE_PCT
             if abs(tp_price - current_price) > max_tp_dist:
                 if event.side == "LONG":
@@ -301,7 +326,7 @@ class AdaptivePlayer:
                 tp_sl_source = f"{tp_sl_source}+clamped_max"
                 logger.debug(f"⚠️ TP clamped to max {MAX_DISTANCE_PCT:.0%} distance: {tp_price:.4f}")
 
-            # 2. Check Min Distance (-2021 Prevention)
+            # 3. Check Min Distance (-2021 Prevention)
             min_tp_dist = current_price * MIN_DISTANCE_PCT
             if abs(tp_price - current_price) < min_tp_dist:
                 if event.side == "LONG":
@@ -321,14 +346,34 @@ class AdaptivePlayer:
                     sl_price = current_price + max_sl_dist
                 logger.debug(f"⚠️ SL clamped to max 1% distance: {sl_price:.4f}")
 
-            # 2. Check Min Distance (-2021 Prevention)
-            min_sl_dist = current_price * MIN_DISTANCE_PCT
-            if abs(sl_price - current_price) < min_sl_dist:
+            # 2. Check Min Distance & ATR Floor (-2021 Prevention + Breathing Room)
+            actual_min_sl_dist = max(current_price * MIN_DISTANCE_PCT, atr_sl_dist)
+
+            if abs(sl_price - current_price) < actual_min_sl_dist:
                 if event.side == "LONG":
-                    sl_price = current_price - min_sl_dist
+                    sl_price = current_price - actual_min_sl_dist
                 else:
-                    sl_price = current_price + min_sl_dist
-                logger.debug(f"⚠️ SL clamped to MIN {MIN_DISTANCE_PCT:.1%} distance: {sl_price:.4f}")
+                    sl_price = current_price + actual_min_sl_dist
+                tp_sl_source = f"{tp_sl_source}+atr_floor"
+                logger.debug(f"⚠️ SL clamped to ATR Floor ({actual_min_sl_dist/current_price:.2%}): {sl_price:.4f}")
+
+        # Phase 712: Dynamic Risk/Reward (RR) Mandatory Validation
+        if tp_price and sl_price and current_price and current_price > 0:
+            tp_dist = abs(tp_price - current_price)
+            sl_dist = abs(sl_price - current_price)
+            rr = tp_dist / sl_dist if sl_dist > 0 else 0
+
+            # Get setup-specific RR requirement
+            setup_ratios = getattr(config, "SETUP_RR_RATIOS", {})
+            required_rr = setup_ratios.get(event.selected_sensor, setup_ratios.get("DEFAULT", 1.1))
+
+            if rr < required_rr:
+                logger.warning(
+                    f"🚫 GATING REJECT (RR Ratio): {event.symbol} {event.side} "
+                    f"Sensor: {event.selected_sensor} | RR is {rr:.2f} < {required_rr}. "
+                    f"Skipping to ensure HFT survival expectancy."
+                )
+                return
 
         # Phase 650.3: Order Book Confirmation Confidence
         dom_confirmed = event.metadata.get("dom_wall_confirmed", False)
@@ -373,6 +418,7 @@ class AdaptivePlayer:
             t0_timestamp=getattr(event, "t0_timestamp", None),
             t1_decision_ts=getattr(event, "t1_decision_ts", None),
             trace_id=getattr(event, "trace_id", None),
+            atr_1m=atr_1m,
         )
         decision.decision_id = decision_id  # Add unique ID
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")
