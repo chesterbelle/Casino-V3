@@ -15,6 +15,7 @@ import time
 from collections import defaultdict
 from typing import Dict, List, Optional
 
+from config import trading as config
 from config.sensors import get_sensor_params
 from config.strategies import get_sensor_type, get_strategy_for_sensor
 from core.events import AggregatedSignalEvent, EventType, SignalEvent
@@ -126,6 +127,7 @@ class SignalAggregatorV3:
         self.processed_candles: Dict[str, set] = defaultdict(set)
         # Track latest candle timestamp per symbol
         self.latest_candle_ts: Dict[str, float] = {}
+        self.latest_candle_open: Dict[str, float] = {}
         self.latest_candle_close: Dict[str, float] = {}
         self.timeout_tasks: Dict[str, asyncio.Task] = {}
 
@@ -155,6 +157,8 @@ class SignalAggregatorV3:
         new_ts = event.timestamp
 
         try:
+            if getattr(event, "open", None) is not None:
+                self.latest_candle_open[symbol] = float(event.open)
             if getattr(event, "close", None) is not None:
                 self.latest_candle_close[symbol] = float(event.close)
         except (TypeError, ValueError):
@@ -296,6 +300,7 @@ class SignalAggregatorV3:
                 side="SKIP",
                 confidence=0.0,
                 total_signals=len(signals),
+                metadata={"rejection_reason": f"Low quality (< {MIN_SCORE_THRESHOLD})"},
             )
             asyncio.create_task(self.engine.dispatch(aggregated))
             if candle_ts in self.signal_buffer:
@@ -747,37 +752,63 @@ class SignalAggregatorV3:
                 del self.signal_buffer[candle_ts]
             return
 
-        # 6. HTF Alignment Check (optional filter)
-        if htf_context and consensus_side != htf_context:
-            # Phase 650 Remedy: Allow high-conviction override
-            high_conviction = False
-            for sig_data in winner_signals:
-                if sig_data["weight"] >= 0.45:  # High conviction threshold (e.g., Stacked Imbalance)
-                    high_conviction = True
-                    break
+        # 6. HTF Alignment Check (Strict Directional Lock)
+        # Phase 660: Hard-reject if against HTF trend or if strict locked by OTF.
+        rejected_by_gating = False
+        rejection_reason = ""
 
-            if not high_conviction:
-                logger.info(
-                    f"🚫 Rejecting {consensus_side}: Against HTF trend ({htf_context}) | "
-                    f"ΣL={sigma_long:.2f} ΣS={sigma_short:.2f}"
-                )
-                aggregated = AggregatedSignalEvent(
-                    type=EventType.AGGREGATED_SIGNAL,
-                    timestamp=time.time(),
-                    symbol=signals[0].symbol,
-                    candle_timestamp=candle_ts,
-                    selected_sensor="None",
-                    sensor_score=0.0,
-                    side="SKIP",
-                    confidence=0.0,
-                    total_signals=len(signals),
-                )
-                asyncio.create_task(self.engine.dispatch(aggregated))
-                if candle_ts in self.signal_buffer:
-                    del self.signal_buffer[candle_ts]
-                return
-            else:
-                logger.info(f"⚡ HTF OVERRIDE: High-conviction {consensus_side} allowed against {htf_context} trend")
+        # A) Zero-Lag OTF Lock
+        if getattr(config, "OTF_STRICT_LOCK", False):
+            current_otf = "NEUTRAL"
+            if self.context_registry and hasattr(self.context_registry, "otf"):
+                current_otf = self.context_registry.otf.get(symbol, "NEUTRAL")
+
+            if consensus_side == "SHORT" and current_otf == "BULL_OTF":
+                rejected_by_gating = True
+                rejection_reason = "OTF Strict Lock (BULL_OTF)"
+            elif consensus_side == "LONG" and current_otf == "BEAR_OTF":
+                rejected_by_gating = True
+                rejection_reason = "OTF Strict Lock (BEAR_OTF)"
+
+        # B) Value Area Expansion Gating
+        if not rejected_by_gating and getattr(config, "VA_EXPANSION_GATING", False):
+            vah = structural_levels.get("vah")
+            val = structural_levels.get("val")
+            candle_open = self.latest_candle_open.get(symbol)
+            if candle_close and candle_open:
+                # Prohibit SHORTs if Price > VAH and Price > Open (Value expanding UP)
+                if consensus_side == "SHORT" and vah and candle_close > vah and candle_close > candle_open:
+                    rejected_by_gating = True
+                    rejection_reason = "VA Expansion UP (Bullish Conviction)"
+                # Prohibit LONGs if Price < VAL and Price < Open (Value expanding DOWN)
+                elif consensus_side == "LONG" and val and candle_close < val and candle_close < candle_open:
+                    rejected_by_gating = True
+                    rejection_reason = "VA Expansion DOWN (Bearish Conviction)"
+
+        # C) Legacy HTF Context (Override REMOVED)
+        if not rejected_by_gating and htf_context and consensus_side != htf_context:
+            rejected_by_gating = True
+            rejection_reason = f"Against HTF trend ({htf_context})"
+
+        if rejected_by_gating:
+            logger.info(
+                f"🚫 [Regime Lock] Rejecting {consensus_side} {symbol}: {rejection_reason} | "
+                f"ΣL={sigma_long:.2f} ΣS={sigma_short:.2f}"
+            )
+            aggregated = AggregatedSignalEvent(
+                type=EventType.AGGREGATED_SIGNAL,
+                timestamp=time.time(),
+                symbol=signals[0].symbol,
+                candle_timestamp=candle_ts,
+                selected_sensor="None",
+                sensor_score=0.0,
+                side="SKIP",
+                confidence=0.0,
+                total_signals=len(signals),
+                metadata={"rejection_reason": rejection_reason},
+            )
+            asyncio.create_task(self.engine.dispatch(aggregated))
+            return
 
         # 7. STRATEGY TRIGGER FILTER
         # All sensors vote, but trade only if a sensor from active strategy participated
@@ -805,6 +836,7 @@ class SignalAggregatorV3:
                     side="SKIP",
                     confidence=0.0,
                     total_signals=len(signals),
+                    metadata={"rejection_reason": "No strategy sensor participated in winning consensus"},
                 )
                 asyncio.create_task(self.engine.dispatch(aggregated))
                 if candle_ts in self.signal_buffer:

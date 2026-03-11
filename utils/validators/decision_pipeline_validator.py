@@ -324,7 +324,9 @@ class TraceBulletValidator:
         """Fires a raw Strategy Signal with an injection Trace ID and uniquely offset Math fingerprint"""
         # Ranging context around $100 with unique offset
         base_price = 100.0 + offset
-        poc = (base_price + 0.5) if side == "LONG" else (base_price - 0.5)
+        # Ensure RR > 1.1. For LONG: TP dist must be > 1.1 * SL dist.
+        # SL dist = 1.0 (base_price - val). TP dist = 1.5 (poc - base_price). RR = 1.5
+        poc = (base_price + 1.5) if side == "LONG" else (base_price - 1.5)
         val = base_price - 1.0
         vah = base_price + 1.0
 

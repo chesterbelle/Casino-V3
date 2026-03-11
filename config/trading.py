@@ -94,23 +94,27 @@ TRAILING_STOP_ENABLED = True  # Shadow Trailing Enabled
 # En Footprint scalping, una vez alcanzado el 0.20% (66% del TP esperado),
 # iniciamos el trailing a una distancia de 0.08% para asegurar ganancias pero dar más aire.
 TRAILING_STOP_ACTIVATION_PCT = 0.0020  # Profit threshold (0.20%) before SL starts trailing
-TRAILING_STOP_DISTANCE_PCT = 0.0008  # Distance (0.08%) from the peak price to set the trailing SL
+TRAILING_STOP_DISTANCE_PCT = 0.0015  # Loosened from 0.08% to 0.15% to handle volatility
 
 # --- ATR-Based Dynamic Exits (Phase 710) ---
 # Multipliers used to calculate dynamic distances: Distance = Multiplier * ATR
-EXIT_ATR_MULT_TS = 1.5  # Trailing Stop distance (e.g., 1.5x ATR)
-EXIT_ATR_MULT_BE = 2.0  # Breakeven Activation (e.g., 2.0x ATR profit)
+EXIT_ATR_MULT_TS = 2.5  # Increased from 1.5 to 2.5 for more breathing room
+EXIT_ATR_MULT_BE = 3.0  # Increased from 2.0 to 3.0
 
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
 BREAKEVEN_ENABLED = True
-BREAKEVEN_ACTIVATION_PCT = 0.0015  # Profit threshold (0.15%) to trigger SL move to Entry Price
+BREAKEVEN_ACTIVATION_PCT = 0.0025  # Loosened from 0.15% to 0.25%
 
 # --- Signal Reversal ---
 # Close position if a strong opposite signal is detected from consensus.
 SIGNAL_REVERSAL_ENABLED = False  # Deactivated as per user request (threshold mismatch)
 SIGNAL_REVERSAL_THRESHOLD = 0.8  # Required confidence (0-1) to trigger an immediate market close
 GRACEFUL_SL_TIMEOUT = 10.0  # Seconds to wait for SL modification before considering it a failure
+
+# --- Phase 660: Trend Gating ---
+OTF_STRICT_LOCK = True  # If True, prohibits fading strong One-Timeframing trends
+VA_EXPANSION_GATING = True  # If True, prohibits shorts when Value is expanding up (Price > VAH & Price > Open)
 
 # --- Setup-Specific Risk/Reward (RR) Ratios (Phase 712) ---
 # High-frequency survival math: Minimum RR required to offset fees/slippage per setup.

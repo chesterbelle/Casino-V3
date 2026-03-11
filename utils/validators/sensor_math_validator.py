@@ -54,17 +54,16 @@ async def run_validator():
 
     # Test Scenarios
     scenarios = [
-        # Scenario 1: SHORT at VAH (Reversion)
+        # Scenario 1: SHORT at VAH (Reversion) - Fixed prices for SHORT
         {
             "name": "SHORT Reversion at VAH",
             "symbol": "DOTUSDT",
             "side": "SHORT",
-            "current_price": 100.0,
             "metadata": {
                 "setup_type": "reversion",
                 "price": 100.0,
                 "1h_poc": 95.0,
-                "1h_vah": 99.0,
+                "1h_vah": 105.0,  # SL should be above entry
                 "1h_val": 90.0,
             },
         },
@@ -73,7 +72,6 @@ async def run_validator():
             "name": "LONG Reversion at VAL",
             "symbol": "DOTUSDT",
             "side": "LONG",
-            "current_price": 90.0,
             "metadata": {
                 "setup_type": "reversion",
                 "price": 90.0,
@@ -87,7 +85,6 @@ async def run_validator():
             "name": "SHORT Continuation",
             "symbol": "KAVAUSDT",
             "side": "SHORT",
-            "current_price": 90.0,  # Below VAL
             "metadata": {
                 "setup_type": "continuation",
                 "price": 90.0,
@@ -101,13 +98,11 @@ async def run_validator():
             "name": "SHORT DOTUSDT Real Data Suspect",
             "symbol": "DOTUSDT",
             "side": "SHORT",
-            "current_price": 1.495,
             "metadata": {
-                # We will test without setup_type to fallback to Dalton Contextual Exits
                 "price": 1.495,
-                "poc": 1.505,
+                "poc": 1.405,  # TP below entry for SHORT
                 "vah": 1.515,
-                "val": 1.485,
+                "val": 1.385,
             },
         },
         # Scenario 5: TREND_WINDOW (Aggressive Target)
@@ -115,12 +110,11 @@ async def run_validator():
             "name": "LONG TREND (Post-Breakout)",
             "symbol": "BTCUSDT",
             "side": "LONG",
-            "current_price": 60500.0,
             "regime": "TREND_WINDOW",
             "metadata": {
                 "setup_type": "continuation",
                 "price": 60500.0,
-                "vah": 60400.0,
+                "vah": 60600.0,  # TP
                 "val": 60200.0,
                 "poc": 60300.0,
             },
@@ -130,7 +124,6 @@ async def run_validator():
             "name": "SHORT RANGE (Mean Reversion)",
             "symbol": "ETHUSDT",
             "side": "SHORT",
-            "current_price": 2510.0,
             "regime": "RANGE_WINDOW",
             "metadata": {
                 "setup_type": "reversion",
@@ -146,14 +139,13 @@ async def run_validator():
             "name": "ATR Floor (SL Expansion)",
             "symbol": "LTCUSDT",
             "side": "LONG",
-            "current_price": 100.0,
             "metadata": {
                 "setup_type": "reversion",
                 "price": 100.0,
                 "1h_poc": 102.0,
                 "1h_vah": 105.0,
-                "1h_val": 99.8,  # Tiny structural SL (0.2 ticks)
-                "atr_1m": 1.0,  # 1% ATR -> Floor should be 1.2%
+                "1h_val": 99.8,
+                "atr_1m": 1.0,
             },
         },
         # Scenario 8: Proximity Reject (TP too close)
@@ -161,11 +153,10 @@ async def run_validator():
             "name": "Proximity Rejection (Target < 0.08%)",
             "symbol": "XRPUSDT",
             "side": "LONG",
-            "current_price": 0.5000,
             "metadata": {
                 "setup_type": "reversion",
                 "price": 0.5000,
-                "1h_poc": 0.5002,  # 0.04% distance -> should reject
+                "1h_poc": 0.5002,
                 "1h_vah": 0.5100,
                 "1h_val": 0.4900,
                 "atr_1m": 0.0005,
@@ -177,23 +168,22 @@ async def run_validator():
             "name": "RR Rejection (High ATR, Low Target)",
             "symbol": "SOLUSDT",
             "side": "LONG",
-            "current_price": 100.0,
             "metadata": {
                 "setup_type": "reversion",
                 "price": 100.0,
-                "1h_poc": 100.2,  # 0.2% TP
+                "1h_poc": 100.2,
                 "1h_vah": 105.0,
                 "1h_val": 99.0,
-                "atr_1m": 0.5,  # 1.2 * 0.5 = 0.6% SL -> RR 0.2/0.6 = 0.33 < 1.0 -> should reject
+                "atr_1m": 0.5,
             },
             "expect_reject": True,
         },
     ]
 
-    failed = False
+    failed_scenarios = []
 
     for s in scenarios:
-        logger.info(f"\\n--- Testing Scenario: {s['name']} ---")
+        logger.info(f"\n--- Testing Scenario: {s['name']} ---")
         engine.dispatched_events.clear()
 
         event = AggregatedSignalEvent(
@@ -213,7 +203,6 @@ async def run_validator():
             trace_id="trc_test",
         )
 
-        # Phase 660: Force Regime in Registry
         if "regime" in s:
             context_registry.set_regime(s["symbol"], s["regime"])
         else:
@@ -227,44 +216,45 @@ async def run_validator():
                 logger.info(f"✅ Scenario {s['name']} correctly REJECTED.")
                 continue
             else:
-                logger.error(
-                    f"❌ Scenario {s['name']} failed to dispatch a DecisionEvent and was NOT expected to reject."
-                )
-                failed = True
+                logger.error(f"❌ Scenario {s['name']} failed to dispatch a DecisionEvent.")
+                failed_scenarios.append(s["name"])
                 continue
         elif s.get("expect_reject"):
             logger.error(f"❌ Scenario {s['name']} dispatched a decision but was EXPECTED to REJECT.")
-            failed = True
+            failed_scenarios.append(s["name"])
             continue
 
         decision = engine.dispatched_events[0]
         tp = decision.tp_price
         sl = decision.sl_price
-        entry = s["current_price"]
+        entry = s["metadata"].get("price")
 
         logger.info(f"Result for {s['side']} @ {entry}: TP={tp}, SL={sl}")
 
-        # Validations
+        scenario_failed = False
         if decision.side == "LONG":
             if tp is not None and tp <= entry:
                 logger.error(f"❌ MATH INVERSION: LONG TP ({tp}) is NOT strictly > entry ({entry})")
-                failed = True
+                scenario_failed = True
             if sl is not None and sl >= entry:
                 logger.error(f"❌ MATH INVERSION: LONG SL ({sl}) is NOT strictly < entry ({entry})")
-                failed = True
+                scenario_failed = True
         elif decision.side == "SHORT":
             if tp is not None and tp >= entry:
                 logger.error(f"❌ MATH INVERSION: SHORT TP ({tp}) is NOT strictly < entry ({entry})")
-                failed = True
+                scenario_failed = True
             if sl is not None and sl <= entry:
                 logger.error(f"❌ MATH INVERSION: SHORT SL ({sl}) is NOT strictly > entry ({entry})")
-                failed = True
+                scenario_failed = True
 
-    if failed:
-        logger.error("\\n💣 VALIDATION FAILED: Math Inversions Detected!")
+        if scenario_failed:
+            failed_scenarios.append(s["name"])
+
+    if failed_scenarios:
+        logger.error(f"\n💣 VALIDATION FAILED on scenarios: {', '.join(failed_scenarios)}")
         sys.exit(1)
     else:
-        logger.info("\\n✅ All scenarios passed gracefully. No Math Inversions in AdaptivePlayer.")
+        logger.info("\n✅ All scenarios passed gracefully. No Math Inversions in AdaptivePlayer.")
 
 
 if __name__ == "__main__":
