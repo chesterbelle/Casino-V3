@@ -167,10 +167,15 @@ class AdaptivePlayer:
                     tp_price = val
                     sl_price = max(entry_price * 1.002, poc * 1.001)
 
+        # Final Sanity Check: Ensure structural targets make sense relative to entry
         if tp_price and sl_price:
+            if side == "LONG":
+                if tp_price <= entry_price or sl_price >= entry_price:
+                    return None, None
+            elif side == "SHORT":
+                if tp_price >= entry_price or sl_price <= entry_price:
+                    return None, None
             return tp_price, sl_price
-
-        return None, None
 
         return None, None
 
@@ -299,7 +304,10 @@ class AdaptivePlayer:
         # Phase 710: Dynamic Breathing Room (ATR-based)
         MAX_DISTANCE_PCT = getattr(config, "MAX_POSITION_SIZE", 0.02)  # Use config or default
         MIN_DISTANCE_PCT = 0.001  # 0.1% hard floor for exchange safety
-        ATR_SL_MULT = 1.2  # SL must be at least 1.2x ATR from entry
+
+        # FOOTPRINT SCALPING OVRERIDE: Tighter ATR Floor
+        is_scorching = "Footprint" in (event.selected_sensor or "")
+        ATR_SL_MULT = 0.5 if is_scorching else 1.2  # Scalps get tight 0.5x ATR stops
         MIN_TP_PROXIMITY = 0.0008  # 0.08% min structural proximity for edge
 
         atr_1m = event.metadata.get("atr_1m", 0.0)
@@ -367,11 +375,15 @@ class AdaptivePlayer:
             setup_ratios = getattr(config, "SETUP_RR_RATIOS", {})
             required_rr = setup_ratios.get(event.selected_sensor, setup_ratios.get("DEFAULT", 1.1))
 
+            # FOOTPRINT SCALPING OVERRIDE: Relax RR for high-prob scalps
+            if is_scorching:
+                required_rr = 0.75  # Scalping mathematically allows inversion if WinRate > 60%
+
             if rr < required_rr:
                 logger.warning(
                     f"🚫 GATING REJECT (RR Ratio): {event.symbol} {event.side} "
                     f"Sensor: {event.selected_sensor} | RR is {rr:.2f} < {required_rr}. "
-                    f"Skipping to ensure HFT survival expectancy."
+                    f"Skipping to ensure survival expectancy."
                 )
                 return
 

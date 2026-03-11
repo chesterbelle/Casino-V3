@@ -790,6 +790,23 @@ class SignalAggregatorV3:
             rejected_by_gating = True
             rejection_reason = f"Against HTF trend ({htf_context})"
 
+        # D) FOOTPRINT SCALPING OVERRIDE (Phase PnL Recovery)
+        # Re-introduce the override exclusively for high conviction footprint setups
+        if rejected_by_gating and winner_signals:
+            # Check if any winning signal is a Footprint Scalping sensor with good strength
+            for sig in winner_signals:
+                sensor_id = sig.get("sensor_id", "")
+                strength = sig.get("strength", 0)
+                # If we have a footprint sensor with high conviction (> 0.4 score), we bypass the HTF lock
+                if "Footprint" in sensor_id and strength > 0.4:
+                    logger.info(
+                        f"⚡ SCALPER OVERRIDE: High-conviction {consensus_side} from {sensor_id} "
+                        f"(strength: {strength:.2f}) allowed against {rejection_reason}"
+                    )
+                    rejected_by_gating = False
+                    rejection_reason = ""
+                    break
+
         if rejected_by_gating:
             logger.info(
                 f"🚫 [Regime Lock] Rejecting {consensus_side} {symbol}: {rejection_reason} | "

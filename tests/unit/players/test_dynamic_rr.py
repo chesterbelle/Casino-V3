@@ -61,8 +61,8 @@ class TestDynamicRR(unittest.IsolatedAsyncioTestCase):
             # Check if decision was emitted (meaning it passed gating)
             self.assertTrue(any("Decision: LONG" in line for line in cm.output))
 
-    async def test_delta_divergence_rr_fail(self):
-        """1.5 RR should FAIL for Delta Divergence (requires 2.0)."""
+    async def test_delta_divergence_rr_pass_due_to_scalp_override(self):
+        """1.5 RR should PASS now for Delta Divergence because of scalper override (0.75)."""
         event = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=time.time(),
@@ -79,10 +79,9 @@ class TestDynamicRR(unittest.IsolatedAsyncioTestCase):
         self.context_registry.get_latest_price.return_value = 100.0
         self.context_registry.get_regime.return_value = "NORMAL"
 
-        with self.assertLogs("players.adaptive", level="WARNING") as cm:
+        with self.assertLogs("players.adaptive", level="INFO") as cm:
             await self.player.on_aggregated_signal(event)
-            self.assertTrue(any("GATING REJECT (RR Ratio)" in line for line in cm.output))
-            self.assertTrue(any("RR is 1.50 < 2.0" in line for line in cm.output))
+            self.assertTrue(any("Decision: LONG" in line for line in cm.output))
 
 
 if __name__ == "__main__":
