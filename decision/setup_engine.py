@@ -83,6 +83,8 @@ class SetupEngineV4:
 
             # Dispatch as AggregatedSignalEvent so AdaptivePlayer receives it
             out_evt = AggregatedSignalEvent(
+                type=EventType.AGGREGATED_SIGNAL,
+                timestamp=now,
                 symbol=sym,
                 candle_timestamp=now,
                 selected_sensor=f"SetupEngine_{trigger['setup_name']}",
