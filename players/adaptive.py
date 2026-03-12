@@ -11,8 +11,7 @@ import logging
 import time
 from typing import Optional, Tuple
 
-from core.events import Event, EventType
-from decision.aggregator import AggregatedSignalEvent
+from core.events import AggregatedSignalEvent, Event, EventType
 from decision.sensor_tracker import SensorTracker
 
 logger = logging.getLogger(__name__)
