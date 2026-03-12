@@ -6,7 +6,9 @@ from core.events import AggregatedSignalEvent, EventType
 from players.adaptive import AdaptivePlayer
 
 
-class TestDynamicRR(unittest.IsolatedAsyncioTestCase):
+class TestPhase700SetupClamping(unittest.IsolatedAsyncioTestCase):
+    """Phase 700 RESTORED: Verify structural percentage clamping per setup type."""
+
     async def asyncSetUp(self):
         self.engine = MagicMock()
         self.engine.dispatch = AsyncMock()
@@ -18,28 +20,16 @@ class TestDynamicRR(unittest.IsolatedAsyncioTestCase):
         self.context_registry = MagicMock()
         self.player = AdaptivePlayer(self.engine, self.croupier, context_registry=self.context_registry)
 
-        # Mocking config for precise RR control
         self.patcher = patch("players.adaptive.config")
         self.mock_config = self.patcher.start()
-        self.mock_config.SETUP_RR_RATIOS = {
-            "FootprintTrappedTraders": 1.2,
-            "FootprintDeltaDivergence": 2.0,
-            "FootprintStackedImbalance": 1.5,
-            "DEFAULT": 1.1,
-        }
-        self.mock_config.MIN_TP_PROXIMITY = 0.0005
-        self.mock_config.MIN_DISTANCE_PCT = 0.0001
-        self.mock_config.MAX_DISTANCE_PCT = 0.05
-        self.mock_config.ATR_SL_MULT = 1.2
         self.mock_config.COMMISSION_RATE = 0.00035
         self.mock_config.SLIPPAGE_DEFAULT = 0.00015
-        self.mock_config.MAX_POSITION_SIZE = 0.02
 
     def tearDown(self):
         self.patcher.stop()
 
-    async def test_trapped_traders_rr_pass(self):
-        """1.2 RR should PASS for Trapped Traders."""
+    async def test_reversion_clamp_allows_trade(self):
+        """Reversion setup: TP clamped to 0.10-0.60%, SL clamped to 0.15-0.45%."""
         event = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=time.time(),
@@ -50,19 +40,38 @@ class TestDynamicRR(unittest.IsolatedAsyncioTestCase):
             side="LONG",
             confidence=0.8,
             total_signals=1,
-            metadata={"setup_type": "initial", "tp_price": 101.2, "sl_price": 99.0, "price": 100.0},
+            metadata={"setup_type": "reversion", "tp_price": 100.50, "sl_price": 99.70, "price": 100.0},
         )
-        # Entry 100.0 (from metadata), TP 101.2 (dist 1.2), SL 99.0 (dist 1.0) -> RR 1.2
         self.context_registry.get_latest_price.return_value = 100.0
         self.context_registry.get_regime.return_value = "NORMAL"
 
         with self.assertLogs("players.adaptive", level="INFO") as cm:
             await self.player.on_aggregated_signal(event)
-            # Check if decision was emitted (meaning it passed gating)
             self.assertTrue(any("Decision: LONG" in line for line in cm.output))
 
-    async def test_delta_divergence_rr_pass_due_to_scalp_override(self):
-        """1.5 RR should PASS now for Delta Divergence because of scalper override (0.75)."""
+    async def test_continuation_clamp_allows_trade(self):
+        """Continuation setup: TP clamped to 0.15-0.90%, SL clamped to 0.15-0.55%."""
+        event = AggregatedSignalEvent(
+            type=EventType.AGGREGATED_SIGNAL,
+            timestamp=time.time(),
+            symbol="BTCUSDT",
+            candle_timestamp=time.time(),
+            selected_sensor="FootprintStackedImbalance",
+            sensor_score=0.8,
+            side="LONG",
+            confidence=0.8,
+            total_signals=1,
+            metadata={"setup_type": "continuation", "tp_price": 100.80, "sl_price": 99.50, "price": 100.0},
+        )
+        self.context_registry.get_latest_price.return_value = 100.0
+        self.context_registry.get_regime.return_value = "NORMAL"
+
+        with self.assertLogs("players.adaptive", level="INFO") as cm:
+            await self.player.on_aggregated_signal(event)
+            self.assertTrue(any("Decision: LONG" in line for line in cm.output))
+
+    async def test_initial_clamp_allows_trade(self):
+        """Initial breakout: TP clamped to 0.20-0.80%, SL clamped to 0.20-0.50%."""
         event = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=time.time(),
@@ -75,12 +84,12 @@ class TestDynamicRR(unittest.IsolatedAsyncioTestCase):
             total_signals=1,
             metadata={"setup_type": "initial", "tp_price": 101.5, "sl_price": 99.0, "price": 100.0},
         )
-        # Entry 100.0, TP 101.5 (dist 1.5), SL 99.0 (dist 1.0) -> RR 1.5
         self.context_registry.get_latest_price.return_value = 100.0
         self.context_registry.get_regime.return_value = "NORMAL"
 
         with self.assertLogs("players.adaptive", level="INFO") as cm:
             await self.player.on_aggregated_signal(event)
+            # TP 1.5% will be clamped to 0.80% max for initial
             self.assertTrue(any("Decision: LONG" in line for line in cm.output))
 
 

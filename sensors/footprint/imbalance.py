@@ -36,7 +36,7 @@ class FootprintImbalanceV3(SensorV3):
 
         # Cooldown to avoid blasting the engine with signals for the same imbalance
         self._last_signal_time = 0.0
-        self._signal_cooldown = 2.0  # 2 seconds cooldown
+        self._signal_cooldown = 0.5  # 500ms metric cooldown for HFT
 
     @property
     def name(self) -> str:
@@ -121,17 +121,16 @@ class FootprintImbalanceV3(SensorV3):
         long_imbalances = [i for i in imbalances if i["side"] == "LONG"]
         short_imbalances = [i for i in imbalances if i["side"] == "SHORT"]
 
-        # 4. Determine Direction (Simplest: Majority rules for micro-trend)
+        # 4. Determine Direction (Tactical Event Generation)
         signal = None
         if len(long_imbalances) > len(short_imbalances):
             avg_density = sum(i["density"] for i in long_imbalances) / len(long_imbalances)
             signal = {
-                "side": "LONG",
-                "score": 1.0 if at_level else 0.4,
+                "side": "TACTICAL",  # No longer guessing LONG/SHORT
                 "metadata": {
+                    "tactical_type": "TacticalImbalance",
+                    "direction": "LONG",
                     "imbalances": len(long_imbalances),
-                    "type": "Live Buy Imbalance",
-                    "fast_track": at_level,
                     "at_volume_level": at_level,
                     "cluster_density": round(avg_density, 2),
                     "poc": poc,
@@ -143,12 +142,11 @@ class FootprintImbalanceV3(SensorV3):
         elif len(short_imbalances) > len(long_imbalances):
             avg_density = sum(i["density"] for i in short_imbalances) / len(short_imbalances)
             signal = {
-                "side": "SHORT",
-                "score": 1.0 if at_level else 0.4,
+                "side": "TACTICAL",
                 "metadata": {
+                    "tactical_type": "TacticalImbalance",
+                    "direction": "SHORT",
                     "imbalances": len(short_imbalances),
-                    "type": "Live Sell Imbalance",
-                    "fast_track": at_level,
                     "at_volume_level": at_level,
                     "cluster_density": round(avg_density, 2),
                     "poc": poc,
@@ -158,14 +156,13 @@ class FootprintImbalanceV3(SensorV3):
                 },
             }
 
-        # If no strict imbalance, but there IS unfinished business, we can still emit a context-only signal
+        # If no strict imbalance, but there IS unfinished business, emit context
         if not signal and unfinished_business:
             signal = {
-                "side": "NEUTRAL",
-                "score": 0.5,
+                "side": "TACTICAL",
                 "metadata": {
-                    "type": "Unfinished_Business_Context",
-                    "fast_track": False,
+                    "tactical_type": "TacticalContext",
+                    "context_reason": "Unfinished_Business",
                     "poc": poc,
                     "vah": vah,
                     "val": val,

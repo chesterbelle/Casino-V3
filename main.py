@@ -65,7 +65,7 @@ from core.observability.watchdog import watchdog
 from core.sensor_manager import SensorManager
 from croupier.components.reconciliation_worker import ReconciliationWorker
 from croupier.croupier import Croupier
-from decision.aggregator import SignalAggregatorV3
+from decision.setup_engine import SetupEngineV4
 from exchanges.adapters import ExchangeAdapter
 from exchanges.connectors import (
     BinanceNativeConnector,
@@ -386,9 +386,9 @@ async def main():
     # Use tick_size from args if available, else default
     context_registry = ContextRegistry(tick_size=args.tick_size if hasattr(args, "tick_size") else 0.1)
 
-    # 8. Initialize Signal Aggregator (Signal → Aggregated Signal)
-    aggregator = SignalAggregatorV3(engine, context_registry=context_registry)
-    tracker = aggregator.tracker  # Get tracker from aggregator
+    # 8. Initialize Setup Engine (Tactical Event Setup Engine -> Decision)
+    setup_engine = SetupEngineV4(engine, context_registry=context_registry)
+    tracker = setup_engine.tracker  # Get dummy tracker
 
     # 9. Initialize Player (Aggregated Signal → Decision)
     from players.adaptive import AdaptivePlayer

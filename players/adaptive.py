@@ -11,7 +11,6 @@ import logging
 import time
 from typing import Optional, Tuple
 
-import config.trading as config
 from core.events import Event, EventType
 from decision.aggregator import AggregatedSignalEvent
 from decision.sensor_tracker import SensorTracker
@@ -237,23 +236,12 @@ class AdaptivePlayer:
         setup_type = event.metadata.get("setup_type", "unknown")
         tp_sl_source = "config_fallback"
 
-        # Phase 700: Structural TP/SL from HTF levels (Trader Dale Ready)
-        htf_levels = self._get_best_htf_levels(event.metadata or {})
+        # Phase 700: Structural TP/SL from SetupEngine levels
         current_price = event.metadata.get("price")
-
-        if htf_levels and current_price and current_price > 0:
-            struct_tp, struct_sl = self._calculate_structural_tp_sl(
-                event.side, current_price, htf_levels, setup_type, regime=regime
-            )
-            if struct_tp is not None and struct_sl is not None:
-                tp_price = struct_tp
-                sl_price = struct_sl
-                tp_sl_source = f"structural_{htf_levels['source_tf']}"
-                logger.debug(
-                    f"🎯 Structural TP/SL from {htf_levels['source_tf']}: "
-                    f"TP={tp_price:.4f} SL={sl_price:.4f} | "
-                    f"POC={htf_levels['poc']:.4f} VAH={htf_levels['vah']:.4f} VAL={htf_levels['val']:.4f}"
-                )
+        # Setup engine provides poc/vah/val in metadata directly, so we can use those.
+        poc = event.metadata.get("poc")
+        vah = event.metadata.get("vah")
+        val = event.metadata.get("val")
 
         # Phase 600: James Dalton Contextual Exits (fallback if no structural levels already set)
         if tp_price is None and "poc" in event.metadata and "vah" in event.metadata and "val" in event.metadata:
@@ -300,104 +288,36 @@ class AdaptivePlayer:
             if sl_price:
                 tp_sl_source = "metadata_direct"
 
-        # Binance rejects limit orders too far from current market price (-4131).
-        # Phase 710: Dynamic Breathing Room (ATR-based)
-        MAX_DISTANCE_PCT = getattr(config, "MAX_POSITION_SIZE", 0.02)  # Use config or default
-        MIN_DISTANCE_PCT = 0.001  # 0.1% hard floor for exchange safety
-
-        # FOOTPRINT SCALPING OVRERIDE: Tighter ATR Floor
-        is_scorching = "Footprint" in (event.selected_sensor or "")
-        ATR_SL_MULT = 0.5 if is_scorching else 1.2  # Scalps get tight 0.5x ATR stops
-        MIN_TP_PROXIMITY = 0.0008  # 0.08% min structural proximity for edge
-
-        atr_1m = event.metadata.get("atr_1m", 0.0)
-        atr_sl_dist = atr_1m * ATR_SL_MULT if atr_1m > 0 else current_price * 0.002
-
-        if tp_price and current_price and current_price > 0:
-            # 1. Phase 710: Proximity Gate (Edge Validator) - MUST BE BEFORE CLAMPING
-            # If the structural edge is already too thin, reject the trade completely.
-            if abs(tp_price - current_price) / current_price < MIN_TP_PROXIMITY:
-                logger.warning(
-                    f"🚫 GATING REJECT (Proximity): {event.symbol} {event.side} "
-                    f"Target is too close to entry ({abs(tp_price - current_price)/current_price:.4%}). "
-                    f"Required: {MIN_TP_PROXIMITY:.2%}. Skipping to avoid noise trap."
-                )
-                return
-
-            # 2. Check Max Distance
-            max_tp_dist = current_price * MAX_DISTANCE_PCT
-            if abs(tp_price - current_price) > max_tp_dist:
-                if event.side == "LONG":
-                    tp_price = current_price + max_tp_dist
-                else:
-                    tp_price = current_price - max_tp_dist
-                tp_sl_source = f"{tp_sl_source}+clamped_max"
-                logger.debug(f"⚠️ TP clamped to max {MAX_DISTANCE_PCT:.0%} distance: {tp_price:.4f}")
-
-            # 3. Check Min Distance (-2021 Prevention)
-            min_tp_dist = current_price * MIN_DISTANCE_PCT
-            if abs(tp_price - current_price) < min_tp_dist:
-                if event.side == "LONG":
-                    tp_price = current_price + min_tp_dist
-                else:
-                    tp_price = current_price - min_tp_dist
-                tp_sl_source = f"{tp_sl_source}+clamped_min"
-                logger.debug(f"⚠️ TP clamped to MIN {MIN_DISTANCE_PCT:.1%} distance: {tp_price:.4f}")
-
-        if sl_price and current_price and current_price > 0:
-            # 1. Check Max Distance
-            max_sl_dist = current_price * 0.01  # 1% max SL distance
-            if abs(sl_price - current_price) > max_sl_dist:
-                if event.side == "LONG":
-                    sl_price = current_price - max_sl_dist
-                else:
-                    sl_price = current_price + max_sl_dist
-                logger.debug(f"⚠️ SL clamped to max 1% distance: {sl_price:.4f}")
-
-            # 2. Check Min Distance & ATR Floor (-2021 Prevention + Breathing Room)
-            actual_min_sl_dist = max(current_price * MIN_DISTANCE_PCT, atr_sl_dist)
-
-            if abs(sl_price - current_price) < actual_min_sl_dist:
-                if event.side == "LONG":
-                    sl_price = current_price - actual_min_sl_dist
-                else:
-                    sl_price = current_price + actual_min_sl_dist
-                tp_sl_source = f"{tp_sl_source}+atr_floor"
-                logger.debug(f"⚠️ SL clamped to ATR Floor ({actual_min_sl_dist/current_price:.2%}): {sl_price:.4f}")
-
-        # Phase 712: Dynamic Risk/Reward (RR) Mandatory Validation
+        # Phase 700 RESTORED: Simple setup-type percentage clamping (trust the structure)
+        # Convert absolute prices to percentages, clamp per setup, then convert back.
         if tp_price and sl_price and current_price and current_price > 0:
-            tp_dist = abs(tp_price - current_price)
-            sl_dist = abs(sl_price - current_price)
-            rr = tp_dist / sl_dist if sl_dist > 0 else 0
+            tp_pct = abs((tp_price - current_price) / current_price) * 100
+            sl_pct = abs((sl_price - current_price) / current_price) * 100
 
-            # Get setup-specific RR requirement
-            setup_ratios = getattr(config, "SETUP_RR_RATIOS", {})
-            required_rr = setup_ratios.get(event.selected_sensor, setup_ratios.get("DEFAULT", 1.1))
+            if setup_type == "reversion":
+                tp_pct = max(0.10, min(tp_pct, 0.60))
+                sl_pct = max(0.15, min(sl_pct, 0.45))
+                tp_sl_source = f"{tp_sl_source}+reversion_clamp"
+            elif setup_type == "continuation":
+                tp_pct = max(0.15, min(tp_pct, 0.90))
+                sl_pct = max(0.15, min(sl_pct, 0.55))
+                tp_sl_source = f"{tp_sl_source}+continuation_clamp"
+            elif setup_type == "initial":
+                tp_pct = max(0.20, min(tp_pct, 0.80))
+                sl_pct = max(0.20, min(sl_pct, 0.50))
+                tp_sl_source = f"{tp_sl_source}+initial_clamp"
+            else:
+                # Generic HFT clamp
+                tp_pct = max(0.10, min(tp_pct, 2.0))
+                sl_pct = max(0.25, min(sl_pct, 2.0))
 
-            # FOOTPRINT SCALPING OVERRIDE: Relax RR for high-prob scalps
-            if is_scorching:
-                required_rr = 0.75  # Scalping mathematically allows inversion if WinRate > 60%
-
-            if rr < required_rr:
-                logger.warning(
-                    f"🚫 GATING REJECT (RR Ratio): {event.symbol} {event.side} "
-                    f"Sensor: {event.selected_sensor} | RR is {rr:.2f} < {required_rr}. "
-                    f"Skipping to ensure survival expectancy."
-                )
-                return
-
-        # Phase 650.3: Order Book Confirmation Confidence
-        dom_confirmed = event.metadata.get("dom_wall_confirmed", False)
-        if dom_confirmed and bet_size:
-            bet_size = min(bet_size * 2.0, self.kelly_max if self.use_kelly else self.fixed_pct * 3.0)
-            logger.debug(f"🧱 [Phase 650] Massive DOM Wall confirmed absorption! Doubling bet size to {bet_size:.2%}")
-
-        # Phase 600: Trader Dale Absorption Sizing
-        intensity = event.metadata.get("absorption_intensity", 1.0)
-        if intensity > 3.0 and bet_size:
-            # Highly asymmetric absorption -> slightly increase bet size confidence
-            bet_size = min(bet_size * 1.5, self.kelly_max if self.use_kelly else self.fixed_pct * 2.0)
+            # Convert back to absolute prices
+            if event.side == "LONG":
+                tp_price = current_price * (1 + tp_pct / 100)
+                sl_price = current_price * (1 - sl_pct / 100)
+            else:
+                tp_price = current_price * (1 - tp_pct / 100)
+                sl_price = current_price * (1 + sl_pct / 100)
 
         # Calculate percentage for logging (human-readable)
         tp_pct_log = abs((tp_price - current_price) / current_price) * 100 if tp_price and current_price else 0
@@ -408,13 +328,13 @@ class AdaptivePlayer:
                 f"🎯 Decision: {event.side} | {sizing_method} Bet: {bet_size:.2%} of {equity:.2f} | "
                 f"Sensor: {event.selected_sensor} | Setup: {setup_type} | "
                 f"TP: {tp_price:.4f} ({tp_pct_log:.2f}%) SL: {sl_price:.4f} ({sl_pct_log:.2f}%) "
-                f"(Source: {tp_sl_source}, Intensity: {intensity})"
+                f"(Source: {tp_sl_source})"
             )
             if tp_price and sl_price
             else logger.info(
                 f"🎯 Decision: {event.side} | {sizing_method} Bet: {bet_size:.2%} of {equity:.2f} | "
                 f"Sensor: {event.selected_sensor} | Setup: {setup_type} | "
-                f"TP/SL: config fallback (Source: {tp_sl_source}, Intensity: {intensity})"
+                f"TP/SL: config fallback (Source: {tp_sl_source})"
             )
         )
 
@@ -430,7 +350,7 @@ class AdaptivePlayer:
             t0_timestamp=getattr(event, "t0_timestamp", None),
             t1_decision_ts=getattr(event, "t1_decision_ts", None),
             trace_id=getattr(event, "trace_id", None),
-            atr_1m=atr_1m,
+            atr_1m=event.metadata.get("atr_1m", 0.0),
         )
         decision.decision_id = decision_id  # Add unique ID
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")

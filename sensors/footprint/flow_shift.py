@@ -52,9 +52,14 @@ class FootprintDeltaPoCShift(SensorV3):
         # 3. Green Candle
         if curr_poc > prev_poc and delta > 0 and close > open_price:
             return {
-                "side": "LONG",
-                "score": 0.8,
-                "metadata": {"type": "PoC_Shift_Up", "poc_change": curr_poc - prev_poc, "delta": delta},
+                "side": "TACTICAL",
+                "metadata": {
+                    "tactical_type": "TacticalPoCShift",
+                    "direction": "LONG",
+                    "subtype": "PoC_Shift_Up",
+                    "poc_change": curr_poc - prev_poc,
+                    "delta": delta,
+                },
             }
 
         # Bearish Shift
@@ -63,9 +68,14 @@ class FootprintDeltaPoCShift(SensorV3):
         # 3. Red Candle
         if curr_poc < prev_poc and delta < 0 and close < open_price:
             return {
-                "side": "SHORT",
-                "score": 0.8,
-                "metadata": {"type": "PoC_Shift_Down", "poc_change": curr_poc - prev_poc, "delta": delta},
+                "side": "TACTICAL",
+                "metadata": {
+                    "tactical_type": "TacticalPoCShift",
+                    "direction": "SHORT",
+                    "subtype": "PoC_Shift_Down",
+                    "poc_change": curr_poc - prev_poc,
+                    "delta": delta,
+                },
             }
 
         return None

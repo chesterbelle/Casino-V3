@@ -157,34 +157,34 @@ class BigOrderSensor(SensorV3):
         # Big buyer at support = LONG
         if side == "BUY" and is_support:
             signal = {
-                "side": "LONG",
-                "score": 0.70,
+                "side": "TACTICAL",
                 "metadata": {
-                    "type": "Big_Buyer_at_Support",
+                    "tactical_type": "TacticalBigOrder",
+                    "direction": "LONG",
+                    "subtype": "Big_Buyer_at_Support",
                     "big_order_side": side,
                     "big_order_vol": round(vol, 4),
                     "avg_trade_vol": round(self._avg_trade_size, 4),
                     "size_ratio": round(vol / self._avg_trade_size, 2),
                     "level_type": level_type,
                     "level_price": level_price,
-                    "fast_track": True,
                 },
             }
 
         # Big seller at resistance = SHORT
         elif side == "SELL" and is_resistance:
             signal = {
-                "side": "SHORT",
-                "score": 0.70,
+                "side": "TACTICAL",
                 "metadata": {
-                    "type": "Big_Seller_at_Resistance",
+                    "tactical_type": "TacticalBigOrder",
+                    "direction": "SHORT",
+                    "subtype": "Big_Seller_at_Resistance",
                     "big_order_side": side,
                     "big_order_vol": round(vol, 4),
                     "avg_trade_vol": round(self._avg_trade_size, 4),
                     "size_ratio": round(vol / self._avg_trade_size, 2),
                     "level_type": level_type,
                     "level_price": level_price,
-                    "fast_track": True,
                 },
             }
 

@@ -56,7 +56,6 @@ class FootprintPOCRejection(SensorV3):
             return None
 
         signal = None
-        score = 0.0
 
         # Scenario 1: Bullish Rejection (Test Support)
         # Price came down to Prev POC and bounced up
@@ -67,7 +66,6 @@ class FootprintPOCRejection(SensorV3):
                 body = abs(curr_close - curr_open)
                 if wick > body * 0.3:  # Significant rejection wick
                     signal = "LONG"
-                    score = 0.8
 
         # Scenario 2: Bearish Rejection (Test Resistance)
         # Price went up to Prev POC and rejected down
@@ -77,13 +75,17 @@ class FootprintPOCRejection(SensorV3):
                 body = abs(curr_close - curr_open)
                 if wick > body * 0.3:
                     signal = "SHORT"
-                    score = 0.8
 
         if signal:
             return {
-                "side": signal,
-                "score": score,
-                "metadata": {"pattern": "POC_Rejection", "poc_level": prev_poc, "rejection_price": curr_close},
+                "side": "TACTICAL",
+                "metadata": {
+                    "tactical_type": "TacticalRejection",
+                    "direction": signal,
+                    "pattern": "POC_Rejection",
+                    "poc_level": prev_poc,
+                    "rejection_price": curr_close,
+                },
             }
         return None
 
@@ -126,31 +128,29 @@ class FootprintDeltaDivergence(SensorV3):
         d2 = get_val(c2, "delta")
 
         signal = None
-        score = 0.0
 
         # Bearish Divergence: Price Higher, Delta Lower (or Negative)
         # Price made a higher high (or close), but Delta is weaker
         if p1 > p2:  # Uptrend in price
             if d1 < d2:  # Downtrend in momentum (Delta)
                 # Stronger if d1 is negative
-                score = 0.6
-                if d1 < 0:
-                    score = 0.9
                 signal = "SHORT"
 
         # Bullish Divergence: Price Lower, Delta Higher (or Positive)
         elif p1 < p2:  # Downtrend in price
             if d1 > d2:  # Uptrend in momentum
-                score = 0.6
-                if d1 > 0:
-                    score = 0.9
                 signal = "LONG"
 
         if signal:
             return {
-                "side": signal,
-                "score": score,
-                "metadata": {"pattern": "Delta_Divergence", "price_change": p1 - p2, "delta_change": d1 - d2},
+                "side": "TACTICAL",
+                "metadata": {
+                    "tactical_type": "TacticalDivergence",
+                    "direction": signal,
+                    "pattern": "Delta_Divergence",
+                    "price_change": p1 - p2,
+                    "delta_change": d1 - d2,
+                },
             }
         return None
 
@@ -216,13 +216,13 @@ class FootprintStackedImbalance(SensorV3):
                 }
             )
             return {
-                "side": "SHORT",
-                "score": 0.85,
+                "side": "TACTICAL",
                 "metadata": {
+                    "tactical_type": "TacticalStackedImbalance",
+                    "direction": "SHORT",
                     "pattern": "Stacked_Imbalance_Bid",
                     "levels": bid_stack["levels"],
                     "count": bid_stack["count"],
-                    "setup_type": "initial",
                 },
             }
 
@@ -237,13 +237,13 @@ class FootprintStackedImbalance(SensorV3):
                 }
             )
             return {
-                "side": "LONG",
-                "score": 0.85,
+                "side": "TACTICAL",
                 "metadata": {
+                    "tactical_type": "TacticalStackedImbalance",
+                    "direction": "LONG",
                     "pattern": "Stacked_Imbalance_Ask",
                     "levels": ask_stack["levels"],
                     "count": ask_stack["count"],
-                    "setup_type": "initial",
                 },
             }
 
@@ -321,14 +321,14 @@ class FootprintStackedImbalance(SensorV3):
                     if curr_close > curr_low:
                         # Continuation signal
                         return {
-                            "side": "LONG",
-                            "score": 0.90,  # Higher score for continuation
+                            "side": "TACTICAL",
                             "metadata": {
+                                "tactical_type": "TacticalStackedImbalance",
+                                "direction": "LONG",
                                 "pattern": "Stacked_Imbalance_Continuation",
                                 "original_stack": "ASK_STACK",
                                 "stack_zone": [stack_low, stack_high],
                                 "pullback_pct": round(pullback_pct, 2),
-                                "setup_type": "continuation",
                             },
                         }
 
@@ -345,14 +345,14 @@ class FootprintStackedImbalance(SensorV3):
                 if 0.38 <= pullback_pct <= 0.62:
                     if curr_close < curr_high:
                         return {
-                            "side": "SHORT",
-                            "score": 0.90,
+                            "side": "TACTICAL",
                             "metadata": {
+                                "tactical_type": "TacticalStackedImbalance",
+                                "direction": "SHORT",
                                 "pattern": "Stacked_Imbalance_Continuation",
                                 "original_stack": "BID_STACK",
                                 "stack_zone": [stack_low, stack_high],
                                 "pullback_pct": round(pullback_pct, 2),
-                                "setup_type": "continuation",
                             },
                         }
 
@@ -425,9 +425,10 @@ class FootprintTrappedTraders(SensorV3):
                 # And current price is moving away (down)
                 if curr_close < prev_close:
                     return {
-                        "side": "SHORT",
-                        "score": 0.85,
+                        "side": "TACTICAL",
                         "metadata": {
+                            "tactical_type": "TacticalTrappedTraders",
+                            "direction": "SHORT",
                             "pattern": "Trapped_Buyers",
                             "trap_price": prev_high,
                             "wick_vol_pct": wick_vol / total_vol,
@@ -447,9 +448,10 @@ class FootprintTrappedTraders(SensorV3):
             if total_vol > 0 and (wick_vol / total_vol) > 0.20:
                 if curr_close > prev_close:
                     return {
-                        "side": "LONG",
-                        "score": 0.85,
+                        "side": "TACTICAL",
                         "metadata": {
+                            "tactical_type": "TacticalTrappedTraders",
+                            "direction": "LONG",
                             "pattern": "Trapped_Sellers",
                             "trap_price": prev_low,
                             "wick_vol_pct": wick_vol / total_vol,

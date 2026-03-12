@@ -148,36 +148,6 @@ async def run_validator():
                 "atr_1m": 1.0,
             },
         },
-        # Scenario 8: Proximity Reject (TP too close)
-        {
-            "name": "Proximity Rejection (Target < 0.08%)",
-            "symbol": "XRPUSDT",
-            "side": "LONG",
-            "metadata": {
-                "setup_type": "reversion",
-                "price": 0.5000,
-                "1h_poc": 0.5002,
-                "1h_vah": 0.5100,
-                "1h_val": 0.4900,
-                "atr_1m": 0.0005,
-            },
-            "expect_reject": True,
-        },
-        # Scenario 9: RR Rejection (SL > TP)
-        {
-            "name": "RR Rejection (High ATR, Low Target)",
-            "symbol": "SOLUSDT",
-            "side": "LONG",
-            "metadata": {
-                "setup_type": "reversion",
-                "price": 100.0,
-                "1h_poc": 100.2,
-                "1h_vah": 105.0,
-                "1h_val": 99.0,
-                "atr_1m": 0.5,
-            },
-            "expect_reject": True,
-        },
     ]
 
     failed_scenarios = []

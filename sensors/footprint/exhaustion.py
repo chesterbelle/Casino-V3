@@ -64,10 +64,11 @@ class FootprintVolumeExhaustion(SensorV3):
             # We look for a "Finished Auction" at the bottom where Ask is 0 or tiny
             if low_ask <= (low_bid * 0.1) or low_ask < 1.0:
                 return {
-                    "side": "LONG",
-                    "score": 0.75,
+                    "side": "TACTICAL",
                     "metadata": {
-                        "type": "Footprint_Exhaustion_Low",
+                        "tactical_type": "TacticalExhaustion",
+                        "direction": "LONG",
+                        "subtype": "Footprint_Exhaustion_Low",
                         "ratio": round(low_total / avg_vol, 2),
                         "low_ask": low_ask,
                         "low_bid": low_bid,
@@ -89,10 +90,11 @@ class FootprintVolumeExhaustion(SensorV3):
             # Finished Auction at top where Bid is 0 or tiny
             if high_bid <= (high_ask * 0.1) or high_bid < 1.0:
                 return {
-                    "side": "SHORT",
-                    "score": 0.75,
+                    "side": "TACTICAL",
                     "metadata": {
-                        "type": "Footprint_Exhaustion_High",
+                        "tactical_type": "TacticalExhaustion",
+                        "direction": "SHORT",
+                        "subtype": "Footprint_Exhaustion_High",
                         "ratio": round(high_total / avg_vol, 2),
                         "high_bid": high_bid,
                         "high_ask": high_ask,

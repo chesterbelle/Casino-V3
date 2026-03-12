@@ -126,15 +126,12 @@ class CumulativeDeltaSensorV3(SensorV3):
 
             self._last_signal_time = now
 
-            base_score = 0.75  # Dale's setup has 70-75% win rate
-            score = base_score + (0.15 if at_level else 0.0)
-
             return {
-                "side": divergence["side"],
-                "score": score,
+                "side": "TACTICAL",
                 "metadata": {
-                    "type": f"Delta_Divergence_{divergence['type']}",
-                    "fast_track": at_level,  # Fast-track if at key level
+                    "tactical_type": "TacticalCumulativeDelta",
+                    "direction": divergence["side"],
+                    "subtype": f"Delta_Divergence_{divergence['type']}",
                     "cvd": round(self.current_cvd, 2),
                     "price_direction": divergence["price_dir"],
                     "delta_direction": divergence["delta_dir"],

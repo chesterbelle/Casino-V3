@@ -59,7 +59,7 @@ class FootprintAbsorptionV3(SensorV3):
         self.price_history = deque(maxlen=50)  # Recent prices
 
         self._last_signal_time = 0.0
-        self._signal_cooldown = 2.0  # seconds between signals
+        self._signal_cooldown = 0.5  # 500ms metric cooldown for HFT
 
     @property
     def name(self) -> str:
@@ -123,12 +123,12 @@ class FootprintAbsorptionV3(SensorV3):
                 wall_confirmed = self._check_dom_wall("ask", high, avg_vol_per_level)
 
                 signal = {
-                    "side": "SHORT",
-                    "score": 0.9 if wall_confirmed else (0.75 if at_level else 0.4),
+                    "side": "TACTICAL",
                     "metadata": {
-                        "type": "Live_Absorption_High",
+                        "tactical_type": "TacticalAbsorption",
+                        "direction": "SHORT",
+                        "subtype": "Live_Absorption_High",
                         "vol": top_vol["ask"],
-                        "fast_track": wall_confirmed and at_level,
                         "absorption_intensity": round(intensity, 2),
                         "dom_wall_confirmed": wall_confirmed,
                         "at_volume_level": at_level,
@@ -148,12 +148,12 @@ class FootprintAbsorptionV3(SensorV3):
                     wall_confirmed = self._check_dom_wall("bid", low, avg_vol_per_level)
 
                     signal = {
-                        "side": "LONG",
-                        "score": 0.9 if wall_confirmed else (0.75 if at_level else 0.4),
+                        "side": "TACTICAL",
                         "metadata": {
-                            "type": "Live_Absorption_Low",
+                            "tactical_type": "TacticalAbsorption",
+                            "direction": "LONG",
+                            "subtype": "Live_Absorption_Low",
                             "vol": low_vol["bid"],
-                            "fast_track": wall_confirmed and at_level,
                             "absorption_intensity": round(intensity, 2),
                             "dom_wall_confirmed": wall_confirmed,
                             "at_volume_level": at_level,
@@ -304,16 +304,16 @@ class FootprintAbsorptionV3(SensorV3):
             return None
 
         return {
-            "side": side,
-            "score": 0.80 if zone_at_key_level else 0.55,
+            "side": "TACTICAL",
             "metadata": {
-                "type": signal_type,
+                "tactical_type": "TacticalAbsorption",
+                "direction": side,
+                "subtype": signal_type,
                 "zone_low": round(zone_low, 4),
                 "zone_high": round(zone_high, 4),
                 "zone_levels": len(zone_levels),
                 "zone_intensity": round(zone_intensity, 2),
                 "zone_total_vol": round(zone_total_vol, 2),
-                "fast_track": zone_at_key_level,
                 "at_volume_level": zone_at_key_level,
                 "poc": poc,
                 "vah": vah,
