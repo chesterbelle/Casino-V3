@@ -48,6 +48,8 @@ class SetupEngineV4:
         # Strict Cooldowns per symbol to prevent double-firing and churn
         self.last_fire_ts = defaultdict(float)
         self.fire_cooldown = 300.0  # 5 minutes per symbol post-trade cooldown
+        self._last_prune_ts = 0.0
+        self._prune_interval = 0.5  # Prune every 500ms
 
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
         self.engine.subscribe(EventType.MICROSTRUCTURE, self.on_microstructure)
@@ -65,10 +67,13 @@ class SetupEngineV4:
         # 1. Store event in short-term memory
         self.memory[sym].append((now, event))
 
-        # Prune memory > window (5 seconds)
-        cutoff = now - 5.0
-        while self.memory[sym] and self.memory[sym][0][0] < cutoff:
-            self.memory[sym].popleft()
+        # Lazy Pruning (Phase 500) - Only prune every 500ms
+        if now - self._last_prune_ts > self._prune_interval:
+            self._last_prune_ts = now
+            for s in list(self.memory.keys()):
+                cutoff = now - 5.0
+                while self.memory[s] and self.memory[s][0][0] < cutoff:
+                    self.memory[s].popleft()
 
         # 2. Check strict Post-Trade Cooldown
         if now - self.last_fire_ts[sym] < self.fire_cooldown:
@@ -111,10 +116,13 @@ class SetupEngineV4:
         # 1. Store in memory
         self.micro_memory[sym].append((now, event))
 
-        # Prune memory > window (5 seconds)
-        cutoff = now - 5.0
-        while self.micro_memory[sym] and self.micro_memory[sym][0][0] < cutoff:
-            self.micro_memory[sym].popleft()
+        # Lazy Pruning (Phase 500)
+        if now - self._last_prune_ts > self._prune_interval:
+            self._last_prune_ts = now
+            for s in list(self.micro_memory.keys()):
+                cutoff = now - 5.0
+                while self.micro_memory[s] and self.micro_memory[s][0][0] < cutoff:
+                    self.micro_memory[s].popleft()
 
         # 2. Check strict Post-Trade Cooldown
         if now - self.last_fire_ts[sym] < self.fire_cooldown:
@@ -127,41 +135,40 @@ class SetupEngineV4:
         first_evt = self.micro_memory[sym][0][1]
         curr_evt = self.micro_memory[sym][-1][1]
 
-        cvd_delta = curr_evt.cvd - first_evt.cvd
-        skewness = curr_evt.skewness
+        # Phase 500/600: Use pre-calculated 5s CVD from SensorManager
+        skewness = event.skewness
         price_delta = curr_evt.price - first_evt.price
 
-        if curr_evt.price == 0:
+        if event.price == 0:
             return
 
-        notional_cvd_delta = cvd_delta * curr_evt.price
         trigger = None
 
-        # Phase 1: Fixed $50k threshold (Phase 2 will use Z-Scores)
-        threshold_usd = 50000.0
+        # Phase 600: Probabilistic Asymmetric Thresholds (Using Z-Score from event)
+        z = event.z_score
 
-        if notional_cvd_delta > threshold_usd and skewness < 0.40 and price_delta <= 0:
-            # Retail buying aggressively, but Ask wall absorbs it -> SHORT
+        # Long: Z > 2.2 (More aggressive)
+        if z > 2.2 and skewness > 0.60 and price_delta >= 0:
             trigger = {
                 "setup_name": "Toxic_OrderFlow",
-                "side": "SHORT",
+                "side": "LONG",
                 "metadata": {
                     "trigger": "ToxicOrderFlow",
-                    "cvd_delta": cvd_delta,
+                    "z_score": z,
                     "skewness": skewness,
                     "price_delta": price_delta,
                     "fast_track": True,
                     "price": curr_evt.price,
                 },
             }
-        elif notional_cvd_delta < -threshold_usd and skewness > 0.60 and price_delta >= 0:
-            # Retail selling aggressively, but Bid wall absorbs it -> LONG
+        # Short: Z < -3.5 (Highly demanding for shorts)
+        elif z < -3.5 and skewness < 0.40 and price_delta <= 0:
             trigger = {
                 "setup_name": "Toxic_OrderFlow",
-                "side": "LONG",
+                "side": "SHORT",
                 "metadata": {
                     "trigger": "ToxicOrderFlow",
-                    "cvd_delta": cvd_delta,
+                    "z_score": z,
                     "skewness": skewness,
                     "price_delta": price_delta,
                     "fast_track": True,

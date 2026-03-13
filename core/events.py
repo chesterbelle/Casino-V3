@@ -86,6 +86,7 @@ class MicrostructureEvent(Event):
     symbol: str
     cvd: float
     skewness: float
+    z_score: float = 0.0
     price: float = 0.0
 
     def __post_init__(self):

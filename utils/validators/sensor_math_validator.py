@@ -7,8 +7,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from core.context_registry import ContextRegistry
-from core.events import EventType
-from decision.aggregator import AggregatedSignalEvent
+from core.events import AggregatedSignalEvent, EventType
 from players.adaptive import AdaptivePlayer, DecisionEvent
 
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")

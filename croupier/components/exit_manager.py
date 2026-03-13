@@ -142,21 +142,21 @@ class ExitManager:
             if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
                 continue
 
-            # Target Notional Delta (CVD * Price) anomalies
-            notional_cvd = event.cvd * event.price
-            threshold_usd = 50000.0  # $50k Notional CVD Burst (Phase 1 Baseline)
-
+            # Phase 600: Probabilistic Micro-Exits (Z-Score > 1.8 against us)
+            z = event.z_score
             burst_exit = False
             pull_exit = False
             reason = ""
 
-            # 1. Delta Inversion Burst (Order Flow violently against position)
-            if position.side == "LONG" and notional_cvd < -threshold_usd:
+            # 1. Delta Inversion Burst (Z-Score based)
+            # Longs exit if CVD drops violently (Negative Z)
+            if position.side == "LONG" and z < -1.8:
                 burst_exit = True
-                reason = "DELTA_INVERSION_SHORT_BURST"
-            elif position.side == "SHORT" and notional_cvd > threshold_usd:
+                reason = f"Z_DELTA_BURST_SHORT (Z={z:.2f})"
+            # Shorts exit if CVD rises violently (Positive Z)
+            elif position.side == "SHORT" and z > 1.8:
                 burst_exit = True
-                reason = "DELTA_INVERSION_LONG_BURST"
+                reason = f"Z_DELTA_BURST_LONG (Z={z:.2f})"
 
             # 2. Liquidity Pull (Spoofing detection / Wall Collapse)
             # Longs need bid support (Skewness > 0)

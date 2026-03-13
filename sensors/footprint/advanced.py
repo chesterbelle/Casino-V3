@@ -179,7 +179,7 @@ class FootprintStackedImbalance(SensorV3):
         self.pullback_pct = 0.38  # Fibonacci 38% pullback threshold
         self.history = deque(maxlen=10)  # Track recent stacks for continuation
         self.ratio_zscore = RollingZScore(window_size=200)
-        self.min_zscore_anomaly = 3.0
+        self.min_zscore_anomaly = 2.2  # Phase 600: Calibrated for better edge (was 3.0)
 
     def calculate(self, context: Dict[str, Any]) -> Optional[Dict]:
         candle = context.get(self.timeframe)

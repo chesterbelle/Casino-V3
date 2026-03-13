@@ -11,7 +11,7 @@ import multiprocessing
 import os
 import time
 from collections import defaultdict, deque
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from .bar_aggregator import BarAggregator
 from .events import (
@@ -87,6 +87,9 @@ class SensorManager:
         # Capability Mapping (Phase 660 Optimization)
         self.tick_queues = []
         self.ob_queues = []
+        from sensors.quant.volatility_regime import RollingZScore
+
+        self.micro_zscores: Dict[str, RollingZScore] = defaultdict(lambda: RollingZScore(window_size=1000))
 
         # Load and Distribute Sensors
         self._spawn_workers()
@@ -241,17 +244,12 @@ class SensorManager:
         sym = event.symbol
         self.last_price[sym] = event.price
 
-        # Phase 1: CVD Tracking (5-second window)
+        # Phase 1: CVD Tracking (Incremental Add only - pruning moved to throttled micro_dispatch)
         delta = event.volume if event.side == "BUY" else -event.volume
         self.tick_history[sym].append((now, delta))
         self.cvd_state[sym] += delta
 
-        cutoff = now - 5.0
-        while self.tick_history[sym] and self.tick_history[sym][0][0] < cutoff:
-            old_ts, old_delta = self.tick_history[sym].popleft()
-            self.cvd_state[sym] -= old_delta
-
-        await self._dispatch_micro_state(sym, now)
+        await self._dispatch_micro_state(sym, now, event_data=event)
 
         last_dispatch = self._last_tick_dispatch.get(event.symbol, 0)
 
@@ -281,14 +279,8 @@ class SensorManager:
         now = time.time()
         sym = event.symbol
 
-        # Phase 1: Skewness tracking (top 5 levels)
-        if event.bids and event.asks:
-            bid_vol = sum(float(b[1]) for b in event.bids[:5])
-            ask_vol = sum(float(a[1]) for a in event.asks[:5])
-            if (bid_vol + ask_vol) > 0:
-                self.ob_skewness[sym] = bid_vol / (bid_vol + ask_vol)  # 0.0 to 1.0 (1.0 = highly bid-skewed)
-
-        await self._dispatch_micro_state(sym, now)
+        # Phase 1: Skewness tracking moved to throttled micro_dispatch
+        await self._dispatch_micro_state(sym, now, event_data=event)
 
         last_dispatch = self._last_ob_dispatch.get(event.symbol, 0)
 
@@ -309,19 +301,44 @@ class SensorManager:
         for q in self.ob_queues:
             loop.run_in_executor(None, q.put, msg)
 
-    async def _dispatch_micro_state(self, sym: str, now: float):
-        """Emit internal MicrostructureEvent for SetupEngineV4, throttled."""
+    async def _dispatch_micro_state(self, sym: str, now: float, event_data: Any = None):
+        """
+        Emit internal MicrostructureEvent for SetupEngineV4, throttled.
+        Phase 500: Performance - Heavy pruning and skewness calculations happen here (gated).
+        """
         last_micro = self._last_micro_dispatch.get(sym, 0)
         if (now - last_micro) * 1000 < self.throttle_ms:
             return
 
         self._last_micro_dispatch[sym] = now
 
+        # 1. Throttled CVD Pruning (Lazy Pruning)
+        cutoff = now - 5.0
+        history = self.tick_history[sym]
+        while history and history[0][0] < cutoff:
+            old_ts, old_delta = history.popleft()
+            self.cvd_state[sym] -= old_delta
+
+        # 2. Throttled Skewness Calculation
+        if isinstance(event_data, OrderBookEvent) and event_data.bids and event_data.asks:
+            # Only calculate if we have an OB event at this throttle interval
+            bid_vol = sum(float(b[1]) for b in event_data.bids[:5])
+            ask_vol = sum(float(a[1]) for a in event_data.asks[:5])
+            if (bid_vol + ask_vol) > 0:
+                self.ob_skewness[sym] = bid_vol / (bid_vol + ask_vol)
+
+        # 3. Calculate Z-Score for the 5s CVD window
+        z_engine = self.micro_zscores[sym]
+        z_engine.update(self.cvd_state[sym])
+        z = z_engine.get_zscore(self.cvd_state[sym]) if z_engine.is_ready else 0.0
+
         evt = MicrostructureEvent(
+            type=EventType.MICROSTRUCTURE,
             timestamp=now,
             symbol=sym,
             cvd=self.cvd_state[sym],
-            skewness=self.ob_skewness[sym],
+            skewness=self.ob_skewness.get(sym, 0.5),
+            z_score=z,
             price=self.last_price[sym],
         )
         await self.engine.dispatch(evt)
