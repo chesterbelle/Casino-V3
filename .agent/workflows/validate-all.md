@@ -16,6 +16,18 @@ Each layer must pass before proceeding to the next.
 ```
 **Must pass**: All regime scenarios (TREND/RANGE) must calculate correct multipliers and targets without math inversion.
 
+## Layer 0.1: Z-Score Math Precision (Strategy 2.0)
+```bash
+.venv/bin/python utils/validators/zscore_math_validator.py
+```
+**Must pass**: Z-Score calculation, sliding window, and outlier logic must stay robust.
+
+## Layer 0.2: Micro-Exits Logic (Strategy 2.0)
+```bash
+.venv/bin/python utils/validators/micro_exits_validator.py
+```
+**Must pass**: Liquidity pull and Delta inversion burst detection must target exits properly.
+
 ## Layer 1: Preflight (Single-Symbol Lifecycle)
 ```bash
 .venv/bin/python -m utils.validators.trading_flow_validator --exchange binance --symbol LTCUSDT --mode demo --size 0.05 --execute-orders
@@ -54,6 +66,8 @@ Each layer must pass before proceeding to the next.
 
 ## Success Criteria
 - [x] Layer 0: Strategy 2.0 Math & Regime logic verified.
+- [x] Layer 0.1: Z-Score Math and Outlier logic verified.
+- [x] Layer 0.2: Micro-Exits Logic verified.
 - [x] Layer 1: 8/8 preflight tests pass.
 - [x] Layer 2: Multi-symbol concurrency + integrity pass.
 - [x] Layer 3: Bracket latency < 500ms avg, TP/SL parallel.
