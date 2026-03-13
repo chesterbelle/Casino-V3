@@ -134,19 +134,20 @@ async def run_validator():
         type=EventType.MICROSTRUCTURE,
         timestamp=1.0,
         symbol="BTCUSDT",
-        cvd=-1.5,  # -1.5 BTC sold aggressively
-        skewness=0.5,  # Skewness normal
-        price=50000.0,  # Notional = -1.5 * 50k = -$75k (Threshold is -$50k)
+        cvd=-1.5,
+        skewness=0.5,
+        price=50000.0,
+        z_score=-2.5,  # Phase 600: Z-Score based burst
     )
 
     await exit_manager.on_microstructure(event_burst_long)
     await asyncio.sleep(0.1)
 
     if "long_1" not in mock_croupier.closed_positions:
-        fail("Logic Error: Failed to trigger Micro-Exit for LONG on Negative Notional Burst")
+        fail("Logic Error: Failed to trigger Micro-Exit for LONG on Negative Z-Score Burst")
     else:
         reason = mock_croupier.exit_reasons[mock_croupier.closed_positions.index("long_1")]
-        if reason != "MICRO_DELTA_INVERSION_SHORT_BURST":
+        if not reason.startswith("MICRO_Z_DELTA_BURST_SHORT"):
             fail(f"Logic Error: Wrong exit reason {reason}")
         ok("Delta Inversion Burst (against LONG) detected securely")
 
