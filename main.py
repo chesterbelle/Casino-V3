@@ -358,6 +358,7 @@ async def main():
     engine.subscribe(EventType.AGGREGATED_SIGNAL, croupier.exit_manager.on_signal)
     engine.subscribe(EventType.CANDLE, croupier.exit_manager.on_candle)
     engine.subscribe(EventType.TICK, croupier.exit_manager.on_tick)
+    engine.subscribe(EventType.MICROSTRUCTURE, croupier.exit_manager.on_microstructure)
 
     # Phase 31: Unified ORDER_UPDATE routing through PositionTracker
     async def unified_order_update_handler(event: dict):

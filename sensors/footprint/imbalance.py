@@ -4,6 +4,7 @@ from typing import Optional
 from core.market_profile import MarketProfile
 from sensors.base import SensorV3
 from sensors.footprint.matrix import LiveFootprintMatrix
+from sensors.quant.volatility_regime import RollingZScore
 
 
 class FootprintImbalanceV3(SensorV3):
@@ -33,6 +34,11 @@ class FootprintImbalanceV3(SensorV3):
         self.level_proximity_ticks = level_proximity_ticks
         self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
         self.market_profile = MarketProfile(tick_size=tick_size)
+
+        # Phase 2: Volatility Regime Z-Scores
+        self.buy_ratio_zscore = RollingZScore(window_size=200)
+        self.sell_ratio_zscore = RollingZScore(window_size=200)
+        self.min_zscore_anomaly = 3.0  # +3 StdDev for Imbalance
 
         # Cooldown to avoid blasting the engine with signals for the same imbalance
         self._last_signal_time = 0.0
@@ -103,17 +109,43 @@ class FootprintImbalanceV3(SensorV3):
 
             density = self.market_profile.get_cluster_density(p)
 
-            # Check for Buy Imbalance (Aggressive Buying hit the ask)
-            if ask_vol > (bid_vol * self.imbalance_ratio) and bid_vol > 0:
-                imbalances.append({"side": "LONG", "price": p, "ratio": ask_vol / bid_vol, "density": density})
-            elif ask_vol > dynamic_min and bid_vol == 0:
-                imbalances.append({"side": "LONG", "price": p, "ratio": 99.9, "density": density})
+            # Phase 2: Dynamic Z-Scores
+            if bid_vol > 0:
+                buy_ratio = ask_vol / bid_vol
+                self.buy_ratio_zscore.update(buy_ratio)
 
-            # Check for Sell Imbalance (Aggressive Selling hit the bid)
-            elif bid_vol > (ask_vol * self.imbalance_ratio) and ask_vol > 0:
-                imbalances.append({"side": "SHORT", "price": p, "ratio": bid_vol / ask_vol, "density": density})
+                if self.buy_ratio_zscore.is_ready:
+                    z = self.buy_ratio_zscore.get_zscore(buy_ratio)
+                    if z >= self.min_zscore_anomaly and ask_vol > bid_vol:
+                        imbalances.append(
+                            {"side": "LONG", "price": p, "ratio": buy_ratio, "density": density, "zscore": z}
+                        )
+                # Fallback to static if not ready
+                elif buy_ratio > self.imbalance_ratio:
+                    imbalances.append(
+                        {"side": "LONG", "price": p, "ratio": buy_ratio, "density": density, "zscore": 0.0}
+                    )
+
+            elif ask_vol > dynamic_min and bid_vol == 0:
+                imbalances.append({"side": "LONG", "price": p, "ratio": 99.9, "density": density, "zscore": 9.9})
+
+            if ask_vol > 0:
+                sell_ratio = bid_vol / ask_vol
+                self.sell_ratio_zscore.update(sell_ratio)
+
+                if self.sell_ratio_zscore.is_ready:
+                    z = self.sell_ratio_zscore.get_zscore(sell_ratio)
+                    if z >= self.min_zscore_anomaly and bid_vol > ask_vol:
+                        imbalances.append(
+                            {"side": "SHORT", "price": p, "ratio": sell_ratio, "density": density, "zscore": z}
+                        )
+                elif sell_ratio > self.imbalance_ratio:
+                    imbalances.append(
+                        {"side": "SHORT", "price": p, "ratio": sell_ratio, "density": density, "zscore": 0.0}
+                    )
+
             elif bid_vol > dynamic_min and ask_vol == 0:
-                imbalances.append({"side": "SHORT", "price": p, "ratio": 99.9, "density": density})
+                imbalances.append({"side": "SHORT", "price": p, "ratio": 99.9, "density": density, "zscore": 9.9})
 
         if not imbalances:
             return None
@@ -125,6 +157,7 @@ class FootprintImbalanceV3(SensorV3):
         signal = None
         if len(long_imbalances) > len(short_imbalances):
             avg_density = sum(i["density"] for i in long_imbalances) / len(long_imbalances)
+            max_zscore = max((i["zscore"] for i in long_imbalances), default=0.0)
             signal = {
                 "side": "TACTICAL",  # No longer guessing LONG/SHORT
                 "metadata": {
@@ -133,6 +166,7 @@ class FootprintImbalanceV3(SensorV3):
                     "imbalances": len(long_imbalances),
                     "at_volume_level": at_level,
                     "cluster_density": round(avg_density, 2),
+                    "max_zscore": round(max_zscore, 2),
                     "poc": poc,
                     "vah": vah,
                     "val": val,
@@ -141,6 +175,7 @@ class FootprintImbalanceV3(SensorV3):
             }
         elif len(short_imbalances) > len(long_imbalances):
             avg_density = sum(i["density"] for i in short_imbalances) / len(short_imbalances)
+            max_zscore = max((i["zscore"] for i in short_imbalances), default=0.0)
             signal = {
                 "side": "TACTICAL",
                 "metadata": {
@@ -149,6 +184,7 @@ class FootprintImbalanceV3(SensorV3):
                     "imbalances": len(short_imbalances),
                     "at_volume_level": at_level,
                     "cluster_density": round(avg_density, 2),
+                    "max_zscore": round(max_zscore, 2),
                     "poc": poc,
                     "vah": vah,
                     "val": val,

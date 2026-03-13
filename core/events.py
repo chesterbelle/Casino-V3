@@ -18,6 +18,7 @@ class EventType(Enum):
     ERROR = auto()
     SYSTEM = auto()
     ACCOUNT_UPDATE = auto()
+    MICROSTRUCTURE = auto()
 
 
 @dataclass
@@ -78,6 +79,17 @@ class OrderBookEvent(Event):
 
     def __post_init__(self):
         self.type = EventType.ORDER_BOOK
+
+
+@dataclass
+class MicrostructureEvent(Event):
+    symbol: str
+    cvd: float
+    skewness: float
+    price: float = 0.0
+
+    def __post_init__(self):
+        self.type = EventType.MICROSTRUCTURE
 
 
 @dataclass

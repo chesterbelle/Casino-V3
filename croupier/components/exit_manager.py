@@ -17,7 +17,12 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import config.trading as config
-from core.events import AggregatedSignalEvent, CandleEvent, TickEvent
+from core.events import (
+    AggregatedSignalEvent,
+    CandleEvent,
+    MicrostructureEvent,
+    TickEvent,
+)
 from core.portfolio.position_tracker import OpenPosition
 from utils.symbol_norm import normalize_symbol
 
@@ -120,6 +125,53 @@ class ExitManager:
             # 3. Update Shadow Trailing Stop
             if config.TRAILING_STOP_ENABLED:
                 await self._check_shadow_trailing_stop(position, current_price)
+
+    async def on_microstructure(self, event: MicrostructureEvent):
+        """
+        Phase 3: Order Flow Dynamic Exits (Micro-Exits).
+        Evaluates real-time anomalies to cut losses before structural SL is hit.
+        """
+        symbol_norm = normalize_symbol(event.symbol)
+        positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
+
+        if not positions:
+            return
+
+        for position in positions[:]:
+            # Phase 243: Skip positions already in closure or if reactor is shutting down
+            if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
+                continue
+
+            # Target Notional Delta (CVD * Price) anomalies
+            notional_cvd = event.cvd * event.price
+            threshold_usd = 50000.0  # $50k Notional CVD Burst (Phase 1 Baseline)
+
+            burst_exit = False
+            pull_exit = False
+            reason = ""
+
+            # 1. Delta Inversion Burst (Order Flow violently against position)
+            if position.side == "LONG" and notional_cvd < -threshold_usd:
+                burst_exit = True
+                reason = "DELTA_INVERSION_SHORT_BURST"
+            elif position.side == "SHORT" and notional_cvd > threshold_usd:
+                burst_exit = True
+                reason = "DELTA_INVERSION_LONG_BURST"
+
+            # 2. Liquidity Pull (Spoofing detection / Wall Collapse)
+            # Longs need bid support (Skewness > 0)
+            if position.side == "LONG" and event.skewness < 0.20:
+                pull_exit = True
+                reason = "LIQUIDITY_PULL_BID_WALL_COLLAPSE"
+            # Shorts need ask pressure (Skewness < 1.0)
+            elif position.side == "SHORT" and event.skewness > 0.80:
+                pull_exit = True
+                reason = "LIQUIDITY_PULL_ASK_WALL_COLLAPSE"
+
+            if burst_exit or pull_exit:
+                self.logger.warning(f"🚨 MICRO-EXIT TRIGGERED for {position.trade_id} ({symbol_norm}): {reason}")
+                # Execute Market Close immediately (Airlock bypass happens via Croupier)
+                asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=f"MICRO_{reason}"))
 
     async def _check_signal_reversal(self, position: OpenPosition, signal: AggregatedSignalEvent):
         """

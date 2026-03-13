@@ -10,10 +10,18 @@ import logging
 import multiprocessing
 import os
 import time
+from collections import defaultdict, deque
 from typing import Dict, Tuple
 
 from .bar_aggregator import BarAggregator
-from .events import CandleEvent, EventType, OrderBookEvent, SignalEvent, TickEvent
+from .events import (
+    CandleEvent,
+    EventType,
+    MicrostructureEvent,
+    OrderBookEvent,
+    SignalEvent,
+    TickEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +66,13 @@ class SensorManager:
         self.cooldown_bars = 5
         self._candle_index = -1
         self._last_trigger: Dict[str, int] = {}
+
+        # Phase 1: Real-time Microstructural Tracking
+        self.tick_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=10000))
+        self.cvd_state: Dict[str, float] = defaultdict(float)
+        self.ob_skewness: Dict[str, float] = defaultdict(float)
+        self._last_micro_dispatch: Dict[str, float] = {}
+        self.last_price: Dict[str, float] = defaultdict(float)
 
         # Bar aggregator for reference (Workers maintain their own state,
         # but we might need this for context injection if we pass it)
@@ -219,9 +234,25 @@ class SensorManager:
     async def on_tick(self, event: TickEvent):
         """
         Phase 410: Broadcast new trades (ticks) to workers.
+        Phase 1: Track CVD and emit Microstructure.
         Throttled to prevent IPC explosion.
         """
         now = time.time()
+        sym = event.symbol
+        self.last_price[sym] = event.price
+
+        # Phase 1: CVD Tracking (5-second window)
+        delta = event.volume if event.side == "BUY" else -event.volume
+        self.tick_history[sym].append((now, delta))
+        self.cvd_state[sym] += delta
+
+        cutoff = now - 5.0
+        while self.tick_history[sym] and self.tick_history[sym][0][0] < cutoff:
+            old_ts, old_delta = self.tick_history[sym].popleft()
+            self.cvd_state[sym] -= old_delta
+
+        await self._dispatch_micro_state(sym, now)
+
         last_dispatch = self._last_tick_dispatch.get(event.symbol, 0)
 
         # Throttle to max 1 update per 100ms
@@ -244,9 +275,21 @@ class SensorManager:
     async def on_orderbook(self, event: OrderBookEvent):
         """
         Phase 410: Broadcast OrderBook snapshots to workers.
+        Phase 1: Track Skewness.
         Throttled to prevent IPC explosion.
         """
         now = time.time()
+        sym = event.symbol
+
+        # Phase 1: Skewness tracking (top 5 levels)
+        if event.bids and event.asks:
+            bid_vol = sum(float(b[1]) for b in event.bids[:5])
+            ask_vol = sum(float(a[1]) for a in event.asks[:5])
+            if (bid_vol + ask_vol) > 0:
+                self.ob_skewness[sym] = bid_vol / (bid_vol + ask_vol)  # 0.0 to 1.0 (1.0 = highly bid-skewed)
+
+        await self._dispatch_micro_state(sym, now)
+
         last_dispatch = self._last_ob_dispatch.get(event.symbol, 0)
 
         # Throttle to max 1 update per 100ms
@@ -265,6 +308,23 @@ class SensorManager:
         # Phase 660: Targeted broadcast (Only to workers that have OB-aware sensors)
         for q in self.ob_queues:
             loop.run_in_executor(None, q.put, msg)
+
+    async def _dispatch_micro_state(self, sym: str, now: float):
+        """Emit internal MicrostructureEvent for SetupEngineV4, throttled."""
+        last_micro = self._last_micro_dispatch.get(sym, 0)
+        if (now - last_micro) * 1000 < self.throttle_ms:
+            return
+
+        self._last_micro_dispatch[sym] = now
+
+        evt = MicrostructureEvent(
+            timestamp=now,
+            symbol=sym,
+            cvd=self.cvd_state[sym],
+            skewness=self.ob_skewness[sym],
+            price=self.last_price[sym],
+        )
+        await self.engine.dispatch(evt)
 
     async def _listen_for_signals(self):
         """Async loop to consume signals from workers."""

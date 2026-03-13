@@ -11,7 +11,12 @@ import time
 from collections import defaultdict, deque
 from typing import Dict, List, Optional
 
-from core.events import AggregatedSignalEvent, EventType, SignalEvent
+from core.events import (
+    AggregatedSignalEvent,
+    EventType,
+    MicrostructureEvent,
+    SignalEvent,
+)
 
 logger = logging.getLogger("SetupEngine")
 
@@ -38,12 +43,14 @@ class SetupEngineV4:
         # Memory of tactical events per symbol. (timestamp, event_data)
         # Keeps up to 500 events to cover the 5-second window
         self.memory: Dict[str, deque] = defaultdict(lambda: deque(maxlen=500))
+        self.micro_memory: Dict[str, deque] = defaultdict(lambda: deque(maxlen=500))
 
         # Strict Cooldowns per symbol to prevent double-firing and churn
         self.last_fire_ts = defaultdict(float)
         self.fire_cooldown = 300.0  # 5 minutes per symbol post-trade cooldown
 
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
+        self.engine.subscribe(EventType.MICROSTRUCTURE, self.on_microstructure)
 
         logger.info("🎯 Setup Engine initialized (Sniper Mode Activated)")
 
@@ -82,6 +89,92 @@ class SetupEngineV4:
             )
 
             # Dispatch as AggregatedSignalEvent so AdaptivePlayer receives it
+            out_evt = AggregatedSignalEvent(
+                type=EventType.AGGREGATED_SIGNAL,
+                timestamp=now,
+                symbol=sym,
+                candle_timestamp=now,
+                selected_sensor=f"SetupEngine_{trigger['setup_name']}",
+                sensor_score=1.0,
+                side=trigger["side"],
+                confidence=1.0,
+                total_signals=1,
+                metadata=trigger["metadata"],
+            )
+            await self.engine.dispatch(out_evt)
+
+    async def on_microstructure(self, event: MicrostructureEvent):
+        """Processes real-time tick-level microstructural anomalies."""
+        now = time.time()
+        sym = event.symbol
+
+        # 1. Store in memory
+        self.micro_memory[sym].append((now, event))
+
+        # Prune memory > window (5 seconds)
+        cutoff = now - 5.0
+        while self.micro_memory[sym] and self.micro_memory[sym][0][0] < cutoff:
+            self.micro_memory[sym].popleft()
+
+        # 2. Check strict Post-Trade Cooldown
+        if now - self.last_fire_ts[sym] < self.fire_cooldown:
+            return
+
+        # 3. Evaluate Toxic Order Flow playbook
+        if len(self.micro_memory[sym]) < 2:
+            return
+
+        first_evt = self.micro_memory[sym][0][1]
+        curr_evt = self.micro_memory[sym][-1][1]
+
+        cvd_delta = curr_evt.cvd - first_evt.cvd
+        skewness = curr_evt.skewness
+        price_delta = curr_evt.price - first_evt.price
+
+        if curr_evt.price == 0:
+            return
+
+        notional_cvd_delta = cvd_delta * curr_evt.price
+        trigger = None
+
+        # Phase 1: Fixed $50k threshold (Phase 2 will use Z-Scores)
+        threshold_usd = 50000.0
+
+        if notional_cvd_delta > threshold_usd and skewness < 0.40 and price_delta <= 0:
+            # Retail buying aggressively, but Ask wall absorbs it -> SHORT
+            trigger = {
+                "setup_name": "Toxic_OrderFlow",
+                "side": "SHORT",
+                "metadata": {
+                    "trigger": "ToxicOrderFlow",
+                    "cvd_delta": cvd_delta,
+                    "skewness": skewness,
+                    "price_delta": price_delta,
+                    "fast_track": True,
+                    "price": curr_evt.price,
+                },
+            }
+        elif notional_cvd_delta < -threshold_usd and skewness > 0.60 and price_delta >= 0:
+            # Retail selling aggressively, but Bid wall absorbs it -> LONG
+            trigger = {
+                "setup_name": "Toxic_OrderFlow",
+                "side": "LONG",
+                "metadata": {
+                    "trigger": "ToxicOrderFlow",
+                    "cvd_delta": cvd_delta,
+                    "skewness": skewness,
+                    "price_delta": price_delta,
+                    "fast_track": True,
+                    "price": curr_evt.price,
+                },
+            }
+
+        if trigger:
+            self.last_fire_ts[sym] = now
+            logger.warning(
+                f"🎯 [SETUP ENGINE] {trigger['setup_name']} PATTERN CONFIRMED! " f"Firing {trigger['side']} on {sym}"
+            )
+
             out_evt = AggregatedSignalEvent(
                 type=EventType.AGGREGATED_SIGNAL,
                 timestamp=now,

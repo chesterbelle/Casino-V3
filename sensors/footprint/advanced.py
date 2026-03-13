@@ -10,6 +10,7 @@ from collections import deque
 from typing import Any, Dict, Optional
 
 from sensors.base import SensorV3
+from sensors.quant.volatility_regime import RollingZScore
 
 
 class FootprintPOCRejection(SensorV3):
@@ -173,10 +174,12 @@ class FootprintStackedImbalance(SensorV3):
 
     def __init__(self, engine=None):
         self.timeframe = "1m"
-        self.imbalance_ratio = 3.0  # Aggressive side > Passive side * 3
+        self.imbalance_ratio = 3.0  # Fallback
         self.min_stack_size = 3  # Minimum consecutive levels
         self.pullback_pct = 0.38  # Fibonacci 38% pullback threshold
         self.history = deque(maxlen=10)  # Track recent stacks for continuation
+        self.ratio_zscore = RollingZScore(window_size=200)
+        self.min_zscore_anomaly = 3.0
 
     def calculate(self, context: Dict[str, Any]) -> Optional[Dict]:
         candle = context.get(self.timeframe)
@@ -269,7 +272,17 @@ class FootprintStackedImbalance(SensorV3):
             else:
                 ratio = agg_vol / pas_vol
 
-            if ratio >= self.imbalance_ratio and agg_vol > 1.0:
+            is_stacked_imbalance = False
+            if agg_vol > 1.0:
+                self.ratio_zscore.update(ratio)
+                if self.ratio_zscore.is_ready:
+                    z = self.ratio_zscore.get_zscore(ratio)
+                    if z >= self.min_zscore_anomaly:
+                        is_stacked_imbalance = True
+                elif ratio >= self.imbalance_ratio:
+                    is_stacked_imbalance = True
+
+            if is_stacked_imbalance:
                 stack_count += 1
                 stack_levels.append(float(price))
             else:
