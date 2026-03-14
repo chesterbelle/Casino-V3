@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 from core.events import (
     AggregatedSignalEvent,
     EventType,
+    MicrostructureBatchEvent,
     MicrostructureEvent,
     SignalEvent,
 )
@@ -52,9 +53,23 @@ class SetupEngineV4:
         self._prune_interval = 0.5  # Prune every 500ms
 
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
-        self.engine.subscribe(EventType.MICROSTRUCTURE, self.on_microstructure)
+        self.engine.subscribe(EventType.MICROSTRUCTURE_BATCH, self.on_microstructure_batch)
 
         logger.info("🎯 Setup Engine initialized (Sniper Mode Activated)")
+
+    def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
+        """Phase 950: Inject structural levels from ContextRegistry into trigger metadata.
+
+        This is CRITICAL — without poc/vah/val in metadata, AdaptivePlayer falls
+        through to config_fallback TP/SL (0.3%/0.2%), which is mathematically losing.
+        """
+        if self.context_registry:
+            poc, vah, val = self.context_registry.get_structural(symbol)
+            if poc > 0 and vah > 0 and val > 0:
+                metadata["poc"] = poc
+                metadata["vah"] = vah
+                metadata["val"] = val
+        return metadata
 
     async def on_signal(self, event: SignalEvent):
         """Processes incoming tactical events and evaluates playbooks over the 5s window."""
@@ -93,6 +108,9 @@ class SetupEngineV4:
                 f"🎯 [SETUP ENGINE] {trigger['setup_name']} PATTERN CONFIRMED! " f"Firing {trigger['side']} on {sym}"
             )
 
+            # Phase 950: Enrich metadata with structural levels from ContextRegistry
+            trigger["metadata"] = self._enrich_metadata(trigger["metadata"], sym)
+
             # Dispatch as AggregatedSignalEvent so AdaptivePlayer receives it
             out_evt = AggregatedSignalEvent(
                 type=EventType.AGGREGATED_SIGNAL,
@@ -105,11 +123,18 @@ class SetupEngineV4:
                 confidence=1.0,
                 total_signals=1,
                 metadata=trigger["metadata"],
+                t0_timestamp=getattr(event, "timestamp", now),  # Signal birth (T0)
+                t1_decision_ts=now,  # Decision birth (T1)
             )
             await self.engine.dispatch(out_evt)
 
-    async def on_microstructure(self, event: MicrostructureEvent):
-        """Processes real-time tick-level microstructural anomalies."""
+    async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
+        """Processes a batch of real-time microstructural anomalies efficiently."""
+        for micro_evt in event.events:
+            await self._process_microstructure(micro_evt)
+
+    async def _process_microstructure(self, event: MicrostructureEvent):
+        """Internal logic to process a single microstructure event."""
         now = time.time()
         sym = event.symbol
 
@@ -144,16 +169,25 @@ class SetupEngineV4:
 
         trigger = None
 
-        # Phase 600: Probabilistic Asymmetric Thresholds (Using Z-Score from event)
+        # Phase 950: Symmetric Thresholds (fixes 90% SHORT bias from Round 1)
+        # Z ±3.0 (raised from 2.5 to reduce noise), Skewness symmetric ±0.15 from 0.50
         z = event.z_score
 
-        # Long: Z > 2.2 (More aggressive)
-        if z > 2.2 and skewness > 0.60 and price_delta >= 0:
+        # Phase 1000: Regime Filter (P2)
+        # Check against higher timeframe One-Timeframing (OTF)
+        otf = "NEUTRAL"
+        if self.context_registry:
+            # We don't fetch the whole state, just the specific OTF bias
+            otf = self.context_registry.get_regime(sym)  # Returns "UP", "DOWN", or "NEUTRAL"
+
+        # Long: Z > 3.0, Skewness > 0.65 (strong bid dominance), Price UP, OTF non-down
+        if z > 3.0 and skewness > 0.65 and price_delta >= 0 and otf != "DOWN":
             trigger = {
                 "setup_name": "Toxic_OrderFlow",
                 "side": "LONG",
                 "metadata": {
                     "trigger": "ToxicOrderFlow",
+                    "setup_type": "continuation",
                     "z_score": z,
                     "skewness": skewness,
                     "price_delta": price_delta,
@@ -161,13 +195,14 @@ class SetupEngineV4:
                     "price": curr_evt.price,
                 },
             }
-        # Short: Z < -3.5 (Highly demanding for shorts)
-        elif z < -3.5 and skewness < 0.40 and price_delta <= 0:
+        # Short: Z < -3.0, Skewness < 0.35 (strong ask dominance), Price DOWN, OTF non-up
+        elif z < -3.0 and skewness < 0.35 and price_delta <= 0 and otf != "UP":
             trigger = {
                 "setup_name": "Toxic_OrderFlow",
                 "side": "SHORT",
                 "metadata": {
                     "trigger": "ToxicOrderFlow",
+                    "setup_type": "continuation",
                     "z_score": z,
                     "skewness": skewness,
                     "price_delta": price_delta,
@@ -182,6 +217,9 @@ class SetupEngineV4:
                 f"🎯 [SETUP ENGINE] {trigger['setup_name']} PATTERN CONFIRMED! " f"Firing {trigger['side']} on {sym}"
             )
 
+            # Phase 950: Enrich metadata with structural levels from ContextRegistry
+            trigger["metadata"] = self._enrich_metadata(trigger["metadata"], sym)
+
             out_evt = AggregatedSignalEvent(
                 type=EventType.AGGREGATED_SIGNAL,
                 timestamp=now,
@@ -193,6 +231,8 @@ class SetupEngineV4:
                 confidence=1.0,
                 total_signals=1,
                 metadata=trigger["metadata"],
+                t0_timestamp=getattr(event, "timestamp", now),  # Micro birth (T0)
+                t1_decision_ts=now,  # Decision birth (T1)
             )
             await self.engine.dispatch(out_evt)
 
@@ -226,7 +266,7 @@ class SetupEngineV4:
 
         # We need either Reaction (Rejection/TrappedTraders) or Absorption + Imbalance
         reversal_direction = None
-        trigger_meta = {"trigger": "FadeExtreme"}
+        trigger_meta = {"trigger": "FadeExtreme", "setup_type": "reversion"}
 
         if has_absorption and has_imbalance:
             if has_absorption["direction"] == has_imbalance["direction"]:
@@ -258,16 +298,37 @@ class SetupEngineV4:
     def _evaluate_trend_continuation(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
         """
         Playbook 2: Trend Continuation (Breakout)
-        Trigger Condition:
+        Trigger Condition (Phase 950 — Confluence Required):
         1. TacticalStackedImbalance detects institutional footprint in trend direction.
-        2. Context validates (or multiple subsequent imbalances occur) inside the 5s window.
+        2. At least ONE confirming event (TacticalImbalance or TacticalDivergence)
+           in the SAME direction within the 5s memory window.
         """
+        stacked = None
+        confirmations = []
+
         for e in events:
             md = e.metadata or {}
-            if md.get("tactical_type") == "TacticalStackedImbalance":
+            t_type = md.get("tactical_type")
+            direction = md.get("direction")
+
+            if t_type == "TacticalStackedImbalance":
+                stacked = md
+            elif t_type in ("TacticalImbalance", "TacticalDivergence") and direction:
+                confirmations.append(md)
+
+        if stacked:
+            stacked_dir = stacked.get("direction")
+            # Phase 950: Require at least 1 confirming event in the same direction
+            has_confluence = any(c.get("direction") == stacked_dir for c in confirmations)
+            if has_confluence:
                 return {
                     "setup_name": "Trend_Continuation",
-                    "side": md.get("direction"),
-                    "metadata": {"trigger": "TrendContinuation", "levels": md.get("levels", [])},
+                    "side": stacked_dir,
+                    "metadata": {
+                        "trigger": "TrendContinuation",
+                        "setup_type": "continuation",
+                        "levels": stacked.get("levels", []),
+                        "confluence_count": sum(1 for c in confirmations if c.get("direction") == stacked_dir),
+                    },
                 }
         return None

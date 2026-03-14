@@ -318,6 +318,22 @@ class AdaptivePlayer:
                 tp_price = current_price * (1 - tp_pct / 100)
                 sl_price = current_price * (1 + sl_pct / 100)
 
+        # Phase 1000: Minimum RR Enforcement (P1)
+        # Reject trades with negative expectancy math (Reward < Risk)
+        if tp_price and sl_price and current_price and current_price > 0:
+            reward = abs(tp_price - current_price)
+            risk = abs(sl_price - current_price)
+            if risk > 0:
+                rr_ratio = reward / risk
+                if rr_ratio < 1.0:
+                    logger.warning(
+                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.0) | "
+                        f"Symbol: {event.symbol} | Side: {event.side} | "
+                        f"TP: {tp_price:.4f} ({reward/current_price*100:.2f}%) "
+                        f"SL: {sl_price:.4f} ({risk/current_price*100:.2f}%)"
+                    )
+                    return
+
         # Calculate percentage for logging (human-readable)
         tp_pct_log = abs((tp_price - current_price) / current_price) * 100 if tp_price and current_price else 0
         sl_pct_log = abs((sl_price - current_price) / current_price) * 100 if sl_price and current_price else 0

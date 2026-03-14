@@ -17,6 +17,7 @@ from .bar_aggregator import BarAggregator
 from .events import (
     CandleEvent,
     EventType,
+    MicrostructureBatchEvent,
     MicrostructureEvent,
     OrderBookEvent,
     SignalEvent,
@@ -89,10 +90,15 @@ class SensorManager:
         self.ob_queues = []
         from sensors.quant.volatility_regime import RollingZScore
 
-        self.micro_zscores: Dict[str, RollingZScore] = defaultdict(lambda: RollingZScore(window_size=1000))
+        self.micro_zscores: Dict[str, RollingZScore] = defaultdict(lambda: RollingZScore(window_size=120))
+        self._last_z_update: Dict[str, float] = {}
 
         # Load and Distribute Sensors
         self._spawn_workers()
+
+        # Phase 7: Micro-Event Batching to prevent Main Loop stalls
+        self._micro_buffer = []
+        self._batch_flush_task = asyncio.create_task(self._flush_micro_events_loop())
 
         # Start Async Listener
         asyncio.create_task(self._listen_for_signals())
@@ -327,9 +333,16 @@ class SensorManager:
             if (bid_vol + ask_vol) > 0:
                 self.ob_skewness[sym] = bid_vol / (bid_vol + ask_vol)
 
-        # 3. Calculate Z-Score for the 5s CVD window
+        # 3. Phase 1000: De-correlated Z-Score (P0)
+        # Use separate 60s history to measure the "Toxic" nature of the last 5 seconds.
+        # We update the Z-Score distribution only every 1s (to reduce autocorrelation)
+        # but we measure every throttle interval.
         z_engine = self.micro_zscores[sym]
-        z_engine.update(self.cvd_state[sym])
+        last_z_upd = self._last_z_update.get(sym, 0)
+        if now - last_z_upd >= 1.0:  # Add to statistical history every 1 second
+            z_engine.update(self.cvd_state[sym])
+            self._last_z_update[sym] = now
+
         z = z_engine.get_zscore(self.cvd_state[sym]) if z_engine.is_ready else 0.0
 
         evt = MicrostructureEvent(
@@ -341,7 +354,33 @@ class SensorManager:
             z_score=z,
             price=self.last_price[sym],
         )
-        await self.engine.dispatch(evt)
+
+        # Phase 7: Buffer event instead of immediate dispatch
+        self._micro_buffer.append(evt)
+
+    async def _flush_micro_events_loop(self):
+        """Background task to flush buffered micro events as a batch."""
+        while True:
+            try:
+                await asyncio.sleep(0.1)  # Flush every 100ms
+
+                if not self._micro_buffer:
+                    continue
+
+                # Take snapshot and clear
+                batch_events = self._micro_buffer
+                self._micro_buffer = []
+
+                # Dispatch as a single Batch Event
+                batch_evt = MicrostructureBatchEvent(
+                    type=EventType.MICROSTRUCTURE_BATCH, timestamp=time.time(), events=batch_events
+                )
+                await self.engine.dispatch(batch_evt)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"❌ Error in micro flush loop: {e}")
 
     async def _listen_for_signals(self):
         """Async loop to consume signals from workers."""
@@ -482,6 +521,9 @@ class SensorManager:
     def stop(self):
         """Shutdown workers."""
         logger.info("🛑 Stopping Sensor Workers...")
+        if hasattr(self, "_batch_flush_task"):
+            self._batch_flush_task.cancel()
+
         for q in self.input_queues:
             q.put("STOP")
 
