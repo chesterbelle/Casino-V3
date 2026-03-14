@@ -13,6 +13,7 @@ Version: 3.0.0
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, Optional, Tuple
 
 from core.error_handling import RetryConfig, get_error_handler
@@ -192,6 +193,8 @@ class OrderExecutor:
         self.logger.debug(f"[TRACE] OrderExecutor: Starting execution with 5s timeout for {symbol}...")
 
         try:
+            # Phase 85: Record T2 (Submission to Exchange)
+            t2_ts = time.time()
             result = await asyncio.wait_for(
                 self.error_handler.execute_with_breaker(
                     f"exchange_orders_{symbol}",
@@ -202,6 +205,7 @@ class OrderExecutor:
                 ),
                 timeout=5.0,  # Phase 56: Strict Execution Timeout
             )
+            result["t2_submit_ts"] = t2_ts
             self.logger.debug(f"[TRACE] OrderExecutor: Execution SUCCESS for {symbol}.")
         except Exception as e:
             err_str = str(e).lower()

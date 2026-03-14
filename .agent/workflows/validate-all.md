@@ -46,11 +46,17 @@ Each layer must pass before proceeding to the next.
 ```
 **Must pass**: BRACKET_LATENCY ✅ (avg < 500ms), TP_SL_PARALLEL ✅, CACHE_HIT ✅
 
-## Layer 4: Chaos Stress Test
+## Layer 4: Chaos Stress Test (Stall-Aware)
 ```bash
 .venv/bin/python -m utils.validators.multi_symbol_chaos_tester --symbols BTCUSDT,ETHUSDT,LTCUSDT --mode demo --duration 300 --max-ops 15
 ```
-**Must pass**: 0 UNMATCHED events, Error Recovery = $0, Integrity ✅
+**Must pass**: 0 UNMATCHED events, 0 Task Stalls (Watchdog), Error Recovery = $0, Integrity ✅
+
+## Layer 4.1: Reactor Pressure Benchmark (Execution Health)
+```bash
+.venv/bin/python utils/validators/execution_pressure_benchmark.py --duration 30 --event-freq 2000
+```
+**Must pass**: Max Jitter < 100ms, 0 Systemic Stalls.
 
 ### Layer 4 Verification (Protocol V2)
 // turbo
@@ -71,6 +77,7 @@ Each layer must pass before proceeding to the next.
 - [x] Layer 1: 8/8 preflight tests pass.
 - [x] Layer 2: Multi-symbol concurrency + integrity pass.
 - [x] Layer 3: Bracket latency < 500ms avg, TP/SL parallel.
-- [x] Layer 4: 0 UNMATCHED, 0 error trades, clean integrity.
+- [x] Layer 4: 0 UNMATCHED, 0 Task Stalls, clean integrity.
+- [/] Layer 4.1: Reactor Pressure < 100ms jitter.
 - [x] Layer 5: 0 Mutations under chaos (Zero-Lag Mirror verified).
 - [x] Statistical Health: Audit V2 PASS (Ratio < 1.5, 0 Ghosts)

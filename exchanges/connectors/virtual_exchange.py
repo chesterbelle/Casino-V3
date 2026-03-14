@@ -589,6 +589,20 @@ class VirtualExchangeConnector(BaseConnector):
     # =========================================================
     # 🔧 UTILITY METHODS
     # =========================================================
+    async def fetch_active_symbols(self) -> List[str]:
+        """Return symbols with open positions."""
+        return list(set(p["symbol"] for p in self._positions))
+
+    async def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
+        """Fetch simulated order book."""
+        return {
+            "symbol": symbol,
+            "bids": [[self._current_price, 1000.0]],
+            "asks": [[self._current_price, 1000.0]],
+            "timestamp": self._current_timestamp,
+            "datetime": str(self._current_timestamp),
+            "nonce": None,
+        }
 
     def normalize_symbol(self, symbol: str) -> str:
         return symbol

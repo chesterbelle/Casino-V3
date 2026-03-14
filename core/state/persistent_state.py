@@ -289,65 +289,79 @@ class PersistentState:
             self.logger.warning("⚠️ No state to save")
             return
 
-        async with self._save_lock:
+        async with self._save_lock:  # Use lock to prevent multiple saves from starting concurrently
             try:
-                # Update timestamp (shared state, but we are in the main thread here)
+                # Update timestamp (main thread)
                 self._state.last_update = time.time()
 
-                # Deep copy state dict while in main thread to avoid dict modification while serializing
-                # Use custom to_dict() for performance (Phase 58 optimization)
-                state_dict = self._state.to_dict()
-
-                # Offload the blocking work to the executor
-                await asyncio.get_event_loop().run_in_executor(self._executor, self._do_atomic_save, state_dict)
+                # Phase 23: Offload EVERYTHING to background thread (including to_dict and json.dumps)
+                # We pass the state object. Since we now use list replacement for open_positions,
+                # the thread can safely iterate over the stale list while the main thread potentially swaps it.
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    self._executor,
+                    self._do_atomic_save_background,
+                    self._state,
+                    self.state_file,
+                    self.temp_file,
+                    self.backup_count,
+                )
 
                 self._dirty = False
-
-                # Rotate backups (also potentially blocking, offload too)
-                await asyncio.get_event_loop().run_in_executor(self._executor, self._rotate_backups_sync)
 
                 self.logger.debug(f"💾 State saved (Async/Threaded): {self.state_file.name}")
 
             except Exception as e:
                 self.logger.error(f"❌ Failed to save state: {e}", exc_info=True)
 
-    def _do_atomic_save(self, state_dict: Dict):
-        """Internal synchronous method to perform atomic save in thread."""
+    def _do_atomic_save_background(self, state: BotState, state_file: Path, temp_file: Path, backup_count: int):
+        """
+        Performs the heavy loading of to_dict() and file writing in the background.
+        (Offloaded from main loop).
+        """
         try:
-            # Write to temp file
-            with open(self.temp_file, "w") as f:
+            # 1. Serialization (Heavy CPU)
+            state_dict = state.to_dict()
+
+            # 2. Write to temp file
+            with open(temp_file, "w") as f:
                 json.dump(state_dict, f, indent=2)
 
-            # Atomic rename
-            self.temp_file.replace(self.state_file)
-        except Exception as e:
-            self.logger.error(f"❌ Error in _do_atomic_save thread: {e}")
-            raise
+            # 3. Rotate backups
+            if state_file.exists():
+                timestamp = int(time.time())
+                backup_file = state_file.with_suffix(f".backup_{timestamp}.json")
+                state_file.rename(backup_file)
 
-    def _rotate_backups_sync(self):
-        """Rotate backup files, keeping last N. (Synchronous for Thread Execution)"""
+                # Clean old backups
+                backups = sorted(
+                    state_file.parent.glob(f"{state_file.stem}.backup_*.json"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                if len(backups) > backup_count:
+                    for b in backups[backup_count:]:
+                        b.unlink()
+
+            # 4. Atomic rename
+            temp_file.rename(state_file)
+
+        except Exception as e:
+            # We use Print/Log carefully in background threads
+            logging.getLogger("PersistentState").error(f"❌ Background save failure: {e}")
+
+    def _do_atomic_save(self, state_dict: Dict, state_file: Path, temp_file: Path, backup_count: int):
+        """Legacy sync method (keeping for signature compatibility if needed)."""
+        # (Internal logic moved to _do_atomic_save_background, but we can keep a simple version
+        # if other code calls it specifically)
         try:
-            # Create backup
-            backup_file = self.state_dir / f"{self.session_id}.backup_{int(time.time())}.json"
-            if self.state_file.exists():
-                import shutil
-
-                shutil.copy2(self.state_file, backup_file)
-
-            # Find all backups for this session
-            backups = sorted(
-                self.state_dir.glob(f"{self.session_id}.backup_*.json"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-
-            # Remove old backups
-            for old_backup in backups[self.backup_count :]:
-                old_backup.unlink()
-                self.logger.debug(f"🗑️ Removed old backup: {old_backup.name}")
-
-        except Exception as e:
-            self.logger.error(f"❌ Failed to rotate backups: {e}")
+            with open(temp_file, "w") as f:
+                json.dump(state_dict, f, indent=2)
+            if state_file.exists():
+                state_file.rename(state_file.with_suffix(f".backup_{int(time.time())}.json"))
+            temp_file.rename(state_file)
+        except Exception:
+            pass
 
     async def recover(self) -> Optional[BotState]:
         """
@@ -498,12 +512,12 @@ class PersistentState:
             self._dirty = True
 
     async def add_position(self, position: PositionState):
-        """Add open position to state."""
+        """Add open position to state (Thread-safe list replacement)."""
         if self._state:
-            # Remove if exists (update)
-            self._state.open_positions = [p for p in self._state.open_positions if p.trade_id != position.trade_id]
-            # Add new
-            self._state.open_positions.append(position)
+            # Create new list to avoid iteration errors in background thread
+            new_positions = [p for p in self._state.open_positions if p.trade_id != position.trade_id]
+            new_positions.append(position)
+            self._state.open_positions = new_positions
             self._dirty = True
 
     async def set_open_positions(self, positions: List[PositionState]):
@@ -513,8 +527,9 @@ class PersistentState:
             self._dirty = True
 
     async def remove_position(self, trade_id: str):
-        """Remove position from state."""
+        """Remove position from state (Thread-safe list replacement)."""
         if self._state:
+            # Create new list to avoid iteration errors in background thread
             self._state.open_positions = [p for p in self._state.open_positions if p.trade_id != trade_id]
             self._dirty = True
 

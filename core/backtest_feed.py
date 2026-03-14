@@ -148,8 +148,10 @@ class BacktestFeed:
     async def _emit_tick(self, timestamp, price, volume, side="UNKNOWN"):
         """Emit a single tick event."""
         # Update Virtual Exchange first (no lookahead)
-        if self.exchange_connector and hasattr(self.exchange_connector, "process_tick"):
-            self.exchange_connector.process_tick({"price": price, "timestamp": timestamp})
+        if self.exchange_connector:
+            if hasattr(self.exchange_connector, "process_tick"):
+                tick_data = {"price": price, "timestamp": timestamp}
+                self.exchange_connector.process_tick(tick_data)
 
         event = TickEvent(
             type=EventType.TICK,

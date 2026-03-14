@@ -1,0 +1,142 @@
+"""
+Casino V4 - Microstructure Backtester
+High-fidelity historical simulation using the Clock Reactor.
+"""
+
+import argparse
+import asyncio
+import logging
+import os
+import sys
+from pathlib import Path
+
+# Add root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from core.backtest_feed import BacktestFeed
+from core.clock import Clock
+from core.context_registry import ContextRegistry
+from core.engine import Engine
+from core.events import EventType
+from core.execution import OrderManager
+from core.sensor_manager import SensorManager
+from croupier.croupier import Croupier
+from decision.setup_engine import SetupEngineV4
+from exchanges.adapters import ExchangeAdapter
+from exchanges.connectors.virtual_exchange import VirtualExchangeConnector
+from players.adaptive import AdaptivePlayer
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("Backtest-V4")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Casino V4 Backtester")
+    parser.add_argument("--data", type=str, required=True, help="Path to historical CSV/Parquet file")
+    parser.add_argument("--symbol", type=str, default="BTC/USDT:USDT", help="Symbol to backtest")
+    parser.add_argument("--balance", type=float, default=10000.0, help="Initial balance")
+    parser.add_argument("--bet-size", type=float, default=0.01, help="Fixed bet size fraction")
+    parser.add_argument("--delay", type=float, default=0.0, help="Artificial delay between events")
+    return parser.parse_args()
+
+
+async def run_backtest():
+    args = parse_args()
+
+    if not os.path.exists(args.data):
+        logger.error(f"❌ Data file not found: {args.data}")
+        sys.exit(1)
+
+    # 1. Initialize Components
+    engine = Engine()
+    clock = Clock(tick_size_seconds=1.0)
+
+    # 2. Setup Virtual Exchange
+    connector = VirtualExchangeConnector(
+        initial_balance=args.balance, fee_rate=0.0006, maker_fee_rate=0.0002, slippage_rate=0.0001  # Taker
+    )
+    adapter = ExchangeAdapter(connector, symbol=args.symbol)
+
+    # 3. Setup Feed
+    feed = BacktestFeed(
+        engine=engine, data_path=args.data, symbol=args.symbol, delay=args.delay, exchange_connector=connector
+    )
+
+    # 4. Setup Execution Layer
+    croupier = Croupier(exchange_adapter=adapter, initial_balance=args.balance)
+    await connector.connect()
+    await croupier.start()
+
+    # 5. Setup Logic Layer
+    context_registry = ContextRegistry(tick_size=0.1)  # Default to 0.1 for backtest
+    SensorManager(engine)
+    setup_engine = SetupEngineV4(engine, context_registry=context_registry)
+    player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size, context_registry=context_registry)
+    OrderManager(engine, croupier, player, setup_engine.tracker)
+
+    # 6. Subscribe Components
+    async def on_tick_context(e):
+        context_registry.on_tick(e.symbol, e.price, e.volume, e.side)
+
+    async def on_tick_croupier(e):
+        await croupier.exit_manager.on_tick(e)
+
+    async def on_order_update_tracker(e):
+        croupier.position_tracker.handle_order_update(e)
+
+    engine.subscribe(EventType.TICK, on_tick_context)
+    engine.subscribe(EventType.TICK, on_tick_croupier)
+    engine.subscribe(EventType.ORDER_UPDATE, on_order_update_tracker)
+
+    # Register reactor components
+    clock.add_iterator(adapter)
+    clock.add_iterator(croupier)
+
+    logger.info(f"🏁 Starting Backtest: {args.symbol} | Data: {Path(args.data).name}")
+
+    # Start clock in background
+    clock_task = asyncio.create_task(clock.start())
+
+    # Run feed (this blocks until done)
+    await feed.run()
+
+    # Post-backtest cleanup
+    engine.running = False
+    clock_task.cancel()
+
+    # 7. Final Report
+    stats = await connector.fetch_balance()
+    final_balance = stats["total"]["USD"]
+    total_pnl = final_balance - args.balance
+
+    trades = connector._trades
+    closed_trades = [t for t in trades if t.get("pnl") is not None]
+    wins = [t for t in closed_trades if t["pnl"] > 0]
+
+    print("\n" + "=" * 60)
+    print("📊 BACKTEST V4 RESULTS SUMMARY")
+    print("=" * 60)
+    print(f"Final Balance    : ${final_balance:,.2f}")
+    print(f"PnL Total        : ${total_pnl:+.2f} ({(total_pnl/args.balance)*100:+.2f}%)")
+    print(f"Total Trades     : {len(closed_trades)}")
+    print(f"Win Rate         : {(len(wins)/len(closed_trades)*100) if closed_trades else 0:.1f}%")
+    if closed_trades:
+        gross_profit = sum(t["pnl"] for t in wins)
+        gross_loss = abs(sum(t["pnl"] for t in closed_trades if t["pnl"] <= 0))
+        pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+        print(f"Profit Factor    : {pf:.2f}")
+    print("=" * 60 + "\n")
+
+    await connector.close()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(run_backtest())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.error(f"💥 Backtest failed: {e}", exc_info=True)

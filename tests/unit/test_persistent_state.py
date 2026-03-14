@@ -186,7 +186,7 @@ class TestStateManager:
     @pytest.fixture
     def components(self):
         """Create mock components."""
-        position_tracker = PositionTracker(max_concurrent_positions=10)
+        position_tracker = PositionTracker()
         balance_manager = BalanceManager(starting_balance=10000.0)
         return position_tracker, balance_manager
 
@@ -280,7 +280,7 @@ class TestStateManager:
         await state_manager.stop()
 
         # Create new components (simulating restart)
-        new_position_tracker = PositionTracker(max_concurrent_positions=10)
+        new_position_tracker = PositionTracker()
         new_balance_manager = BalanceManager(starting_balance=10000.0)
 
         new_state_manager = StateManager(

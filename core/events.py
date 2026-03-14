@@ -4,7 +4,7 @@ Event definitions for Casino-V3 Event-Driven Architecture.
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class EventType(Enum):
@@ -19,6 +19,7 @@ class EventType(Enum):
     SYSTEM = auto()
     ACCOUNT_UPDATE = auto()
     MICROSTRUCTURE = auto()
+    MICROSTRUCTURE_BATCH = auto()
 
 
 @dataclass
@@ -91,6 +92,14 @@ class MicrostructureEvent(Event):
 
     def __post_init__(self):
         self.type = EventType.MICROSTRUCTURE
+
+
+@dataclass
+class MicrostructureBatchEvent(Event):
+    events: List[MicrostructureEvent]
+
+    def __post_init__(self):
+        self.type = EventType.MICROSTRUCTURE_BATCH
 
 
 @dataclass

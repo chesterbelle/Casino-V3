@@ -40,6 +40,7 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
         self.unmatched_events = 0
         self.error_trades = 0
         self._shutdown_event = asyncio.Event()
+        self._stall_detected = False
 
     async def run_chaos_loop(self, symbol: str):
         """Time-bounded loop of randomized trades for a specific symbol."""
@@ -147,6 +148,9 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                 f"🚀 LAUNCHING CHAOS TEST: {len(self.symbols)} symbols for {self.duration_sec}s (max {self.max_ops_per_symbol} ops/symbol)"
             )
 
+            # Start monitoring for stalls in background
+            stall_task = asyncio.create_task(self._monitor_stalls())
+
             tasks = [asyncio.create_task(self.run_chaos_loop(s)) for s in self.symbols]
 
             # Run with hard timeout (duration + 30s grace for cleanup)
@@ -155,11 +159,10 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                 await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=hard_timeout)
             except asyncio.TimeoutError:
                 logger.warning(f"⏰ Hard timeout ({hard_timeout}s) reached. Cancelling remaining tasks...")
-                for t in tasks:
-                    if not t.done():
-                        t.cancel()
             except asyncio.CancelledError:
                 logger.info("🛑 Chaos test cancelled by user.")
+            finally:
+                stall_task.cancel()
                 for t in tasks:
                     if not t.done():
                         t.cancel()
@@ -187,7 +190,7 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
             logger.info(f"  Integrity:     {'✅ PASS' if integrity_passed else '❌ FAIL'}")
             logger.info("-" * 70)
 
-            final_success = integrity_passed and self.error_trades == 0
+            final_success = integrity_passed and self.error_trades == 0 and not self._stall_detected
 
             if final_success:
                 logger.info("✅ CHAOS TEST PASSED. WebSocket logic is bulletproof.")
@@ -204,6 +207,18 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
             # Phase 243: Leverage parent cleanup (emergency_sweep)
             await super().cleanup()
             await self.connector.close()
+
+    async def _monitor_stalls(self):
+        """Monitors watchdog for stalls during the test."""
+        while not self._shutdown_event.is_set():
+            status = watchdog.get_status()
+            for name, info in status.items():
+                if not info["healthy"]:
+                    logger.critical(f"💀 EXECUTION STALL DETECTED: {name} (Lag: {info['elapsed']:.2f}s)")
+                    self._stall_detected = True
+                    self._shutdown_event.set()
+                    return
+            await asyncio.sleep(2)
 
 
 async def main():
