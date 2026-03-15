@@ -31,7 +31,7 @@ class FootprintAbsorptionV3(SensorV3):
 
     def __init__(
         self,
-        min_volume_ratio: float = 2.0,
+        min_volume_ratio: float = 3.0,  # Fix #3: Increased from 2.0 to 3.0 for higher quality signals
         pullback_ticks: int = 5,
         window_seconds: float = 30.0,
         tick_size: float = 0.1,

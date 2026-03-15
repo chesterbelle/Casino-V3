@@ -229,7 +229,9 @@ class Croupier(TimeIterator):
         """Forward trade close events to PortfolioGuard for loss streak tracking."""
         pnl = result.get("pnl", 0.0)
         exit_reason = result.get("exit_reason", "UNKNOWN")
-        self.portfolio_guard.on_trade_closed(pnl, exit_reason)
+        # result["t4_fill_ts"] is the actual fill timestamp from market data
+        ts = result.get("t4_fill_ts")
+        self.portfolio_guard.on_trade_closed(pnl, exit_reason, timestamp=ts)
 
     async def _apply_drain_phase(self, phase: str):
         """Helper to apply a drain phase to all active positions."""

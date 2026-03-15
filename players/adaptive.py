@@ -34,8 +34,9 @@ class DecisionEvent(Event):
         t1_decision_ts: float = None,
         trace_id: str = None,
         atr_1m: float = 0.0,
+        timestamp: Optional[float] = None,
     ):
-        super().__init__(type=EventType.DECISION, timestamp=time.time())
+        super().__init__(type=EventType.DECISION, timestamp=timestamp or time.time())
         self.t0_timestamp = t0_timestamp
         self.t1_decision_ts = t1_decision_ts
         self.trace_id = trace_id
@@ -293,21 +294,22 @@ class AdaptivePlayer:
             tp_pct = abs((tp_price - current_price) / current_price) * 100
             sl_pct = abs((sl_price - current_price) / current_price) * 100
 
+            # Fix #2: Increased minimum TP to ensure RR > 1.0
             if setup_type == "reversion":
-                tp_pct = max(0.10, min(tp_pct, 0.60))
-                sl_pct = max(0.15, min(sl_pct, 0.45))
+                tp_pct = max(0.35, min(tp_pct, 0.80))  # Min 0.35% TP (was 0.10%)
+                sl_pct = max(0.20, min(sl_pct, 0.45))
                 tp_sl_source = f"{tp_sl_source}+reversion_clamp"
             elif setup_type == "continuation":
-                tp_pct = max(0.15, min(tp_pct, 0.90))
-                sl_pct = max(0.15, min(sl_pct, 0.55))
+                tp_pct = max(0.40, min(tp_pct, 1.00))  # Min 0.40% TP (was 0.15%)
+                sl_pct = max(0.20, min(sl_pct, 0.50))
                 tp_sl_source = f"{tp_sl_source}+continuation_clamp"
             elif setup_type == "initial":
-                tp_pct = max(0.20, min(tp_pct, 0.80))
-                sl_pct = max(0.20, min(sl_pct, 0.50))
+                tp_pct = max(0.50, min(tp_pct, 1.00))  # Min 0.50% TP (was 0.20%)
+                sl_pct = max(0.25, min(sl_pct, 0.50))
                 tp_sl_source = f"{tp_sl_source}+initial_clamp"
             else:
                 # Generic HFT clamp
-                tp_pct = max(0.10, min(tp_pct, 2.0))
+                tp_pct = max(0.30, min(tp_pct, 2.0))  # Min 0.30% TP (was 0.10%)
                 sl_pct = max(0.25, min(sl_pct, 2.0))
 
             # Convert back to absolute prices
@@ -325,9 +327,9 @@ class AdaptivePlayer:
             risk = abs(sl_price - current_price)
             if risk > 0:
                 rr_ratio = reward / risk
-                if rr_ratio < 1.0:
+                if rr_ratio < 1.2:  # Fix #2: More conservative RR threshold (was 1.0)
                     logger.warning(
-                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.0) | "
+                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.2) | "
                         f"Symbol: {event.symbol} | Side: {event.side} | "
                         f"TP: {tp_price:.4f} ({reward/current_price*100:.2f}%) "
                         f"SL: {sl_price:.4f} ({risk/current_price*100:.2f}%)"
@@ -366,6 +368,7 @@ class AdaptivePlayer:
             t1_decision_ts=getattr(event, "t1_decision_ts", None),
             trace_id=getattr(event, "trace_id", None),
             atr_1m=event.metadata.get("atr_1m", 0.0),
+            timestamp=event.timestamp,
         )
         decision.decision_id = decision_id  # Add unique ID
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")

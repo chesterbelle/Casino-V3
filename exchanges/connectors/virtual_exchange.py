@@ -68,6 +68,9 @@ class VirtualExchangeConnector(BaseConnector):
         # Order update callback (like Binance WebSocket)
         self._order_update_callback = None
 
+        # Phase 249: Balance update callback for PortfolioGuard integration
+        self._balance_update_callback = None
+
         self.logger.info(
             f"🏦 VirtualExchange initialized | Balance: ${initial_balance:,.2f} | "
             f"Fee: {fee_rate:.2%} | Slippage: {slippage_rate:.2%}"
@@ -88,6 +91,10 @@ class VirtualExchangeConnector(BaseConnector):
         self._connected = False
         self._ready = False
         self.logger.info("🔌 VirtualExchange disconnected")
+
+    def set_balance_update_callback(self, callback):
+        """Set callback for balance updates (for PortfolioGuard integration)."""
+        self._balance_update_callback = callback
 
     @property
     def is_connected(self) -> bool:
@@ -311,6 +318,17 @@ class VirtualExchangeConnector(BaseConnector):
         # 1. Deduct Fee
         self._balance -= fee
 
+        # Phase 249: Bankruptcy detection
+        if self._balance < 0:
+            self.logger.critical(f"🚨 BANKRUPTCY: Balance dropped to ${self._balance:,.2f}")
+
+        # Phase 249: Notify balance update callback for PortfolioGuard
+        if self._balance_update_callback:
+            try:
+                self._balance_update_callback(self._balance, timestamp=self._current_timestamp)
+            except Exception as e:
+                self.logger.error(f"❌ Balance update callback error: {e}")
+
         # 2. Update Position
         # Check if we have an existing position
         position = next((p for p in self._positions if p["symbol"] == symbol), None)
@@ -522,6 +540,13 @@ class VirtualExchangeConnector(BaseConnector):
         amount = round(amount, self.amount_precision)
         if amount < self.min_amount:
             raise ValueError(f"Amount {amount} < min {self.min_amount}")
+
+        # Phase 249: Solvency Check
+        # Prevent opening new positions or increasing if bankrupt
+        is_reduce = (params or {}).get("reduceOnly", False)
+        if self._balance <= 0 and not is_reduce:
+            self.logger.error(f"💀 STOP: VirtualExchange Insolvent (Balance=${self._balance:,.2f})")
+            raise ValueError(f"Insolvent: Balance {self._balance} <= 0. Cannot open new positions.")
 
         self._order_seq += 1
         order_id = f"v_{self._current_timestamp}_{self._order_seq}"

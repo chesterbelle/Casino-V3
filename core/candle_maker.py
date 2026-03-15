@@ -192,7 +192,7 @@ class CandleMaker:
 
         event = FootprintCandleEvent(
             type=EventType.CANDLE,
-            timestamp=time.time(),  # Event timestamp
+            timestamp=candle_data["timestamp"],  # Use bucket start time for backtest parity
             symbol=candle_data["symbol"],
             timeframe="1m",  # Hardcoded for now
             open=candle_data["open"],

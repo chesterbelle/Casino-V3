@@ -53,8 +53,11 @@ class FootprintVolumeExhaustion(SensorV3):
 
         # 2. Check for Bullish Exhaustion (at the Low)
         # Condition: Price at Low + Very Low Ask Volume (Sellers disappeared)
-        low_price_str = str(prices[0]) if prices[0] in profile else next(k for k in profile if float(k) == prices[0])
-        low_vols = profile[low_price_str]
+        # Fix: Use tolerance-based key lookup to handle string/float mismatch
+        low_price_key = next((k for k in profile if abs(float(k) - prices[0]) < 0.0001), None)
+        if not low_price_key:
+            return None
+        low_vols = profile[low_price_key]
         low_ask = low_vols.get("ask", 0.0)
         low_bid = low_vols.get("bid", 0.0)
         low_total = low_ask + low_bid
@@ -77,10 +80,11 @@ class FootprintVolumeExhaustion(SensorV3):
 
         # 3. Check for Bearish Exhaustion (at the High)
         # Condition: Price at High + Very Low Bid Volume (Buyers disappeared)
-        high_price_str = (
-            str(prices[-1]) if prices[-1] in profile else next(k for k in profile if float(k) == prices[-1])
-        )
-        high_vols = profile[high_price_str]
+        # Fix: Use tolerance-based key lookup to handle string/float mismatch
+        high_price_key = next((k for k in profile if abs(float(k) - prices[-1]) < 0.0001), None)
+        if not high_price_key:
+            return None
+        high_vols = profile[high_price_key]
         high_bid = high_vols.get("bid", 0.0)
         high_ask = high_vols.get("ask", 0.0)
         high_total = high_bid + high_ask

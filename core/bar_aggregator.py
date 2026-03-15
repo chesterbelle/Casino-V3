@@ -183,7 +183,7 @@ class BarAggregator:
                 levels_vol.append((price, vol))
                 if vol > max_vol:
                     max_vol = vol
-                    poc_price = price
+                    poc_price = float(price)  # Fix: Ensure float type
 
             target_vol = total_volume * 0.70
             current_vol = max_vol

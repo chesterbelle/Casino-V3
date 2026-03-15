@@ -213,6 +213,9 @@ class SensorManager:
             "profile": getattr(event, "profile", None),
             "delta": getattr(event, "delta", 0.0),
             "atr": getattr(event, "atr", 0.0),
+            "poc": getattr(event, "poc", 0.0),
+            "vah": getattr(event, "vah", 0.0),
+            "val": getattr(event, "val", 0.0),
         }
 
         # Update local aggregator (per symbol)
@@ -246,7 +249,7 @@ class SensorManager:
         Phase 1: Track CVD and emit Microstructure.
         Throttled to prevent IPC explosion.
         """
-        now = time.time()
+        now = event.timestamp
         sym = event.symbol
         self.last_price[sym] = event.price
 
@@ -259,8 +262,8 @@ class SensorManager:
 
         last_dispatch = self._last_tick_dispatch.get(event.symbol, 0)
 
-        # Throttle to max 1 update per 100ms
-        if (now - last_dispatch) * 1000 < self.throttle_ms:
+        # Throttle to max 1 update per 100ms (Using Market Time)
+        if (now - last_dispatch) < (self.throttle_ms / 1000.0):
             return
 
         self._last_tick_dispatch[event.symbol] = now
@@ -282,7 +285,7 @@ class SensorManager:
         Phase 1: Track Skewness.
         Throttled to prevent IPC explosion.
         """
-        now = time.time()
+        now = event.timestamp
         sym = event.symbol
 
         # Phase 1: Skewness tracking moved to throttled micro_dispatch
@@ -290,8 +293,8 @@ class SensorManager:
 
         last_dispatch = self._last_ob_dispatch.get(event.symbol, 0)
 
-        # Throttle to max 1 update per 100ms
-        if (now - last_dispatch) * 1000 < self.throttle_ms:
+        # Throttle to max 1 update per 100ms (Using Market Time)
+        if (now - last_dispatch) < (self.throttle_ms / 1000.0):
             return
 
         self._last_ob_dispatch[event.symbol] = now
@@ -313,7 +316,8 @@ class SensorManager:
         Phase 500: Performance - Heavy pruning and skewness calculations happen here (gated).
         """
         last_micro = self._last_micro_dispatch.get(sym, 0)
-        if (now - last_micro) * 1000 < self.throttle_ms:
+        # Throttle using market time (now)
+        if (now - last_micro) < (self.throttle_ms / 1000.0):
             return
 
         self._last_micro_dispatch[sym] = now
@@ -355,28 +359,32 @@ class SensorManager:
             price=self.last_price[sym],
         )
 
-        # Phase 7: Buffer event instead of immediate dispatch
+        # Phase 7: Buffer event
         self._micro_buffer.append(evt)
+
+        # BACKTEST OPTIMIZATION: Flush immediately if buffer is large or if we are in high-speed mode
+        if len(self._micro_buffer) >= 100:
+            asyncio.create_task(self._flush_micro_buffer())
+
+    async def _flush_micro_buffer(self):
+        """Internal helper to flush the micro buffer."""
+        if not self._micro_buffer:
+            return
+
+        batch_events = self._micro_buffer
+        self._micro_buffer = []
+
+        batch_evt = MicrostructureBatchEvent(
+            type=EventType.MICROSTRUCTURE_BATCH, timestamp=time.time(), events=batch_events
+        )
+        await self.engine.dispatch(batch_evt)
 
     async def _flush_micro_events_loop(self):
         """Background task to flush buffered micro events as a batch."""
         while True:
             try:
                 await asyncio.sleep(0.1)  # Flush every 100ms
-
-                if not self._micro_buffer:
-                    continue
-
-                # Take snapshot and clear
-                batch_events = self._micro_buffer
-                self._micro_buffer = []
-
-                # Dispatch as a single Batch Event
-                batch_evt = MicrostructureBatchEvent(
-                    type=EventType.MICROSTRUCTURE_BATCH, timestamp=time.time(), events=batch_events
-                )
-                await self.engine.dispatch(batch_evt)
-
+                await self._flush_micro_buffer()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -506,7 +514,7 @@ class SensorManager:
 
         event = SignalEvent(
             type=EventType.SIGNAL,
-            timestamp=time.time(),
+            timestamp=getattr(signal_data, "timestamp", time.time()) if isinstance(signal_data, dict) else time.time(),
             symbol=target_symbol,
             side=signal_data["side"],
             sensor_id=sensor_name,

@@ -45,17 +45,17 @@ class ContextRegistry:
 
         logger.info("🏛️ ContextRegistry (Zero-Lag Mirror) initialized.")
 
-    def on_tick(self, symbol: str, price: float, volume: float, side: str):
+    def on_tick(self, symbol: str, price: float, volume: float, side: str, timestamp: float = None):
         """Update structural and pulse layers synchronously."""
+        now = timestamp or time.time()
         if symbol not in self.profiles:
             self.profiles[symbol] = MarketProfile(tick_size=self.tick_size)
-            self.tick_stats[symbol] = {"speed": 0.0, "last_ts": time.time(), "count": 0}
+            self.tick_stats[symbol] = {"speed": 0.0, "last_ts": now, "count": 0}
 
         # 1. Update Market Profile
         self.profiles[symbol].add_trade(price, volume)
 
         # 2. Update Pulse (Tick Speed)
-        now = time.time()
         stats = self.tick_stats[symbol]
         stats["count"] += 1
         elapsed = now - stats["last_ts"]

@@ -48,7 +48,7 @@ class SetupEngineV4:
 
         # Strict Cooldowns per symbol to prevent double-firing and churn
         self.last_fire_ts = defaultdict(float)
-        self.fire_cooldown = 300.0  # 5 minutes per symbol post-trade cooldown
+        self.fire_cooldown = 900.0  # 15 minutes per symbol post-trade cooldown
         self._last_prune_ts = 0.0
         self._prune_interval = 0.5  # Prune every 500ms
 
@@ -72,17 +72,29 @@ class SetupEngineV4:
         return metadata
 
     async def on_signal(self, event: SignalEvent):
-        """Processes incoming tactical events and evaluates playbooks over the 5s window."""
+        """Processes incoming tactical and regime events."""
+        # Phase 1500: Sync Regime Filters with ContextRegistry
+        md = event.metadata or {}
+        if md.get("type") == "MarketRegime_OTF":
+            regime = md.get("regime", "NEUTRAL")
+            mapping = {"BULL_OTF": "UP", "BEAR_OTF": "DOWN", "NEUTRAL": "NEUTRAL"}
+            mapped = mapping.get(regime, "NEUTRAL")
+            logger.info(f"🌐 [REGIME] {event.symbol} updated to {mapped} (OTF: {regime})")
+            if self.context_registry:
+                self.context_registry.set_regime(event.symbol, mapped)
+                self.context_registry.set_otf(event.symbol, regime)
+            return
+
         if event.side != "TACTICAL":
             return
 
-        now = time.time()
+        now = event.timestamp
         sym = event.symbol
 
         # 1. Store event in short-term memory
         self.memory[sym].append((now, event))
 
-        # Lazy Pruning (Phase 500) - Only prune every 500ms
+        # Lazy Pruning (Phase 500) - Only prune every 500ms (Using Market Time)
         if now - self._last_prune_ts > self._prune_interval:
             self._last_prune_ts = now
             for s in list(self.memory.keys()):
@@ -135,13 +147,13 @@ class SetupEngineV4:
 
     async def _process_microstructure(self, event: MicrostructureEvent):
         """Internal logic to process a single microstructure event."""
-        now = time.time()
+        now = event.timestamp
         sym = event.symbol
 
         # 1. Store in memory
         self.micro_memory[sym].append((now, event))
 
-        # Lazy Pruning (Phase 500)
+        # Lazy Pruning (Phase 500) - Using Market Time
         if now - self._last_prune_ts > self._prune_interval:
             self._last_prune_ts = now
             for s in list(self.micro_memory.keys()):
@@ -180,8 +192,17 @@ class SetupEngineV4:
             # We don't fetch the whole state, just the specific OTF bias
             otf = self.context_registry.get_regime(sym)  # Returns "UP", "DOWN", or "NEUTRAL"
 
-        # Long: Z > 3.0, Skewness > 0.65 (strong bid dominance), Price UP, OTF non-down
-        if z > 3.0 and skewness > 0.65 and price_delta >= 0 and otf != "DOWN":
+        # Phase 1050: Strict Entry Hardening
+        # Adjustment: Reduced Z thresholds from 5.0 to 4.5 for more signals
+        # Long: Z > 4.5, Skewness > 0.65 (or neutral 0.5), Price UP, OTF UP or NEUTRAL
+        is_skew_long = skewness > 0.65 or skewness == 0.5
+
+        # Throttled Debug (Every 5s of market time)
+        if int(now) % 5 == 0:
+            logger.debug(f"🔍 [MONITOR] {sym} | Z: {z:.2f} | OTF: {otf} | Skew: {skewness:.2f}")
+
+        # Adjustment: Allow NEUTRAL OTF for more opportunities
+        if z > 4.5 and is_skew_long and price_delta >= 0 and otf in ("UP", "NEUTRAL"):
             trigger = {
                 "setup_name": "Toxic_OrderFlow",
                 "side": "LONG",
@@ -195,8 +216,8 @@ class SetupEngineV4:
                     "price": curr_evt.price,
                 },
             }
-        # Short: Z < -3.0, Skewness < 0.35 (strong ask dominance), Price DOWN, OTF non-up
-        elif z < -3.0 and skewness < 0.35 and price_delta <= 0 and otf != "UP":
+        # Adjustment: Allow NEUTRAL OTF for more opportunities
+        elif z < -4.5 and (skewness < 0.35 or skewness == 0.5) and price_delta <= 0 and otf in ("DOWN", "NEUTRAL"):
             trigger = {
                 "setup_name": "Toxic_OrderFlow",
                 "side": "SHORT",
@@ -214,7 +235,8 @@ class SetupEngineV4:
         if trigger:
             self.last_fire_ts[sym] = now
             logger.warning(
-                f"🎯 [SETUP ENGINE] {trigger['setup_name']} PATTERN CONFIRMED! " f"Firing {trigger['side']} on {sym}"
+                f"🎯 [SETUP ENGINE] {trigger['setup_name']} PATTERN CONFIRMED! "
+                f"Firing {trigger['side']} on {sym} | MarketTime: {now}"
             )
 
             # Phase 950: Enrich metadata with structural levels from ContextRegistry
@@ -239,10 +261,10 @@ class SetupEngineV4:
     def _evaluate_fade_extreme(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
         """
         Playbook 1: Fade the Extreme (Mean Reversion)
-        Trigger Condition:
-        1. Context confirms price is near a major volume level (POC, VAH, VAL) -> at_volume_level=True
-        2. TacticalAbsorption event occurred against the extreme.
-        3. TacticalImbalance event confirms the reversal direction.
+        Trigger Condition (Adjusted for more signals):
+        1. TacticalAbsorption OR TacticalRejection/TrappedTraders event
+        2. TacticalImbalance event confirms the reversal direction
+        3. Optional: at_volume_level confirmation (not required)
         ALL within the last 5 seconds.
         """
         has_absorption = None
@@ -253,10 +275,7 @@ class SetupEngineV4:
             md = e.metadata or {}
             t_type = md.get("tactical_type")
 
-            # For a fade, it MUST happen at a structural volume level
-            if not md.get("at_volume_level") and t_type not in ["TacticalRejection", "TacticalTrappedTraders"]:
-                continue
-
+            # Adjustment: Accept any absorption/rejection event, not just at volume levels
             if t_type == "TacticalAbsorption":
                 has_absorption = md
             elif t_type == "TacticalImbalance":
@@ -318,17 +337,19 @@ class SetupEngineV4:
 
         if stacked:
             stacked_dir = stacked.get("direction")
-            # Phase 950: Require at least 1 confirming event in the same direction
+            # Adjustment: StackedImbalance alone is strong enough signal
+            # Still check for confluence but don't require it
             has_confluence = any(c.get("direction") == stacked_dir for c in confirmations)
-            if has_confluence:
-                return {
-                    "setup_name": "Trend_Continuation",
-                    "side": stacked_dir,
-                    "metadata": {
-                        "trigger": "TrendContinuation",
-                        "setup_type": "continuation",
-                        "levels": stacked.get("levels", []),
-                        "confluence_count": sum(1 for c in confirmations if c.get("direction") == stacked_dir),
-                    },
-                }
+            # Fire with or without confluence (confluence just adds confidence)
+            return {
+                "setup_name": "Trend_Continuation",
+                "side": stacked_dir,
+                "metadata": {
+                    "trigger": "TrendContinuation",
+                    "setup_type": "continuation",
+                    "levels": stacked.get("levels", []),
+                    "confluence_count": sum(1 for c in confirmations if c.get("direction") == stacked_dir),
+                    "has_confluence": has_confluence,
+                },
+            }
         return None

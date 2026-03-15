@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core.backtest_feed import BacktestFeed
+from core.candle_maker import CandleMaker
 from core.clock import Clock
 from core.context_registry import ContextRegistry
 from core.engine import Engine
@@ -28,7 +29,7 @@ from players.adaptive import AdaptivePlayer
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", handlers=[logging.StreamHandler()]
+    level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger("Backtest-V4")
 
@@ -40,6 +41,7 @@ def parse_args():
     parser.add_argument("--balance", type=float, default=10000.0, help="Initial balance")
     parser.add_argument("--bet-size", type=float, default=0.01, help="Fixed bet size fraction")
     parser.add_argument("--delay", type=float, default=0.0, help="Artificial delay between events")
+    parser.add_argument("--limit", type=int, default=None, help="Stop after N events")
     return parser.parse_args()
 
 
@@ -62,12 +64,39 @@ async def run_backtest():
 
     # 3. Setup Feed
     feed = BacktestFeed(
-        engine=engine, data_path=args.data, symbol=args.symbol, delay=args.delay, exchange_connector=connector
+        engine=engine,
+        data_path=args.data,
+        symbol=args.symbol,
+        delay=args.delay,
+        exchange_connector=connector,
+        limit=args.limit,
     )
 
     # 4. Setup Execution Layer
     croupier = Croupier(exchange_adapter=adapter, initial_balance=args.balance)
     await connector.connect()
+
+    # Phase 249: Connect VirtualExchange balance updates to BalanceManager for PortfolioGuard
+    def on_balance_update(balance: float, timestamp: float = None):
+        croupier.balance_manager.set_balance(balance, timestamp=timestamp)
+
+    connector.set_balance_update_callback(on_balance_update)
+
+    # MONKEY-PATCH: Disable real-time services for backtest performance
+    # This prevents the bot from trying to sync with a dummy exchange every 60s
+    async def no_op_async(*args, **kwargs):
+        pass
+
+    croupier.drift_auditor.start = no_op_async
+    croupier.drift_auditor.stop = no_op_async
+    croupier.drift_auditor.tick = no_op_async
+    croupier.reconciliation.reconcile_symbol = no_op_async
+    croupier.reconciliation.reconcile_all = no_op_async
+
+    # Disable Croupier periodic tasks (Balance/Funding sync)
+    croupier._sync_balance = no_op_async
+    croupier._sync_funding_fees = no_op_async
+
     await croupier.start()
 
     # 5. Setup Logic Layer
@@ -75,7 +104,12 @@ async def run_backtest():
     SensorManager(engine)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry)
     player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size, context_registry=context_registry)
-    OrderManager(engine, croupier, player, setup_engine.tracker)
+
+    # 5.1 Candle Maker (Crucial for Regime Sensors)
+    candle_maker = CandleMaker(engine)
+
+    om = OrderManager(engine, croupier, player, setup_engine.tracker)
+    await om.start()
 
     # 6. Subscribe Components
     async def on_tick_context(e):
@@ -90,6 +124,7 @@ async def run_backtest():
     engine.subscribe(EventType.TICK, on_tick_context)
     engine.subscribe(EventType.TICK, on_tick_croupier)
     engine.subscribe(EventType.ORDER_UPDATE, on_order_update_tracker)
+    engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)
 
     # Register reactor components
     clock.add_iterator(adapter)
@@ -105,7 +140,12 @@ async def run_backtest():
 
     # Post-backtest cleanup
     engine.running = False
-    clock_task.cancel()
+
+    # Stop clock properly
+    await clock.stop()
+
+    # Give tasks time to finish
+    await asyncio.sleep(0.5)
 
     # 7. Final Report
     stats = await connector.fetch_balance()
@@ -129,8 +169,13 @@ async def run_backtest():
         pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
         print(f"Profit Factor    : {pf:.2f}")
     print("=" * 60 + "\n")
+    sys.stdout.flush()
+    sys.stderr.flush()
 
     await connector.close()
+
+    # Force exit to ensure clean termination
+    os._exit(0)
 
 
 if __name__ == "__main__":

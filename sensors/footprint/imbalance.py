@@ -22,7 +22,7 @@ class FootprintImbalanceV3(SensorV3):
 
     def __init__(
         self,
-        imbalance_ratio: float = 3.0,
+        imbalance_ratio: float = 4.0,  # Fix #3: Increased from 3.0 to 4.0 for higher quality signals
         min_volume: float = 1.0,
         window_seconds: float = 30.0,
         tick_size: float = 0.1,
@@ -38,7 +38,7 @@ class FootprintImbalanceV3(SensorV3):
         # Phase 2: Volatility Regime Z-Scores
         self.buy_ratio_zscore = RollingZScore(window_size=200)
         self.sell_ratio_zscore = RollingZScore(window_size=200)
-        self.min_zscore_anomaly = 3.0  # +3 StdDev for Imbalance
+        self.min_zscore_anomaly = 4.0  # Fix #3: Increased from 3.0 to 4.0 StdDev for anomaly
 
         # Cooldown to avoid blasting the engine with signals for the same imbalance
         self._last_signal_time = 0.0

@@ -6,7 +6,7 @@ Actualiza equity, PnL y mantiene trazabilidad de operaciones.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger("BalanceManager")
 
@@ -51,7 +51,7 @@ class BalanceManager:
         """
         return self.equity
 
-    def set_balance(self, new_balance: float):
+    def set_balance(self, new_balance: float, timestamp: Optional[float] = None):
         """
         Actualiza el balance con un valor del exchange.
 
@@ -62,7 +62,7 @@ class BalanceManager:
         self.equity = new_balance
         # Phase 249: Notify PortfolioGuard
         if self._portfolio_guard:
-            self._portfolio_guard.on_balance_update(self.equity)
+            self._portfolio_guard.on_balance_update(self.equity, timestamp=timestamp)
 
     def add_balance_delta(self, delta: float):
         """
@@ -101,7 +101,9 @@ class BalanceManager:
                 logger.info(f"💰 Real-Time Balance Update: {self.balance:.2f} USDT")
                 # Phase 249: Notify PortfolioGuard
                 if self._portfolio_guard:
-                    self._portfolio_guard.on_balance_update(self.equity)
+                    # Extracts timestamp from Binance ACCOUNT_UPDATE if available (E: event time)
+                    ts = float(event.get("E", 0)) / 1000.0 if "E" in event else None
+                    self._portfolio_guard.on_balance_update(self.equity, timestamp=ts)
                 break
 
     def get_state(self):

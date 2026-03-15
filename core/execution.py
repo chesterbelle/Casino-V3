@@ -205,7 +205,9 @@ class OrderManager:
             )
             guard = getattr(self.croupier, "portfolio_guard", None)
             if guard:
-                guard.on_sizing_violation(symbol, position_value, min_notional)
+                # event.timestamp is usually a string from market data, ensure it's float
+                ts = float(event.timestamp) if hasattr(event, "timestamp") else None
+                guard.on_sizing_violation(symbol, position_value, min_notional, timestamp=ts)
             return
 
         # Validate minimum amount after precision rounding
@@ -219,7 +221,8 @@ class OrderManager:
             # Phase 249.2: Notify guard of rounding down to zero
             guard = getattr(self.croupier, "portfolio_guard", None)
             if guard:
-                guard.on_sizing_violation(symbol, position_value, 0.0)  # 0.0 signals rounding fail
+                ts = float(event.timestamp) if hasattr(event, "timestamp") else None
+                guard.on_sizing_violation(symbol, position_value, 0.0, timestamp=ts)  # 0.0 signals rounding fail
             return
 
         logger.info(

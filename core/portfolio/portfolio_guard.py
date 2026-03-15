@@ -169,7 +169,7 @@ class PortfolioGuard:
     # EVENT RECEIVERS (called by existing components)
     # =========================================================
 
-    def on_balance_update(self, equity: float) -> None:
+    def on_balance_update(self, equity: float, timestamp: Optional[float] = None) -> None:
         """
         Called by BalanceManager on every real-time balance update.
         Tracks equity history and checks drawdown velocity.
@@ -177,7 +177,7 @@ class PortfolioGuard:
         if not self.config.enabled:
             return
 
-        now = time.time()
+        now = timestamp if timestamp is not None else time.time()
         self._stats["total_balance_updates"] += 1
 
         # Track peak
@@ -187,9 +187,9 @@ class PortfolioGuard:
         self._balance_history.append(_BalanceSnapshot(timestamp=now, equity=equity))
 
         # Run checks
-        self._evaluate_state()
+        self._evaluate_state(now)
 
-    def on_trade_closed(self, pnl: float, exit_reason: str) -> None:
+    def on_trade_closed(self, pnl: float, exit_reason: str, timestamp: Optional[float] = None) -> None:
         """
         Called when a position closes (via PositionTracker close listener).
         Tracks consecutive losses and PnL trajectory.
@@ -197,7 +197,7 @@ class PortfolioGuard:
         if not self.config.enabled:
             return
 
-        now = time.time()
+        now = timestamp if timestamp is not None else time.time()
         self._stats["total_trades_processed"] += 1
 
         self._trade_results.append(_TradeResult(timestamp=now, pnl=pnl, exit_reason=exit_reason))
@@ -209,9 +209,9 @@ class PortfolioGuard:
             self._consecutive_losses = 0
 
         # Run checks
-        self._evaluate_state()
+        self._evaluate_state(now)
 
-    def on_execution_error(self, error_type: str, symbol: str = "UNKNOWN") -> None:
+    def on_execution_error(self, error_type: str, symbol: str = "UNKNOWN", timestamp: Optional[float] = None) -> None:
         """
         Called by ErrorHandler on non-retriable execution errors.
         Tracks error rate for anomaly detection.
@@ -219,15 +219,17 @@ class PortfolioGuard:
         if not self.config.enabled:
             return
 
-        now = time.time()
+        now = timestamp if timestamp is not None else time.time()
         self._stats["total_errors_received"] += 1
 
         self._error_log.append(_ErrorEvent(timestamp=now, error_type=error_type, symbol=symbol))
 
         # Run checks
-        self._evaluate_state()
+        self._evaluate_state(now)
 
-    def on_sizing_violation(self, symbol: str, notional: float, min_required: float) -> None:
+    def on_sizing_violation(
+        self, symbol: str, notional: float, min_required: float, timestamp: Optional[float] = None
+    ) -> None:
         """
         Called by OrderExecutor when order notional < min_notional.
         Strong signal that balance is too low to trade.
@@ -235,6 +237,7 @@ class PortfolioGuard:
         if not self.config.enabled:
             return
 
+        now = timestamp if timestamp is not None else time.time()
         self._sizing_violations += 1
         self._stats["total_sizing_violations"] += 1
 
@@ -244,22 +247,23 @@ class PortfolioGuard:
         )
 
         # Run checks
-        self._evaluate_state()
+        self._evaluate_state(now)
 
     # =========================================================
     # RISK EVALUATION ENGINE
     # =========================================================
 
-    def _evaluate_state(self) -> None:
+    def _evaluate_state(self, timestamp: Optional[float] = None) -> None:
         """
         Central evaluation: runs all risk checks and determines
         the highest severity state among them.
         """
+        now = timestamp if timestamp is not None else time.time()
         checks = [
             self._check_solvency(),
-            self._check_drawdown_velocity(),
+            self._check_drawdown_velocity(now),
             self._check_loss_streak(),
-            self._check_error_rate(),
+            self._check_error_rate(now),
             self._check_sizing_violations(),
         ]
 
@@ -274,12 +278,12 @@ class PortfolioGuard:
 
         # Only transition UP (escalate), not down — recovery requires explicit cooldown
         if worst_state > self.state:
-            self._transition_to(worst_state, worst_reason)
+            self._transition_to(worst_state, worst_reason, now)
         elif worst_state < self.state:
             # Check if recovery is allowed (hysteresis)
-            elapsed = time.time() - self._last_state_change_ts
+            elapsed = now - self._last_state_change_ts
             if elapsed >= self.config.recovery_cooldown_seconds:
-                self._transition_to(worst_state, f"Recovery after {elapsed:.0f}s cooldown")
+                self._transition_to(worst_state, f"Recovery after {elapsed:.0f}s cooldown", now)
 
     def _check_solvency(self) -> Tuple[Optional[GuardState], str]:
         """
@@ -302,7 +306,7 @@ class PortfolioGuard:
 
         return (None, "")
 
-    def _check_drawdown_velocity(self) -> Tuple[Optional[GuardState], str]:
+    def _check_drawdown_velocity(self, now: float) -> Tuple[Optional[GuardState], str]:
         """
         Check rate of equity loss within the rolling window.
         Uses peak equity within the window as reference.
@@ -310,7 +314,6 @@ class PortfolioGuard:
         if len(self._balance_history) < 2:
             return (None, "")
 
-        now = time.time()
         window_start = now - (self.config.drawdown_window_minutes * 60)
 
         # Find peak equity within the window
@@ -351,12 +354,11 @@ class PortfolioGuard:
 
         return (None, "")
 
-    def _check_error_rate(self) -> Tuple[Optional[GuardState], str]:
+    def _check_error_rate(self, now: float) -> Tuple[Optional[GuardState], str]:
         """Check execution error rate within the window."""
         if not self._error_log:
             return (None, "")
 
-        now = time.time()
         window_start = now - (self.config.error_window_minutes * 60)
 
         recent_errors = sum(1 for e in self._error_log if e.timestamp >= window_start)
@@ -391,14 +393,14 @@ class PortfolioGuard:
     # STATE MANAGEMENT
     # =========================================================
 
-    def _transition_to(self, new_state: GuardState, reason: str) -> None:
+    def _transition_to(self, new_state: GuardState, reason: str, now: Optional[float] = None) -> None:
         """Execute state transition and notify listeners."""
         if new_state == self.state:
             return
 
         old_state = self.state
         self.state = new_state
-        self._last_state_change_ts = time.time()
+        self._last_state_change_ts = now if now is not None else time.time()
         self._stats["state_transitions"] += 1
 
         # Log with appropriate severity

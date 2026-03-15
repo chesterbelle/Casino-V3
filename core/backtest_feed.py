@@ -18,7 +18,9 @@ class BacktestFeed:
     Simulates a live data feed by replaying historical data.
     """
 
-    def __init__(self, engine, data_path: str, symbol: str, delay: float = 0.001, exchange_connector=None):
+    def __init__(
+        self, engine, data_path: str, symbol: str, delay: float = 0.001, exchange_connector=None, limit: int = None
+    ):
         self.engine = engine
         self.data_path = data_path
         self.symbol = symbol
@@ -26,6 +28,7 @@ class BacktestFeed:
         self.exchange_connector = exchange_connector  # Connector to update with price data
         self.running = False
         self.data = None
+        self.limit = limit
 
         # Mock Adapter for Croupier (Legacy support if no connector provided)
         self.adapter = self._create_mock_adapter()
@@ -39,6 +42,7 @@ class BacktestFeed:
         # For now, let's use a dummy object that has 'symbol'
         class MockAdapter:
             def __init__(self, symbol):
+                self.name = "BacktestAdapter"
                 self.symbol = symbol
                 # Mock connector for ExchangeStateSync
                 self.connector = type("MockConnector", (), {"exchange": type("Exchange", (), {"id": "mock"})()})()
@@ -47,6 +51,15 @@ class BacktestFeed:
                 pass
 
             async def disconnect(self):
+                pass
+
+            async def start(self):
+                pass
+
+            async def stop(self):
+                pass
+
+            async def tick(self, timestamp):
                 pass
 
         return MockAdapter(self.symbol)
@@ -73,7 +86,6 @@ class BacktestFeed:
             raise ValueError(f"Data missing required columns. Found: {self.data.columns}")
 
         # Convert timestamp to datetime and then to epoch seconds if needed
-        # (Assuming data might already be in seconds if from download_trades.py)
         if not pd.api.types.is_numeric_dtype(self.data["timestamp"]):
             self.data["timestamp"] = pd.to_datetime(self.data["timestamp"])
             self.data["timestamp"] = self.data["timestamp"].astype(int) // 10**9
@@ -108,35 +120,25 @@ class BacktestFeed:
             if not self.running:
                 break
 
+            if self.limit and index >= self.limit:
+                logger.info(f"🛑 Reached backtest limit: {self.limit} events")
+                break
+
             if self.mode == "TRADES":
                 # Direct Replay of Real Trades
                 await self._emit_tick(row["timestamp"], row["price"], row["volume"], row["side"])
 
             elif self.mode == "CANDLES":
-                # Simulate Ticks from Candle with Synthetic Order Flow
-                # Logic:
-                # - Green Candle (Close > Open): More ASK volume (Aggressive Buying)
-                # - Red Candle (Close < Open): More BID volume (Aggressive Selling)
-
                 is_green = row["close"] > row["open"]
                 total_vol = row["volume"]
 
-                # 1. Open Tick
                 await self._emit_tick(row["timestamp"], row["open"], total_vol * 0.1, "BID" if is_green else "ASK")
-
-                # 2. High/Low Ticks (Simulate wicks)
                 if is_green:
-                    # Low wick (testing support) -> BID volume
                     await self._emit_tick(row["timestamp"], row["low"], total_vol * 0.2, "BID")
-                    # High wick (pushing up) -> ASK volume
                     await self._emit_tick(row["timestamp"], row["high"], total_vol * 0.4, "ASK")
                 else:
-                    # High wick (testing resistance) -> ASK volume
                     await self._emit_tick(row["timestamp"], row["high"], total_vol * 0.2, "ASK")
-                    # Low wick (pushing down) -> BID volume
                     await self._emit_tick(row["timestamp"], row["low"], total_vol * 0.4, "BID")
-
-                # 3. Close Tick
                 await self._emit_tick(row["timestamp"], row["close"], total_vol * 0.3, "ASK" if is_green else "BID")
 
             if self.delay > 0:
@@ -147,7 +149,15 @@ class BacktestFeed:
 
     async def _emit_tick(self, timestamp, price, volume, side="UNKNOWN"):
         """Emit a single tick event."""
-        # Update Virtual Exchange first (no lookahead)
+        # Convert side format: SELL/BUY → ASK/BID
+        # CSV uses SELL/BUY, but system expects BID/ASK
+        normalized_side = side.upper()
+        if normalized_side == "SELL":
+            normalized_side = "ASK"
+        elif normalized_side == "BUY":
+            normalized_side = "BID"
+
+        # Update Virtual Exchange first
         if self.exchange_connector:
             if hasattr(self.exchange_connector, "process_tick"):
                 tick_data = {"price": price, "timestamp": timestamp}
@@ -159,6 +169,6 @@ class BacktestFeed:
             symbol=self.symbol,
             price=float(price),
             volume=float(volume),
-            side=side,
+            side=normalized_side,
         )
         await self.engine.dispatch(event)

@@ -150,11 +150,11 @@ class ExitManager:
 
             # 1. Delta Inversion Burst (Z-Score based)
             # Longs exit if CVD drops violently (Negative Z)
-            if position.side == "LONG" and z < -1.8:
+            if position.side == "LONG" and z < -2.5:
                 burst_exit = True
                 reason = f"Z_DELTA_BURST_SHORT (Z={z:.2f})"
             # Shorts exit if CVD rises violently (Positive Z)
-            elif position.side == "SHORT" and z > 1.8:
+            elif position.side == "SHORT" and z > 2.5:
                 burst_exit = True
                 reason = f"Z_DELTA_BURST_LONG (Z={z:.2f})"
 
