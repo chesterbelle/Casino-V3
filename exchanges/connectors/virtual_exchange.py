@@ -206,7 +206,7 @@ class VirtualExchangeConnector(BaseConnector):
             ask_high = high + spread_val
             ask_low = low + spread_val
 
-            if side == "sell":
+            if side == "SELL":
                 # SELL STOP logic
                 # We need to determine if this is a Stop Loss (trigger on drop) or Take Profit (trigger on rise)
                 # Since we don't track the intent, we check both possibilities relative to the range
@@ -226,7 +226,7 @@ class VirtualExchangeConnector(BaseConnector):
                     triggered = True
                     execution_price = stop_price
 
-            else:  # buy
+            else:  # BUY
                 # BUY STOP logic
 
                 # Case A: Price rises to stop (SL for Short) -> Check Ask High
@@ -247,12 +247,12 @@ class VirtualExchangeConnector(BaseConnector):
         # 2. Check Limit Orders
         elif order_type == "limit":
             limit_price = price
-            if side == "buy":
+            if side == "BUY":
                 # Buy limit: fill if Low <= limit_price
                 if low <= limit_price:
                     triggered = True
                     execution_price = limit_price  # Limit guarantees price or better
-            else:  # sell
+            else:  # SELL
                 # Sell limit: fill if High >= limit_price
                 if high >= limit_price:
                     triggered = True
@@ -267,7 +267,7 @@ class VirtualExchangeConnector(BaseConnector):
         is_limit = order["type"] == "limit"
 
         if not is_limit:
-            if order["side"] == "buy":
+            if order["side"] == "BUY":
                 price = price * (1 + self.slippage_rate)
             else:
                 price = price * (1 - self.slippage_rate)
@@ -335,25 +335,36 @@ class VirtualExchangeConnector(BaseConnector):
 
         if not position:
             # New Position
+            # Phase 1250: Leverage-Aware Margin Accounting (Round 9 Fix)
+            # Default to 10.0x to match bot config if not specified
+            leverage = order.get("leverage") or order.get("params", {}).get("leverage", 10.0)
+
+            # ReduceOnly Guard: If no position exists, a reduceOnly order must do nothing
             if order.get("params", {}).get("reduceOnly"):
-                self.logger.warning(f"⚠️ ReduceOnly order {order['id']} executed but no position found.")
+                self.logger.warning(f"🚫 ReduceOnly REJECTED: No position found for {symbol}")
                 return
+
+            margin_required = (amount * price) / leverage
 
             new_pos = {
                 "symbol": symbol,
-                "side": "LONG" if side == "buy" else "SHORT",
+                "side": "LONG" if side == "BUY" else "SHORT",
                 "amount": amount,
                 "entry_price": price,
                 "timestamp": self._current_timestamp,
+                "leverage": leverage,
+                "margin_used": margin_required,
             }
             self._positions.append(new_pos)
-            # Deduct margin (simplified: 1x leverage)
-            self._balance -= amount * price
+            self._balance -= margin_required
+            self.logger.info(
+                f"💰 Margin Reserved: ${margin_required:,.2f} (Notional: ${amount*price:,.2f} @ {leverage}x)"
+            )
 
         else:
             # Existing Position
             pos_side = position["side"]
-            is_increase = (pos_side == "LONG" and side == "buy") or (pos_side == "SHORT" and side == "sell")
+            is_increase = (pos_side == "LONG" and side == "BUY") or (pos_side == "SHORT" and side == "SELL")
 
             if is_increase:
                 # Increase position
@@ -362,12 +373,22 @@ class VirtualExchangeConnector(BaseConnector):
                 total_cost = (position["amount"] * position["entry_price"]) + (amount * price)
                 position["entry_price"] = total_cost / total_amount
                 position["amount"] = total_amount
-                # Deduct margin
-                self._balance -= amount * price
+
+                # Deduct additional margin
+                leverage = position.get("leverage", 1.0)
+                add_margin = (amount * price) / leverage
+                position["margin_used"] = position.get("margin_used", 0) + add_margin
+                self._balance -= add_margin
 
             else:
                 # Decrease/Close position
-                close_amount = min(amount, position["amount"])
+                # ReduceOnly Guard: Cannot exceed current position size
+                if order.get("params", {}).get("reduceOnly"):
+                    close_amount = min(amount, position["amount"])
+                    amount = close_amount  # Cap the order execution
+                else:
+                    close_amount = min(amount, position["amount"])
+
                 remaining = position["amount"] - close_amount
 
                 # Calculate PnL (Net of fees)
@@ -390,16 +411,19 @@ class VirtualExchangeConnector(BaseConnector):
                 pnl = gross_pnl - closing_fee - opening_fee
 
                 # Return margin + PnL
-                margin_released = close_amount * position["entry_price"]
+                ratio = close_amount / position["amount"]
+                margin_released = ratio * position.get("margin_used", 0)
                 self._balance += margin_released + pnl
+                position["margin_used"] = position.get("margin_used", 0) - margin_released
+                position["amount"] -= close_amount
+                self.logger.info(f"💰 Margin Released: ${margin_released:,.2f} | PnL: ${pnl:+.2f}")
 
                 # Store PnL in order for reporting
                 order["realized_pnl"] = pnl
 
-                if remaining < self.min_amount:
+                if position["amount"] < self.min_amount:
                     self._positions.remove(position)
-                else:
-                    position["amount"] = remaining
+                    self.logger.info(f"📁 Position Closed: {symbol}")
 
         # 3. Record Trade
         trade_record = {
@@ -478,16 +502,30 @@ class VirtualExchangeConnector(BaseConnector):
     # =========================================================
 
     async def fetch_balance(self) -> Dict[str, Any]:
-        """Return current simulated balance."""
+        """
+        Return current simulated balance.
+        Phase 251: Correctly calculate total balance (Free + Used Margin + Unrealized).
+        Previously misreported used margin as a realized loss.
+        """
+        used_margin = sum(p["amount"] * p["entry_price"] for p in self._positions)
+        unrealized_pnl = 0.0
+        for p in self._positions:
+            if p["side"] == "LONG":
+                unrealized_pnl += (self._current_price - p["entry_price"]) * p["amount"]
+            else:
+                unrealized_pnl += (p["entry_price"] - self._current_price) * p["amount"]
+
+        total_balance = self._balance + used_margin + unrealized_pnl
+
         return {
             self.base_currency: {
                 "free": self._balance,
-                "used": 0.0,
-                "total": self._balance,
+                "used": used_margin,
+                "total": total_balance,
             },
             "free": {self.base_currency: self._balance},
-            "used": {self.base_currency: 0.0},
-            "total": {self.base_currency: self._balance},
+            "used": {self.base_currency: used_margin},
+            "total": {self.base_currency: total_balance},
             "timestamp": self._current_timestamp,
         }
 

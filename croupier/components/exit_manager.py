@@ -130,6 +130,7 @@ class ExitManager:
         """
         Phase 3: Order Flow Dynamic Exits (Micro-Exits).
         Evaluates real-time anomalies to cut losses before structural SL is hit.
+        Phase 1210: Grace Period and Direction-Aware Exit (Round 8 Fix)
         """
         symbol_norm = normalize_symbol(event.symbol)
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
@@ -137,40 +138,42 @@ class ExitManager:
         if not positions:
             return
 
+        now = event.timestamp
         for position in positions[:]:
-            # Phase 243: Skip positions already in closure or if reactor is shutting down
+            # Skip if already closing or shutting down
             if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
                 continue
 
-            # Phase 600: Probabilistic Micro-Exits (Z-Score > 1.8 against us)
+            # 1. Grace Period (Don't micro-exit within first 5s to allow momentum to settle)
+            if now - position.timestamp < 5.0:
+                continue
+
+            # 2. Logic: Only exit if Z-score is AGGRESSIVELY moving AGAINST us.
+            # Entry Z was likely +3 for Short. We only exit if it spikes even higher or stays extreme
+            # without price movement.
             z = event.z_score
             burst_exit = False
             pull_exit = False
             reason = ""
 
-            # 1. Delta Inversion Burst (Z-Score based)
-            # Longs exit if CVD drops violently (Negative Z)
-            if position.side == "LONG" and z < -2.5:
+            # Refined Z-Burst: Exit if it moves 2.0 Z-points deeper against us than entry
+            if position.side == "LONG" and z < -3.5:
                 burst_exit = True
                 reason = f"Z_DELTA_BURST_SHORT (Z={z:.2f})"
-            # Shorts exit if CVD rises violently (Positive Z)
-            elif position.side == "SHORT" and z > 2.5:
+            elif position.side == "SHORT" and z > 3.5:
                 burst_exit = True
                 reason = f"Z_DELTA_BURST_LONG (Z={z:.2f})"
 
-            # 2. Liquidity Pull (Spoofing detection / Wall Collapse)
-            # Longs need bid support (Skewness > 0)
-            if position.side == "LONG" and event.skewness < 0.20:
+            # 3. Liquidity Pull (Skewness)
+            if position.side == "LONG" and event.skewness < 0.15:
                 pull_exit = True
                 reason = "LIQUIDITY_PULL_BID_WALL_COLLAPSE"
-            # Shorts need ask pressure (Skewness < 1.0)
-            elif position.side == "SHORT" and event.skewness > 0.80:
+            elif position.side == "SHORT" and event.skewness > 0.85:
                 pull_exit = True
                 reason = "LIQUIDITY_PULL_ASK_WALL_COLLAPSE"
 
             if burst_exit or pull_exit:
                 self.logger.warning(f"🚨 MICRO-EXIT TRIGGERED for {position.trade_id} ({symbol_norm}): {reason}")
-                # Execute Market Close immediately (Airlock bypass happens via Croupier)
                 asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=f"MICRO_{reason}"))
 
     async def _check_signal_reversal(self, position: OpenPosition, signal: AggregatedSignalEvent):

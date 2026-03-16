@@ -121,8 +121,12 @@ async def run_backtest():
     async def on_order_update_tracker(e):
         croupier.position_tracker.handle_order_update(e)
 
+    async def on_candle_context(e):
+        context_registry.on_candle(e.symbol, e.high, e.low)
+
     engine.subscribe(EventType.TICK, on_tick_context)
     engine.subscribe(EventType.TICK, on_tick_croupier)
+    engine.subscribe(EventType.CANDLE, on_candle_context)
     engine.subscribe(EventType.ORDER_UPDATE, on_order_update_tracker)
     engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)
 

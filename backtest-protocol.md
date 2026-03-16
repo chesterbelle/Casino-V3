@@ -23,9 +23,9 @@ Antes de correr el backtest, resetea la base de datos y el estado para garantiza
 ```
 
 ### 2. Ejecución del Test
-Corre la estrategia contra el periodo seleccionado (1.5M ticks para iteración rápida):
+Corre la estrategia contra el periodo seleccionado (500k ticks para iteración rápida):
 ```bash
-.venv/bin/python3 backtest.py --data=data/raw/LTCUSDT_trades_2026_01.csv --symbol=LTC/USDT:USDT --limit=1500000
+.venv/bin/python3 backtest.py --data=data/raw/LTCUSDT_trades_2026_01.csv --symbol=LTC/USDT:USDT --limit=500000
 ```
 
 **Nota**: Para validación final, remover `--limit` para procesar el dataset completo (3M ticks).

@@ -229,6 +229,13 @@ class AdaptivePlayer:
         elif regime == "RANGE_WINDOW":
             bet_size *= 0.75  # Defensive in range (mean reversion is noisier)
 
+        # Phase 1600: Delta-Velocity Sizing Lead
+        dv_multiplier = event.metadata.get("dv_multiplier", 1.0)
+        bet_size *= dv_multiplier
+
+        # Phase 1300: Placeholder bet_size for later RR-scaling
+        base_bet_size = bet_size
+
         # Phase 800: Unified TP/SL pipeline — absolute prices are primary
         tp_price = None
         sl_price = None
@@ -254,14 +261,20 @@ class AdaptivePlayer:
             if current_price and current_price > 0:
                 tp_sl_source = "dalton_context"
                 if event.side == "LONG":
+                    # Phase 1205: Hardened Structural Targets (Long)
                     if current_price <= poc:
-                        tp_price = poc if (poc - current_price) / current_price > 0.001 else vah
-                    sl_price = val * 0.999  # Just below VAL
+                        tp_price = max(poc, current_price * 1.0035)  # Target POC or 0.35%
+                    else:
+                        tp_price = max(vah, current_price * 1.0035)  # Target VAH or 0.35%
+                    sl_price = min(val * 0.999, current_price * 0.997)  # Target VAL or 0.3%
 
                 elif event.side == "SHORT":
+                    # Phase 1205: Hardened Structural Targets (Short)
                     if current_price >= poc:
-                        tp_price = poc if (current_price - poc) / current_price > 0.001 else val
-                    sl_price = vah * 1.001  # Just above VAH
+                        tp_price = min(poc, current_price * 0.9965)  # Target POC or 0.35%
+                    else:
+                        tp_price = min(val, current_price * 0.9965)  # Target VAL or 0.35%
+                    sl_price = max(vah * 1.001, current_price * 1.003)  # Target VAH or 0.3%
 
         # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
@@ -288,28 +301,75 @@ class AdaptivePlayer:
             if sl_price:
                 tp_sl_source = "metadata_direct"
 
+        # Phase 1300: ATR-Based TP/SL Fallback (when structural levels are missing)
+        if tp_price is None or sl_price is None:
+            if current_price and current_price > 0:
+                # Generate reasonable TP/SL based on setup type
+                if setup_type == "reversion":
+                    tp_pct_fallback = 0.50  # 0.50% TP for mean reversion
+                    sl_pct_fallback = 0.30  # 0.30% SL for mean reversion
+                elif setup_type == "continuation":
+                    tp_pct_fallback = 0.60  # 0.60% TP for breakout continuation
+                    sl_pct_fallback = 0.35  # 0.35% SL for breakout continuation
+                else:
+                    tp_pct_fallback = 0.45
+                    sl_pct_fallback = 0.30
+
+                if event.side == "LONG":
+                    tp_price = current_price * (1 + tp_pct_fallback / 100)
+                    sl_price = current_price * (1 - sl_pct_fallback / 100)
+                else:
+                    tp_price = current_price * (1 - tp_pct_fallback / 100)
+                    sl_price = current_price * (1 + sl_pct_fallback / 100)
+                tp_sl_source = f"setup_type_fallback_{setup_type}"
+                logger.debug(
+                    f"📐 [FALLBACK] TP/SL generated: TP={tp_price:.4f} SL={sl_price:.4f} | Type={setup_type} | Price={current_price:.4f}"
+                )
+            else:
+                logger.warning(
+                    f"⚠️ [FALLBACK] Cannot generate TP/SL: current_price={current_price} | tp_price={tp_price} | sl_price={sl_price}"
+                )
+
         # Phase 700 RESTORED: Simple setup-type percentage clamping (trust the structure)
-        # Convert absolute prices to percentages, clamp per setup, then convert back.
+        # Phase 1300: Footprint-Validated TP Expansion
         if tp_price and sl_price and current_price and current_price > 0:
             tp_pct = abs((tp_price - current_price) / current_price) * 100
             sl_pct = abs((sl_price - current_price) / current_price) * 100
 
+            skewness = event.metadata.get("skewness", 0.5)
+            vol_ratio = event.metadata.get("vol_ratio", 1.0)
+
+            # If skewness is extreme in our direction, expand TP
+            if event.side == "LONG" and skewness > 0.7:
+                tp_pct *= 1.0 + (skewness - 0.7) * 2.0  # Up to 60% expansion
+                tp_sl_source = f"{tp_sl_source}+footprint_expansion"
+            elif event.side == "SHORT" and skewness < 0.3:
+                tp_pct *= 1.0 + (0.3 - skewness) * 2.0
+                tp_sl_source = f"{tp_sl_source}+footprint_expansion"
+
             # Fix #2: Increased minimum TP to ensure RR > 1.0
+            # Phase 1200: Precision Edge (Round 7) - Relax clamps for high Z-scores
+            z_abs = abs(event.metadata.get("z_score", 0))
+
             if setup_type == "reversion":
-                tp_pct = max(0.35, min(tp_pct, 0.80))  # Min 0.35% TP (was 0.10%)
-                sl_pct = max(0.20, min(sl_pct, 0.45))
-                tp_sl_source = f"{tp_sl_source}+reversion_clamp"
+                # If high conviction (Z > 3.5), allow wider TP and tighter SL (Sniper)
+                tp_max = 1.20 if z_abs > 3.5 else 0.80
+                sl_min = 0.15 if z_abs > 3.5 else 0.20
+
+                tp_pct = max(0.35, min(tp_pct, tp_max))
+                sl_pct = max(sl_min, min(sl_pct, 0.45))
+                tp_sl_source = f"{tp_sl_source}+reversion_edge"
             elif setup_type == "continuation":
-                tp_pct = max(0.40, min(tp_pct, 1.00))  # Min 0.40% TP (was 0.15%)
+                tp_pct = max(0.40, min(tp_pct, 1.00))
                 sl_pct = max(0.20, min(sl_pct, 0.50))
                 tp_sl_source = f"{tp_sl_source}+continuation_clamp"
             elif setup_type == "initial":
-                tp_pct = max(0.50, min(tp_pct, 1.00))  # Min 0.50% TP (was 0.20%)
+                tp_pct = max(0.50, min(tp_pct, 1.00))
                 sl_pct = max(0.25, min(sl_pct, 0.50))
                 tp_sl_source = f"{tp_sl_source}+initial_clamp"
             else:
                 # Generic HFT clamp
-                tp_pct = max(0.30, min(tp_pct, 2.0))  # Min 0.30% TP (was 0.10%)
+                tp_pct = max(0.30, min(tp_pct, 2.0))
                 sl_pct = max(0.25, min(sl_pct, 2.0))
 
             # Convert back to absolute prices
@@ -321,20 +381,25 @@ class AdaptivePlayer:
                 sl_price = current_price * (1 + sl_pct / 100)
 
         # Phase 1000: Minimum RR Enforcement (P1)
-        # Reject trades with negative expectancy math (Reward < Risk)
+        # Phase 1200: Dynamic RR (Round 7)
         if tp_price and sl_price and current_price and current_price > 0:
             reward = abs(tp_price - current_price)
             risk = abs(sl_price - current_price)
             if risk > 0:
                 rr_ratio = reward / risk
-                if rr_ratio < 1.2:  # Fix #2: More conservative RR threshold (was 1.0)
+                rr_threshold = 1.5 if z_abs > 3.5 else 1.2
+                if rr_ratio < rr_threshold:
                     logger.warning(
-                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.2) | "
-                        f"Symbol: {event.symbol} | Side: {event.side} | "
-                        f"TP: {tp_price:.4f} ({reward/current_price*100:.2f}%) "
-                        f"SL: {sl_price:.4f} ({risk/current_price*100:.2f}%)"
+                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < {rr_threshold}) | "
+                        f"Z: {z_abs:.1f} | Symbol: {event.symbol} | Side: {event.side}"
                     )
                     return
+
+                # Phase 1300: Dynamic RR-Based Sizing
+                # Final_Bet = Base_Kelly * Clamp(RR_Ratio / 1.5, 0.5, 2.0)
+                rr_multiplier = max(0.5, min(2.0, rr_ratio / 1.5))
+                bet_size = base_bet_size * rr_multiplier
+                sizing_method = f"{sizing_method}+RR_Sized"
 
         # Calculate percentage for logging (human-readable)
         tp_pct_log = abs((tp_price - current_price) / current_price) * 100 if tp_price and current_price else 0

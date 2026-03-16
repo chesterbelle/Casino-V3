@@ -499,7 +499,7 @@ class StreamManager:
                     timeout=30.0,  # 30s timeout for trades (might be less frequent)
                 )
 
-                # Create and dispatch TickEvent with REAL side
+                # Create and dispatch TickEvent with REAL side (BUY/SELL)
                 normalized_symbol = normalize_symbol(symbol)
                 event = TickEvent(
                     type=EventType.TICK,
@@ -507,7 +507,7 @@ class StreamManager:
                     symbol=normalized_symbol,
                     price=trade["price"],
                     volume=trade["amount"],
-                    side=trade["side"],  # REAL SIDE from Exchange
+                    side=trade["side"].upper(),  # Ensure uppercase BUY/SELL
                 )
                 await self.engine.dispatch(event)
 
@@ -598,11 +598,12 @@ class StreamManager:
 
         # Ticker events are still useful for price updates, but we now accurately capture
         # side and volume from real trades when available (Phase 410 Fix)
+        # Ticker events should use standardized BUY/SELL
         raw_side = ticker.get("side", "UNKNOWN").upper()
-        if raw_side == "BUY":
-            side = "ASK"
-        elif raw_side == "SELL":
-            side = "BID"
+        if raw_side in ["BUY", "ASK"]:
+            side = "BUY"
+        elif raw_side in ["SELL", "BID"]:
+            side = "SELL"
         else:
             side = "UNKNOWN"
 

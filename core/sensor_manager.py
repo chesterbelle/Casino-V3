@@ -98,6 +98,11 @@ class SensorManager:
 
         # Phase 7: Micro-Event Batching to prevent Main Loop stalls
         self._micro_buffer = []
+        self._last_market_time = 0.0  # Phase 50: Parity - Track latest market time (MarketTime over RealTime)
+        self.throttle_ms = 100.0  # Throttled microstructure events
+        self._last_tick_dispatch = {}
+        self._last_ob_dispatch = {}
+        self._tick_count = 0
         self._batch_flush_task = asyncio.create_task(self._flush_micro_events_loop())
 
         # Start Async Listener
@@ -107,11 +112,6 @@ class SensorManager:
         self.engine.subscribe(EventType.CANDLE, self.on_candle)
         self.engine.subscribe(EventType.TICK, self.on_tick)
         self.engine.subscribe(EventType.ORDER_BOOK, self.on_orderbook)
-
-        # Throttler for High-Frequency events (Phase 420 Prep)
-        self._last_tick_dispatch: Dict[str, float] = {}
-        self._last_ob_dispatch: Dict[str, float] = {}
-        self.throttle_ms = 100  # 100ms max update rate per symbol to workers
 
         logger.info("✅ SensorManager initialized in Actor Model mode (Tick-Aware)")
 
@@ -200,6 +200,7 @@ class SensorManager:
         Non-blocking, fire-and-forget.
         """
         self._candle_index += 1
+        self._last_market_time = event.timestamp
         logger.info(f"📨 SensorManager: Processing candle for {event.symbol} (Index: {self._candle_index})")
 
         # Standardize candle data for serialization
@@ -241,7 +242,8 @@ class SensorManager:
         for q in self.input_queues:
             # We don't await this inside the loop to avoid sequential blocking,
             # but we use run_in_executor to ensure it happens in a thread.
-            loop.run_in_executor(None, q.put, msg)
+            # loop.run_in_executor(None, q.put, msg)
+            asyncio.get_running_loop().run_in_executor(None, q.put, msg)
 
     async def on_tick(self, event: TickEvent):
         """
@@ -249,12 +251,23 @@ class SensorManager:
         Phase 1: Track CVD and emit Microstructure.
         Throttled to prevent IPC explosion.
         """
+        self._last_market_time = event.timestamp
+        if self._tick_count % 1000 == 0:
+            logger.info(f"📥 [SENSOR] Tick received: {event.symbol} at {event.timestamp}")
+
         now = event.timestamp
         sym = event.symbol
         self.last_price[sym] = event.price
 
         # Phase 1: CVD Tracking (Incremental Add only - pruning moved to throttled micro_dispatch)
-        delta = event.volume if event.side == "BUY" else -event.volume
+        delta = 0.0
+        if event.side == "BUY":
+            delta = event.volume
+        elif event.side == "SELL":
+            delta = -event.volume
+        else:
+            if int(now) % 60 == 0:
+                logger.warning(f"⚠️ [SENSOR] Unexpected side: {event.side} for {sym}")
         self.tick_history[sym].append((now, delta))
         self.cvd_state[sym] += delta
 
@@ -286,6 +299,7 @@ class SensorManager:
         Throttled to prevent IPC explosion.
         """
         now = event.timestamp
+        self._last_market_time = now
         sym = event.symbol
 
         # Phase 1: Skewness tracking moved to throttled micro_dispatch
@@ -359,12 +373,21 @@ class SensorManager:
             price=self.last_price[sym],
         )
 
-        # Phase 7: Buffer event
-        self._micro_buffer.append(evt)
+        # BACKTEST FIDELITY: Dispatch immediately as a batch of 1 to bypass async lag
+        batch_evt = MicrostructureBatchEvent(type=EventType.MICROSTRUCTURE_BATCH, timestamp=now, events=[evt])
 
-        # BACKTEST OPTIMIZATION: Flush immediately if buffer is large or if we are in high-speed mode
-        if len(self._micro_buffer) >= 100:
-            asyncio.create_task(self._flush_micro_buffer())
+        # Throttled TRACE (Every 100 ticks)
+        if hasattr(self, "_tick_count"):
+            self._tick_count += 1
+        else:
+            self._tick_count = 1
+
+        if self._tick_count % 1000 == 0:
+            logger.info(
+                f"📡 [SENSOR] Dispatching micro batch {self._tick_count} | CVD: {self.cvd_state[sym]:.2f} | Z: {z:.2f}"
+            )
+
+        await self.engine.dispatch(batch_evt)
 
     async def _flush_micro_buffer(self):
         """Internal helper to flush the micro buffer."""
@@ -375,7 +398,7 @@ class SensorManager:
         self._micro_buffer = []
 
         batch_evt = MicrostructureBatchEvent(
-            type=EventType.MICROSTRUCTURE_BATCH, timestamp=time.time(), events=batch_events
+            type=EventType.MICROSTRUCTURE_BATCH, timestamp=self._last_market_time, events=batch_events
         )
         await self.engine.dispatch(batch_evt)
 
@@ -514,7 +537,11 @@ class SensorManager:
 
         event = SignalEvent(
             type=EventType.SIGNAL,
-            timestamp=getattr(signal_data, "timestamp", time.time()) if isinstance(signal_data, dict) else time.time(),
+            timestamp=(
+                getattr(signal_data, "timestamp", self._last_market_time)
+                if isinstance(signal_data, dict)
+                else self._last_market_time
+            ),
             symbol=target_symbol,
             side=signal_data["side"],
             sensor_id=sensor_name,
@@ -554,6 +581,7 @@ class SensorManager:
         )
         from sensors.footprint.big_orders import BigOrderSensor
         from sensors.footprint.cumulative_delta import CumulativeDeltaSensorV3
+        from sensors.footprint.delta_velocity import DeltaVelocitySensorV3
         from sensors.footprint.exhaustion import FootprintVolumeExhaustion
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
@@ -574,4 +602,5 @@ class SensorManager:
             FootprintDeltaPoCShift,
             CumulativeDeltaSensorV3,
             BigOrderSensor,
+            DeltaVelocitySensorV3,
         ]

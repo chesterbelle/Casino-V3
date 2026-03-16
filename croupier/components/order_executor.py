@@ -466,7 +466,7 @@ class OrderExecutor:
             else:
                 raise ValueError(f"Invalid amount: {order['amount']}")
 
-        if order["side"] not in ["buy", "sell"]:
+        if order["side"] not in ["BUY", "SELL"]:
             raise ValueError(f"Invalid side: {order['side']}")
 
     def _validate_limit_order(self, order: Dict[str, Any]) -> None:
@@ -516,10 +516,9 @@ class OrderExecutor:
         Phase 236: skip_depth_analysis defaults to True for force closes.
         """
         symbol = self.adapter.normalize_symbol(symbol)
-        # Invert side for closing
         # side argument is the POSITION side (LONG/SHORT)
         # close_side is the ORDER side (SELL/BUY)
-        close_side = "sell" if side.upper() == "LONG" else "buy"
+        close_side = "SELL" if side.upper() == "LONG" else "BUY"
 
         self.logger.info(f"📉 Force Closing {symbol} {side} {amount} (Smart Close)")
 

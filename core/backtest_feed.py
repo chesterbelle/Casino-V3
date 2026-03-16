@@ -132,14 +132,14 @@ class BacktestFeed:
                 is_green = row["close"] > row["open"]
                 total_vol = row["volume"]
 
-                await self._emit_tick(row["timestamp"], row["open"], total_vol * 0.1, "BID" if is_green else "ASK")
+                await self._emit_tick(row["timestamp"], row["open"], total_vol * 0.1, "BUY" if is_green else "SELL")
                 if is_green:
-                    await self._emit_tick(row["timestamp"], row["low"], total_vol * 0.2, "BID")
-                    await self._emit_tick(row["timestamp"], row["high"], total_vol * 0.4, "ASK")
+                    await self._emit_tick(row["timestamp"], row["low"], total_vol * 0.2, "BUY")
+                    await self._emit_tick(row["timestamp"], row["high"], total_vol * 0.4, "SELL")
                 else:
-                    await self._emit_tick(row["timestamp"], row["high"], total_vol * 0.2, "ASK")
-                    await self._emit_tick(row["timestamp"], row["low"], total_vol * 0.4, "BID")
-                await self._emit_tick(row["timestamp"], row["close"], total_vol * 0.3, "ASK" if is_green else "BID")
+                    await self._emit_tick(row["timestamp"], row["high"], total_vol * 0.2, "SELL")
+                    await self._emit_tick(row["timestamp"], row["low"], total_vol * 0.4, "BUY")
+                await self._emit_tick(row["timestamp"], row["close"], total_vol * 0.3, "SELL" if is_green else "BUY")
 
             if self.delay > 0:
                 await asyncio.sleep(self.delay)
@@ -149,13 +149,15 @@ class BacktestFeed:
 
     async def _emit_tick(self, timestamp, price, volume, side="UNKNOWN"):
         """Emit a single tick event."""
-        # Convert side format: SELL/BUY → ASK/BID
-        # CSV uses SELL/BUY, but system expects BID/ASK
+        # System now expects BUY/SELL (Binance Style) for 100% parity
         normalized_side = side.upper()
-        if normalized_side == "SELL":
-            normalized_side = "ASK"
-        elif normalized_side == "BUY":
-            normalized_side = "BID"
+        if normalized_side == "BID":
+            normalized_side = "SELL"
+        elif normalized_side == "ASK":
+            normalized_side = "BUY"
+        # Ensure it's never anything else for parity
+        if normalized_side not in ["BUY", "SELL"]:
+            normalized_side = "BUY" if normalized_side.startswith("B") else "SELL"
 
         # Update Virtual Exchange first
         if self.exchange_connector:

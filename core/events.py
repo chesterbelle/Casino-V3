@@ -66,7 +66,7 @@ class TickEvent(Event):
     symbol: str
     price: float
     volume: float = 0.0
-    side: str = "UNKNOWN"  # 'BID' (Sell) or 'ASK' (Buy)
+    side: str = "UNKNOWN"  # 'BUY' (Hits Ask) or 'SELL' (Hits Bid)
 
     def __post_init__(self):
         self.type = EventType.TICK

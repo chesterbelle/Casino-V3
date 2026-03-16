@@ -796,7 +796,7 @@ class OCOManager:
         exchange_order = {
             "symbol": order["symbol"],
             "type": "market",
-            "side": "buy" if order["side"] == "LONG" else "sell",
+            "side": "BUY" if order["side"] == "LONG" else "SELL",
             "amount": order.get("amount", 0),  # Provided by OrderManager (Phase 42)
             "params": {"client_order_id": client_order_id} if client_order_id else {},
         }
@@ -992,7 +992,7 @@ class OCOManager:
     ) -> Dict[str, Any]:
         """Create take profit limit order with retry logic and ReduceOnly handling."""
         # TP is opposite side of entry
-        tp_side = "sell" if side == "LONG" else "buy"
+        tp_side = "SELL" if side == "LONG" else "BUY"
 
         self.logger.info(f"📈 Creating TP order @ {tp_price}")
 
@@ -1113,7 +1113,7 @@ class OCOManager:
     ) -> Dict[str, Any]:
         """Create stop loss order with retry logic and ReduceOnly handling."""
         # SL is opposite side of entry
-        sl_side = "sell" if side == "LONG" else "buy"
+        sl_side = "SELL" if side == "LONG" else "BUY"
 
         self.logger.info(f"📉 Creating SL order @ stop {sl_price}")
 
@@ -1359,7 +1359,7 @@ class OCOManager:
                     return
 
                 # Reverse side
-                close_side = "sell" if side.lower() == "buy" else "buy"
+                close_side = "SELL" if side.upper() == "BUY" else "BUY"
 
                 # =========================================================
                 # EMERGENCY BYPASS CHANNEL

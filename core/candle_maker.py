@@ -150,10 +150,10 @@ class CandleMaker:
         if price_level not in current_candle["profile"]:
             current_candle["profile"][price_level] = {"bid": 0.0, "ask": 0.0}
 
-        if tick.side == "BID":
+        if tick.side == "SELL":
             current_candle["profile"][price_level]["bid"] += tick.volume
             current_candle["delta"] -= tick.volume
-        elif tick.side == "ASK":
+        elif tick.side == "BUY":
             current_candle["profile"][price_level]["ask"] += tick.volume
             current_candle["delta"] += tick.volume
 

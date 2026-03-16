@@ -26,6 +26,7 @@ ACTIVE_SENSORS = {
     "OneTimeframing": True,
     "BigOrderSensor": True,
     "SessionValueArea": True,
+    "FootprintDeltaVelocity": True,
 }
 
 # =====================================================
@@ -47,6 +48,7 @@ SENSOR_TIMEFRAMES = {
     "OneTimeframing": ["1m"],
     "BigOrderSensor": ["1m"],
     "SessionValueArea": ["1m"],
+    "FootprintDeltaVelocity": ["1m"],
 }
 
 # =====================================================
@@ -86,6 +88,9 @@ SENSOR_PARAMS = {
         "1m": {"tp_pct": 0.35, "sl_pct": 0.20, "min_score_long": 0.85},
     },
     "SessionValueArea": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},
+    },
+    "FootprintDeltaVelocity": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},
     },
     "OneTimeframing": {

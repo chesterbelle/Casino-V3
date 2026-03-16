@@ -114,7 +114,7 @@ class DataFeedValidator:
             volume = getattr(tick_emitted, "volume", 0)
             timestamp = getattr(tick_emitted, "timestamp", 0)
 
-            if side in ["BID", "ASK"]:
+            if side in ["BUY", "SELL"]:
                 results["BacktestFeed._emit_tick"] = {
                     "status": "PASS",
                     "output": f"TickEvent(side={side}, price={price}, volume={volume})",
@@ -125,7 +125,7 @@ class DataFeedValidator:
                 results["BacktestFeed._emit_tick"] = {
                     "status": "FAIL",
                     "output": f"Invalid side: {side}",
-                    "reason": "Side must be BID or ASK",
+                    "reason": "Side must be BUY or SELL (standardized parity)",
                 }
                 logger.error(f"  ❌ FAIL: Invalid side={side}")
         else:
@@ -148,7 +148,7 @@ class DataFeedValidator:
         from core.events import TickEvent
 
         mock_tick = TickEvent(
-            type=EventType.TICK, timestamp=time.time(), symbol=symbol, price=100.0, volume=10.0, side="BID"
+            type=EventType.TICK, timestamp=time.time(), symbol=symbol, price=100.0, volume=10.0, side="SELL"
         )
 
         await candle_maker.on_tick(mock_tick)
@@ -158,13 +158,13 @@ class DataFeedValidator:
         profile_after = current_candle.get("profile", {})
 
         if profile_after and 100.0 in profile_after:
-            bid_vol = profile_after[100.0].get("bid", 0)
+            sell_vol = profile_after[100.0].get("sell", 0)
             results["CandleMaker.on_tick"] = {
                 "status": "PASS",
-                "output": f"Profile accumulated: price=100.0, bid={bid_vol}",
-                "details": {"profile_levels": len(profile_after), "bid_vol": bid_vol},
+                "output": f"Profile accumulated: price=100.0, sell={sell_vol}",
+                "details": {"profile_levels": len(profile_after), "sell_vol": sell_vol},
             }
-            logger.info(f"  ✅ PASS: Profile accumulated with bid={bid_vol}")
+            logger.info(f"  ✅ PASS: Profile accumulated with sell={sell_vol}")
         else:
             results["CandleMaker.on_tick"] = {
                 "status": "FAIL",

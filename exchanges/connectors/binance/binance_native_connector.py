@@ -2106,7 +2106,7 @@ class BinanceNativeConnector(BaseConnector):
             trade_id = data.get("a")
 
         amount = qty  # AggTrade uses q
-        side = "sell" if is_buyer_maker else "buy"  # m=True means maker (sell), m=False means taker (buy)
+        side = "SELL" if is_buyer_maker else "BUY"  # m=True means maker (sell), m=False means taker (buy)
 
         trade = {
             "symbol": unified_symbol,
