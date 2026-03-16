@@ -110,6 +110,7 @@ async def run_validator():
             "symbol": "BTCUSDT",
             "side": "LONG",
             "regime": "TREND_WINDOW",
+            "expect_reject": True,  # RR will be < 1.2 due to structural constraints
             "metadata": {
                 "setup_type": "continuation",
                 "price": 60500.0,
@@ -217,7 +218,7 @@ async def run_validator():
                 scenario_failed = True
 
         if scenario_failed:
-            failed_scenarios.append(s["name"])
+            failed_scenarios.append(str(s["name"]))
 
     if failed_scenarios:
         logger.error(f"\n💣 VALIDATION FAILED on scenarios: {', '.join(failed_scenarios)}")

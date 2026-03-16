@@ -304,7 +304,7 @@ class PreflightValidator:
 
             logger.info(f"📤 Creating limit order: buy {test_amount} @ {limit_price}")
             result = await self.croupier.order_executor.execute_limit_order(
-                symbol=self.symbol, side="buy", amount=test_amount, price=limit_price
+                symbol=self.symbol, side="BUY", amount=test_amount, price=limit_price
             )
 
             order_id = result.get("order_id") or result.get("id")
@@ -567,7 +567,7 @@ class PreflightValidator:
                 test_amount = float(self.adapter.amount_to_precision(self.symbol, raw_amount))
 
                 result = await self.croupier.order_executor.execute_limit_order(
-                    symbol=self.symbol, side="buy", amount=test_amount, price=limit_price
+                    symbol=self.symbol, side="BUY", amount=test_amount, price=limit_price
                 )
                 order_id = result.get("order_id") or result.get("id")
                 order_ids.append(order_id)

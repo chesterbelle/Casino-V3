@@ -27,11 +27,12 @@ class MockPositionTracker:
 
 
 class MockPosition:
-    def __init__(self, symbol, side, status="OPEN", id="trc_mock"):
+    def __init__(self, symbol, side, status="OPEN", id="trc_mock", timestamp=0.0):
         self.symbol = symbol
         self.side = side
         self.status = status
         self.trade_id = id
+        self.timestamp = timestamp
 
 
 class MockErrorHandler:
@@ -80,10 +81,10 @@ async def run_validator():
     # ---------------------------------------------------------
     event_pull_long = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=1.0,
+        timestamp=10.0,
         symbol="BTCUSDT",
         cvd=10.0,  # Normal CVD
-        skewness=0.15,  # Danger! Bid wall pulled.
+        skewness=0.14,  # Danger! Bid wall pulled (< 0.15).
         price=50000.0,
     )
 
@@ -108,10 +109,10 @@ async def run_validator():
     # ---------------------------------------------------------
     event_pull_short = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=1.0,
+        timestamp=10.0,
         symbol="BTCUSDT",
         cvd=-10.0,
-        skewness=0.85,  # Danger! Ask wall pulled, bids rushing in.
+        skewness=0.86,  # Danger! Ask wall pulled (> 0.85).
         price=50000.0,
     )
 
@@ -132,12 +133,12 @@ async def run_validator():
     # ---------------------------------------------------------
     event_burst_long = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=1.0,
+        timestamp=10.0,
         symbol="BTCUSDT",
         cvd=-1.5,
         skewness=0.5,
         price=50000.0,
-        z_score=-2.5,  # Phase 600: Z-Score based burst
+        z_score=-4.0,  # Danger! Negative burst (< -3.5)
     )
 
     await exit_manager.on_microstructure(event_burst_long)
@@ -159,7 +160,7 @@ async def run_validator():
     # ---------------------------------------------------------
     event_safe = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=1.0,
+        timestamp=10.0,
         symbol="BTCUSDT",
         cvd=0.5,
         skewness=0.5,

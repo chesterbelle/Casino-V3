@@ -25,6 +25,7 @@ sys.path.append(os.getcwd())
 from dotenv import load_dotenv
 
 from core.observability.historian import historian
+from core.observability.watchdog import watchdog
 from core.portfolio.position_tracker import PositionTracker
 from utils.validators.multi_symbol_validator import MultiSymbolValidator
 
