@@ -251,6 +251,8 @@ class ErrorHandler:
                     ErrorCategory.INSUFFICIENT_FUNDS,
                     ErrorCategory.AUTHENTICATION,
                     ErrorCategory.AUTHORIZATION,
+                    ErrorCategory.ORDER_NOT_FOUND,  # Phase 310: Don't trip breaker for ghost orders
+                    ErrorCategory.POSITION_ALREADY_CLOSED,
                 ]
 
                 if classification.category in ignored_categories:

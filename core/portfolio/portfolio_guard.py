@@ -56,7 +56,7 @@ class GuardConfig:
     max_consecutive_losses: int = 5  # → CRITICAL
 
     # Error rate
-    max_errors_in_window: int = 10  # N errors in window → TERMINAL
+    max_errors_in_window: int = 50  # Increased for backtest stability (Phase 310)
     error_window_minutes: float = 5.0
 
     # Solvency

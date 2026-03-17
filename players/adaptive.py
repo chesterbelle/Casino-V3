@@ -356,9 +356,18 @@ class AdaptivePlayer:
                 tp_max = 1.20 if z_abs > 3.5 else 0.80
                 sl_min = 0.15 if z_abs > 3.5 else 0.20
 
+                # If FootprintDeltaDivergence is present, we can trust a tighter stop
+                has_delta_div = any(
+                    c.get("type") == "FootprintDeltaDivergence" for c in event.metadata.get("contributors", [])
+                )
+
                 tp_pct = max(0.35, min(tp_pct, tp_max))
-                sl_pct = max(sl_min, min(sl_pct, 0.45))
+                # Relax floor to 0.20% if delta validated, otherwise 0.30%
+                sl_floor = 0.20 if has_delta_div else 0.30
+                sl_pct = max(sl_floor, min(sl_pct, 0.45))
                 tp_sl_source = f"{tp_sl_source}+reversion_edge"
+                if has_delta_div:
+                    tp_sl_source += "+delta_div_tight"
             elif setup_type == "continuation":
                 tp_pct = max(0.40, min(tp_pct, 1.00))
                 sl_pct = max(0.20, min(sl_pct, 0.50))
@@ -387,7 +396,12 @@ class AdaptivePlayer:
             risk = abs(sl_price - current_price)
             if risk > 0:
                 rr_ratio = reward / risk
-                rr_threshold = 1.5 if z_abs > 3.5 else 1.2
+                # Phase 1300: Relax RR for reversion (Scalpingwin-rate vs RR trade-off)
+                if setup_type == "reversion":
+                    rr_threshold = 1.3 if z_abs > 3.5 else 1.1
+                else:
+                    rr_threshold = 1.5 if z_abs > 3.5 else 1.2
+
                 if rr_ratio < rr_threshold:
                     logger.warning(
                         f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < {rr_threshold}) | "

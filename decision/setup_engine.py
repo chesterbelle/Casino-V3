@@ -198,8 +198,8 @@ class SetupEngineV4:
         # Adjust base thresholds (2.0 and 3.0) by vol_ratio
         # During expansion (vol_ratio > 1), thresholds DECREASE (easier to enter)
         # During contraction (vol_ratio < 1), thresholds INCREASE (harder to enter)
-        adaptive_threshold_trend = 2.0 / vol_ratio
-        adaptive_threshold_neutral = 3.0 / vol_ratio
+        adaptive_threshold_trend = 2.5 / vol_ratio
+        adaptive_threshold_neutral = 4.5 / vol_ratio
 
         # Clamp adaptive thresholds to prevent extreme values
         adaptive_threshold_trend = max(1.5, min(3.0, adaptive_threshold_trend))
@@ -220,7 +220,7 @@ class SetupEngineV4:
             else:
                 trigger = {
                     "setup_name": "Toxic_OrderFlow",
-                    "side": "LONG",
+                    "side": "SHORT",
                     "metadata": {
                         "trigger": "Toxic_OrderFlow",
                         "setup_type": "reversion",
@@ -246,7 +246,7 @@ class SetupEngineV4:
             else:
                 trigger = {
                     "setup_name": "Toxic_OrderFlow",
-                    "side": "SHORT",
+                    "side": "LONG",
                     "metadata": {
                         "trigger": "Toxic_OrderFlow",
                         "setup_type": "reversion",

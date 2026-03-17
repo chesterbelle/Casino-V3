@@ -151,9 +151,14 @@ async def run_backtest():
     # Give tasks time to finish
     await asyncio.sleep(0.5)
 
-    # 7. Final Report
+    # 7. Force-close all open positions for accurate accounting
+    closed_count = await connector.force_close_all_positions()
+    if closed_count > 0:
+        logger.info(f"🏁 Force-closed {closed_count} open positions at end of data.")
+
+    # 8. Final Report (use free balance — all positions are now closed)
     stats = await connector.fetch_balance()
-    final_balance = stats["total"]["USD"]
+    final_balance = stats[connector.base_currency]["free"]
     total_pnl = final_balance - args.balance
 
     trades = connector._trades
@@ -172,6 +177,20 @@ async def run_backtest():
         gross_loss = abs(sum(t["pnl"] for t in closed_trades if t["pnl"] <= 0))
         pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
         print(f"Profit Factor    : {pf:.2f}")
+
+    # Ledger Integrity Check
+    ledger_pnl = sum(t["pnl"] for t in closed_trades)
+    # Entry fees are deducted from balance but NOT included in trade PnL
+    # So we need to account for them separately
+    entry_trades = [t for t in trades if t.get("pnl") is None]
+    total_entry_fees = sum(t.get("fee", 0) for t in entry_trades)
+    adjusted_pnl = ledger_pnl - total_entry_fees
+    delta = abs(total_pnl - adjusted_pnl)
+    integrity = "✅ PASS" if delta < 0.01 else f"❌ FAIL (Δ=${delta:.4f})"
+    print(f"Ledger Integrity : {integrity}")
+    print(f"  Balance Δ      : ${total_pnl:+.4f}")
+    print(f"  Trades Σ(PnL)  : ${ledger_pnl:+.4f}")
+    print(f"  Entry Fees     : ${total_entry_fees:+.4f}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
     sys.stderr.flush()

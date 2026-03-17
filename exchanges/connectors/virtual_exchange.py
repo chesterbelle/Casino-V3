@@ -498,6 +498,79 @@ class VirtualExchangeConnector(BaseConnector):
             del self._oco_pairs[sibling_id]
 
     # =========================================================
+    # 🏁 END-OF-SIMULATION CLEANUP
+    # =========================================================
+
+    async def force_close_all_positions(self) -> int:
+        """
+        Force-close all open positions at current market price.
+        Called at end of backtest to ensure ledger matches balance.
+        Returns the number of positions closed.
+
+        Balance accounting mirrors _update_account_state close flow:
+        - Entry fee was already deducted from _balance on position open
+        - We only charge closing_fee here
+        - PnL includes opening_fee for reporting (round-trip cost)
+        """
+        closed_count = 0
+        positions_to_close = list(self._positions)  # Copy to avoid mutation during iteration
+
+        for pos in positions_to_close:
+            symbol = pos["symbol"]
+            side = pos["side"]
+            amount = pos["amount"]
+            entry_price = pos["entry_price"]
+            close_price = self._current_price
+
+            # Calculate PnL (same as _update_account_state)
+            if side == "LONG":
+                gross_pnl = (close_price - entry_price) * amount
+            else:
+                gross_pnl = (entry_price - close_price) * amount
+
+            # Fees (matching normal close flow)
+            closing_fee = amount * close_price * self.fee_rate
+            opening_fee = amount * entry_price * self.fee_rate
+
+            # Net PnL for reporting (includes round-trip cost)
+            net_pnl = gross_pnl - closing_fee - opening_fee
+
+            # Balance: return margin + pnl (opening_fee already deducted on entry)
+            margin_released = pos.get("margin_used", 0)
+            self._balance += margin_released + net_pnl
+
+            # Record trade in ledger
+            self._order_seq += 1
+            trade_record = {
+                "id": f"tr_close_{self._order_seq}",
+                "order": f"v_force_close_{self._order_seq}",
+                "symbol": symbol,
+                "side": "SELL" if side == "LONG" else "BUY",
+                "amount": amount,
+                "price": close_price,
+                "fee": closing_fee + opening_fee,
+                "timestamp": self._current_timestamp,
+                "pnl": net_pnl,
+                "gemini_trade_id": None,
+                "entry_price": entry_price,
+                "entry_time": pos["timestamp"],
+                "position_side": side,
+                "exit_reason": "END_OF_DATA",
+            }
+            self._trades.append(trade_record)
+
+            self.logger.info(
+                f"🏁 Force-closed {side} {symbol} | Entry: {entry_price:.4f} → Exit: {close_price:.4f} | "
+                f"PnL: ${net_pnl:+.4f} | Reason: END_OF_DATA"
+            )
+            closed_count += 1
+
+        # Clear all positions
+        self._positions.clear()
+        self.logger.info(f"🏁 Force-closed {closed_count} positions at end of simulation.")
+        return closed_count
+
+    # =========================================================
     # 💰 ACCOUNT DATA
     # =========================================================
 
@@ -658,8 +731,20 @@ class VirtualExchangeConnector(BaseConnector):
 
     async def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
         """Fetch simulated order book."""
+        return self.get_cached_order_book(symbol, limit)
+
+    def get_cached_price(self, symbol: str = None) -> float:
+        """Get last price from virtual state."""
+        return self._current_price
+
+    def is_cache_stale(self, symbol: str = None, threshold_ms: int = 60000, **kwargs) -> bool:
+        """Virtual cache is never stale during tick processing."""
+        return False
+
+    def get_cached_order_book(self, symbol: str = None, limit: int = 20) -> Dict[str, Any]:
+        """Get last order book from virtual state."""
         return {
-            "symbol": symbol,
+            "symbol": symbol or "UNKNOWN",
             "bids": [[self._current_price, 1000.0]],
             "asks": [[self._current_price, 1000.0]],
             "timestamp": self._current_timestamp,

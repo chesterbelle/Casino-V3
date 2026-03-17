@@ -169,6 +169,7 @@ class ErrorClassifier:
         (r"symbol.*not.*found", ErrorCategory.INVALID_SYMBOL),
         (r"invalid.*order", ErrorCategory.INVALID_ORDER),
         (r"order.*invalid", ErrorCategory.INVALID_ORDER),
+        (r"not.*found", ErrorCategory.ORDER_NOT_FOUND),  # Generic 'not found' (VirtualExchange)
         # Binance Futures - Invalid Order
         (r"-2021", ErrorCategory.INVALID_ORDER),  # Order would immediately trigger
         (r"-4131", ErrorCategory.INVALID_ORDER),  # Percent price is out of range

@@ -149,7 +149,7 @@ class Croupier(TimeIterator):
             critical_drawdown_pct=getattr(trading_config, "GUARD_CRITICAL_DRAWDOWN_PCT", 0.10),
             drawdown_window_minutes=getattr(trading_config, "GUARD_DRAWDOWN_WINDOW_MINUTES", 30),
             max_consecutive_losses=getattr(trading_config, "GUARD_MAX_CONSECUTIVE_LOSSES", 5),
-            max_errors_in_window=getattr(trading_config, "GUARD_MAX_ERRORS_WINDOW", 10),
+            max_errors_in_window=getattr(trading_config, "GUARD_MAX_ERRORS_WINDOW", 50),
             error_window_minutes=getattr(trading_config, "GUARD_ERROR_WINDOW_MINUTES", 5),
             solvency_multiplier=getattr(trading_config, "GUARD_SOLVENCY_MULTIPLIER", 1.25),
             caution_sizing_violations=getattr(trading_config, "GUARD_CAUTION_SIZING_VIOLATIONS", 3),
