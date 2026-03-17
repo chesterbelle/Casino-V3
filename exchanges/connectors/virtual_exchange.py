@@ -308,39 +308,34 @@ class VirtualExchangeConnector(BaseConnector):
                 self.logger.error(f"❌ Order update callback error: {e}")
 
     def _update_account_state(self, order: Dict) -> None:
-        """Update balance and positions based on filled order."""
+        """Update balance and positions based on filled order.
+        
+        Fee Accounting Model:
+        - OPEN/INCREASE orders: fee is deducted directly from _balance
+        - CLOSE/DECREASE orders: fee is embedded in PnL calculation, which is then
+          applied to _balance via margin_released + pnl. No separate fee deduction.
+        """
         side = order["side"]
         amount = order["amount"]
         price = order["price"]
         fee = order["fee"]["cost"]
         symbol = order["symbol"]
 
-        # 1. Deduct Fee
-        self._balance -= fee
-
-        # Phase 249: Bankruptcy detection
-        if self._balance < 0:
-            self.logger.critical(f"🚨 BANKRUPTCY: Balance dropped to ${self._balance:,.2f}")
-
-        # Phase 249: Notify balance update callback for PortfolioGuard
-        if self._balance_update_callback:
-            try:
-                self._balance_update_callback(self._balance, timestamp=self._current_timestamp)
-            except Exception as e:
-                self.logger.error(f"❌ Balance update callback error: {e}")
-
         # 2. Update Position
         # Check if we have an existing position
         position = next((p for p in self._positions if p["symbol"] == symbol), None)
 
         if not position:
-            # New Position
+            # New Position — deduct entry fee from balance
+            self._balance -= fee
+
             # Phase 1250: Leverage-Aware Margin Accounting (Round 9 Fix)
             # Default to 10.0x to match bot config if not specified
             leverage = order.get("leverage") or order.get("params", {}).get("leverage", 10.0)
 
             # ReduceOnly Guard: If no position exists, a reduceOnly order must do nothing
             if order.get("params", {}).get("reduceOnly"):
+                self._balance += fee  # Refund the fee we just deducted
                 self.logger.warning(f"🚫 ReduceOnly REJECTED: No position found for {symbol}")
                 return
 
@@ -367,7 +362,9 @@ class VirtualExchangeConnector(BaseConnector):
             is_increase = (pos_side == "LONG" and side == "BUY") or (pos_side == "SHORT" and side == "SELL")
 
             if is_increase:
-                # Increase position
+                # Increase position — deduct fee from balance
+                self._balance -= fee
+
                 total_amount = position["amount"] + amount
                 # Weighted average entry price
                 total_cost = (position["amount"] * position["entry_price"]) + (amount * price)
@@ -381,7 +378,7 @@ class VirtualExchangeConnector(BaseConnector):
                 self._balance -= add_margin
 
             else:
-                # Decrease/Close position
+                # Decrease/Close position — fee is embedded in PnL, NOT deducted separately
                 # ReduceOnly Guard: Cannot exceed current position size
                 if order.get("params", {}).get("reduceOnly"):
                     close_amount = min(amount, position["amount"])
@@ -391,24 +388,15 @@ class VirtualExchangeConnector(BaseConnector):
 
                 remaining = position["amount"] - close_amount
 
-                # Calculate PnL (Net of fees)
-                # Gross PnL
+                # Calculate PnL (net of closing fee only)
                 if pos_side == "LONG":
                     gross_pnl = (price - position["entry_price"]) * close_amount
                 else:
                     gross_pnl = (position["entry_price"] - price) * close_amount
 
-                # Calculate fees for closing trade
-                # Note: fees are calculated on notional value (price * amount)
+                # Closing fee is embedded in PnL — no separate deduction from balance
                 closing_fee = close_amount * price * self.fee_rate
-
-                # Calculate estimated opening fee (proportional to closed amount)
-                # We assume entry was Taker (conservative) as most entries are Market
-                opening_fee = close_amount * position["entry_price"] * self.fee_rate
-
-                # Net PnL = Gross PnL - Closing Fee - Opening Fee
-                # This ensures we capture the full round-trip cost
-                pnl = gross_pnl - closing_fee - opening_fee
+                pnl = gross_pnl - closing_fee
 
                 # Return margin + PnL
                 ratio = close_amount / position["amount"]
@@ -424,6 +412,17 @@ class VirtualExchangeConnector(BaseConnector):
                 if position["amount"] < self.min_amount:
                     self._positions.remove(position)
                     self.logger.info(f"📁 Position Closed: {symbol}")
+
+        # Bankruptcy detection
+        if self._balance < 0:
+            self.logger.critical(f"🚨 BANKRUPTCY: Balance dropped to ${self._balance:,.2f}")
+
+        # Notify balance update callback for PortfolioGuard
+        if self._balance_update_callback:
+            try:
+                self._balance_update_callback(self._balance, timestamp=self._current_timestamp)
+            except Exception as e:
+                self.logger.error(f"❌ Balance update callback error: {e}")
 
         # 3. Record Trade
         trade_record = {
@@ -528,14 +527,11 @@ class VirtualExchangeConnector(BaseConnector):
             else:
                 gross_pnl = (entry_price - close_price) * amount
 
-            # Fees (matching normal close flow)
+            # Only charge closing fee — entry fee already paid on position open
             closing_fee = amount * close_price * self.fee_rate
-            opening_fee = amount * entry_price * self.fee_rate
+            net_pnl = gross_pnl - closing_fee
 
-            # Net PnL for reporting (includes round-trip cost)
-            net_pnl = gross_pnl - closing_fee - opening_fee
-
-            # Balance: return margin + pnl (opening_fee already deducted on entry)
+            # Return margin + PnL to balance
             margin_released = pos.get("margin_used", 0)
             self._balance += margin_released + net_pnl
 
@@ -548,7 +544,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "side": "SELL" if side == "LONG" else "BUY",
                 "amount": amount,
                 "price": close_price,
-                "fee": closing_fee + opening_fee,
+                "fee": closing_fee,
                 "timestamp": self._current_timestamp,
                 "pnl": net_pnl,
                 "gemini_trade_id": None,
