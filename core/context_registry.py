@@ -112,7 +112,7 @@ class ContextRegistry:
             "last_update": time.time(),
         }
 
-    def get_flow_inertia(self, symbol: str, side: str) -> float:
+    def get_flow_inertia(self, symbol: str, side: str, profit_pct: float = 0.0) -> float:
         """
         Calculates a multiplier for Shadow SL distance based on Order Flow.
         Returns:
@@ -132,16 +132,18 @@ class ContextRegistry:
         if side == "LONG":
             # LAZY Conditions: Price and Flow moving together
             if cvd > 500 and skew > 0.55 and z < 4.0:
-                inertia = 1.5
+                inertia = 2.0
             # PARANOID Conditions: Exhaustion or Divergence
-            elif z > 4.5 or skew < 0.45 or (cvd < -200):
+            # Round 4 HYSTERESIS: Only go paranoid if already in profit
+            elif profit_pct > 0 and (z > 4.5 or skew < 0.45 or cvd < -200):
                 inertia = 0.5
         else:  # SHORT
             # LAZY Conditions
             if cvd < -500 and skew < 0.45 and z > -4.0:
-                inertia = 1.5
+                inertia = 2.0
             # PARANOID Conditions
-            elif z < -4.5 or skew > 0.55 or (cvd > 200):
+            # Round 4 HYSTERESIS: Only go paranoid if already in profit
+            elif profit_pct > 0 and (z < -4.5 or skew > 0.55 or cvd > 200):
                 inertia = 0.5
 
         return inertia

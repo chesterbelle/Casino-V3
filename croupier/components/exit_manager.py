@@ -468,7 +468,7 @@ class ExitManager:
             # Phase 1800: Dynamic Flow-Aware Trailing (Lazy vs. Paranoid)
             inertia = 1.0
             if hasattr(self, "context_registry") and self.context_registry:
-                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side)
+                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
 
             new_sl = current_price - (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
@@ -490,7 +490,7 @@ class ExitManager:
             # Phase 1800: Dynamic Flow-Aware Trailing (Lazy vs. Paranoid)
             inertia = 1.0
             if hasattr(self, "context_registry") and self.context_registry:
-                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side)
+                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
 
             new_sl = current_price + (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
