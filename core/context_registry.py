@@ -39,6 +39,7 @@ class ContextRegistry:
         self.regimes: Dict[str, str] = {}  # symbol -> regime (TREND, RANGE, etc.)
         self.otf: Dict[str, str] = {}  # symbol -> OTF (BULL_OTF, BEAR_OTF, NEUTRAL)
         self.tick_stats: Dict[str, dict] = {}  # symbol -> {speed, last_ts, count}
+        self.micro_state: Dict[str, dict] = {}  # symbol -> {cvd, skewness, z_score, last_update}
 
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
@@ -53,7 +54,7 @@ class ContextRegistry:
 
         logger.info("🏛️ ContextRegistry (Zero-Lag Mirror) initialized.")
 
-    def on_tick(self, symbol: str, price: float, volume: float, side: str, timestamp: float = None):
+    def on_tick(self, symbol: str, price: float, volume: float, side: str, timestamp: Optional[float] = None):
         """Update structural and pulse layers synchronously."""
         now = timestamp or time.time()
         if symbol not in self.profiles:
@@ -101,6 +102,49 @@ class ContextRegistry:
 
     def set_otf(self, symbol: str, otf: str):
         self.otf[symbol] = otf
+
+    def set_micro_state(self, symbol: str, cvd: float, skewness: float, z_score: float):
+        """Update real-time microstructure state."""
+        self.micro_state[symbol] = {
+            "cvd": cvd,
+            "skewness": skewness,
+            "z_score": z_score,
+            "last_update": time.time(),
+        }
+
+    def get_flow_inertia(self, symbol: str, side: str) -> float:
+        """
+        Calculates a multiplier for Shadow SL distance based on Order Flow.
+        Returns:
+            > 1.0 (Lazy/Momentum Support): Increase buffer to allow wiggle.
+            < 1.0 (Paranoid/Divergence): Tighten buffer to exit early.
+        """
+        state = self.micro_state.get(symbol)
+        if not state:
+            return 1.0
+
+        cvd = state["cvd"]
+        skew = state["skewness"]
+        z = state["z_score"]
+
+        inertia = 1.0
+
+        if side == "LONG":
+            # LAZY Conditions: Price and Flow moving together
+            if cvd > 500 and skew > 0.55 and z < 4.0:
+                inertia = 1.5
+            # PARANOID Conditions: Exhaustion or Divergence
+            elif z > 4.5 or skew < 0.45 or (cvd < -200):
+                inertia = 0.5
+        else:  # SHORT
+            # LAZY Conditions
+            if cvd < -500 and skew < 0.45 and z > -4.0:
+                inertia = 1.5
+            # PARANOID Conditions
+            elif z < -4.5 or skew > 0.55 or (cvd > 200):
+                inertia = 0.5
+
+        return inertia
 
     def on_candle(self, symbol: str, high: float, low: float):
         """Update ATR buffers from candle data."""

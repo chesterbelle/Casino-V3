@@ -9,7 +9,7 @@ multi-condition playbooks. Fires instantly (0ms latency) upon pattern completion
 import logging
 import time
 from collections import defaultdict, deque
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from core.events import (
     AggregatedSignalEvent,
@@ -117,7 +117,7 @@ class SetupEngineV4:
         # 4. Fire 0ms Latency Action if playbook matches using Guarded Dispatch
         if trigger:
             # Enrichment (Phase 1300): Add vol_ratio and skew to memory-based signals
-            vol_ratio = self.context_registry.get_volatility_ratio(sym) if self.context_registry else 1.0
+            # vol_ratio = self.context_registry.get_volatility_ratio(sym) if self.context_registry else 1.0
             if self.micro_memory[sym]:
                 latest_skew = self.micro_memory[sym][-1][1].skewness
             trigger["metadata"]["skewness"] = latest_skew
@@ -178,11 +178,11 @@ class SetupEngineV4:
 
         trigger = None
         z = event.z_score
-
-        # Regime Filter
         otf = "NEUTRAL"
+
         if self.context_registry:
             otf = self.context_registry.get_regime(sym)
+            self.context_registry.set_micro_state(sym, event.cvd, skewness, z)
 
         # Throttled Debug Monitor (Phase 1300 Optimization)
         if getattr(self, "_tick_count", 0) % 10000 == 0:
@@ -409,7 +409,7 @@ class SetupEngineV4:
 
             # In Neutral regime, we REQUIRE confluence for trend continuation
             if regime == "NEUTRAL" and not has_confluence:
-                logger.debug(f"❌ [REGIME GATE] Trend_Continuation rejected: No confluence in NEUTRAL regime")
+                logger.debug("❌ [REGIME GATE] Trend_Continuation rejected: No confluence in NEUTRAL regime")
                 return None
 
             # In Trend regime (UP/DOWN), we allow it even without confluence if stacked imbalance is strong

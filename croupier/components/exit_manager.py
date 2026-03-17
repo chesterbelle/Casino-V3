@@ -17,6 +17,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import config.trading as config
+from core.context_registry import ContextRegistry
 from core.events import (
     AggregatedSignalEvent,
     CandleEvent,
@@ -44,6 +45,7 @@ class ExitManager:
         """
         self.croupier = croupier
         self.logger = logging.getLogger("ExitManager")
+        self.context_registry = ContextRegistry()
         self._position_locks = defaultdict(asyncio.Lock)
         self.logger.info("✅ ExitManager initialized")
 
@@ -463,9 +465,17 @@ class ExitManager:
             else:
                 trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
 
-            new_sl = current_price - trailing_dist
+            # Phase 1800: Dynamic Flow-Aware Trailing (Lazy vs. Paranoid)
+            inertia = 1.0
+            if hasattr(self, "context_registry") and self.context_registry:
+                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side)
+
+            new_sl = current_price - (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
                 position.shadow_sl_level = new_sl
+                if inertia != 1.0:
+                    mode = "LAZY" if inertia > 1.0 else "PARANOID"
+                    self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Inertia: {inertia}x) for {position.trade_id}")
         elif position.side == "SHORT":
             profit_pct = (position.entry_price - current_price) / position.entry_price
             if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT:
@@ -477,6 +487,14 @@ class ExitManager:
             else:
                 trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
 
-            new_sl = current_price + trailing_dist
+            # Phase 1800: Dynamic Flow-Aware Trailing (Lazy vs. Paranoid)
+            inertia = 1.0
+            if hasattr(self, "context_registry") and self.context_registry:
+                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side)
+
+            new_sl = current_price + (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
                 position.shadow_sl_level = new_sl
+                if inertia != 1.0:
+                    mode = "LAZY" if inertia > 1.0 else "PARANOID"
+                    self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Inertia: {inertia}x) for {position.trade_id}")
