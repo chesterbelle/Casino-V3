@@ -132,19 +132,24 @@ class ContextRegistry:
         if side == "LONG":
             # LAZY Conditions: Price and Flow moving together
             if cvd > 500 and skew > 0.55 and z < 4.0:
-                inertia = 2.0
+                inertia = 1.7  # Round 5: Sweet spot between 1.5x and 2.0x
             # PARANOID Conditions: Exhaustion or Divergence
-            # Round 4 HYSTERESIS: Only go paranoid if already in profit
-            elif profit_pct > 0 and (z > 4.5 or skew < 0.45 or cvd < -200):
-                inertia = 0.5
+            elif z > 4.5 or skew < 0.45 or cvd < -200:
+                # Round 5 HYSTERESIS: Different tightening based on profit
+                if profit_pct > 0.001:  # 0.1% profit buffer
+                    inertia = 0.5
+                elif profit_pct < 0:
+                    inertia = 0.75  # Balanced loss cutting
         else:  # SHORT
             # LAZY Conditions
             if cvd < -500 and skew < 0.45 and z > -4.0:
-                inertia = 2.0
+                inertia = 1.7
             # PARANOID Conditions
-            # Round 4 HYSTERESIS: Only go paranoid if already in profit
-            elif profit_pct > 0 and (z < -4.5 or skew > 0.55 or cvd > 200):
-                inertia = 0.5
+            elif z < -4.5 or skew > 0.55 or cvd > 200:
+                if profit_pct > 0.001:  # 0.1% profit buffer
+                    inertia = 0.5
+                elif profit_pct < 0:
+                    inertia = 0.75
 
         return inertia
 
