@@ -56,6 +56,7 @@ class VirtualExchangeConnector(BaseConnector):
         self._trades: List[Dict] = []  # history of trades
 
         self._current_price: float = 0.0
+        self._previous_price: float = 0.0
         self._current_timestamp: int = 0
         self._order_seq = 0
 
@@ -146,6 +147,7 @@ class VirtualExchangeConnector(BaseConnector):
         """
         self._current_timestamp = int(tick["timestamp"])
         price = float(tick["price"])
+        self._previous_price = self._current_price if self._current_price > 0 else price
         self._current_price = price
 
         # Check fills against this specific price
@@ -160,7 +162,9 @@ class VirtualExchangeConnector(BaseConnector):
         Legacy: Update with candle.
         """
         self._current_timestamp = int(candle["timestamp"])
-        self._current_price = float(candle["close"])
+        price = float(candle["close"])
+        self._previous_price = self._current_price if self._current_price > 0 else price
+        self._current_price = price
         high = float(candle["high"])
         low = float(candle["low"])
 
@@ -212,12 +216,12 @@ class VirtualExchangeConnector(BaseConnector):
                 # Since we don't track the intent, we check both possibilities relative to the range
 
                 # Case A: Price drops to stop (SL behavior) -> Check Bid Low
-                if bid_low <= stop_price <= self._current_price:
+                if bid_low <= stop_price <= self._previous_price:
                     triggered = True
                     execution_price = stop_price
 
                 # Case B: Price rises to stop (TP behavior) -> Check Bid High
-                elif self._current_price <= stop_price <= bid_high:
+                elif self._previous_price <= stop_price <= bid_high:
                     triggered = True
                     execution_price = stop_price
 
@@ -230,12 +234,12 @@ class VirtualExchangeConnector(BaseConnector):
                 # BUY STOP logic
 
                 # Case A: Price rises to stop (SL for Short) -> Check Ask High
-                if self._current_price <= stop_price <= ask_high:
+                if self._previous_price <= stop_price <= ask_high:
                     triggered = True
                     execution_price = stop_price
 
                 # Case B: Price drops to stop (TP for Short) -> Check Ask Low
-                elif ask_low <= stop_price <= self._current_price:
+                elif ask_low <= stop_price <= self._previous_price:
                     triggered = True
                     execution_price = stop_price
 
@@ -309,7 +313,7 @@ class VirtualExchangeConnector(BaseConnector):
 
     def _update_account_state(self, order: Dict) -> None:
         """Update balance and positions based on filled order.
-        
+
         Fee Accounting Model:
         - OPEN/INCREASE orders: fee is deducted directly from _balance
         - CLOSE/DECREASE orders: fee is embedded in PnL calculation, which is then
@@ -385,8 +389,6 @@ class VirtualExchangeConnector(BaseConnector):
                     amount = close_amount  # Cap the order execution
                 else:
                     close_amount = min(amount, position["amount"])
-
-                remaining = position["amount"] - close_amount
 
                 # Calculate PnL (net of closing fee only)
                 if pos_side == "LONG":

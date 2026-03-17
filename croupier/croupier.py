@@ -676,7 +676,17 @@ class Croupier(TimeIterator):
         try:
             # 1. Cancel TP/SL
             try:
-                await self.oco_manager.cancel_bracket(position.tp_order_id, position.sl_order_id, position.symbol)
+                tp_cancel_id = (
+                    position.exchange_tp_id
+                    or (position.tp_order.exchange_order_id if getattr(position, "tp_order", None) else None)
+                    or position.tp_order_id
+                )
+                sl_cancel_id = (
+                    position.exchange_sl_id
+                    or (position.sl_order.exchange_order_id if getattr(position, "sl_order", None) else None)
+                    or position.sl_order_id
+                )
+                await self.oco_manager.cancel_bracket(tp_cancel_id, sl_cancel_id, position.symbol)
             except Exception as ce:
                 self.logger.warning(
                     f"⚠️ Non-critical failure cancelling bracket for {trade_id}: {ce}. Proceeding to close market position."

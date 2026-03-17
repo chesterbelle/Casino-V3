@@ -8,7 +8,7 @@ Este protocolo sustituye a `strategy-audit.md` para validaciones deterministas u
 - **Exchange**: `VirtualExchangeConnector` (Simulación de OCO/TP/SL)
 - **Latency**: Simulated (Default: 0ms para lógica, configurable para stress)
 
-## 🛠️ Procedimiento de Ejecución
+## 🛠️ Procedimiento de Ejecución (REGLA DE PARADA: Detente después de cada ronda y presenta resultados)
 
 ### 1. Preparación de Datos
 Asegúrate de tener un dataset de ticks en `data/raw/`. Si no, descárgalo:
@@ -51,3 +51,6 @@ Crea una entrada en `backtest-results.log` (o similar) con:
 1. Hash del commit (`git rev-parse HEAD`)
 2. Parámetros de la estrategia.
 3. Resultado final ($ P&L) y P.F.
+
+> [!IMPORTANT]
+> **REGLA DE ORO**: Al finalizar cada ronda de backtest, debes presentar los resultados y **DETENERTE** inmediatamente. No inicies la siguiente ronda sin aprobación explícita.
