@@ -1039,6 +1039,17 @@ class Croupier(TimeIterator):
             elif side == "SHORT":
                 liquidation_level = entry_price * (1.0 + (1.0 / leverage) - 0.005)
 
+        # Calculate notional and margin if missing (Phase 480 Fix)
+        notional = order.get("notional", 0)
+        margin_used = order.get("margin_used", 0)
+
+        if notional <= 0:
+            amount = order.get("amount", oco_result["main_order"].get("filled", 0))
+            notional = amount * entry_price
+
+        if margin_used <= 0 and leverage > 0:
+            margin_used = notional / leverage
+
         # Create position object
         position = OpenPosition(
             trade_id=oco_result["main_order"]["order_id"],
@@ -1046,8 +1057,8 @@ class Croupier(TimeIterator):
             side=order["side"],
             entry_price=entry_price,
             entry_timestamp=oco_result["main_order"].get("timestamp", ""),
-            margin_used=order.get("margin_used", 0),
-            notional=order.get("notional", 0),
+            margin_used=margin_used,
+            notional=notional,
             leverage=leverage,
             tp_level=oco_result["tp_price"],
             sl_level=oco_result["sl_price"],

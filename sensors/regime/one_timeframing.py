@@ -17,7 +17,7 @@ class OneTimeframingSensor(SensorV3):
     - Strategy: Fading is prohibited when the market is one-timeframing with conviction (e.g. 2+ bars).
     """
 
-    def __init__(self, lookback: int = 3):
+    def __init__(self, lookback: int = 5):
         super().__init__()
         self.lookback = lookback
         self.history = []  # List of candles for OTF analysis

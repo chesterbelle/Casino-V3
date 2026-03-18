@@ -105,8 +105,9 @@ class OpenPosition:
     leverage: float
     tp_level: float
     sl_level: float
-    liquidation_level: Optional[float]
-    order: Dict[str, Any]
+    liquidation_level: Optional[float] = None
+    amount: float = 0.0  # Phase 42: Contracts/Qty for accurate reporting
+    order: Dict[str, Any] = field(default_factory=dict)
     shadow_sl_level: Optional[float] = None
     entry_atr: float = 0.0  # Phase 710: ATR at time of entry
     # Legacy ID fields (for backward compatibility during migration)
@@ -1189,6 +1190,7 @@ class PositionTracker:
             "bars_held": position.bars_held,
             "exit_reason": exit_reason,  # ← CONFIRMADO
             "side": position.side,
+            "qty": position.amount or position.notional / position.entry_price if position.entry_price > 0 else 0,
             "action": "CLOSE",
             "ghost": False,
             "confirmed": True,  # ← FLAG CRÍTICO
@@ -1572,6 +1574,7 @@ class PositionTracker:
             entry_timestamp=str(int(time.time() * 1000)),
             margin_used=notional / leverage if leverage else 0,
             notional=notional,
+            amount=amount,
             leverage=leverage,
             tp_level=0.0,
             sl_level=0.0,

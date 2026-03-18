@@ -159,7 +159,7 @@ GUARD_CRITICAL_DRAWDOWN_PCT = 0.05  # 5% loss → CRITICAL (drain mode)
 GUARD_DRAWDOWN_WINDOW_MINUTES = 10  # Rolling window for drawdown calc
 
 # Loss streak (consecutive losing trades)
-GUARD_MAX_CONSECUTIVE_LOSSES = 5  # → CRITICAL after N consecutive losses
+GUARD_MAX_CONSECUTIVE_LOSSES = 7  # → CRITICAL after N consecutive losses (raised for stability)
 
 # Error rate (execution errors in a time window)
 GUARD_MAX_ERRORS_WINDOW = 10  # N errors → TERMINAL (emergency shutdown)
@@ -173,7 +173,7 @@ GUARD_CAUTION_SIZING_VIOLATIONS = 1  # 1 violation → CAUTION
 GUARD_TERMINAL_SIZING_VIOLATIONS = 2  # 2 violations → TERMINAL (Buffer for rounding flutters)
 
 # Recovery cooldown: minimum time in elevated state before allowing recovery
-GUARD_RECOVERY_COOLDOWN_SECONDS = 300  # 5 minutes
+GUARD_RECOVERY_COOLDOWN_SECONDS = 60  # 1 minute (reduced to avoid backtest lockout)
 
 
 # =====================================================

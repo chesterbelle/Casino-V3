@@ -55,8 +55,14 @@ class SetupEngineV4:
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
         self.engine.subscribe(EventType.MICROSTRUCTURE_BATCH, self.on_microstructure_batch)
 
+        # Phase 1800: Cold Start Warmup Guard
+        # Require 60 minutes of market data before firing any signals
+        # to allow Volume Profile (POC/VAH/VAL) and CVD to calibrate properly
+        self.first_event_ts = 0.0
+        self.warmup_seconds = 3600.0  # 60 minutes
+
         self._micro_count = 0
-        logger.info("🎯 Setup Engine initialized (Sniper Mode Activated)")
+        logger.info("🎯 Setup Engine initialized (Sniper Mode Activated | Warmup: 60m)")
 
     def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
         """Phase 950: Inject structural levels from ContextRegistry into trigger metadata.
@@ -273,7 +279,22 @@ class SetupEngineV4:
         2. Cooldown (Timing)
         3. Metadata Enrichment (SVA levels)
         """
-        now = getattr(source_event, "timestamp", time.time())
+        if isinstance(source_event, dict):
+            now = source_event.get("timestamp", time.time())
+        else:
+            now = getattr(source_event, "timestamp", time.time())
+
+        # 0. Cold Start Warmup Check (Priority 0: Calibration)
+        if self.first_event_ts == 0.0:
+            self.first_event_ts = now
+        elif now - self.first_event_ts < self.warmup_seconds:
+            # Throttled logging for warmup
+            if getattr(self, "_warmup_log_count", 0) % 50 == 0:
+                logger.info(
+                    f"⏳ [WARMUP] {pattern} gated | Time elapsed: {(now - self.first_event_ts) / 60:.1f}m / 60m"
+                )
+            self._warmup_log_count = getattr(self, "_warmup_log_count", 0) + 1
+            return
 
         # 1. Cooldown Check (Priority 1: Speed)
         if now - self.last_fire_ts[symbol] < self.fire_cooldown:
@@ -424,11 +445,11 @@ class SetupEngineV4:
             if latest_micro:
                 cvd = latest_micro.cvd
                 # Reject if CVD is opposing the stacked imbalance significantly
-                if stacked_dir == "LONG" and cvd < -500:  # Loosened from -100 to -500
+                if stacked_dir == "LONG" and cvd < -50:  # Phase 850: Tightened from -500
                     logger.debug(f"❌ [FILTER] Trend_Continuation rejected: CVD Divergence ({cvd:.2f})")
                     return None
-                elif stacked_dir == "SHORT" and cvd > 500:  # Loosened from 100 to 500
-                    logger.debug(f"❌ [FILTER] Trend_Continuation rejected: CVD Divergence ({cvd:.2f})")
+                elif stacked_dir == "SHORT" and cvd > 50:  # Phase 850: Tightened from +500
+                    logger.debug(f"❌ [FILTER] Trend_Continuation rejected: CVD Divergence SHORT ({cvd:.2f})")
                     return None
 
             vol_ratio = self.context_registry.get_volatility_ratio(symbol) if self.context_registry else 1.0

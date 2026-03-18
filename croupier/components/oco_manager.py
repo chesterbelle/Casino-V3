@@ -216,12 +216,19 @@ class OCOManager:
 
             # Step 0.5: OPTIMISTIC REGISTRATION (In-Flight Architecture)
             # Register "OPENING" placeholder to prevent Friendly Fire from ReconciliationService
+            # Phase 42: Notional calculation for optimistic tracking (Scaling Fix)
+            notional = order.get("notional", 0)
+            amount = order.get("amount", 0)
+            if notional <= 0 and amount > 0 and est_price > 0:
+                notional = amount * est_price
+                order["notional"] = notional
+
             position = self.tracker.register_inflight_position(
                 client_order_id=client_order_id,
                 symbol=symbol,
                 side=side,
-                amount=order.get("amount", 0),
-                notional=order.get("notional", 0),
+                amount=amount,
+                notional=notional,
                 leverage=order.get("leverage", 1),
                 order_params=order,
                 trace_id=order.get("trace_id"),

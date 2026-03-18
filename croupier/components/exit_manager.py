@@ -13,6 +13,7 @@ Version: 1.0.0
 
 import asyncio
 import logging
+import time
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
@@ -456,7 +457,22 @@ class ExitManager:
 
         if position.side == "LONG":
             profit_pct = (current_price - position.entry_price) / position.entry_price
-            if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT:
+
+            # Phase 800: Flow-Aware Inertia (Lazy vs Paranoid)
+            inertia = 1.0
+            if hasattr(self, "context_registry") and self.context_registry:
+                # Always fetch inertia (includes Loss-Cutting logic 0.75x)
+                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
+
+            # Activation Gate:
+            # 1. If profit >= activation threshold (Trailing Mode)
+            # 2. OR if inertia < 1.0 (Paranoid/Loss-Cutting Mode)
+            is_paranoid = inertia < 1.0
+            if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT and not is_paranoid:
+                return
+
+            # Grace Period (Phase 800): No aggressive loss-cutting in first 5s
+            if is_paranoid and profit_pct < 0 and (time.time() - position.timestamp) < 5.0:
                 return
 
             # Phase 710: ATR-based Trailing Distance
@@ -464,11 +480,6 @@ class ExitManager:
                 trailing_dist = position.entry_atr * config.EXIT_ATR_MULT_TS
             else:
                 trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
-
-            # Phase 1800: Dynamic Flow-Aware Trailing (Lazy vs. Paranoid)
-            inertia = 1.0
-            if hasattr(self, "context_registry") and self.context_registry:
-                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
 
             new_sl = current_price - (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
@@ -476,9 +487,25 @@ class ExitManager:
                 if inertia != 1.0:
                     mode = "LAZY" if inertia > 1.0 else "PARANOID"
                     self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Inertia: {inertia}x) for {position.trade_id}")
+
         elif position.side == "SHORT":
             profit_pct = (position.entry_price - current_price) / position.entry_price
-            if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT:
+
+            # Phase 800: Flow-Aware Inertia (Lazy vs Paranoid)
+            inertia = 1.0
+            if hasattr(self, "context_registry") and self.context_registry:
+                # Always fetch inertia (includes Loss-Cutting logic 0.75x)
+                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
+
+            # Activation Gate:
+            # 1. If profit >= activation threshold (Trailing Mode)
+            # 2. OR if inertia < 1.0 (Paranoid/Loss-Cutting Mode)
+            is_paranoid = inertia < 1.0
+            if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT and not is_paranoid:
+                return
+
+            # Grace Period (Phase 800): No aggressive loss-cutting in first 5s
+            if is_paranoid and profit_pct < 0 and (time.time() - position.timestamp) < 5.0:
                 return
 
             # Phase 710: ATR-based Trailing Distance
@@ -487,14 +514,23 @@ class ExitManager:
             else:
                 trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
 
-            # Phase 1800: Dynamic Flow-Aware Trailing (Lazy vs. Paranoid)
-            inertia = 1.0
-            if hasattr(self, "context_registry") and self.context_registry:
-                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
-
             new_sl = current_price + (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
                 position.shadow_sl_level = new_sl
                 if inertia != 1.0:
                     mode = "LAZY" if inertia > 1.0 else "PARANOID"
                     self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Inertia: {inertia}x) for {position.trade_id}")
+
+    async def _update_sl(self, position: OpenPosition, new_sl: float, reason: str):
+        """Helper to physically update SL order on exchange."""
+        self.logger.info(f"🔄 Updating Physical SL for {position.trade_id} -> {new_sl:.6f} ({reason})")
+        try:
+            # Update bracket (SL leg)
+            await self.croupier.modify_sl(
+                trade_id=position.trade_id,
+                new_sl_price=new_sl,
+                symbol=position.symbol,
+                old_sl_order_id=position.sl_order_id,
+            )
+        except Exception as e:
+            self.logger.error(f"❌ Failed to update physical SL: {e}")

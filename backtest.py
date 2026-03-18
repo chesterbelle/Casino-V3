@@ -100,7 +100,7 @@ async def run_backtest():
     await croupier.start()
 
     # 5. Setup Logic Layer
-    context_registry = ContextRegistry(tick_size=0.1)  # Default to 0.1 for backtest
+    context_registry = ContextRegistry(tick_size=0.01)  # Phase 800: Use 0.01 for LTC precision
     SensorManager(engine)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry)
     player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size, context_registry=context_registry)

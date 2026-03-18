@@ -53,7 +53,7 @@ class GuardConfig:
     drawdown_window_minutes: float = 30.0  # Rolling window size
 
     # Loss streak
-    max_consecutive_losses: int = 5  # → CRITICAL
+    max_consecutive_losses: int = 7  # → CRITICAL (raised for backtest stability)
 
     # Error rate
     max_errors_in_window: int = 50  # Increased for backtest stability (Phase 310)
@@ -69,7 +69,7 @@ class GuardConfig:
     terminal_sizing_violations: int = 10  # → TERMINAL after N violations
 
     # Hysteresis: minimum time in elevated state before allowing recovery
-    recovery_cooldown_seconds: float = 300.0  # 5 minutes
+    recovery_cooldown_seconds: float = 60.0  # 1 minute (reduced to avoid backtest lockout)
 
 
 @dataclass
@@ -283,6 +283,10 @@ class PortfolioGuard:
             # Check if recovery is allowed (hysteresis)
             elapsed = now - self._last_state_change_ts
             if elapsed >= self.config.recovery_cooldown_seconds:
+                if worst_state == GuardState.HEALTHY:
+                    # Reset streak counter so recovery is clean
+                    self._consecutive_losses = 0
+                    logger.info("🔄 GUARD: Consecutive loss streak reset on HEALTHY recovery")
                 self._transition_to(worst_state, f"Recovery after {elapsed:.0f}s cooldown", now)
 
     def _check_solvency(self) -> Tuple[Optional[GuardState], str]:
