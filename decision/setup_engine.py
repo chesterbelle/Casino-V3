@@ -263,10 +263,17 @@ class SetupEngineV4:
                     },
                 }
 
-        # Phase 1600: Regime Gating for Reversion (Toxic Flow)
-        if trigger and otf in ("UP", "DOWN"):
-            logger.debug(f"❌ [REGIME GATE] Toxic_OrderFlow rejected in TREND regime ({otf})")
-            trigger = None
+        # Phase 1600: Balanced Regime Gating for Reversion (Toxic Flow)
+        # R12: SHORTs allowed in DOWN or NEUTRAL; LONGs allowed in UP or NEUTRAL
+        # (R11 was too strict: required exact OTF match, eliminated all LONGs in the dataset)
+        if trigger:
+            side = trigger.get("side", "")
+            if side == "SHORT" and otf == "UP":
+                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP (trend is against this reversion)")
+                trigger = None
+            elif side == "LONG" and otf == "DOWN":
+                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN (trend is against this reversion)")
+                trigger = None
 
         if trigger:
             await self._dispatch_guarded_signal(sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event)
@@ -315,6 +322,20 @@ class SetupEngineV4:
                 f"❌ [FILTER] {pattern} rejected: No Footprint Confluence in last 5s (Z: {metadata.get('z_score', 0):.2f})"
             )
             return
+
+        # 2.5 Phase 1000: Microstructure Context Filter (POC vs Price)
+        if hasattr(self, "sensor_manager") and self.sensor_manager:
+            micro_sensor = self.sensor_manager.get_sensor("MicroStructureContext")
+            if micro_sensor:
+                micro_state = micro_sensor.get_state()
+                micro_bias = micro_state.get("bias", "NEUTRAL")
+
+                if side == "LONG" and micro_bias == "BEARISH":
+                    logger.debug(f"❌ [FILTER] {pattern} LONG rejected: MicroStructure is BEARISH (Price < POC)")
+                    return
+                elif side == "SHORT" and micro_bias == "BULLISH":
+                    logger.debug(f"❌ [FILTER] {pattern} SHORT rejected: MicroStructure is BULLISH (Price > POC)")
+                    return
 
         # 3. Confirmed - Enrich and Fire
         self.last_fire_ts[symbol] = now
