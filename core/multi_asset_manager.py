@@ -147,6 +147,12 @@ class MultiAssetManager:
 
                 # C. Liquidity Checks (Hardened)
                 try:
+                    if fast_track:
+                        valid_symbols.append(target_symbol)
+                        precision_profile[target_symbol] = {"step_size": step_size, "tick_size": tick_size}
+                        logger.info(f"✅ Approved {target_symbol} (FastTrack Override)")
+                        continue
+
                     # Use pre-fetched ticker data with normalized symbol
                     ticker = all_tickers.get(symbol, {})
                     book = all_books.get(symbol, {})

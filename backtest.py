@@ -8,7 +8,21 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from pathlib import Path
+
+# Phase 1850: Simulation Time Interceptor
+# Ensures that all components using time.time() (SetupEngine, Historian)
+# receive the historical tick timestamp instead of wall-clock time.
+SIM_TIME = 0.0
+_original_time = time.time
+
+
+def sim_time_provider():
+    return SIM_TIME if SIM_TIME > 0 else _original_time()
+
+
+time.time = sim_time_provider
 
 # Add root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -42,6 +56,7 @@ def parse_args():
     parser.add_argument("--bet-size", type=float, default=0.01, help="Fixed bet size fraction")
     parser.add_argument("--delay", type=float, default=0.0, help="Artificial delay between events")
     parser.add_argument("--limit", type=int, default=None, help="Stop after N events")
+    parser.add_argument("--fast-track", action="store_true", help="Bypass warmup and RR limits for mechanical testing")
     return parser.parse_args()
 
 
@@ -102,8 +117,14 @@ async def run_backtest():
     # 5. Setup Logic Layer
     context_registry = ContextRegistry(tick_size=0.01)  # Phase 800: Use 0.01 for LTC precision
     SensorManager(engine)
-    setup_engine = SetupEngineV4(engine, context_registry=context_registry)
-    player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size, context_registry=context_registry)
+    setup_engine = SetupEngineV4(engine, context_registry=context_registry, fast_track=args.fast_track)
+    player = AdaptivePlayer(
+        engine,
+        croupier,
+        fixed_pct=args.bet_size,
+        context_registry=context_registry,
+        fast_track=args.fast_track,
+    )
 
     # 5.1 Candle Maker (Crucial for Regime Sensors)
     candle_maker = CandleMaker(engine, tick_size=0.01)
@@ -165,6 +186,40 @@ async def run_backtest():
     closed_trades = [t for t in trades if t.get("pnl") is not None]
     wins = [t for t in closed_trades if t["pnl"] > 0]
 
+    # 8.5 Persist closed trades to Historian DB (Parity Infrastructure Fix)
+    from core.observability.historian import historian
+
+    for ct in closed_trades:
+        entry_price = float(ct.get("entry_price", 0.0))
+        exit_price = float(ct.get("price", 0.0))
+        side = ct.get("position_side", "LONG")
+        qty = float(ct.get("amount", 0.0))
+        fee = float(ct.get("fee", 0.0))
+        pnl = float(ct.get("pnl", 0.0))
+        exit_reason = ct.get("exit_reason", "VIRTUAL_CLOSE")
+        trade_id = ct.get("gemini_trade_id") or ct.get("order", ct.get("id", ""))
+        historian.record_trade(
+            {
+                "trade_id": trade_id,
+                "symbol": ct.get("symbol", args.symbol),
+                "side": side,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pnl": pnl,
+                "fee": fee,
+                "funding": 0.0,
+                "exit_reason": exit_reason,
+                "qty": qty,
+                "notional": qty * entry_price if entry_price > 0 else 0,
+                "bars_held": 0,
+                "session_id": "backtest",
+                "t0_signal_ts": float(ct.get("entry_time", 0)) if ct.get("entry_time") else None,
+                "t4_fill_ts": float(ct.get("timestamp", 0)) if ct.get("timestamp") else None,
+            }
+        )
+    if closed_trades:
+        logger.info(f"💾 Historian: Persisted {len(closed_trades)} backtest trades to DB.")
+
     print("\n" + "=" * 60)
     print("📊 BACKTEST V4 RESULTS SUMMARY")
     print("=" * 60)
@@ -195,10 +250,11 @@ async def run_backtest():
     sys.stdout.flush()
     sys.stderr.flush()
 
-    await connector.close()
+    await croupier.stop()
+    historian.stop()
 
-    # Force exit to ensure clean termination
-    os._exit(0)
+    await connector.close()
+    return
 
 
 if __name__ == "__main__":
