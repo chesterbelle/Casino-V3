@@ -1057,6 +1057,7 @@ class Croupier(TimeIterator):
             side=order["side"],
             entry_price=entry_price,
             entry_timestamp=oco_result["main_order"].get("timestamp", ""),
+            timestamp=time.time(),
             margin_used=margin_used,
             notional=notional,
             leverage=leverage,

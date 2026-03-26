@@ -143,6 +143,7 @@ class StateManager:
                 leverage=position.leverage,
                 tp_level=position.tp_level,
                 sl_level=position.sl_level,
+                timestamp=position.timestamp,
                 main_order_id=position.main_order_id,
                 tp_order_id=position.tp_order_id,
                 sl_order_id=position.sl_order_id,
@@ -197,6 +198,7 @@ class StateManager:
                     leverage=pos_state.leverage,
                     tp_level=pos_state.tp_level,
                     sl_level=pos_state.sl_level,
+                    timestamp=pos_state.timestamp,
                     liquidation_level=None,  # Will be recalculated
                     # Use saved order from metadata (v2.1+) or fallback to amount/reconstruction (v2.0)
                     order=(

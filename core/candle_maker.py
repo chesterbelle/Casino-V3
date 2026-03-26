@@ -86,9 +86,10 @@ class CandleMaker:
     Multi-Symbol Safe: Maintains separate candle state per symbol.
     """
 
-    def __init__(self, engine, timeframe_seconds=60):
+    def __init__(self, engine, timeframe_seconds=60, tick_size=0.01):
         self.engine = engine
         self.timeframe = timeframe_seconds
+        self.tick_size = tick_size
         # Multi-symbol safe: Dict[symbol, candle_data]
         self.current_candles: Dict[str, dict] = {}
         self.last_candle_times: Dict[str, int] = {}
@@ -146,7 +147,10 @@ class CandleMaker:
             current_candle["volume"] += tick.volume
 
         # Update Footprint Profile
-        price_level = tick.price  # In real impl, round to tick size
+        # Phase 1200: Binning raw price to precise tick size for 100% Simulation Parity
+        price_level = round(tick.price / self.tick_size) * self.tick_size
+        price_level = round(price_level, 8)  # Prevent floating point artifacts
+
         if price_level not in current_candle["profile"]:
             current_candle["profile"][price_level] = {"bid": 0.0, "ask": 0.0}
 

@@ -376,7 +376,9 @@ async def main():
 
     # 5. Initialize Candle Maker (Tick → Candle)
     # Fixed 1m (60s) heartbeat for multi-timeframe aggregator compatibility
-    candle_maker = CandleMaker(engine, timeframe_seconds=60)
+    candle_maker = CandleMaker(
+        engine, timeframe_seconds=60, tick_size=args.tick_size if hasattr(args, "tick_size") else 0.01
+    )
 
     # 6. Initialize Sensor Manager (Candle → Signal)
     sensor_manager = SensorManager(engine)
@@ -488,80 +490,72 @@ async def main():
 
     # 11. Multi-Asset Flytest & Startup
     # =========================================================
-    active_symbols = []
+    from core.multi_asset_manager import MultiAssetManager
+
+    multi_manager = MultiAssetManager(adapter)
 
     if args.symbol.upper() == "MULTI":
-        # Allow MULTI in testing for architectural stability verification
-        # if args.mode == "testing":
-        #     logger.error("❌ Multi-Asset mode is NOT supported in Testing/Backtest mode yet. Please use single symbol.")
-        #     sys.exit(1)
-
-        from core.multi_asset_manager import MultiAssetManager
-
-        multi_manager = MultiAssetManager(adapter)
-
         # Get target list (could be from config)
         targets = multi_manager.get_multi_config()
         if args.max_symbols:
             targets = targets[: args.max_symbols]
             logger.info(f"📉 Limiting Flytest to Top {args.max_symbols} Symbols")
-
-        # Run Flytest (now returns tuple with precision profile)
-        # Use actual bet_size to calculate if trades meet min notional
-        active_symbols, precision_profile = await error_handler.execute(
-            multi_manager.run_flytest,
-            target_symbols=targets,
-            total_balance=initial_balance,
-            bet_size=args.bet_size,
-            sizing_mode=getattr(trading_config, "POSITION_SIZING_MODE", "FIXED_NOTIONAL"),
-            stop_loss=getattr(trading_config, "DEFAULT_SL_PCT", 0.002),
-            retry_config=startup_retry,
-            context="flytest",
-        )
-
-        if not active_symbols:
-            logger.error("❌ No symbols passed Flytest! Shutting down.")
-            return
-
-        # RONDA 4/5: Limit symbols if requested
-        if args.max_symbols:
-            active_symbols = active_symbols[: args.max_symbols]
-            logger.info(f"📉 Limited to Top {args.max_symbols} Symbols for Verification: {len(active_symbols)} symbols")
-
-        logger.info(f"🚀 Starting MULTI mode with: {active_symbols}")
-        logger.info(f"📐 Precision Profile loaded: {len(precision_profile)} symbols")
-
-        # --- LIQUIDITY WATCHDOG (Flytest 3.0) ---
-        async def on_liquidity_fail_callback(symbol):
-            logger.warning(f"🚫 Watchdog Callback: Unsubscribing from {symbol}")
-            await data_feed.unsubscribe_all(symbol)
-
-        # Start the watchdog task (Fire and Forget but keep ref)
-        asyncio.create_task(
-            multi_manager.start_liquidity_watchdog(
-                active_list=active_symbols,
-                on_remove_callback=on_liquidity_fail_callback,
-                interval=300,  # 5 minutes
-                bet_size_pct=args.bet_size,
-            )
-        )
-        logger.info("🐶 Liquidity Watchdog background task launched.")
-        # ----------------------------------------
-
-        # Phase 249: Update PortfolioGuard with live constraints
-        # Use common min_notional from Flytest or default
-        min_notional = 20.0
-        if active_symbols:
-            try:
-                min_notional = await adapter.get_min_notional(active_symbols[0])
-            except Exception:
-                pass
-
-        croupier.portfolio_guard.update_config(min_notional=min_notional, bet_size=args.bet_size)
-        logger.info(f"🛡️ PortfolioGuard calibrated: MinNotional=${min_notional:.2f}, Bet={args.bet_size:.2%}")
     else:
-        # Single mode
-        active_symbols = [args.symbol]
+        # Single mode: Validate the single symbol using the same robust pipeline
+        targets = [args.symbol]
+        logger.info(f"🎯 Single symbol mode: Running robust pipeline for {args.symbol}")
+
+    # Run Flytest (now returns tuple with precision profile)
+    active_symbols, precision_profile = await error_handler.execute(
+        multi_manager.run_flytest,
+        target_symbols=targets,
+        total_balance=initial_balance,
+        bet_size=args.bet_size,
+        sizing_mode=getattr(trading_config, "POSITION_SIZING_MODE", "FIXED_NOTIONAL"),
+        stop_loss=getattr(trading_config, "DEFAULT_SL_PCT", 0.002),
+        retry_config=startup_retry,
+        context="flytest",
+    )
+
+    if not active_symbols:
+        logger.error("❌ No symbols passed Flytest! Shutting down.")
+        return
+
+    # Limit symbols if requested and in MULTI mode
+    if args.symbol.upper() == "MULTI" and args.max_symbols:
+        active_symbols = active_symbols[: args.max_symbols]
+        logger.info(f"📉 Limited to Top {args.max_symbols} Symbols for Verification: {len(active_symbols)} symbols")
+
+    logger.info(f"🚀 Starting mode with: {active_symbols}")
+    logger.info(f"📐 Precision Profile loaded: {len(precision_profile)} symbols")
+
+    # --- LIQUIDITY WATCHDOG (Flytest 3.0) ---
+    async def on_liquidity_fail_callback(symbol):
+        logger.warning(f"🚫 Watchdog Callback: Unsubscribing from {symbol}")
+        await data_feed.unsubscribe_all(symbol)
+
+    # Start the watchdog task (Fire and Forget but keep ref)
+    asyncio.create_task(
+        multi_manager.start_liquidity_watchdog(
+            active_list=active_symbols,
+            on_remove_callback=on_liquidity_fail_callback,
+            interval=300,  # 5 minutes
+            bet_size_pct=args.bet_size,
+        )
+    )
+    logger.info("🐶 Liquidity Watchdog background task launched.")
+
+    # Phase 249: Update PortfolioGuard with live constraints
+    # Use common min_notional from Flytest or default
+    min_notional = 20.0
+    if active_symbols:
+        try:
+            min_notional = await adapter.get_min_notional(active_symbols[0])
+        except Exception:
+            pass
+
+    croupier.portfolio_guard.update_config(min_notional=min_notional, bet_size=args.bet_size)
+    logger.info(f"🛡️ PortfolioGuard calibrated: MinNotional=${min_notional:.2f}, Bet={args.bet_size:.2%}")
 
     # STARTUP RECONCILIATION: Adopt unknown positions instead of sweeping them
     # CRITICAL: First discover ALL symbols with activity on the exchange (orphan detection)
@@ -1181,9 +1175,8 @@ async def main():
             avg_ext = summary.get("avg_external_latency", 0.0) or 0.0
             hft_eff = summary.get("hft_efficiency", 0.0) or 0.0
 
-            logger.info(f"      • Strat Aggregation (T0-T1): {avg_strat_wait:.1f}ms")
-            logger.info(f"      • Signal-to-Wire   (T1-T2): {avg_wire:.1f}ms (Max: {max_wire:.1f}ms)")
-            logger.info(f"      • Tick-to-Order    (T0-T2): {avg_strat_wait + avg_wire:.1f}ms (Target: <50ms)")
+            logger.info(f"      • Pattern Formation (T0-T1): {avg_strat_wait:.1f}ms")
+            logger.info(f"      • Signal-to-Wire  (T1-T2): {avg_wire:.1f}ms (Max: {max_wire:.1f}ms)")
             logger.info(f"      • Exchange Latency (T2-T4): {avg_ext / 1000:.2f}s (Avg Fill)")
 
             eff_color = "⚡" if hft_eff > 90 else "🐢"

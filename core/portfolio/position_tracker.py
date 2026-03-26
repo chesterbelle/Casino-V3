@@ -100,6 +100,7 @@ class OpenPosition:
     side: str
     entry_price: float
     entry_timestamp: str
+    timestamp: float  # Phase 800: Float seconds for Grace Period logic
     margin_used: float
     notional: float
     leverage: float
@@ -959,6 +960,7 @@ class PositionTracker:
                 side=side,
                 entry_price=entry_price,
                 entry_timestamp=entry_timestamp,
+                timestamp=time.time(),
                 margin_used=margin_used,
                 notional=notional,
                 leverage=leverage,
@@ -1572,6 +1574,7 @@ class PositionTracker:
             side=side,
             entry_price=0.0,
             entry_timestamp=str(int(time.time() * 1000)),
+            timestamp=time.time(),
             margin_used=notional / leverage if leverage else 0,
             notional=notional,
             amount=amount,

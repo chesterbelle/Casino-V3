@@ -49,7 +49,8 @@ class SetupEngineV4:
         # Strict Cooldowns per symbol to prevent double-firing and churn
         self.last_fire_ts = defaultdict(float)
         self.fire_cooldown = 15.0  # Reduced to 15s to capture volatility waves (Round 6)
-        self._last_prune_ts = 0.0
+        self._last_signal_prune_ts = 0.0
+        self._last_micro_prune_ts = 0.0
         self._prune_interval = 0.5  # Prune every 500ms
 
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
@@ -98,12 +99,12 @@ class SetupEngineV4:
         now = event.timestamp
         sym = event.symbol
 
-        # 1. Store event in short-term memory
-        self.memory[sym].append((now, event))
+        # 1. Store event in short-term memory (market_time, wall_time, event)
+        self.memory[sym].append((now, time.time(), event))
 
         # Lazy Pruning (Phase 500) - Only prune every 500ms (Using Market Time)
-        if now - self._last_prune_ts > self._prune_interval:
-            self._last_prune_ts = now
+        if now - self._last_signal_prune_ts > self._prune_interval:
+            self._last_signal_prune_ts = now
             for s in list(self.memory.keys()):
                 cutoff = now - 5.0
                 while self.memory[s] and self.memory[s][0][0] < cutoff:
@@ -114,7 +115,7 @@ class SetupEngineV4:
             return
 
         # 3. Evaluate Strict Playbooks against the 5s memory window
-        events = [e[1] for e in self.memory[sym]]
+        events = [e[2] for e in self.memory[sym]]
 
         trigger = self._evaluate_fade_extreme(sym, events)
         if not trigger:
@@ -125,15 +126,15 @@ class SetupEngineV4:
             # Enrichment (Phase 1300): Add vol_ratio and skew to memory-based signals
             # vol_ratio = self.context_registry.get_volatility_ratio(sym) if self.context_registry else 1.0
             if self.micro_memory[sym]:
-                latest_skew = self.micro_memory[sym][-1][1].skewness
+                latest_skew = self.micro_memory[sym][-1][2].skewness
             trigger["metadata"]["skewness"] = latest_skew
 
             # Phase 1600 Enrichment: Delta Velocity Multiplier
             dv_multiplier = 1.0
             recent_dv = [
-                e[1]
+                e[2]
                 for e in self.memory[sym]
-                if e[1].metadata and e[1].metadata.get("tactical_type") == "TacticalDeltaVelocity"
+                if e[2].metadata and e[2].metadata.get("tactical_type") == "TacticalDeltaVelocity"
             ]
             if recent_dv:
                 dv_multiplier = recent_dv[-1].metadata.get("sizing_multiplier", 1.0)
@@ -159,12 +160,12 @@ class SetupEngineV4:
         now = event.timestamp
         sym = event.symbol
 
-        # 1. Store in memory
-        self.micro_memory[sym].append((now, event))
+        # 1. Store in memory (market_time, wall_time, event)
+        self.micro_memory[sym].append((now, time.time(), event))
 
         # Lazy Pruning (Phase 500) - Using Market Time
-        if now - self._last_prune_ts > self._prune_interval:
-            self._last_prune_ts = now
+        if now - self._last_micro_prune_ts > self._prune_interval:
+            self._last_micro_prune_ts = now
             for s in list(self.micro_memory.keys()):
                 cutoff = now - 5.0
                 while self.micro_memory[s] and self.micro_memory[s][0][0] < cutoff:
@@ -174,8 +175,8 @@ class SetupEngineV4:
         if len(self.micro_memory[sym]) < 2:
             return
 
-        first_evt = self.micro_memory[sym][0][1]
-        curr_evt = self.micro_memory[sym][-1][1]
+        first_evt = self.micro_memory[sym][0][2]
+        curr_evt = self.micro_memory[sym][-1][2]
         skewness = event.skewness
         price_delta = curr_evt.price - first_evt.price
 
@@ -234,6 +235,7 @@ class SetupEngineV4:
                         "skewness": skewness,
                         "price": curr_evt.price,
                         "vol_ratio": vol_ratio,
+                        "t0_wall_time": self.micro_memory[sym][0][1],
                     },
                 }
 
@@ -260,6 +262,7 @@ class SetupEngineV4:
                         "skewness": skewness,
                         "price": curr_evt.price,
                         "vol_ratio": vol_ratio,
+                        "t0_wall_time": self.micro_memory[sym][0][1],
                     },
                 }
 
@@ -269,10 +272,14 @@ class SetupEngineV4:
         if trigger:
             side = trigger.get("side", "")
             if side == "SHORT" and otf == "UP":
-                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP (trend is against this reversion)")
+                logger.debug(
+                    "❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP (trend is against this reversion)"
+                )
                 trigger = None
             elif side == "LONG" and otf == "DOWN":
-                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN (trend is against this reversion)")
+                logger.debug(
+                    "❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN (trend is against this reversion)"
+                )
                 trigger = None
 
         if trigger:
@@ -310,10 +317,10 @@ class SetupEngineV4:
         # 2. Confluence Check (Priority 2: Quality)
         # Ensure signal is backed by recent Footprint events (Absorption, Imbalance, Exhaustion)
         recent_tactical = [
-            e[1]
+            e[2]
             for e in self.memory[symbol]
-            if e[1].metadata
-            and e[1].metadata.get("tactical_type")
+            if e[2].metadata
+            and e[2].metadata.get("tactical_type")
             in ("TacticalAbsorption", "TacticalImbalance", "TacticalExhaustion", "TacticalStackedImbalance")
         ]
 
@@ -344,6 +351,12 @@ class SetupEngineV4:
         # Enrich metadata with structural levels
         metadata = self._enrich_metadata(metadata, symbol)
 
+        # Phase 85/1130: t0_timestamp uses strict wall clock time for valid latencies.
+        # Fallback to general memory tracking if trigger source doesn't provide it
+        t0 = metadata.get("t0_wall_time")
+        if not t0:
+            t0 = self.memory[symbol][0][1] if self.memory[symbol] else time.time()
+
         out_evt = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=now,
@@ -355,8 +368,8 @@ class SetupEngineV4:
             confidence=1.0,
             total_signals=1,
             metadata=metadata,
-            t0_timestamp=now,
-            t1_decision_ts=now,
+            t0_timestamp=t0,
+            t1_decision_ts=time.time(),  # explicit wall time for Phase 1130 latency verification
         )
         await self.engine.dispatch(out_evt)
 
@@ -461,7 +474,7 @@ class SetupEngineV4:
             # Find the latest Microstructure event for CVD
             latest_micro = None
             if self.micro_memory[symbol]:
-                latest_micro = self.micro_memory[symbol][-1][1]
+                latest_micro = self.micro_memory[symbol][-1][2]
 
             if latest_micro:
                 cvd = latest_micro.cvd

@@ -106,7 +106,7 @@ async def run_backtest():
     player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size, context_registry=context_registry)
 
     # 5.1 Candle Maker (Crucial for Regime Sensors)
-    candle_maker = CandleMaker(engine)
+    candle_maker = CandleMaker(engine, tick_size=0.01)
 
     om = OrderManager(engine, croupier, player, setup_engine.tracker)
     await om.start()

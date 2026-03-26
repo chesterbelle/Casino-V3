@@ -40,6 +40,7 @@ class PositionState:
     leverage: float
     tp_level: float
     sl_level: float
+    timestamp: float = 0.0  # Phase 800: Grace Period float
     amount: float = 0.0  # Added to prevent 'no amount' error on recovery
     main_order_id: Optional[str] = None
     tp_order_id: Optional[str] = None
@@ -65,6 +66,7 @@ class PositionState:
             "leverage": self.leverage,
             "tp_level": self.tp_level,
             "sl_level": self.sl_level,
+            "timestamp": self.timestamp,
             "amount": self.amount,
             "main_order_id": self.main_order_id,
             "tp_order_id": self.tp_order_id,

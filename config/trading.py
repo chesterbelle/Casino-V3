@@ -93,8 +93,10 @@ DEFAULT_MARGIN_TYPE = "ISOLATED"  # Aislado protege el resto del balance de liqu
 TRAILING_STOP_ENABLED = True  # Shadow Trailing Enabled
 # En Footprint scalping, una vez alcanzado el 0.20% (66% del TP esperado),
 # iniciamos el trailing a una distancia de 0.08% para asegurar ganancias pero dar más aire.
-TRAILING_STOP_ACTIVATION_PCT = 0.0020  # Profit threshold (0.20%) before SL starts trailing
-TRAILING_STOP_DISTANCE_PCT = 0.0015  # Loosened from 0.08% to 0.15% to handle volatility
+TRAILING_STOP_ACTIVATION_PCT = (
+    0.0025  # Profit threshold (0.25%) before SL starts trailing (Phase 900 R11: raised to clear base tier fees)
+)
+TRAILING_STOP_DISTANCE_PCT = 0.0015  # 0.15% trailing distance (reverted from R12 tightening, R10 best config)
 
 # --- ATR-Based Dynamic Exits (Phase 710) ---
 # Multipliers used to calculate dynamic distances: Distance = Multiplier * ATR
@@ -159,7 +161,9 @@ GUARD_CRITICAL_DRAWDOWN_PCT = 0.05  # 5% loss → CRITICAL (drain mode)
 GUARD_DRAWDOWN_WINDOW_MINUTES = 10  # Rolling window for drawdown calc
 
 # Loss streak (consecutive losing trades)
-GUARD_MAX_CONSECUTIVE_LOSSES = 7  # → CRITICAL after N consecutive losses (raised for stability)
+GUARD_MAX_CONSECUTIVE_LOSSES = (
+    12  # → CRITICAL after N consecutive losses (R13: raised high to prevent early cascade lock)
+)
 
 # Error rate (execution errors in a time window)
 GUARD_MAX_ERRORS_WINDOW = 10  # N errors → TERMINAL (emergency shutdown)

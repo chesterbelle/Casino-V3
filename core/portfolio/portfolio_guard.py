@@ -262,7 +262,7 @@ class PortfolioGuard:
         checks = [
             self._check_solvency(),
             self._check_drawdown_velocity(now),
-            self._check_loss_streak(),
+            self._check_loss_streak(now),
             self._check_error_rate(now),
             self._check_sizing_violations(),
         ]
@@ -348,14 +348,23 @@ class PortfolioGuard:
 
         return (None, "")
 
-    def _check_loss_streak(self) -> Tuple[Optional[GuardState], str]:
-        """Check for excessive consecutive losses."""
+    def _check_loss_streak(self, now: float) -> Tuple[Optional[GuardState], str]:
+        """
+        Check consecutive losses.
+        If we are already in CRITICAL/CAUTION due to losses, and the cooldown has elapsed,
+        we shouldn't KEEP returning CRITICAL, or else we can never recover.
+        """
         if self._consecutive_losses >= self.config.max_consecutive_losses:
+            # Check if cooldown has elapsed. If so, return None so recovery can happen
+            if self.state >= GuardState.CAUTION:
+                elapsed = now - self._last_state_change_ts
+                if elapsed >= self.config.recovery_cooldown_seconds:
+                    return (None, "")
+
             return (
                 GuardState.CRITICAL,
-                f"Loss streak: {self._consecutive_losses} consecutive losses",
+                f"{self._consecutive_losses} consecutive losses (Max: {self.config.max_consecutive_losses})",
             )
-
         return (None, "")
 
     def _check_error_rate(self, now: float) -> Tuple[Optional[GuardState], str]:

@@ -30,10 +30,10 @@ class VirtualExchangeConnector(BaseConnector):
     def __init__(
         self,
         initial_balance: float = 10000.0,
-        fee_rate: float = 0.0006,  # 0.06% (Taker)
-        maker_fee_rate: float = 0.0002,  # 0.02% (Maker)
+        fee_rate: float = 0.0005,  # 0.05% (Base Taker Binance Futures)
+        maker_fee_rate: float = 0.0002,  # 0.02% (Base Maker Binance Futures)
         slippage_rate: float = 0.0001,  # 0.01%
-        simulation_spread: float = 0.0005,  # 0.05% (Spread simulation)
+        simulation_spread: float = 0.00015,  # 0.015% (Realistic 1-2 tick spread)
         min_amount: float = 0.001,
         amount_precision: int = 3,
     ):
