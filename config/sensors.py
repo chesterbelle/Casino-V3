@@ -113,20 +113,40 @@ SENSOR_PARAMS = {
 
 
 def get_sensor_params(sensor_id: str, timeframe: str = "1m") -> dict:
+    params_ref = None
     if sensor_id not in SENSOR_PARAMS:
-        return SENSOR_PARAMS["_default"].get(timeframe, {"tp_pct": 0.0015, "sl_pct": 0.0010})
+        params_ref = SENSOR_PARAMS["_default"].get(timeframe, {"tp_pct": 0.0015, "sl_pct": 0.0010})
+    else:
+        sensor_config = SENSOR_PARAMS[sensor_id]
+        if isinstance(sensor_config, dict):
+            if timeframe in sensor_config:
+                params_ref = sensor_config[timeframe]
+            elif "tp_pct" in sensor_config:
+                params_ref = sensor_config
+            else:
+                tf_keys = [k for k in sensor_config.keys() if k in ("1m")]
+                if tf_keys:
+                    params_ref = sensor_config[tf_keys[0]]
+                else:
+                    params_ref = SENSOR_PARAMS["_default"].get(timeframe, {"tp_pct": 0.0015, "sl_pct": 0.0010})
+        else:
+            params_ref = SENSOR_PARAMS["_default"].get(timeframe, {"tp_pct": 0.0015, "sl_pct": 0.0010})
 
-    sensor_config = SENSOR_PARAMS[sensor_id]
-    if isinstance(sensor_config, dict):
-        if timeframe in sensor_config:
-            return sensor_config[timeframe]
-        if "tp_pct" in sensor_config:
-            return sensor_config
-        tf_keys = [k for k in sensor_config.keys() if k in ("1m")]
-        if tf_keys:
-            return sensor_config[tf_keys[0]]
+    if not params_ref:
+        params_ref = SENSOR_PARAMS["_default"].get(timeframe, {"tp_pct": 0.0015, "sl_pct": 0.0010})
 
-    return SENSOR_PARAMS["_default"].get(timeframe, {"tp_pct": 0.0015, "sl_pct": 0.0010})
+    params = params_ref.copy()
+
+    # Native Fast-Track Override: Make sensors highly radioactive
+    import sys
+
+    if "--fast-track" in sys.argv:
+        if "min_score_long" in params:
+            params["min_score_long"] = 0.10
+        if "min_score_short" in params:
+            params["min_score_short"] = 0.10
+
+    return params
 
 
 def get_sensor_timeframe(sensor_id: str) -> str:

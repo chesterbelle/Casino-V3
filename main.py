@@ -134,6 +134,12 @@ def parse_args():
     parser.add_argument("--max-symbols", type=int, help="Limit number of symbols for MULTI mode (Test)")
 
     parser.add_argument(
+        "--fast-track",
+        action="store_true",
+        help="Bypass 60m Warmup and lower RR threshold for rapid execution testing",
+    )
+
+    parser.add_argument(
         "--ui",
         action="store_true",
         help="Enable Terminal User Interface (Dashboard)",
@@ -390,15 +396,25 @@ async def main():
     context_registry = ContextRegistry(tick_size=args.tick_size if hasattr(args, "tick_size") else 0.1)
 
     # 8. Initialize Setup Engine (Tactical Event Setup Engine -> Decision)
-    setup_engine = SetupEngineV4(engine, context_registry=context_registry)
+    setup_engine = SetupEngineV4(
+        engine, context_registry=context_registry, fast_track=getattr(args, "fast_track", False)
+    )
     tracker = setup_engine.tracker  # Get dummy tracker
 
-    # 9. Initialize Player (Aggregated Signal → Decision)
+    # 9. Initialize Player (Aggregated Signal -> Decision)
     from players.adaptive import AdaptivePlayer
 
-    logger.info(f"🎰 Using Adaptive Player (bet_size={args.bet_size:.2%})")
+    logger.info(
+        f"🎰 Using Adaptive Player (bet_size={args.bet_size:.2%}){' | FAST-TRACK MODE' if getattr(args, 'fast_track', False) else ''}"
+    )
     # Initialize Player (bet sizing) - max_positions defaults to 1 per symbol in Player
-    player = AdaptivePlayer(engine, croupier, fixed_pct=args.bet_size, context_registry=context_registry)
+    player = AdaptivePlayer(
+        engine,
+        croupier,
+        fixed_pct=args.bet_size,
+        context_registry=context_registry,
+        fast_track=getattr(args, "fast_track", False),
+    )
 
     # 10. Initialize Order Manager (Decision → Execution)
     order_manager = OrderManager(engine, croupier, player, tracker)
@@ -513,6 +529,7 @@ async def main():
         bet_size=args.bet_size,
         sizing_mode=getattr(trading_config, "POSITION_SIZING_MODE", "FIXED_NOTIONAL"),
         stop_loss=getattr(trading_config, "DEFAULT_SL_PCT", 0.002),
+        fast_track=getattr(args, "fast_track", False),
         retry_config=startup_retry,
         context="flytest",
     )
@@ -761,28 +778,29 @@ async def main():
             if args.timeout:
                 elapsed_min = (time.time() - start_time) / 60
 
-                # A. Drain Phase (Soft Timeout)
-                drain_duration = (
-                    args.drain_duration if args.drain_duration is not None else trading_config.DRAIN_PHASE_MINUTES
-                )
-                # Cap drain_duration to 30% of timeout to prevent immediate drain activation
-                # when DRAIN_PHASE_MINUTES (45) > timeout (e.g. 30)
-                max_drain = args.timeout * 0.30
-                if drain_duration > max_drain:
-                    drain_duration = max_drain
+                # A. Drain Phase (Soft Timeout) — skipped in --fast-track mode
+                if not getattr(args, "fast_track", False):
+                    drain_duration = (
+                        args.drain_duration if args.drain_duration is not None else trading_config.DRAIN_PHASE_MINUTES
+                    )
+                    # Cap drain_duration to 30% of timeout to prevent immediate drain activation
+                    # when DRAIN_PHASE_MINUTES (45) > timeout (e.g. 30)
+                    max_drain = args.timeout * 0.30
+                    if drain_duration > max_drain:
+                        drain_duration = max_drain
 
-                if elapsed_min >= (args.timeout - drain_duration):
-                    if not croupier.is_drain_mode:
-                        logger.warning(
-                            f"🕒 Entering DRAIN PHASE ({drain_duration}m remaining). "
-                            "Stopping new entries and narrowing TPs..."
-                        )
-                        croupier.set_drain_mode(True)
-                        drain_start_ts = time.time()
+                    if elapsed_min >= (args.timeout - drain_duration):
+                        if not croupier.is_drain_mode:
+                            logger.warning(
+                                f"🕒 Entering DRAIN PHASE ({drain_duration}m remaining). "
+                                "Stopping new entries and narrowing TPs..."
+                            )
+                            croupier.set_drain_mode(True)
+                            drain_start_ts = time.time()
 
-                    # Progressive Exit Update
-                    remaining = args.timeout - elapsed_min
-                    asyncio.create_task(croupier.update_drain_status(remaining))
+                        # Progressive Exit Update
+                        remaining = args.timeout - elapsed_min
+                        asyncio.create_task(croupier.update_drain_status(remaining))
 
                 # B. Hard Timeout (Session Ends)
                 if elapsed_min >= args.timeout:
