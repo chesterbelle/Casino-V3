@@ -9,7 +9,6 @@ import asyncio
 import logging
 import multiprocessing
 import os
-import time
 from collections import defaultdict, deque
 from typing import Any, Dict, Tuple
 
@@ -232,17 +231,10 @@ class SensorManager:
             "symbol": event.symbol,
             "data": candle_data,
             "context": context,  # Pass the full context to sensors
-            # Most V3 sensors calc their own indicators.
-            # If we pass context, it must be picklable.
         }
 
         # Dispatch to all queues
-        # Use executor to avoid blocking main loop with Queue.put (can block if full)
-        loop = asyncio.get_running_loop()
         for q in self.input_queues:
-            # We don't await this inside the loop to avoid sequential blocking,
-            # but we use run_in_executor to ensure it happens in a thread.
-            # loop.run_in_executor(None, q.put, msg)
             asyncio.get_running_loop().run_in_executor(None, q.put, msg)
 
     async def on_tick(self, event: TickEvent):

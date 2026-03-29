@@ -308,6 +308,7 @@ class TradeHistorian:
             if not trade_id:
                 logger.error("❌ Historian: Cannot record trade without trade_id")
                 return
+            trade_id = str(trade_id)  # Enforce TEXT mapping for SQLite
 
             entry_price = float(trade_data.get("entry_price", 0.0))
             exit_price = float(trade_data.get("exit_price", 0.0))
@@ -499,6 +500,7 @@ class TradeHistorian:
 
     def _update_trade_fee_sync(self, trade_id: str, fee: float, exit_price: Optional[float] = None):
         """Internal synchronous update logic."""
+        trade_id = str(trade_id)  # Enforce TEXT mapping for SQLite
         try:
             with self._get_conn() as conn:
                 conn.row_factory = sqlite3.Row

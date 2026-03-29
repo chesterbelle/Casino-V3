@@ -54,6 +54,7 @@ from core.observability import (
     stop_metrics_server,
     update_balance,
 )
+from core.observability.historian import historian
 from core.observability.loop_monitor import LoopMonitor
 from core.observability.metrics import (
     bot_info,
@@ -1263,6 +1264,10 @@ async def main():
             await asyncio.wait_for(state_manager.stop(), timeout=2.0)
         except Exception as e:
             logger.error(f"❌ Error stopping state manager: {e}")
+
+        # 3.5 Stop historian (Ensure all trades are flushed)
+        logger.info("💾 Stopping historian (flushing buffered trades)...")
+        historian.stop()
 
         # 4. Stop metrics server
         logger.info("📊 Stopping metrics server...")
