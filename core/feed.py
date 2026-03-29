@@ -4,11 +4,13 @@ Manages Websocket streams via CCXTAdapter and dispatches events to the Engine.
 """
 
 import asyncio
+import json
 import logging
 import time
 from typing import Any, Dict, Set
 
 from core.events import EventType, OrderBookEvent, TickEvent
+from core.observability.historian import historian
 from core.observability.watchdog import watchdog
 from exchanges.adapters import ExchangeAdapter
 from utils.symbol_norm import normalize_symbol
@@ -115,6 +117,16 @@ class StreamManager:
                 asks=depth_data.get("asks", []),
             )
             await self.engine.dispatch(event)
+
+            # Phase 1300: L2 Simulation Hybrid Architecture
+            # If we are in live or demo mode, save the depth to the historian DB
+            if getattr(self.engine, "_mode", "demo") in ["live", "demo"]:
+                historian.record_depth_snapshot(
+                    timestamp=event.timestamp,
+                    symbol=event.symbol,
+                    bids=json.dumps(event.bids),
+                    asks=json.dumps(event.asks),
+                )
 
         except Exception as e:
             logger.debug(f"⚠️ Push depth error: {e}")

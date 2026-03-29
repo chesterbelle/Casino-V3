@@ -36,10 +36,11 @@ class DummyTracker:
 
 
 class SetupEngineV4:
-    def __init__(self, engine, context_registry=None):
+    def __init__(self, engine, context_registry=None, fast_track=False):
         self.engine = engine
         self.context_registry = context_registry
         self.tracker = DummyTracker()  # For OrderManager compatibility
+        self.fast_track = fast_track
 
         # Memory of tactical events per symbol. (timestamp, event_data)
         # Keeps up to 500 events to cover the 5-second window
@@ -60,10 +61,12 @@ class SetupEngineV4:
         # Require 60 minutes of market data before firing any signals
         # to allow Volume Profile (POC/VAH/VAL) and CVD to calibrate properly
         self.first_event_ts = 0.0
-        self.warmup_seconds = 3600.0  # 60 minutes
+        self.warmup_seconds = 0.0 if self.fast_track else 3600.0  # 60 minutes
 
         self._micro_count = 0
-        logger.info("🎯 Setup Engine initialized (Sniper Mode Activated | Warmup: 60m)")
+        logger.info(
+            f"🎯 Setup Engine initialized (Sniper Mode Activated | Warmup: {'0m' if self.fast_track else '60m'})"
+        )
 
     def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
         """Phase 950: Inject structural levels from ContextRegistry into trigger metadata.

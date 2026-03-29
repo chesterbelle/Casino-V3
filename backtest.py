@@ -27,19 +27,19 @@ time.time = sim_time_provider
 # Add root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core.backtest_feed import BacktestFeed
-from core.candle_maker import CandleMaker
-from core.clock import Clock
-from core.context_registry import ContextRegistry
-from core.engine import Engine
-from core.events import EventType
-from core.execution import OrderManager
-from core.sensor_manager import SensorManager
-from croupier.croupier import Croupier
-from decision.setup_engine import SetupEngineV4
-from exchanges.adapters import ExchangeAdapter
-from exchanges.connectors.virtual_exchange import VirtualExchangeConnector
-from players.adaptive import AdaptivePlayer
+from core.backtest_feed import BacktestFeed  # noqa: E402
+from core.candle_maker import CandleMaker  # noqa: E402
+from core.clock import Clock  # noqa: E402
+from core.context_registry import ContextRegistry  # noqa: E402
+from core.engine import Engine  # noqa: E402
+from core.events import EventType  # noqa: E402
+from core.execution import OrderManager  # noqa: E402
+from core.sensor_manager import SensorManager  # noqa: E402
+from croupier.croupier import Croupier  # noqa: E402
+from decision.setup_engine import SetupEngineV4  # noqa: E402
+from exchanges.adapters import ExchangeAdapter  # noqa: E402
+from exchanges.connectors.virtual_exchange import VirtualExchangeConnector  # noqa: E402
+from players.adaptive import AdaptivePlayer  # noqa: E402
 
 # Setup logging
 logging.basicConfig(
@@ -57,6 +57,9 @@ def parse_args():
     parser.add_argument("--delay", type=float, default=0.0, help="Artificial delay between events")
     parser.add_argument("--limit", type=int, default=None, help="Stop after N events")
     parser.add_argument("--fast-track", action="store_true", help="Bypass warmup and RR limits for mechanical testing")
+    parser.add_argument(
+        "--depth-db", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
+    )
     return parser.parse_args()
 
 
@@ -72,7 +75,7 @@ async def run_backtest():
     clock = Clock(tick_size_seconds=1.0)
 
     # 2. Setup Virtual Exchange
-    connector = VirtualExchangeConnector(
+    connector = VirtualExchangeConnector(  # noqa: E402
         initial_balance=args.balance, fee_rate=0.0006, maker_fee_rate=0.0002, slippage_rate=0.0001  # Taker
     )
     adapter = ExchangeAdapter(connector, symbol=args.symbol)
@@ -85,13 +88,14 @@ async def run_backtest():
         delay=args.delay,
         exchange_connector=connector,
         limit=args.limit,
+        depth_db_path=args.depth_db,
     )
 
     # 4. Setup Execution Layer
     croupier = Croupier(exchange_adapter=adapter, initial_balance=args.balance)
     await connector.connect()
 
-    # Phase 249: Connect VirtualExchange balance updates to BalanceManager for PortfolioGuard
+    # Phase 249: Connect VirtualExchange balance updates to BalanceManager for PortfolioGuard # noqa: E402
     def on_balance_update(balance: float, timestamp: float = None):
         croupier.balance_manager.set_balance(balance, timestamp=timestamp)
 
@@ -115,10 +119,10 @@ async def run_backtest():
     await croupier.start()
 
     # 5. Setup Logic Layer
-    context_registry = ContextRegistry(tick_size=0.01)  # Phase 800: Use 0.01 for LTC precision
+    context_registry = ContextRegistry(tick_size=0.01)  # Phase 800: Use 0.01 for LTC precision # noqa: E402
     SensorManager(engine)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry, fast_track=args.fast_track)
-    player = AdaptivePlayer(
+    player = AdaptivePlayer(  # noqa: E402
         engine,
         croupier,
         fixed_pct=args.bet_size,
@@ -127,7 +131,7 @@ async def run_backtest():
     )
 
     # 5.1 Candle Maker (Crucial for Regime Sensors)
-    candle_maker = CandleMaker(engine, tick_size=0.01)
+    CandleMaker(engine, tick_size=0.01)
 
     om = OrderManager(engine, croupier, player, setup_engine.tracker)
     await om.start()
@@ -158,7 +162,7 @@ async def run_backtest():
     logger.info(f"🏁 Starting Backtest: {args.symbol} | Data: {Path(args.data).name}")
 
     # Start clock in background
-    clock_task = asyncio.create_task(clock.start())
+    asyncio.create_task(clock.start())
 
     # Run feed (this blocks until done)
     await feed.run()

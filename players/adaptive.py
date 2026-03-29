@@ -72,6 +72,7 @@ class AdaptivePlayer:
         use_kelly: bool = True,
         kelly_max: float = 0.10,
         context_registry=None,
+        fast_track: bool = False,
     ):
         """
         Args:
@@ -89,6 +90,7 @@ class AdaptivePlayer:
         self.use_kelly = use_kelly
         self.kelly_max = kelly_max
         self.context_registry = context_registry
+        self.fast_track = fast_track
 
         # SensorTracker for Kelly calculations
         self.tracker = SensorTracker()
@@ -337,7 +339,6 @@ class AdaptivePlayer:
             sl_pct = abs((sl_price - current_price) / current_price) * 100
 
             skewness = event.metadata.get("skewness", 0.5)
-            vol_ratio = event.metadata.get("vol_ratio", 1.0)
 
             # If skewness is extreme in our direction, expand TP
             if event.side == "LONG" and skewness > 0.7:
@@ -354,7 +355,6 @@ class AdaptivePlayer:
             if setup_type == "reversion":
                 # If high conviction (Z > 3.5), allow wider TP and tighter SL (Sniper)
                 tp_max = 1.20 if z_abs > 3.5 else 0.80
-                sl_min = 0.15 if z_abs > 3.5 else 0.20
 
                 # If FootprintDeltaDivergence is present, we can trust a tighter stop
                 has_delta_div = any(
@@ -397,7 +397,9 @@ class AdaptivePlayer:
             if risk > 0:
                 rr_ratio = reward / risk
                 # Phase 1300: Relax RR for reversion (Scalpingwin-rate vs RR trade-off)
-                if setup_type == "reversion":
+                if self.fast_track:
+                    rr_threshold = 0.5  # Completely bypassed for rapid testing
+                elif setup_type == "reversion":
                     rr_threshold = 1.3 if z_abs > 3.5 else 1.1
                 else:
                     rr_threshold = 1.5 if z_abs > 3.5 else 1.2

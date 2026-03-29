@@ -42,6 +42,15 @@ def _historian_worker(db_path: str, q: mp.Queue):
                     data,
                 )
                 conn.commit()
+            elif action == "INSERT_DEPTH":
+                conn.execute(
+                    """
+                    INSERT INTO depth_snapshots (timestamp, symbol, bids, asks)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    data,
+                )
+                conn.commit()
             elif action == "RECONCILE_LEDGER":
                 income_records, session_id, min_timestamp = data
                 for record in income_records:
@@ -193,6 +202,23 @@ class TradeHistorian:
             )
         """
         )
+
+        # Phase 1300: L2 Hybrid Simulation (Depth Snapshots)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS depth_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                symbol TEXT,
+                bids TEXT,
+                asks TEXT
+            )
+            """
+        )
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_depth_ts_sym ON depth_snapshots(timestamp, symbol)")
+        except sqlite3.OperationalError:
+            pass
         # Schema Evolution: Add session_id if it doesn't exist
         try:
             conn.execute("ALTER TABLE trades ADD COLUMN session_id TEXT")
@@ -250,6 +276,28 @@ class TradeHistorian:
         else:
             # Fallback for sync contexts or startup/shutdown where loop is not ready
             return fn(*args)
+
+    def stop(self):
+        """Phase 240: Graceful shutdown. Flushes queues and stops workers."""
+        if self._use_mp and self._worker_process:
+            self._queue.put(None)
+            self._worker_process.join(timeout=5.0)
+            self._worker_process = None
+            logger.info("🛑 HistorianWorker Process stopped.")
+
+        if self._executor:
+            self._executor.shutdown(wait=True)
+            logger.info("🛑 Historian Legacy Executor stopped.")
+
+    def record_depth_snapshot(self, timestamp: float, symbol: str, bids: str, asks: str):
+        """
+        Phase 1300: L2 Simulation. Dispatches depth snapshot to background worker.
+        """
+        if not self._use_mp:
+            return  # Skip if memory DB
+
+        self._ensure_worker()
+        self._queue.put(("INSERT_DEPTH", (timestamp, symbol, bids, asks)))
 
     def record_trade(self, trade_data: Dict[str, Any]):
         """
