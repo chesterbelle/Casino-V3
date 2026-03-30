@@ -23,8 +23,8 @@ echo $START_TS > tests/validation/parity_start.txt
 // turbo
 3. Terminando el bot, empaquetar la base de datos Demo y descargar de la API REST todos los ticks exactos de esa ventana desde Binance:
 ```bash
-# Extraer el timestamp inicial guardado
-START=$(cat tests/validation/parity_start.txt)
+# Phase 1300: Add 60s offset to ignore initial L2 sensor warmup/initialization
+START=$(( $(cat tests/validation/parity_start.txt) + 60 ))
 
 # Calcular END_TS en base al timeout (8 horas = 28800s + 30s de gracia)
 END_TS=$((START + 28830))

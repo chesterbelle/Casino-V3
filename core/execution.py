@@ -249,6 +249,7 @@ class OrderManager:
             "trace_id": getattr(event, "trace_id", None),
             "estimated_price": current_price,  # Phase 240: avoid redundant price fetch in OCO
             "atr_1m": getattr(event, "atr_1m", 0.0),
+            "shadow_sl_activation": getattr(event, "shadow_sl_activation", 0.0025),  # Phase 800
         }
 
         # Store for outcome tracking (include sensor_id if available)

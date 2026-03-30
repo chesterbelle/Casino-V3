@@ -87,6 +87,9 @@ class MicrostructureEvent(Event):
     symbol: str
     cvd: float
     skewness: float
+    bid_depth_5: float = 0.0  # Sum of Top 5 Bid Qty (Phase 1300)
+    ask_depth_5: float = 0.0  # Sum of Top 5 Ask Qty (Phase 1300)
+    spread: float = 0.0  # (Ask[0] - Bid[0]) (Phase 1300)
     z_score: float = 0.0
     price: float = 0.0
 

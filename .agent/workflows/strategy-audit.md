@@ -7,9 +7,14 @@ description: Audit the FootprintScalper strategy's edge metrics (Win Rate, Profi
 // turbo-all
 
 ## Overview
-This protocol performs a **Single Round** validation of the **FootprintScalper strategy edge**.
-It follows a 4-step sequence: Clean Exchange → Reset → Run → Analyze.
-After Step 3, the agent **MUST STOP** and report the result. No further actions or iterations without user approval.
+This protocol performs a **Single Round** validation of the **FootprintScalper strategy edge**
+using the **backtester** against a historical dataset. No live/demo exchange connection required.
+
+It follows a 3-step sequence: Reset DB → Run Backtest → Analyze.
+
+**⛔ MANDATORY STOP RULE**: After Step 2 (Analyse Results), the agent **MUST STOP COMPLETELY**.
+Present results + possible fixes and **wait for explicit user approval** before any further action.
+**No iterations, no auto-fixes, no follow-up backtests** without user instruction.
 
 **Goals (overall)**: Win Rate > 55% | Profit Factor > 1.2
 **Goals (per setup_type)**:
@@ -18,33 +23,31 @@ After Step 3, the agent **MUST STOP** and report the result. No further actions 
 
 ---
 
-## Step -1: Clean Exchange (Remove Orphans)
-**CRITICAL**: This step prevents orphan positions from triggering PortfolioGuard CRITICAL state.
-
-```bash
-.venv/bin/python utils/emergency_cleanup.py
-```
-**Must output**: `✨ Cleanup complete!`
-
-This script:
-1. Fetches ALL active symbols with positions/orders
-2. Cancels ALL open orders
-3. Closes ALL open positions (market)
-
-**Why**: Orphan positions from previous runs are processed as losses by Reconciliation, incrementing the PortfolioGuard loss streak counter and potentially triggering CRITICAL state before the audit even starts.
-
 ## Step 0: Reset DB (Clean Slate)
 ```bash
-.venv/bin/python utils/strategy_audit.py --reset-db
+.venv/bin/python reset_data.py && .venv/bin/python utils/strategy_audit.py --reset-db
 ```
 **Must output**: `🗑️ DB Reset: N trades removed. Starting clean.`
 
-## Step 1: Run the Bot (150-minute forward test)
+## Step 1: Run Backtest
+Use the largest available dataset for maximum statistical power.
+The `--fast-track` flag bypasses the 60-minute warmup period so backtests run immediately.
+
 ```bash
-.venv/bin/python main.py --mode demo --symbol MULTI --timeout 150 --close-on-exit 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+.venv/bin/python backtest.py \
+  --data tests/validation/ltc_parity_4h.csv \
+  --symbol LTC/USDT:USDT \
+  --depth-db data/historian.db \
+  2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 ```
-Wait for the bot to run for **150 minutes** to collect real FootprintScalper trades.
-The bot will stop automatically after 150 minutes.
+
+**Expected output**: A BACKTEST V4 RESULTS SUMMARY at the end with trade count.
+**Minimum viable sample**: At least 10 trades to proceed to analysis (otherwise mark as INSUFFICIENT DATA).
+
+> If `ltc_parity_4h.csv` yields fewer than 10 trades, re-run with `sol_parity.csv`:
+> ```bash
+> .venv/bin/python backtest.py --data tests/validation/sol_parity.csv --symbol SOL/USDT:USDT --depth-db data/historian.db 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+> ```
 
 ## Step 2: Analyse Results
 ```bash
@@ -52,56 +55,40 @@ The bot will stop automatically after 150 minutes.
 ```
 **Review all 7 sections**:
 1. **Edge Metrics** — Is WR ≥ 55% and PF ≥ 1.2?
-2. **Exit Breakdown** — What % are TP hits vs SL hits vs Recon/Shadow exits?
-3. **Early Exit Audit** — Are Shadow SL / Recon exits eating > 20% of trades?
+2. **Exit Breakdown** — What % are TP hits vs SL hits vs Shadow/VIRTUAL exits?
+3. **Early Exit Audit** — Are Shadow SL / VIRTUAL_CLOSE exits eating > 20% of trades?
 4. **Directional Bias** — Is LONG or SHORT significantly better? Consider direction filter.
 5. **Per-Symbol** — Which symbols are profitable? Consider disabling underperformers.
-6. **Latency** — Is T0→T4 latency still < 500ms avg?
+6. **Latency** — Is T0→T4 latency < 500ms avg? (May be N/A in backtest)
 7. **Verdict** — PASS or FAIL
 
 **Additional required review (setup segmentation)**:
-- Confirm results are reported separately for `setup_type=reversion` and `setup_type=continuation`.
-- Confirm the per-setup goals above are met (or mark as FAIL/INSUFFICIENT DATA).
+- Report separately for `setup_type=reversion` and `setup_type=continuation`.
+- Confirm per-setup goals are met (or mark as FAIL/INSUFFICIENT DATA).
 - Confirm confirmation-gate attribution is visible:
   - `confirm_level=True/False` distribution
   - `confirm_micro=True/False` distribution
   - `level_ref` distribution (POC/VAH/VAL/IBH/IBL/None)
 
-## Step 3: Execution Cleanliness Log Scan (Regression Guard)
-This step is mandatory to ensure that strategy changes did not break execution telemetry or introduce noisy/wrong behavior.
+---
 
-1) Scan `bot.log` for key regression signatures:
-```bash
-rg -n "missing price metadata for level confirmation|Fast-track confirmed|continuation_requires_micro|reversion_requires_level|Traceback|ERROR|CRITICAL" bot.log | tail -n 200
-```
+## ⛔ MANDATORY STOP — Present Results and Proposed Fixes
 
-1b) Summarize `bot.log` using the Strategy Log Audit helper (parses fast-track confirmations + regression signatures):
-```bash
-.venv/bin/python utils/strategy_audit.py --log "bot.log"
-```
+After running Step 2, the agent MUST:
 
-2) Scan the most recent strategy audit run log for errors and shutdown cleanliness:
-```bash
-rg -n "Traceback|ERROR|CRITICAL|Exception|leaked semaphore|resource_tracker" logs/strategy_audit_*.log | tail -n 200
-```
+1. **Present a summary table** of all 7 sections (PASS/FAIL per metric).
+2. **List specific possible fixes** for each failing metric (from the Success Criteria table below).
+3. **STOP and wait** for user approval before making any code changes or running another round.
 
-2b) Summarize the most recent strategy audit run logs using the Strategy Log Audit helper:
-```bash
-.venv/bin/python utils/strategy_audit.py --log "logs/strategy_audit_*.log"
-```
-
-**Must pass**:
-- No `Signal <Sensor> missing price metadata for level confirmation.` occurrences.
-- No Python tracebacks.
-- No repeated CRITICAL execution errors.
+Do NOT auto-apply any fix. Do NOT run another backtest. Wait for explicit instruction.
 
 ---
 
 ## Success Criteria (Phase 650 Goals)
 
 **Important**: Edge metrics (WR, PF, Expectancy) are calculated from **Active Strategy trades only**.
-Drain phase trades (DRAIN_DEFENSIVE_ESCALATION, DRAIN_PANIC, DRAIN_AGGRESSIVE_ESCALATION) are excluded
-as they represent forced exits during timeout/shutdown, not strategy performance.
+Virtual/drain phase exits (VIRTUAL_CLOSE, DRAIN_*) are excluded as they represent forced exits,
+not strategy performance.
 
 | Metric | Goal | Action if failing |
 |---|---|---|
@@ -109,7 +96,7 @@ as they represent forced exits during timeout/shutdown, not strategy performance
 | **Profit Factor** | ≥ 1.2 | Adjust TP/SL ratio; check if Shadow SL triggers too early |
 | **Early Exit Rate** | ≤ 20% | Widen Shadow SL or increase cooldown before breakeven triggers |
 | **Directional Bias** | < 15% gap LONG vs SHORT WR | Add trend filter (HTF alignment) |
-| **Latency T0→T4** | < 500ms avg | Check DOM scan loop; review `absorption.py` cache size |
+| **Latency T0→T4** | < 500ms avg | N/A in backtest mode |
 
 ### Setup-Specific Success Criteria (Required)
 
@@ -119,4 +106,5 @@ as they represent forced exits during timeout/shutdown, not strategy performance
 | **continuation** | WR / PF | WR ≥ 52% and PF ≥ 1.1 | Tighten microstructure thresholds (`count`, `cluster_density`, `size_ratio`); consider HTF alignment |
 
 **Sample size rule (Required)**:
-- If a setup has fewer than 20 trades, mark that setup as **INSUFFICIENT DATA** (not PASS).
+- If total trades < 10: mark as **INSUFFICIENT DATA** — do not report PASS or FAIL.
+- If a specific setup has fewer than 20 trades: mark that setup as **INSUFFICIENT DATA**.

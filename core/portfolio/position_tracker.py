@@ -139,6 +139,8 @@ class OpenPosition:
     # Not included in repr to avoid noise
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
+    shadow_sl_activation: float = 0.0025  # Phase 800: Shark Breath activation threshold
+
     # Phase 102: Lifecycle attribution for reporting
     lifecycle_phase: str = "ACTIVE"
 
@@ -975,6 +977,7 @@ class PositionTracker:
                 exchange_sl_id=exchange_sl_id,
                 contributors=order.get("contributors", []),
                 entry_fee=entry_fee,  # Phase 30
+                shadow_sl_activation=order.get("shadow_sl_activation", 0.0025),  # Phase 800
             )
 
             # Registrar posición

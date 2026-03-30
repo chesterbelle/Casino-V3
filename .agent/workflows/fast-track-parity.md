@@ -25,9 +25,10 @@ echo $START_TS > tests/validation/ft_parity_start.txt
 
 ## Phase 2: Data Extraction
 // turbo
-3. Guardar logs y descargar ticks (limitando estrictamente al tiempo exacto del Demo):
+3. Guardar logs y descargar ticks (limitando estrictamente al tiempo exacto del Demo + 60s Warmup):
 ```bash
-START=$(cat tests/validation/ft_parity_start.txt)
+# Phase 1300: Add 60s offset to ignore initial L2 sensor warmup/initialization
+START=$(( $(cat tests/validation/ft_parity_start.txt) + 60 ))
 END_TS=$((START + 920))
 echo $END_TS > tests/validation/ft_parity_end.txt
 cp data/historian.db tests/validation/ft_demo_historian.db

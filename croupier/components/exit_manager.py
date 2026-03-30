@@ -468,7 +468,8 @@ class ExitManager:
             # 1. If profit >= activation threshold (Trailing Mode)
             # 2. OR if inertia < 1.0 (Paranoid/Loss-Cutting Mode)
             is_paranoid = inertia < 1.0
-            if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT and not is_paranoid:
+            activation_threshold = getattr(position, "shadow_sl_activation", config.TRAILING_STOP_ACTIVATION_PCT)
+            if profit_pct < activation_threshold and not is_paranoid:
                 return
 
             # Grace Period (Phase 800): No aggressive loss-cutting in first 5s
@@ -501,7 +502,8 @@ class ExitManager:
             # 1. If profit >= activation threshold (Trailing Mode)
             # 2. OR if inertia < 1.0 (Paranoid/Loss-Cutting Mode)
             is_paranoid = inertia < 1.0
-            if profit_pct < config.TRAILING_STOP_ACTIVATION_PCT and not is_paranoid:
+            activation_threshold = getattr(position, "shadow_sl_activation", config.TRAILING_STOP_ACTIVATION_PCT)
+            if profit_pct < activation_threshold and not is_paranoid:
                 return
 
             # Grace Period (Phase 800): No aggressive loss-cutting in first 5s

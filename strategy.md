@@ -95,15 +95,11 @@ Each sensor must provide:
 
 ```python
 {
-    "side": "LONG" | "SHORT" | "NEUTRAL",
-    "score": 0.0 - 1.0,
+    "side": "LONG" | "SHORT" | "TACTICAL",
     "metadata": {
-        "type": "Pattern_Name",
-        "fast_track": True | False,  # Bypasses 20ms timeout
-        "price": float,  # Signal price (required for level filtering)
-        "poc": float,
-        "vah": float,
-        "val": float,
+        "tactical_type": "TacticalAbsorption" | "TacticalImbalance" | ...,
+        "direction": "LONG" | "SHORT",
+        "price": float,
         # ... pattern-specific fields
     }
 }
@@ -111,56 +107,48 @@ Each sensor must provide:
 
 ---
 
-## 4. Signal Aggregation Logic
+ ## 4. Signal Aggregation: Sniper Playbooks (V4)
 
-### Weighted Consensus Algorithm
+ **Location**: `decision/setup_engine.py`
 
-Location: `decision/aggregator.py`
+ Replaces the old "Weighted Consensus". Instead of averaging scores, it uses a **5-second tactical memory** to match strict institutional playbooks.
 
-```
-1. Collect signals from all sensors (20ms window, or 0ms for Fast-Track)
-2. Filter by minimum score threshold (0.5)
-3. Extract structural context (SessionValueArea levels)
-4. Apply level proximity filter (Gap 1)
-5. Apply MTF alignment check (Gap 6)
-6. Calculate ΣL (sum of LONG scores) and ΣS (sum of SHORT scores)
-7. Winner = side with higher Σ
-8. Minimum margin check (10% difference required)
-9. HTF alignment check (optional)
-10. Strategy trigger filter (only trade if strategy sensor participated)
-```
+ ### Playbook #1: Fade Extreme (Reversion)
+ - **Conditions**: (TacticalAbsorption OR TacticalRejection) + TacticalImbalance in reverse direction.
+ - **Context**: Only allowed in NEUTRAL/RANGE regimes.
+ - **Structural Target**: VAH, VAL or POC.
+ - **L2 Wall**: Requires Skewness confirmation (Bid wall for LONG, Ask wall for SHORT).
 
-### Fast-Track Execution
+ ### Playbook #2: Trend Continuation
+ - **Conditions**: TacticalStackedImbalance + Confirming TacticalImbalance/Divergence.
+ - **Context**: Allowed in TREND regimes (UP/DOWN); requires CVD alignment.
 
-Sensors with `fast_track=True` bypass the 20ms timeout:
+ ### Playbook #3: Shark Follower (Incomplete Business)
+ - **Conditions**: Price approaching `FAILED_HIGH` or `FAILED_LOW` + Flow alignment.
+ - **Logic**: Market "owes" a visit to these levels to finish auction.
 
-- `FootprintImbalanceV3` (when `at_level=True`)
-- `FootprintAbsorptionV3` (when `dom_wall_confirmed=True`)
-- `CumulativeDeltaSensorV3` (always)
-- All `RegimeFilter` type sensors
+ ---
 
-### Level Proximity Filter (Gap 1)
+ ## 5. Execution & Safety Layers (Production Reality)
 
-**Dale/Dalton principle**: Only trade near levels of interest.
+ ### Slippage Guard (R12 Calibration)
+ - **Threshold**: 0.08% (8 bps).
+ - **Logic**: Rejects signals if estimated market impact exceeds threshold.
+ - **Reason**: Prevents math inversion (Slippage eating > 50% of RR).
 
-Implementation:
-- Signal price must be within N ticks of: POC, VAH, VAL, IB High, IB Low
-- Default: 10 ticks (1.0 USDT for BTC/ETH with 0.1 tick size)
-- Signals far from levels are rejected
+ ### Shadow SL & Adaptive Breathing (Shark Breath)
+ - **Implementation**: `AdaptivePlayer` + `ExitManager`.
+ - **Dynamic Activation**:
+     - **Reversion Setups**: 0.45% (Adaptive Breather). Allows structural setups to reach targets.
+     - **Continuation Setups**: 0.25% (Tight Shadow). Momentum must not reverse.
+ - **Observation**: This alignment prevents "Strategy Muteness" and ensures trades survive micro-noise.
 
-### MTF Alignment (Gap 6)
+ ### Cold Start Warmup
+ - **Requirement**: 20 minutes (Reduced from 60m).
+ - **Purpose**: Allows POC/VAH/VAL to calibrate without missing the session's first volatility wave.
 
-**Principle**: Don't fight the higher timeframe flow.
+ ### Data Flow
 
-Implementation:
-- 1m LONG signal + 30m BEARISH POC → 50% score penalty
-- 1m SHORT signal + 30m BULLISH POC → 50% score penalty
-
----
-
-## 5. Execution Architecture
-
-### Data Flow
 
 ```
 Binance WebSocket
@@ -232,8 +220,9 @@ Exchange REST API
 
 | Gap | Status | Priority | Description |
 |-----|--------|----------|-------------|
-| **Failed Auction Detection** | Not implemented | High | Break + immediate rejection (strong reversal) |
+| **Failed Auction Detection** | ✅ **Implemented** | ~~High~~ | Break + immediate rejection (strong reversal) |
 | **Initiating vs Responding Volume** | Not implemented | Medium | New volume vs reactive volume |
+
 | **Liquidation Awareness** | Not implemented | High | Crypto-specific: stop cascades |
 | **Tick Size per Symbol** | Hardcoded (0.1) | Medium | Should be dynamic from exchange info |
 | **Delta per Price Level** | Not implemented | Medium | Iceberg detection |

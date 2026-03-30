@@ -436,6 +436,10 @@ class AdaptivePlayer:
             )
         )
 
+        # Phase 800: Adaptive Shadow SL (Shark Breath)
+        # Structural setups need more room to breathe.
+        shadow_sl_activation = 0.0045 if setup_type in ["reversion", "fade_extreme"] else 0.0025
+
         # Emit Decision with unique ID for tracking
         decision_id = f"DEC_{int(time.time()*1000000)}"  # Microsecond precision
         decision = DecisionEvent(
@@ -452,6 +456,8 @@ class AdaptivePlayer:
             timestamp=event.timestamp,
         )
         decision.decision_id = decision_id  # Add unique ID
+        decision.shadow_sl_activation = shadow_sl_activation  # Phase 800
+
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")
         # Use create_task to prevent blocking signal processing loop
         asyncio.create_task(self.engine.dispatch(decision))

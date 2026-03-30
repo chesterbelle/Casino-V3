@@ -368,17 +368,18 @@ class SessionValueArea(SensorV3):
         single_prints = []
         excess_high = False
         excess_low = False
+        failed_auctions = []  # Phase 800: Incomplete Business
 
         if window_state.market_profile.total_volume > 0:
             avg_vol_per_level = window_state.market_profile.total_volume / len(window_state.market_profile.profile)
             sorted_prices = sorted(window_state.market_profile.profile.keys())
 
-            # Single Prints
+            # 1. Single Prints
             for p in sorted_prices:
                 if window_state.market_profile.profile[p] < (avg_vol_per_level * 0.1):
                     single_prints.append(p)
 
-            # Excess at extremes (Dalton Tails)
+            # 2. Excess at extremes (Dalton Tails)
             if len(sorted_prices) > 10:
                 high_lvl = sorted_prices[-1]
                 low_lvl = sorted_prices[0]
@@ -387,6 +388,29 @@ class SessionValueArea(SensorV3):
                     excess_high = True
                 if window_state.market_profile.profile[low_lvl] > avg_vol_per_level * 1.5 and price > val:
                     excess_low = True
+
+            # 3. Failed Auctions (Incomplete Business) - Phase 800
+            # Look at the 1m candle profile specifically for this bar
+            bar_p_data = candle.get("profile", {})
+            bar_vol = candle.get("volume", 1)
+            if bar_p_data:
+                bar_prices = sorted([float(p) for p in bar_p_data.keys()])
+                if bar_prices:
+                    high_p = bar_prices[-1]
+                    low_p = bar_prices[0]
+                    # Failed High: Significant Ask at High, price closed lower
+                    high_data = bar_p_data.get(str(high_p), {})
+                    high_ask = float(high_data.get("ask", 0))
+                    if high_ask > (bar_vol * 0.05) and price < high_p:
+                        failed_auctions.append({"price": high_p, "type": "FAILED_HIGH", "vol": high_ask})
+                        logger.info(f"🎯 [FAILED_AUCTION] HIGH detected at {high_p} (Ask: {high_ask})")
+
+                    # Failed Low: Significant Bid at Low, price closed higher
+                    low_data = bar_p_data.get(str(low_p), {})
+                    low_bid = float(low_data.get("bid", 0))
+                    if low_bid > (bar_vol * 0.05) and price > low_p:
+                        failed_auctions.append({"price": low_p, "type": "FAILED_LOW", "vol": low_bid})
+                        logger.info(f"🎯 [FAILED_AUCTION] LOW detected at {low_p} (Bid: {low_bid})")
 
         # MTF Alignment Data
         mtf_30m_poc = None
@@ -431,6 +455,7 @@ class SessionValueArea(SensorV3):
                 # Excess/Single Prints
                 "excess": {"high": excess_high, "low": excess_low},
                 "single_print_count": len(single_prints),
+                "failed_auctions": failed_auctions,  # Phase 800
                 "vol_total": window_state.market_profile.total_volume,
                 # MTF
                 "mtf_30m_poc": mtf_30m_poc,

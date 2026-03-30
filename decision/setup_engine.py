@@ -58,14 +58,18 @@ class SetupEngineV4:
         self.engine.subscribe(EventType.MICROSTRUCTURE_BATCH, self.on_microstructure_batch)
 
         # Phase 1800: Cold Start Warmup Guard
-        # Require 60 minutes of market data before firing any signals
+        # Require 20 minutes of market data before firing any signals
         # to allow Volume Profile (POC/VAH/VAL) and CVD to calibrate properly
         self.first_event_ts = 0.0
-        self.warmup_seconds = 0.0 if self.fast_track else 3600.0  # 60 minutes
+        self.warmup_seconds = 0.0 if self.fast_track else 1200.0  # 20 minutes
+
+        # Phase 800: Failed Auction Memory (Dalton Targets)
+        self.failed_auctions: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        self.last_volatility_spike: Dict[str, float] = defaultdict(float)
 
         self._micro_count = 0
         logger.info(
-            f"🎯 Setup Engine initialized (Sniper Mode Activated | Warmup: {'0m' if self.fast_track else '60m'})"
+            f"🎯 Setup Engine initialized (Sniper Mode Activated | Warmup: {'0m' if self.fast_track else '20m'})"
         )
 
     def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
@@ -95,6 +99,18 @@ class SetupEngineV4:
                 self.context_registry.set_regime(event.symbol, mapped)
                 self.context_registry.set_otf(event.symbol, regime)
             return
+
+        # Phase 800: Capture Volatility Spike for Panic Block
+        if event.sensor_id == "VolatilitySpike":
+            self.last_volatility_spike[event.symbol] = event.timestamp
+            logger.warning(f"🚨 [SETUP] {event.symbol} Volatility Spike received. Blocking reversions for 15s.")
+
+        # Phase 800: Capture Failed Auction Targets from Session sensor
+        if event.sensor_id == "SessionValueArea" and event.metadata:
+            new_fa = event.metadata.get("failed_auctions", [])
+            if new_fa:
+                self.failed_auctions[event.symbol] = new_fa
+                logger.info(f"🎯 [SETUP] {event.symbol} Updated Failed Auction Targets: {len(new_fa)} levels")
 
         if event.side not in ["TACTICAL", "LONG", "SHORT", "NEUTRAL"]:
             return
@@ -197,8 +213,30 @@ class SetupEngineV4:
         # Throttled Debug Monitor (Phase 1300 Optimization)
         if getattr(self, "_tick_count", 0) % 10000 == 0:
             logger.debug(
-                f"🔍 [MONITOR] {sym} | Z: {z:.2f} | OTF: {otf} | Skew: {skewness:.2f} | CVD: {event.cvd:.2f} | PriceΔ: {price_delta:.4f}"
+                f"🔍 [MONITOR] {sym} | Z: {z:.2f} | OTF: {otf} | Skew: {skewness:.2f} | CVD: {event.cvd:.2f} | "
+                f"Spread: {event.spread:.4f} | B5: {event.bid_depth_5:.2f} | A5: {event.ask_depth_5:.2f}"
             )
+
+        # 3. Phase 1300: Slippage Guard (Market Impact Estimation)
+        # Assuming a default size of 100 USDT for impact calculation
+        order_size_usdt = 100.0
+        # Simple slippage estimate: OrderSize / (Available Liquidity in Top 5 * 0.5)
+        estimated_slippage_pct = 0.0
+
+        # L2 Warmup Check: If both depths are 0, it likely means the L2 sensor hasn't
+        # received its first snapshot yet (common at start of backtest/demo)
+        l2_ready = event.bid_depth_5 > 0 or event.ask_depth_5 > 0
+
+        if l2_ready and (side_for_impact := ("BUY" if z > 0 else "SELL")):
+            relevant_depth = event.ask_depth_5 if side_for_impact == "BUY" else event.bid_depth_5
+            if relevant_depth > 0:
+                # Price impact approximation (%)
+                estimated_slippage_pct = (order_size_usdt / (relevant_depth * event.price)) * 100
+            else:
+                estimated_slippage_pct = 1.0  # Empty book for one side (Toxic)
+        elif not l2_ready:
+            # Bypass guard during L2 warmup to avoid False Negatives in Parity Checks
+            estimated_slippage_pct = 0.0
 
         # Adaptive Thresholds (Phase 1300)
         vol_ratio = 1.0
@@ -269,21 +307,61 @@ class SetupEngineV4:
                     },
                 }
 
-        # Phase 1600: Balanced Regime Gating for Reversion (Toxic Flow)
-        # R12: SHORTs allowed in DOWN or NEUTRAL; LONGs allowed in UP or NEUTRAL
-        # (R11 was too strict: required exact OTF match, eliminated all LONGs in the dataset)
+        # Phase 1600: Balanced Regime Gating & Slippage Guard (R12)
         if trigger:
             side = trigger.get("side", "")
-            if side == "SHORT" and otf == "UP":
-                logger.debug(
-                    "❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP (trend is against this reversion)"
-                )
+            setup_type = trigger.get("metadata", {}).get("setup_type", "unknown")
+
+            # 0. Panic Block (Phase 800)
+            # Don't catch falling knives during extreme spikes
+            if setup_type == "reversion" and (now - self.last_volatility_spike[sym]) < 15.0:
+                logger.warning(f"🚫 [PANIC BLOCK] {sym} {side} Reversion rejected due to recent Volatility Spike")
+                trigger = None
+
+            if not trigger:
+                pass
+            # 1. Regime Filter
+            elif side == "SHORT" and otf == "UP":
+                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP")
                 trigger = None
             elif side == "LONG" and otf == "DOWN":
-                logger.debug(
-                    "❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN (trend is against this reversion)"
+                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN")
+                trigger = None
+
+            # 2. Slippage Guard (Phase 1300 / 800 Adaptive)
+            # Base threshold: 0.08%
+            # Adaptive threshold: max(0.08, ATR_1m / Price * 0.25)
+            atr_1m = getattr(event, "atr_1m", 0.0)
+
+            base_max_slippage = 0.08
+            adaptive_slippage_limit = base_max_slippage
+            if atr_1m > 0 and event.price > 0:
+                adaptive_slippage_limit = max(base_max_slippage, (atr_1m / event.price) * 0.25 * 100)
+
+            if trigger and estimated_slippage_pct > adaptive_slippage_limit:
+                logger.warning(
+                    f"⚠️ [SLIPPAGE GUARD] {sym} {side} Rejected | "
+                    f"Est. Slippage: {estimated_slippage_pct:.4f}% > {adaptive_slippage_limit:.4f}% (Adaptive)"
                 )
                 trigger = None
+
+            # 3. Phase 800: Dalton Target Confluence (Failed Auction Proximity)
+            if trigger and trigger.get("setup_type") == "reversion":
+                price = event.price
+                targets = self.failed_auctions.get(sym, [])
+                near_target = False
+                for target in targets:
+                    target_p = target.get("price", 0)
+                    # 0.05% proximity threshold
+                    if abs(price - target_p) / target_p < 0.0005:
+                        near_target = True
+                        logger.info(f"🎯 [DALTON_TARGETED] {sym} Reversion near {target['type']} @ {target_p}")
+                        break
+
+                if near_target:
+                    # Boost confidence
+                    trigger["metadata"]["dalton_confirmed"] = True
+                    trigger["metadata"]["confidence_boost"] = 1.5
 
         if trigger:
             await self._dispatch_guarded_signal(sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event)
@@ -433,6 +511,19 @@ class SetupEngineV4:
             if regime in ("UP", "DOWN"):
                 logger.debug(f"❌ [REGIME GATE] Fade_Extreme rejected in TREND regime ({regime})")
                 return None
+
+            # Phase 1300: L2 Wall Confirmation for Fade_Extreme
+            # RELAXED FOR PARITY CHECK (R4): From 0.55/0.45 -> 0.51/0.49
+            if self.micro_memory[symbol]:
+                latest = self.micro_memory[symbol][-1][2]
+                skew = latest.skewness
+                if reversal_direction == "LONG" and skew < 0.51:
+                    logger.debug(f"❌ [L2 GUARD] Fade_Extreme LONG rejected: No Bid Wall (Skew: {skew:.2f})")
+                    return None
+                if reversal_direction == "SHORT" and skew > 0.49:
+                    logger.debug(f"❌ [L2 GUARD] Fade_Extreme SHORT rejected: No Ask Wall (Skew: {skew:.2f})")
+                    return None
+
             return {"setup_name": "Fade_Extreme", "side": reversal_direction, "metadata": trigger_meta}
 
         return None

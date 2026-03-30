@@ -335,13 +335,22 @@ class SensorManager:
             old_ts, old_delta = history.popleft()
             self.cvd_state[sym] -= old_delta
 
-        # 2. Throttled Skewness Calculation
+        # 2. Throttled L2 Depth & Skewness Calculation (Phase 1300)
+        if not hasattr(self, "bid_depth_5"):
+            self.bid_depth_5: Dict[str, float] = defaultdict(float)
+            self.ask_depth_5: Dict[str, float] = defaultdict(float)
+            self.current_spread: Dict[str, float] = defaultdict(float)
+
         if isinstance(event_data, OrderBookEvent) and event_data.bids and event_data.asks:
-            # Only calculate if we have an OB event at this throttle interval
-            bid_vol = sum(float(b[1]) for b in event_data.bids[:5])
-            ask_vol = sum(float(a[1]) for a in event_data.asks[:5])
-            if (bid_vol + ask_vol) > 0:
-                self.ob_skewness[sym] = bid_vol / (bid_vol + ask_vol)
+            # Update internal depth state
+            self.bid_depth_5[sym] = sum(float(b[1]) for b in event_data.bids[:5])
+            self.ask_depth_5[sym] = sum(float(a[1]) for a in event_data.asks[:5])
+            self.current_spread[sym] = float(event_data.asks[0][0]) - float(event_data.bids[0][0])
+
+            # Calculate Skewness (Volume Ratio)
+            total_vol = self.bid_depth_5[sym] + self.ask_depth_5[sym]
+            if total_vol > 0:
+                self.ob_skewness[sym] = self.bid_depth_5[sym] / total_vol
 
         # 3. Phase 1000: De-correlated Z-Score (P0)
         # Use separate 60s history to measure the "Toxic" nature of the last 5 seconds.
@@ -361,6 +370,9 @@ class SensorManager:
             symbol=sym,
             cvd=self.cvd_state[sym],
             skewness=self.ob_skewness.get(sym, 0.5),
+            bid_depth_5=self.bid_depth_5[sym],
+            ask_depth_5=self.ask_depth_5[sym],
+            spread=self.current_spread[sym],
             z_score=z,
             price=self.last_price[sym],
         )
@@ -578,6 +590,7 @@ class SensorManager:
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
         from sensors.footprint.session import SessionValueArea
+        from sensors.footprint.volatility import VolatilitySpikeSensor
         from sensors.regime.one_timeframing import OneTimeframingSensor
 
         return [
@@ -585,6 +598,7 @@ class SensorManager:
             SessionValueArea,
             DebugHeartbeatV3,
             FootprintImbalanceV3,
+            VolatilitySpikeSensor,
             FootprintAbsorptionV3,
             FootprintPOCRejection,
             FootprintDeltaDivergence,

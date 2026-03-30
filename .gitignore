@@ -33,3 +33,10 @@ state/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large Data
+tmp_l2/
+*.csv
+*.zip
+*.parquet
+.venv/
