@@ -127,6 +127,7 @@ class OpenPosition:
     contributors: List[str] = None
     healed: bool = False
     trace_id: Optional[str] = None
+    setup_type: str = "unknown"
 
     # Phase 85: Latency Telemetry
     t0_signal_ts: Optional[float] = None
@@ -955,6 +956,8 @@ class PositionTracker:
             else:
                 return None
 
+            setup_type = order.get("setup_type", "unknown")
+
             # Crear posición
             position = OpenPosition(
                 trade_id=trade_id,
@@ -970,6 +973,7 @@ class PositionTracker:
                 sl_level=sl_level,
                 liquidation_level=liquidation_level,
                 order=order.copy(),
+                setup_type=setup_type,
                 main_order_id=main_order_id,
                 tp_order_id=tp_order_id,
                 sl_order_id=sl_order_id,
@@ -1204,12 +1208,7 @@ class PositionTracker:
             "session_id": self.session_id,
             "lifecycle_phase": getattr(position, "lifecycle_phase", "ACTIVE"),
             "healed": 1 if (healed or getattr(position, "healed", False)) else 0,  # Phase 81
-            # Phase 85: Latency Telemetry
-            "t0_signal_ts": getattr(position, "t0_signal_ts", None),
-            "t1_decision_ts": getattr(position, "t1_decision_ts", None),
-            "t2_submit_ts": getattr(position, "t2_submit_ts", None),
-            "t4_fill_ts": getattr(position, "t4_fill_ts", None),
-            "slippage_pct": 0.0,  # TODO: Calculate if decision price available
+            "setup_type": getattr(position, "setup_type", "unknown") or "unknown",
         }
 
         # Phase 247: Prevent Double Recording (Ghost Inflation)
@@ -1380,6 +1379,7 @@ class PositionTracker:
                 "action": "CLOSE",
                 "ghost": False,
                 "session_id": self.session_id,
+                "setup_type": getattr(position, "setup_type", "unknown"),
             }
 
             closed_results.append(result)
@@ -1591,6 +1591,7 @@ class PositionTracker:
             t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
             t1_decision_ts=order_params.get("t1_decision_ts"),  # Phase 10: Decision Latency
             trace_id=trace_id or order_params.get("trace_id"),
+            setup_type=order_params.get("setup_type") or order_params.get("params", {}).get("setup_type") or "unknown",
             entry_atr=float(order_params.get("atr_1m", 0.0)),
         )
         main_order_state = OrderState(

@@ -247,10 +247,14 @@ class OrderManager:
             "ghost": False,
             "contributors": [getattr(event, "selected_sensor", "Unknown")],
             "trace_id": getattr(event, "trace_id", None),
+            "setup_type": getattr(event, "setup_type", "unknown"),
             "estimated_price": current_price,  # Phase 240: avoid redundant price fetch in OCO
             "atr_1m": getattr(event, "atr_1m", 0.0),
             "shadow_sl_activation": getattr(event, "shadow_sl_activation", 0.0025),  # Phase 800
         }
+
+        # Phase 650: Explicitly propagate setup_type to nested params for adapters
+        order_payload["params"] = {"setup_type": order_payload["setup_type"], "trace_id": order_payload["trace_id"]}
 
         # Store for outcome tracking (include sensor_id if available)
         sensor_id = getattr(event, "selected_sensor", "Unknown")

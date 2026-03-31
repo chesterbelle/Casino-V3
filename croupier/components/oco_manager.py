@@ -799,13 +799,24 @@ class OCOManager:
 
     async def _execute_main_order(self, order: Dict[str, Any], client_order_id: str = None) -> Dict[str, Any]:
         """Execute main market order."""
+        # Phase 650: Ensure setup_type is in params for VirtualExchange/Historian
+        params = order.get("params", {}).copy()
+        if client_order_id:
+            params["client_order_id"] = client_order_id
+
+        # Pull setup_type from top level order if present
+        if "setup_type" in order:
+            params["setup_type"] = order["setup_type"]
+        elif "setup_type" in order.get("params", {}):
+            params["setup_type"] = order["params"]["setup_type"]
+
         # Convert from trading order to exchange order format
         exchange_order = {
             "symbol": order["symbol"],
             "type": "market",
             "side": "BUY" if order["side"] == "LONG" else "SELL",
             "amount": order.get("amount", 0),  # Provided by OrderManager (Phase 42)
-            "params": {"client_order_id": client_order_id} if client_order_id else {},
+            "params": params,
         }
 
         return await self.executor.execute_market_order(exchange_order, timeout=30.0)

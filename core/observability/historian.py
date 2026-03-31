@@ -36,8 +36,8 @@ def _historian_worker(db_path: str, q: mp.Queue):
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     data,
                 )
@@ -241,6 +241,12 @@ class TradeHistorian:
         except sqlite3.OperationalError:
             pass  # Already exists
 
+        # Phase 650: Setup Type Attribution
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN setup_type TEXT DEFAULT 'unknown'")
+        except sqlite3.OperationalError:
+            pass  # Already exists
+
         # Phase 102: Lifecycle attribution for reporting
         try:
             conn.execute("ALTER TABLE trades ADD COLUMN lifecycle_phase TEXT DEFAULT 'ACTIVE'")
@@ -358,6 +364,7 @@ class TradeHistorian:
                 trade_data.get("t4_fill_ts"),
                 trade_data.get("slippage_pct"),
                 trade_data.get("lifecycle_phase", "ACTIVE"),
+                trade_data.get("setup_type"),
             )
 
             if self._use_mp:
@@ -378,8 +385,8 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     params,
                 )

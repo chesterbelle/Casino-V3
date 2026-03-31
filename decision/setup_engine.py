@@ -137,13 +137,16 @@ class SetupEngineV4:
         events = [e[2] for e in self.memory[sym]]
 
         trigger = self._evaluate_fade_extreme(sym, events)
+        setup_type = "reversion"
         if not trigger:
             trigger = self._evaluate_trend_continuation(sym, events)
+            setup_type = "continuation"
 
         # 4. Fire 0ms Latency Action if playbook matches using Guarded Dispatch
         if trigger:
             # Enrichment (Phase 1300): Add vol_ratio and skew to memory-based signals
             # vol_ratio = self.context_registry.get_volatility_ratio(sym) if self.context_registry else 1.0
+            latest_skew = 0.5
             if self.micro_memory[sym]:
                 latest_skew = self.micro_memory[sym][-1][2].skewness
             trigger["metadata"]["skewness"] = latest_skew
@@ -159,7 +162,9 @@ class SetupEngineV4:
                 dv_multiplier = recent_dv[-1].metadata.get("sizing_multiplier", 1.0)
             trigger["metadata"]["dv_multiplier"] = dv_multiplier
 
-            await self._dispatch_guarded_signal(sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event)
+            await self._dispatch_guarded_signal(
+                sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event, setup_type=setup_type
+            )
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
         """Processes a batch of real-time microstructural anomalies efficiently."""
@@ -269,6 +274,7 @@ class SetupEngineV4:
                 trigger = {
                     "setup_name": "Toxic_OrderFlow",
                     "side": "SHORT",
+                    "setup_type": "reversion",
                     "metadata": {
                         "trigger": "Toxic_OrderFlow",
                         "setup_type": "reversion",
@@ -296,6 +302,7 @@ class SetupEngineV4:
                 trigger = {
                     "setup_name": "Toxic_OrderFlow",
                     "side": "LONG",
+                    "setup_type": "reversion",
                     "metadata": {
                         "trigger": "Toxic_OrderFlow",
                         "setup_type": "reversion",
@@ -366,7 +373,9 @@ class SetupEngineV4:
         if trigger:
             await self._dispatch_guarded_signal(sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event)
 
-    async def _dispatch_guarded_signal(self, symbol: str, side: str, pattern: str, metadata: dict, source_event: Any):
+    async def _dispatch_guarded_signal(
+        self, symbol: str, side: str, pattern: str, metadata: dict, source_event: Any, setup_type: str = "unknown"
+    ):
         """
         Phase 1105: Centralized Guarded Dispatch.
         Enforces:
@@ -427,7 +436,9 @@ class SetupEngineV4:
 
         # 3. Confirmed - Enrich and Fire
         self.last_fire_ts[symbol] = now
-        logger.warning(f"🎯 [SETUP ENGINE] {pattern} PATTERN CONFIRMED! Firing {side} on {symbol} | MarketTime: {now}")
+        logger.warning(
+            f"🎯 [SETUP ENGINE] {pattern} PATTERN CONFIRMED! Firing {side} on {symbol} | MarketTime: {now} | SetupType: {setup_type}"
+        )
 
         # Enrich metadata with structural levels
         metadata = self._enrich_metadata(metadata, symbol)
@@ -451,6 +462,7 @@ class SetupEngineV4:
             metadata=metadata,
             t0_timestamp=t0,
             t1_decision_ts=time.time(),  # explicit wall time for Phase 1130 latency verification
+            setup_type=setup_type,
         )
         await self.engine.dispatch(out_evt)
 
@@ -586,6 +598,7 @@ class SetupEngineV4:
             return {
                 "setup_name": "Trend_Continuation",
                 "side": stacked_dir,
+                "setup_type": "continuation",
                 "metadata": {
                     "trigger": "TrendContinuation",
                     "setup_type": "continuation",

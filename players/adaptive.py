@@ -33,6 +33,7 @@ class DecisionEvent(Event):
         t0_timestamp: float = None,
         t1_decision_ts: float = None,
         trace_id: str = None,
+        setup_type: str = None,
         atr_1m: float = 0.0,
         timestamp: Optional[float] = None,
     ):
@@ -40,6 +41,7 @@ class DecisionEvent(Event):
         self.t0_timestamp = t0_timestamp
         self.t1_decision_ts = t1_decision_ts
         self.trace_id = trace_id
+        self.setup_type = setup_type
         self.symbol = symbol
         self.side = side
         self.bet_size = bet_size
@@ -242,7 +244,7 @@ class AdaptivePlayer:
         tp_price = None
         sl_price = None
 
-        setup_type = event.metadata.get("setup_type", "unknown")
+        setup_type = getattr(event, "setup_type", event.metadata.get("setup_type", "unknown"))
         tp_sl_source = "config_fallback"
 
         # Phase 700: Structural TP/SL from SetupEngine levels
@@ -452,6 +454,7 @@ class AdaptivePlayer:
             t0_timestamp=getattr(event, "t0_timestamp", None),
             t1_decision_ts=getattr(event, "t1_decision_ts", None),
             trace_id=getattr(event, "trace_id", None),
+            setup_type=getattr(event, "setup_type", setup_type),
             atr_1m=event.metadata.get("atr_1m", 0.0),
             timestamp=event.timestamp,
         )

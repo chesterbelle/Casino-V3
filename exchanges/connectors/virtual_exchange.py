@@ -832,6 +832,7 @@ class VirtualExchangeConnector(BaseConnector):
             "side": order["side"],
             "timestamp": order.get("timestamp", self._current_timestamp),
             "info": order,  # Raw order for reference
+            "setup_type": order.get("params", {}).get("setup_type"),  # Propagate setup_type
         }
 
     def normalize_trade(self, raw_trade: Dict[str, Any]) -> Dict[str, Any]:

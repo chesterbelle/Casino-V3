@@ -325,6 +325,37 @@ def compute_latency_stats(trades):
     }
 
 
+def parse_setup_type_from_logs(log_glob: str) -> dict:
+    """Parse logs to extract setup_type per trade decision.
+
+    Returns dict mapping approximate timestamp -> setup_type
+    """
+    log_files = _iter_log_files(log_glob)
+    if not log_files:
+        return {}
+
+    # Pattern: 🎯 Decision: ... | Setup: reversion | TP: ...
+    rx_decision = re.compile(r"🎯 Decision: (LONG|SHORT).*?Setup: (\w+).*?TP: ([\d.]+)")
+
+    setup_by_side = defaultdict(lambda: defaultdict(int))
+    setups = defaultdict(list)
+
+    for fp in log_files:
+        try:
+            content = fp.read_text(errors="replace")
+        except Exception:
+            continue
+
+        for m in rx_decision.finditer(content):
+            side = m.group(1)
+            setup_type = m.group(2)
+            setup_by_side[side][setup_type] += 1
+            # Store for later correlation
+            setups[setup_type].append({"side": side})
+
+    return setups, setup_by_side
+
+
 def compute_side_bias(trades):
     longs = [t for t in trades if t["side"] == "LONG"]
     shorts = [t for t in trades if t["side"] == "SHORT"]
@@ -392,6 +423,40 @@ def print_report(trades, session_id=None, last_n=None):
 
     # ── 1. Core Edge Metrics (Active Strategy Only) ──────────────────────────────
     print(f"\n{BOLD}[1] EDGE METRICS{RESET}  (Active Strategy Only | Phase 650 Goals: WR > 55%, PF > 1.2)")
+
+    # NEW: Segmented Metrics by setup_type
+    by_setup = defaultdict(list)
+    for t in active_trades:
+        by_setup[t.get("setup_type", "unknown")].append(t)
+
+    for stype, st_trades in sorted(by_setup.items()):
+        st_edge = compute_edge_metrics(st_trades)
+        if not st_edge:
+            continue
+
+        # Per-setup goals
+        if stype == "reversion":
+            g_wr, g_pf = 55, 1.2
+        elif stype == "continuation":
+            g_wr, g_pf = 52, 1.1
+        else:
+            g_wr, g_pf = 55, 1.2
+
+        wr_c = _wr_color(st_edge["win_rate"])
+        pf_c = _pf_color(st_edge["profit_factor"])
+        wr_pass = st_edge["win_rate"] >= g_wr
+        pf_pass = st_edge["profit_factor"] >= g_pf
+
+        print(f"\n  {BOLD}setup_type={stype}{RESET} (n={st_edge['n']})")
+        print(
+            f"    Win Rate       : {wr_c}{st_edge['win_rate']:.1f}%{RESET}  {'✅' if wr_pass else '❌'}  (goal: ≥{g_wr}%)"
+        )
+        print(
+            f"    Profit Factor  : {pf_c}{st_edge['profit_factor']:.3f}{RESET}  {'✅' if pf_pass else '❌'}  (goal: ≥{g_pf})"
+        )
+        print(f"    PnL            : ${st_edge['total_pnl']:+.4f}")
+
+    print(f"\n  {BOLD}OVERALL METRICS{RESET}")
     wr_c = _wr_color(edge["win_rate"])
     pf_c = _pf_color(edge["profit_factor"])
     wr_pass = edge["win_rate"] >= 55
@@ -472,9 +537,83 @@ def print_report(trades, session_id=None, last_n=None):
     else:
         print("  No T0/T4 timestamps available in this dataset.")
 
-    # ── 7. VERDICT ────────────────────────────────────────
+    # ── 7. Setup Type Segmentation (from logs) ────────────
+    print(f"\n{BOLD}[7] SETUP TYPE SEGMENTATION{RESET}  (from logs)")
+
+    # Try to find the most recent audit log
+    log_glob = "logs/strategy_audit_*.log"
+    setups, setup_by_side = parse_setup_type_from_logs(log_glob)
+
+    if not setups:
+        print("  No setup_type data found in logs.")
+        print("  Run with --log flag for detailed setup analysis.")
+    else:
+        total_decisions = sum(len(v) for v in setups.values())
+        print(f"  Total decisions found: {total_decisions}")
+
+        for setup_type, decisions in sorted(setups.items(), key=lambda x: -len(x[1])):
+            n = len(decisions)
+            pct = n / total_decisions * 100 if total_decisions > 0 else 0
+
+            # Count by side
+            longs = sum(1 for d in decisions if d["side"] == "LONG")
+            shorts = sum(1 for d in decisions if d["side"] == "SHORT")
+
+            # Goals per setup_type
+            if setup_type == "reversion":
+                goal_wr = 55
+                goal_pf = 1.2
+            elif setup_type == "continuation":
+                goal_wr = 52
+                goal_pf = 1.1
+            else:
+                goal_wr = 55
+                goal_pf = 1.2
+
+            print(f"\n  setup_type={setup_type}")
+            print(f"    Decisions: {n} ({pct:.1f}%)")
+            print(f"    LONG: {longs} | SHORT: {shorts}")
+            print(f"    Goals: WR ≥{goal_wr}% | PF ≥{goal_pf}")
+
+            # Note: We can't correlate exact PnL without DB column
+            # This is a limitation - need setup_type in trades table
+            if n < 20:
+                print(f"    {YELLOW}⚠️  INSUFFICIENT DATA (n<20){RESET}")
+
+    # ── 8. VERDICT ────────────────────────────────────────
     print(f"\n{BOLD + '=' * 70}{RESET}")
-    if wr_pass and pf_pass:
+
+    # Check setup-specific goals if we have data
+    setup_pass = True
+    if active_trades:
+        by_setup = defaultdict(list)
+        for t in active_trades:
+            by_setup[t.get("setup_type", "unknown")].append(t)
+
+        for setup_type, st_trades in sorted(by_setup.items()):
+            if len(st_trades) >= 20:
+                st_edge = compute_edge_metrics(st_trades)
+                if not st_edge:
+                    continue
+
+                if setup_type == "reversion":
+                    g_wr, g_pf = 55, 1.2
+                elif setup_type == "continuation":
+                    g_wr, g_pf = 52, 1.1
+                else:
+                    g_wr, g_pf = 55, 1.2
+
+                wr_pass = st_edge["win_rate"] >= g_wr
+                pf_pass = st_edge["profit_factor"] >= g_pf
+
+                status = ok("PASS") if (wr_pass and pf_pass) else fail("FAIL")
+                print(
+                    f"  setup_type={setup_type}: {status} (WR: {st_edge['win_rate']:.1f}% vs {g_wr}%, PF: {st_edge['profit_factor']:.3f} vs {g_pf})"
+                )
+                if not (wr_pass and pf_pass):
+                    setup_pass = False
+
+    if wr_pass and pf_pass and setup_pass:
         print(ok(f"STRATEGY HAS POSITIVE EDGE  —  WR {edge['win_rate']:.1f}% / PF {edge['profit_factor']:.3f}"))
         verdict = 0
     else:

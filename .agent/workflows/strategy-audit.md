@@ -35,18 +35,19 @@ The `--fast-track` flag bypasses the 60-minute warmup period so backtests run im
 
 ```bash
 .venv/bin/python backtest.py \
-  --data tests/validation/ltc_parity_4h.csv \
+  --data tests/validation/ltc_24h_audit.csv \
   --symbol LTC/USDT:USDT \
   --depth-db data/historian.db \
+  --fast-track \
   2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 ```
 
 **Expected output**: A BACKTEST V4 RESULTS SUMMARY at the end with trade count.
 **Minimum viable sample**: At least 10 trades to proceed to analysis (otherwise mark as INSUFFICIENT DATA).
 
-> If `ltc_parity_4h.csv` yields fewer than 10 trades, re-run with `sol_parity.csv`:
+> If `ltc_24h_audit.csv` yields fewer than 10 trades, re-run with `sol_24h_audit.csv`:
 > ```bash
-> .venv/bin/python backtest.py --data tests/validation/sol_parity.csv --symbol SOL/USDT:USDT --depth-db data/historian.db 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+> .venv/bin/python backtest.py --data tests/validation/sol_24h_audit.csv --symbol SOL/USDT:USDT --depth-db data/historian.db --fast-track 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 > ```
 
 ## Step 2: Analyse Results
