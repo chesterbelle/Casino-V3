@@ -247,38 +247,56 @@ class AdaptivePlayer:
         setup_type = getattr(event, "setup_type", event.metadata.get("setup_type", "unknown"))
         tp_sl_source = "config_fallback"
 
-        # Phase 700: Structural TP/SL from SetupEngine levels
+        # Phase 700: Structural TP/SL from Level Proximity (Primary Path)
         current_price = event.metadata.get("price")
-        # Setup engine provides poc/vah/val in metadata directly, so we can use those.
         poc = event.metadata.get("poc")
         vah = event.metadata.get("vah")
         val = event.metadata.get("val")
+        level_price = event.metadata.get("level_price")
 
-        # Phase 600: James Dalton Contextual Exits (fallback if no structural levels already set)
-        if tp_price is None and "poc" in event.metadata and "vah" in event.metadata and "val" in event.metadata:
-            poc = event.metadata["poc"]
-            vah = event.metadata["vah"]
-            val = event.metadata["val"]
-            if not current_price:
-                current_price = event.metadata.get("price")
+        if current_price and current_price > 0 and poc and vah and val:
+            tp_sl_source = "structural_level"
 
-            if current_price and current_price > 0:
-                tp_sl_source = "dalton_context"
+            if setup_type == "reversion":
+                # Fading at extreme → TP = POC (mean reversion target), SL = beyond the faded level
                 if event.side == "LONG":
-                    # Phase 1205: Hardened Structural Targets (Long)
-                    if current_price <= poc:
-                        tp_price = max(poc, current_price * 1.0035)  # Target POC or 0.35%
+                    # Entering LONG at support (VAL/IBL) → TP toward POC
+                    tp_price = poc
+                    # SL just beyond the level we're fading
+                    if level_price and level_price > 0:
+                        sl_price = level_price * 0.999  # Just beyond the support level
                     else:
-                        tp_price = max(vah, current_price * 1.0035)  # Target VAH or 0.35%
-                    sl_price = min(val * 0.999, current_price * 0.997)  # Target VAL or 0.3%
+                        sl_price = val * 0.999
+                else:
+                    # Entering SHORT at resistance (VAH/IBH) → TP toward POC
+                    tp_price = poc
+                    if level_price and level_price > 0:
+                        sl_price = level_price * 1.001  # Just beyond the resistance level
+                    else:
+                        sl_price = vah * 1.001
 
-                elif event.side == "SHORT":
-                    # Phase 1205: Hardened Structural Targets (Short)
-                    if current_price >= poc:
-                        tp_price = min(poc, current_price * 0.9965)  # Target POC or 0.35%
+            elif setup_type == "continuation":
+                # Breaking through a level → TP = next level, SL = back inside
+                if event.side == "LONG":
+                    tp_price = vah if vah > current_price else current_price * 1.005
+                    if level_price and level_price > 0:
+                        sl_price = level_price * 0.999
                     else:
-                        tp_price = min(val, current_price * 0.9965)  # Target VAL or 0.35%
-                    sl_price = max(vah * 1.001, current_price * 1.003)  # Target VAH or 0.3%
+                        sl_price = poc * 0.999
+                else:
+                    tp_price = val if val < current_price else current_price * 0.995
+                    if level_price and level_price > 0:
+                        sl_price = level_price * 1.001
+                    else:
+                        sl_price = poc * 1.001
+            else:
+                # Fallback: structural but unknown setup type
+                if event.side == "LONG":
+                    tp_price = poc if current_price < poc else vah
+                    sl_price = val * 0.999
+                else:
+                    tp_price = poc if current_price > poc else val
+                    sl_price = vah * 1.001
 
         # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
@@ -305,16 +323,15 @@ class AdaptivePlayer:
             if sl_price:
                 tp_sl_source = "metadata_direct"
 
-        # Phase 1300: ATR-Based TP/SL Fallback (when structural levels are missing)
+        # Phase 1300: Percentage Fallback (when structural levels are missing entirely)
         if tp_price is None or sl_price is None:
             if current_price and current_price > 0:
-                # Generate reasonable TP/SL based on setup type
                 if setup_type == "reversion":
-                    tp_pct_fallback = 0.50  # 0.50% TP for mean reversion
-                    sl_pct_fallback = 0.30  # 0.30% SL for mean reversion
+                    tp_pct_fallback = 0.50
+                    sl_pct_fallback = 0.30
                 elif setup_type == "continuation":
-                    tp_pct_fallback = 0.60  # 0.60% TP for breakout continuation
-                    sl_pct_fallback = 0.35  # 0.35% SL for breakout continuation
+                    tp_pct_fallback = 0.60
+                    sl_pct_fallback = 0.35
                 else:
                     tp_pct_fallback = 0.45
                     sl_pct_fallback = 0.30
@@ -334,87 +351,43 @@ class AdaptivePlayer:
                     f"⚠️ [FALLBACK] Cannot generate TP/SL: current_price={current_price} | tp_price={tp_price} | sl_price={sl_price}"
                 )
 
-        # Phase 700 RESTORED: Simple setup-type percentage clamping (trust the structure)
-        # Phase 1300: Footprint-Validated TP Expansion
+        # Phase 700: Structural Validation (replace old clamps with RR + sanity checks)
         if tp_price and sl_price and current_price and current_price > 0:
-            tp_pct = abs((tp_price - current_price) / current_price) * 100
-            sl_pct = abs((sl_price - current_price) / current_price) * 100
-
-            skewness = event.metadata.get("skewness", 0.5)
-
-            # If skewness is extreme in our direction, expand TP
-            if event.side == "LONG" and skewness > 0.7:
-                tp_pct *= 1.0 + (skewness - 0.7) * 2.0  # Up to 60% expansion
-                tp_sl_source = f"{tp_sl_source}+footprint_expansion"
-            elif event.side == "SHORT" and skewness < 0.3:
-                tp_pct *= 1.0 + (0.3 - skewness) * 2.0
-                tp_sl_source = f"{tp_sl_source}+footprint_expansion"
-
-            # Fix #2: Increased minimum TP to ensure RR > 1.0
-            # Phase 1200: Precision Edge (Round 7) - Relax clamps for high Z-scores
-            z_abs = abs(event.metadata.get("z_score", 0))
-
-            if setup_type == "reversion":
-                # If high conviction (Z > 3.5), allow wider TP and tighter SL (Sniper)
-                tp_max = 1.20 if z_abs > 3.5 else 0.80
-
-                # If FootprintDeltaDivergence is present, we can trust a tighter stop
-                has_delta_div = any(
-                    c.get("type") == "FootprintDeltaDivergence" for c in event.metadata.get("contributors", [])
+            # Sanity: TP must be in the right direction
+            if event.side == "LONG" and (tp_price <= current_price or sl_price >= current_price):
+                logger.warning(
+                    f"🚫 REJECTED: Inverted TP/SL for LONG | TP={tp_price:.4f} SL={sl_price:.4f} Price={current_price:.4f}"
                 )
+                return
+            elif event.side == "SHORT" and (tp_price >= current_price or sl_price <= current_price):
+                logger.warning(
+                    f"🚫 REJECTED: Inverted TP/SL for SHORT | TP={tp_price:.4f} SL={sl_price:.4f} Price={current_price:.4f}"
+                )
+                return
 
-                tp_pct = max(0.35, min(tp_pct, tp_max))
-                # Relax floor to 0.20% if delta validated, otherwise 0.30%
-                sl_floor = 0.20 if has_delta_div else 0.30
-                sl_pct = max(sl_floor, min(sl_pct, 0.45))
-                tp_sl_source = f"{tp_sl_source}+reversion_edge"
-                if has_delta_div:
-                    tp_sl_source += "+delta_div_tight"
-            elif setup_type == "continuation":
-                tp_pct = max(0.40, min(tp_pct, 1.00))
-                sl_pct = max(0.20, min(sl_pct, 0.50))
-                tp_sl_source = f"{tp_sl_source}+continuation_clamp"
-            elif setup_type == "initial":
-                tp_pct = max(0.50, min(tp_pct, 1.00))
-                sl_pct = max(0.25, min(sl_pct, 0.50))
-                tp_sl_source = f"{tp_sl_source}+initial_clamp"
-            else:
-                # Generic HFT clamp
-                tp_pct = max(0.30, min(tp_pct, 2.0))
-                sl_pct = max(0.25, min(sl_pct, 2.0))
+            # Max distance sanity (> 2% is not scalping)
+            tp_dist = abs(tp_price - current_price) / current_price * 100
+            sl_dist = abs(sl_price - current_price) / current_price * 100
+            if tp_dist > 2.0 or sl_dist > 2.0:
+                logger.warning(f"🚫 REJECTED: Distance too large (TP={tp_dist:.2f}% SL={sl_dist:.2f}%)")
+                return
 
-            # Convert back to absolute prices
-            if event.side == "LONG":
-                tp_price = current_price * (1 + tp_pct / 100)
-                sl_price = current_price * (1 - sl_pct / 100)
-            else:
-                tp_price = current_price * (1 - tp_pct / 100)
-                sl_price = current_price * (1 + sl_pct / 100)
-
-        # Phase 1000: Minimum RR Enforcement (P1)
-        # Phase 1200: Dynamic RR (Round 7)
-        if tp_price and sl_price and current_price and current_price > 0:
             reward = abs(tp_price - current_price)
             risk = abs(sl_price - current_price)
             if risk > 0:
                 rr_ratio = reward / risk
-                # Phase 1300: Relax RR for reversion (Scalpingwin-rate vs RR trade-off)
-                if self.fast_track:
-                    rr_threshold = 0.5  # Completely bypassed for rapid testing
-                elif setup_type == "reversion":
-                    rr_threshold = 1.3 if z_abs > 3.5 else 1.1
-                else:
-                    rr_threshold = 1.5 if z_abs > 3.5 else 1.2
+
+                # Phase 700: Simple RR validation — trust the structure
+                rr_threshold = 0.5 if self.fast_track else 1.0
 
                 if rr_ratio < rr_threshold:
                     logger.warning(
                         f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < {rr_threshold}) | "
-                        f"Z: {z_abs:.1f} | Symbol: {event.symbol} | Side: {event.side}"
+                        f"Symbol: {event.symbol} | Side: {event.side}"
                     )
                     return
 
-                # Phase 1300: Dynamic RR-Based Sizing
-                # Final_Bet = Base_Kelly * Clamp(RR_Ratio / 1.5, 0.5, 2.0)
+                # RR-Based Sizing (keep from Phase 1300)
                 rr_multiplier = max(0.5, min(2.0, rr_ratio / 1.5))
                 bet_size = base_bet_size * rr_multiplier
                 sizing_method = f"{sizing_method}+RR_Sized"
@@ -440,7 +413,7 @@ class AdaptivePlayer:
 
         # Phase 800: Adaptive Shadow SL (Shark Breath)
         # Structural setups need more room to breathe.
-        shadow_sl_activation = 0.0045 if setup_type in ["reversion", "fade_extreme"] else 0.0025
+        shadow_sl_activation = 0.0075 if setup_type in ["reversion", "fade_extreme"] else 0.0045
 
         # Emit Decision with unique ID for tracking
         decision_id = f"DEC_{int(time.time()*1000000)}"  # Microsecond precision

@@ -353,6 +353,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "timestamp": self._current_timestamp,
                 "leverage": leverage,
                 "margin_used": margin_required,
+                "setup_type": order.get("setup_type") or order.get("params", {}).get("setup_type", "unknown"),
             }
             self._positions.append(new_pos)
             self._balance -= margin_required
@@ -438,6 +439,7 @@ class VirtualExchangeConnector(BaseConnector):
             "timestamp": self._current_timestamp,
             "pnl": order.get("realized_pnl"),  # None for opening trades
             "gemini_trade_id": order.get("params", {}).get("gemini_trade_id"),
+            "setup_type": order.get("setup_type") or order.get("params", {}).get("setup_type", "unknown"),
         }
 
         # Add entry details for closing trades
@@ -445,6 +447,11 @@ class VirtualExchangeConnector(BaseConnector):
             trade_record["entry_price"] = position["entry_price"]
             trade_record["entry_time"] = position["timestamp"]
             trade_record["position_side"] = position["side"]
+            trade_record["setup_type"] = position.get("setup_type", trade_record["setup_type"])
+        elif position:
+            trade_record["setup_type"] = position.get("setup_type", trade_record["setup_type"])
+        else:
+            trade_record["setup_type"] = new_pos.get("setup_type", trade_record["setup_type"])
 
         self._trades.append(trade_record)
 
@@ -554,6 +561,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "entry_time": pos["timestamp"],
                 "position_side": side,
                 "exit_reason": "END_OF_DATA",
+                "setup_type": pos.get("setup_type", "unknown"),
             }
             self._trades.append(trade_record)
 

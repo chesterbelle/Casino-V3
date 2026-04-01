@@ -191,7 +191,8 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None):
         SELECT trade_id, symbol, side, entry_price, exit_price,
                qty, fee, gross_pnl, net_pnl, exit_reason,
                timestamp, bars_held, session_id, healed,
-               t0_signal_ts, t4_fill_ts, slippage_pct
+               t0_signal_ts, t4_fill_ts, slippage_pct,
+               setup_type, level_ref
         FROM trades
         WHERE entry_price > 0
           AND exit_price > 0

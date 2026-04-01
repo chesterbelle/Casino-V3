@@ -629,6 +629,12 @@ class TradeHistorian:
         """
         return self._run_async(self._get_session_stats_sync, session_id)
 
+    def get_setup_stats(self, session_id: Optional[str] = None) -> Any:
+        """
+        Returns statistics grouped by setup_type. (Non-blocking)
+        """
+        return self._run_async(self._get_setup_stats_sync, session_id)
+
     def _get_session_stats_sync(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Internal synchronous stats calculation."""
         """
@@ -731,6 +737,38 @@ class TradeHistorian:
             logger.error(f"❌ Historian: Error getting stats: {e}")
             return {}
 
+    def _get_setup_stats_sync(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Internal synchronous setup stats calculation."""
+        try:
+            params = []
+            query = """
+                SELECT
+                    setup_type,
+                    COUNT(*) as count,
+                    SUM(net_pnl) as total_net_pnl,
+                    SUM(gross_pnl) as total_gross_pnl,
+                    SUM(fee) as total_fees,
+                    SUM(funding) as total_funding,
+                    SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses,
+                    AVG(bars_held) as avg_duration,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl
+                FROM trades
+            """
+            if session_id:
+                query += " WHERE session_id = ?"
+                params.append(session_id)
+
+            query += " GROUP BY setup_type ORDER BY total_net_pnl DESC"
+
+            with self._get_conn() as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(query, params)
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"❌ Historian: Error getting setup stats: {e}")
+            return []
+
     def get_error_breakdown(self, session_id: Optional[str] = None) -> Any:
         """Returns a breakdown of error reasons. (Non-blocking)"""
         return self._run_async(self._get_error_breakdown_sync, session_id)
@@ -764,12 +802,13 @@ class TradeHistorian:
 
     def _get_detailed_report_sync(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Internal synchronous detailed report calculation."""
-        """Returns a detailed report grouped by symbol, optionally filtered by session."""
+        """Returns a detailed report grouped by symbol and setup_type, optionally filtered by session."""
         try:
             with self._get_conn() as conn:
                 query = """
                     SELECT
                         symbol,
+                        setup_type,
                         COUNT(*) as trades,
                         SUM(net_pnl) as net_pnl,
                         SUM(fee) as fees,
@@ -783,7 +822,7 @@ class TradeHistorian:
                     query += " WHERE session_id = ?"
                     params.append(session_id)
 
-                query += " GROUP BY symbol ORDER BY net_pnl DESC"
+                query += " GROUP BY symbol, setup_type ORDER BY net_pnl DESC"
 
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(query, params)

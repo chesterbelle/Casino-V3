@@ -40,6 +40,7 @@ class ContextRegistry:
         self.otf: Dict[str, str] = {}  # symbol -> OTF (BULL_OTF, BEAR_OTF, NEUTRAL)
         self.tick_stats: Dict[str, dict] = {}  # symbol -> {speed, last_ts, count}
         self.micro_state: Dict[str, dict] = {}  # symbol -> {cvd, skewness, z_score, last_update}
+        self.ib_levels: Dict[str, dict] = {}  # symbol -> {high, low}  Phase 700: IB levels for proximity gate
 
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
@@ -85,6 +86,17 @@ class ContextRegistry:
             return 0.0, 0.0, 0.0
         return profile.calculate_value_area()
 
+    def set_ib(self, symbol: str, ib_high: float, ib_low: float):
+        """Phase 700: Store IB boundaries for level proximity checks."""
+        self.ib_levels[symbol] = {"high": ib_high, "low": ib_low}
+
+    def get_ib(self, symbol: str) -> Tuple[Optional[float], Optional[float]]:
+        """Phase 700: Returns (ib_high, ib_low) or (None, None)."""
+        ib = self.ib_levels.get(symbol)
+        if ib:
+            return ib["high"], ib["low"]
+        return None, None
+
     def get_regime(self, symbol: str) -> str:
         """Returns the current market regime."""
         return self.regimes.get(symbol, "NEUTRAL")
@@ -114,10 +126,11 @@ class ContextRegistry:
 
     def get_flow_inertia(self, symbol: str, side: str, profit_pct: float = 0.0) -> float:
         """
-        Calculates a multiplier for Shadow SL distance based on Order Flow.
+        Phase 700: Simplified flow inertia — LAZY mode only.
         Returns:
-            > 1.0 (Lazy/Momentum Support): Increase buffer to allow wiggle.
-            < 1.0 (Paranoid/Divergence): Tighten buffer to exit early.
+            > 1.0 (Lazy/Momentum Support): Increase trailing buffer to let winners run.
+            = 1.0 (Neutral): Default trailing distance.
+        Paranoid mode removed: structural SL handles adverse flow.
         """
         state = self.micro_state.get(symbol)
         if not state:
@@ -132,24 +145,11 @@ class ContextRegistry:
         if side == "LONG":
             # LAZY Conditions: Price and Flow moving together
             if cvd > 500 and skew > 0.55 and z < 4.0:
-                inertia = 1.7  # Round 5: Sweet spot between 1.5x and 2.0x
-            # PARANOID Conditions: Exhaustion or Divergence
-            elif z > 4.5 or skew < 0.45 or cvd < -200:
-                # Round 5 HYSTERESIS: Different tightening based on profit
-                if profit_pct > 0.001:  # 0.1% profit buffer
-                    inertia = 0.5
-                elif profit_pct < 0:
-                    inertia = 0.75  # Balanced loss cutting
+                inertia = 1.7
         else:  # SHORT
             # LAZY Conditions
             if cvd < -500 and skew < 0.45 and z > -4.0:
                 inertia = 1.7
-            # PARANOID Conditions
-            elif z < -4.5 or skew > 0.55 or cvd > 200:
-                if profit_pct > 0.001:  # 0.1% profit buffer
-                    inertia = 0.5
-                elif profit_pct < 0:
-                    inertia = 0.75
 
         return inertia
 

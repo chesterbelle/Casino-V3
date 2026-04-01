@@ -84,7 +84,49 @@ class SetupEngineV4:
                 metadata["poc"] = poc
                 metadata["vah"] = vah
                 metadata["val"] = val
+            # Phase 700: Also inject IB levels
+            ib_high, ib_low = self.context_registry.get_ib(symbol)
+            if ib_high and ib_high > 0:
+                metadata["ib_high"] = ib_high
+            if ib_low and ib_low > 0:
+                metadata["ib_low"] = ib_low
         return metadata
+
+    def _check_level_proximity(self, symbol: str, price: float) -> Optional[dict]:
+        """Phase 700: Check if price is within proximity of a structural level.
+
+        Returns the nearest level reference dict or None if price is in open space.
+        Levels checked: POC, VAH, VAL, IBH, IBL.
+        """
+        if not self.context_registry or price <= 0:
+            return None
+
+        poc, vah, val = self.context_registry.get_structural(symbol)
+        ib_high, ib_low = self.context_registry.get_ib(symbol)
+
+        levels = []
+        if poc > 0:
+            levels.append(("POC", poc))
+        if vah > 0:
+            levels.append(("VAH", vah))
+        if val > 0:
+            levels.append(("VAL", val))
+        if ib_high and ib_high > 0:
+            levels.append(("IBH", ib_high))
+        if ib_low and ib_low > 0:
+            levels.append(("IBL", ib_low))
+
+        PROX_THRESHOLD = 0.0020  # 0.20% — approved by developer meeting
+
+        nearest = None
+        min_dist = float("inf")
+        for name, level_price in levels:
+            dist = abs(price - level_price) / price
+            if dist < PROX_THRESHOLD and dist < min_dist:
+                min_dist = dist
+                nearest = {"level_ref": name, "level_price": level_price, "dist_pct": round(dist * 100, 4)}
+
+        return nearest
 
     async def on_signal(self, event: SignalEvent):
         """Processes incoming tactical and regime events."""
@@ -111,6 +153,11 @@ class SetupEngineV4:
             if new_fa:
                 self.failed_auctions[event.symbol] = new_fa
                 logger.info(f"🎯 [SETUP] {event.symbol} Updated Failed Auction Targets: {len(new_fa)} levels")
+            # Phase 700: Wire IB levels to ContextRegistry for proximity gate
+            ib_h = event.metadata.get("ib_high")
+            ib_l = event.metadata.get("ib_low")
+            if ib_h and ib_l and self.context_registry:
+                self.context_registry.set_ib(event.symbol, ib_h, ib_l)
 
         if event.side not in ["TACTICAL", "LONG", "SHORT", "NEUTRAL"]:
             return
@@ -161,6 +208,25 @@ class SetupEngineV4:
             if recent_dv:
                 dv_multiplier = recent_dv[-1].metadata.get("sizing_multiplier", 1.0)
             trigger["metadata"]["dv_multiplier"] = dv_multiplier
+
+            # Phase 700: Level Proximity Gate for Playbook signals
+            price = trigger["metadata"].get("price", 0)
+            if price > 0:
+                proximity = self._check_level_proximity(sym, price)
+                if proximity:
+                    trigger["metadata"]["level_ref"] = proximity["level_ref"]
+                    trigger["metadata"]["level_price"] = proximity["level_price"]
+                    trigger["metadata"]["level_dist_pct"] = proximity["dist_pct"]
+                    logger.info(
+                        f"📍 [LEVEL_CONFIRMED] {sym} Playbook {trigger['setup_name']} near {proximity['level_ref']} "
+                        f"@ {proximity['level_price']:.4f} (dist: {proximity['dist_pct']:.4f}%)"
+                    )
+                else:
+                    logger.info(
+                        f"📍 [LEVEL_FILTER] {sym} Playbook {trigger['setup_name']} filtered: "
+                        f"Price {price:.4f} not near any structural level (threshold: 0.20%)"
+                    )
+                    return
 
             await self._dispatch_guarded_signal(
                 sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event, setup_type=setup_type
@@ -371,7 +437,27 @@ class SetupEngineV4:
                     trigger["metadata"]["confidence_boost"] = 1.5
 
         if trigger:
-            await self._dispatch_guarded_signal(sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event)
+            # Phase 700: Level Proximity Gate for Toxic_OrderFlow
+            price = event.price
+            proximity = self._check_level_proximity(sym, price)
+            if not proximity:
+                logger.info(
+                    f"📍 [LEVEL_FILTER] {sym} {trigger['side']} Toxic_OrderFlow filtered: "
+                    f"Price {price:.4f} not near any structural level (threshold: 0.20%)"
+                )
+                return  # Not near a level — skip
+            # Inject level context into metadata
+            trigger["metadata"]["level_ref"] = proximity["level_ref"]
+            trigger["metadata"]["level_price"] = proximity["level_price"]
+            trigger["metadata"]["level_dist_pct"] = proximity["dist_pct"]
+            logger.info(
+                f"📍 [LEVEL_CONFIRMED] {sym} {trigger['side']} near {proximity['level_ref']} "
+                f"@ {proximity['level_price']:.4f} (dist: {proximity['dist_pct']:.4f}%)"
+            )
+
+            await self._dispatch_guarded_signal(
+                sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event, setup_type=setup_type
+            )
 
     async def _dispatch_guarded_signal(
         self, symbol: str, side: str, pattern: str, metadata: dict, source_event: Any, setup_type: str = "unknown"
@@ -573,8 +659,13 @@ class SetupEngineV4:
                 logger.debug("❌ [REGIME GATE] Trend_Continuation rejected: No confluence in NEUTRAL regime")
                 return None
 
-            # In Trend regime (UP/DOWN), we allow it even without confluence if stacked imbalance is strong
-            # but we still guard against CVD divergence.
+            # Trend Alignment Filter (Phase 1600/1700)
+            if regime == "UP" and stacked_dir == "SHORT":
+                logger.debug("❌ [REGIME GATE] Trend_Continuation SHORT rejected — Trend is UP")
+                return None
+            if regime == "DOWN" and stacked_dir == "LONG":
+                logger.debug("❌ [REGIME GATE] Trend_Continuation LONG rejected — Trend is DOWN")
+                return None
 
             # CVD Divergence Guard (Phase 1300)
             # Find the latest Microstructure event for CVD

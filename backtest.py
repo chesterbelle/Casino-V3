@@ -219,6 +219,7 @@ async def run_backtest():
                 "session_id": "backtest",
                 "t0_signal_ts": float(ct.get("entry_time", 0)) if ct.get("entry_time") else None,
                 "t4_fill_ts": float(ct.get("timestamp", 0)) if ct.get("timestamp") else None,
+                "setup_type": ct.get("setup_type", "unknown"),
             }
         )
     if closed_trades:

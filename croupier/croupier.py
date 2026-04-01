@@ -1070,6 +1070,11 @@ class Croupier(TimeIterator):
             sl_order_id=oco_result["sl_order"].get("client_order_id"),
             exchange_tp_id=oco_result["tp_order"].get("order_id"),
             exchange_sl_id=oco_result["sl_order"].get("order_id"),
+            setup_type=order.get("setup_type", "unknown"),
+            t0_signal_ts=order.get("t0_signal_ts"),
+            t1_decision_ts=order.get("t1_decision_ts"),
+            trace_id=order.get("trace_id"),
+            shadow_sl_activation=order.get("shadow_sl_activation", 0.0025),
         )
 
         try:
