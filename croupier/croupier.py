@@ -1071,6 +1071,8 @@ class Croupier(TimeIterator):
             exchange_tp_id=oco_result["tp_order"].get("order_id"),
             exchange_sl_id=oco_result["sl_order"].get("order_id"),
             setup_type=order.get("setup_type", "unknown"),
+            level_ref=order.get("level_ref", "unknown"),
+            level_price=order.get("level_price", 0.0),
             t0_signal_ts=order.get("t0_signal_ts"),
             t1_decision_ts=order.get("t1_decision_ts"),
             trace_id=order.get("trace_id"),

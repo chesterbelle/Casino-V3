@@ -24,6 +24,7 @@ import sqlite3
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import List, Optional
 
 # ─── ANSI colours ───────────────────────────────────────────
 GREEN = "\033[92m"
@@ -182,7 +183,30 @@ def audit_strategy_logs(log_glob: str) -> int:
 
 
 # ─── DB helpers ─────────────────────────────────────────────
-def load_trades(db_path: str, session_id: str = None, last_n: int = None):
+def get_latest_session(db_path: str) -> Optional[str]:
+    """Phase 750: Detect the most recent session in the database."""
+    if not Path(db_path).exists():
+        return None
+    try:
+        conn = sqlite3.connect(db_path)
+        res = conn.execute("SELECT session_id FROM trades ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        return res[0] if res else None
+    except Exception:
+        return None
+
+
+def load_trades(db_path: str, session_id: str = None, last_n: int = None, all_time: bool = False):
+    """
+    Loads trades from historian.db.
+
+    Phase 750: Defaults to the latest session if session_id and all_time are both None.
+    """
+    if not session_id and not all_time and not last_n:
+        session_id = get_latest_session(db_path)
+        if session_id:
+            print(f"{CYAN}ℹ️  Latest session detected: {BOLD}{session_id}{RESET} (use --all-time to see everything)")
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -192,7 +216,7 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None):
                qty, fee, gross_pnl, net_pnl, exit_reason,
                timestamp, bars_held, session_id, healed,
                t0_signal_ts, t4_fill_ts, slippage_pct,
-               setup_type, level_ref
+               setup_type, level_ref, level_price
         FROM trades
         WHERE entry_price > 0
           AND exit_price > 0
@@ -636,6 +660,9 @@ def main():
     parser = argparse.ArgumentParser(description="Phase 650 Strategy Audit")
     parser.add_argument("--db", default="data/historian.db", help="Path to historian SQLite database")
     parser.add_argument("--session", default=None, help="Filter by session_id")
+    parser.add_argument(
+        "--all-time", action="store_true", help="Analyze all trades in the DB (default: latest session)"
+    )
     parser.add_argument("--last", type=int, default=None, help="Analyse only the last N trades")
     parser.add_argument(
         "--log",
@@ -681,8 +708,10 @@ def main():
         print(f"{RED}❌ Database not found: {db_path}{RESET}")
         sys.exit(1)
 
-    trades = load_trades(str(db_path), session_id=args.session, last_n=args.last)
-    verdict = print_report(trades, session_id=args.session, last_n=args.last)
+    trades = load_trades(str(db_path), session_id=args.session, last_n=args.last, all_time=args.all_time)
+    verdict = print_report(
+        trades, session_id=args.session or (None if args.all_time else "auto:latest"), last_n=args.last
+    )
     sys.exit(verdict)
 
 

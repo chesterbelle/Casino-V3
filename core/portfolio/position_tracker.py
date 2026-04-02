@@ -128,6 +128,8 @@ class OpenPosition:
     healed: bool = False
     trace_id: Optional[str] = None
     setup_type: str = "unknown"
+    level_ref: str = "unknown"
+    level_price: float = 0.0
 
     # Phase 85: Latency Telemetry
     t0_signal_ts: Optional[float] = None
@@ -139,6 +141,10 @@ class OpenPosition:
     # THE GOVERNANCE LOCK: Per-position concurrency control
     # Not included in repr to avoid noise
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+    # Phase 800: Winner Catcher (Aggressive Trailing)
+    trailing_phase: int = 0  # 0: Defensive, 1: Expansion (Cazador)
+    original_tp_price: Optional[float] = None
 
     shadow_sl_activation: float = 0.0025  # Phase 800: Shark Breath activation threshold
 
@@ -1209,6 +1215,8 @@ class PositionTracker:
             "lifecycle_phase": getattr(position, "lifecycle_phase", "ACTIVE"),
             "healed": 1 if (healed or getattr(position, "healed", False)) else 0,  # Phase 81
             "setup_type": getattr(position, "setup_type", "unknown") or "unknown",
+            "level_ref": getattr(position, "level_ref", "unknown") or "unknown",
+            "level_price": getattr(position, "level_price", 0.0),
         }
 
         # Phase 247: Prevent Double Recording (Ghost Inflation)

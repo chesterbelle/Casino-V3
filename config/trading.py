@@ -103,6 +103,12 @@ TRAILING_STOP_DISTANCE_PCT = 0.0015  # 0.15% trailing distance (reverted from R1
 EXIT_ATR_MULT_TS = 2.5  # Increased from 1.5 to 2.5 for more breathing room
 EXIT_ATR_MULT_BE = 3.0  # Increased from 2.0 to 3.0
 
+# --- Phase 800: "Winner Catcher" Expansion ---
+# Threshold to transition from Defensive (Phase 0) to Expansion (Phase 1)
+TRAILING_STOP_EXPANSION_THRESHOLD_PCT = 0.0045  # 0.45% profit
+TRAILING_STOP_EXPANSION_MULT = 4.5  # Wider ATR multiple for trend-following
+EXPANSION_TP_RR = 5.0  # Move exchange TP to 5:1 Risk/Reward to allow expansion
+
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
 BREAKEVEN_ENABLED = True

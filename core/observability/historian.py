@@ -36,8 +36,8 @@ def _historian_worker(db_path: str, q: mp.Queue):
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     data,
                 )
@@ -193,12 +193,12 @@ class TradeHistorian:
                 bars_held INTEGER,
                 session_id TEXT,
                 healed BOOLEAN DEFAULT 0,
-                lifecycle_phase TEXT DEFAULT 'ACTIVE',
-                t0_signal_ts REAL,
-                t1_decision_ts REAL,
-                t2_submit_ts REAL,
                 t4_fill_ts REAL,
-                slippage_pct REAL
+                slippage_pct REAL,
+                lifecycle_phase TEXT DEFAULT 'ACTIVE',
+                setup_type TEXT DEFAULT 'unknown',
+                level_ref TEXT DEFAULT 'unknown',
+                level_price REAL DEFAULT 0.0
             )
         """
         )
@@ -364,7 +364,9 @@ class TradeHistorian:
                 trade_data.get("t4_fill_ts"),
                 trade_data.get("slippage_pct"),
                 trade_data.get("lifecycle_phase", "ACTIVE"),
-                trade_data.get("setup_type"),
+                trade_data.get("setup_type", "unknown"),
+                trade_data.get("level_ref", "unknown"),
+                trade_data.get("level_price", 0.0),
             )
 
             if self._use_mp:
@@ -385,8 +387,8 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     params,
                 )

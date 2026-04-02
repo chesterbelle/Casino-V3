@@ -448,63 +448,96 @@ class ExitManager:
                     self.logger.info(f"🛡️ High-Frequency Breakeven ACTIVATED for {position.trade_id} @ {new_sl:.6f}")
 
     async def _check_shadow_trailing_stop(self, position: OpenPosition, current_price: float):
-        """Phase 241: Update Shadow SL to follow price if activation threshold reached."""
+        """Phase 241/800: Update Shadow SL to follow price with Phase-Aware Multipliers."""
         if position.entry_price <= 0:
             return
         if position.shadow_sl_level is None and position.sl_level > 0:
             position.shadow_sl_level = position.sl_level
 
+        # 1. Calculate Core Profit Metrics
         if position.side == "LONG":
             profit_pct = (current_price - position.entry_price) / position.entry_price
+        else:
+            profit_pct = (position.entry_price - current_price) / position.entry_price
 
-            # Phase 800: Flow-Aware Inertia (Lazy mode only — Phase 700 removed Paranoid)
-            inertia = 1.0
-            if hasattr(self, "context_registry") and self.context_registry:
-                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
+        # 2. Phase 800: Detect Phase Transition (Winner Catcher)
+        # Transition from Phase 0 (Defensive) to Phase 1 (Expansion/Cazador)
+        if position.trailing_phase == 0 and profit_pct >= config.TRAILING_STOP_EXPANSION_THRESHOLD_PCT:
+            self.logger.warning(
+                f"🚀 [PHASE 800] Winner Catcher ACTIVATED for {position.trade_id} @ {profit_pct:.2%} profit | Expanding TP..."
+            )
+            position.trailing_phase = 1
+            # Move exchange TP out of the way to allow expansion
+            asyncio.create_task(self._expand_tp_limit(position))
 
-            # Activation Gate: Only trail after profit threshold reached
-            activation_threshold = getattr(position, "shadow_sl_activation", config.TRAILING_STOP_ACTIVATION_PCT)
-            if profit_pct < activation_threshold:
-                return
+        # 3. Determine Multiplier based on Phase
+        if position.trailing_phase == 1:
+            atr_mult = config.TRAILING_STOP_EXPANSION_MULT
+        else:
+            atr_mult = config.EXIT_ATR_MULT_TS
 
-            # Phase 710: ATR-based Trailing Distance
-            if getattr(position, "entry_atr", 0) > 0:
-                trailing_dist = position.entry_atr * config.EXIT_ATR_MULT_TS
-            else:
-                trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
+        # 4. Apply Flow-Aware Inertia (Phase 800)
+        inertia = 1.0
+        if hasattr(self, "context_registry") and self.context_registry:
+            inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
 
+        # 5. Activation Gate: Only trail after initial profit threshold reached
+        # (Usually 0.25%, same as Breakeven)
+        activation_threshold = getattr(position, "shadow_sl_activation", config.TRAILING_STOP_ACTIVATION_PCT)
+        if profit_pct < activation_threshold:
+            return
+
+        # 6. Calculate Trailing Level
+        if getattr(position, "entry_atr", 0) > 0:
+            trailing_dist = position.entry_atr * atr_mult
+        else:
+            trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
+
+        if position.side == "LONG":
             new_sl = current_price - (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
                 position.shadow_sl_level = new_sl
-                if inertia != 1.0:
-                    mode = "LAZY" if inertia > 1.0 else "PARANOID"
-                    self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Inertia: {inertia}x) for {position.trade_id}")
-
-        elif position.side == "SHORT":
-            profit_pct = (position.entry_price - current_price) / position.entry_price
-
-            # Phase 800: Flow-Aware Inertia (Lazy mode only — Phase 700 removed Paranoid)
-            inertia = 1.0
-            if hasattr(self, "context_registry") and self.context_registry:
-                inertia = self.context_registry.get_flow_inertia(position.symbol, position.side, profit_pct)
-
-            # Activation Gate: Only trail after profit threshold reached
-            activation_threshold = getattr(position, "shadow_sl_activation", config.TRAILING_STOP_ACTIVATION_PCT)
-            if profit_pct < activation_threshold:
-                return
-
-            # Phase 710: ATR-based Trailing Distance
-            if getattr(position, "entry_atr", 0) > 0:
-                trailing_dist = position.entry_atr * config.EXIT_ATR_MULT_TS
-            else:
-                trailing_dist = current_price * config.TRAILING_STOP_DISTANCE_PCT
-
+                if inertia != 1.0 or position.trailing_phase == 1:
+                    mode = "EXPANSION" if position.trailing_phase == 1 else "DEFENSIVE"
+                    self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Mult: {atr_mult}x) for {position.trade_id}")
+        else:
             new_sl = current_price + (trailing_dist * inertia)
             if position.shadow_sl_level is None or new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
                 position.shadow_sl_level = new_sl
-                if inertia != 1.0:
-                    mode = "LAZY" if inertia > 1.0 else "PARANOID"
-                    self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Inertia: {inertia}x) for {position.trade_id}")
+                if inertia != 1.0 or position.trailing_phase == 1:
+                    mode = "EXPANSION" if position.trailing_phase == 1 else "DEFENSIVE"
+                    self.logger.debug(f"🧠 [DYNAMIC SL] {mode} Mode (Mult: {atr_mult}x) for {position.trade_id}")
+
+    async def _expand_tp_limit(self, position: OpenPosition):
+        """Phase 800: Move the exchange TP to a distant target (Moon Stage)."""
+        if not position.tp_order_id:
+            return
+
+        try:
+            # Calculate a distant TP based on EXPANSION_TP_RR (e.g. 5:1)
+            # Find the risk distance from entry to initial SL
+            risk_dist = abs(position.entry_price - position.sl_level)
+            if risk_dist <= 0:
+                # Fallback to ATR-based distance if SL is not set correctly
+                risk_dist = position.entry_atr * 1.5 if position.entry_atr > 0 else position.entry_price * 0.002
+
+            if position.side == "LONG":
+                expanded_tp = position.entry_price + (risk_dist * config.EXPANSION_TP_RR)
+            else:
+                expanded_tp = position.entry_price - (risk_dist * config.EXPANSION_TP_RR)
+
+            self.logger.info(
+                f"🌌 [EXPANSION] Moving TP for {position.trade_id} to {expanded_tp:.6f} (Target: {config.EXPANSION_TP_RR}x RR)"
+            )
+
+            await self.croupier.modify_tp(
+                trade_id=position.trade_id,
+                new_tp_price=expanded_tp,
+                symbol=position.symbol,
+                old_tp_order_id=position.tp_order_id,
+            )
+        except Exception as e:
+            self.logger.error(f"❌ Failed to expand TP for {position.trade_id}: {e}")
 
     async def _update_sl(self, position: OpenPosition, new_sl: float, reason: str):
         """Helper to physically update SL order on exchange."""
