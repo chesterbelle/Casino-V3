@@ -61,6 +61,19 @@ class ExitManager:
             # Phase 243: Skip if closing or shutdown
             if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
                 continue
+
+            if config.AUDIT_MODE:
+                # Log but do not execute signal reversal in Audit Mode
+                if (
+                    normalize_symbol(event.symbol) == normalize_symbol(position.symbol)
+                    and event.confidence >= config.SIGNAL_REVERSAL_THRESHOLD
+                ):
+                    if (position.side == "LONG" and event.side == "SHORT") or (
+                        position.side == "SHORT" and event.side == "LONG"
+                    ):
+                        self.logger.warning(f"🔍 [AUDIT-MODE] Suppressing Signal Reversal for {position.trade_id}")
+                continue
+
             await self._check_signal_reversal(position, event)
 
     async def on_candle(self, event: CandleEvent):
@@ -101,6 +114,13 @@ class ExitManager:
                 or getattr(position, "shadow_sl_triggered", False)
             ):
                 continue
+
+            # Phase 800: Audit Mode suppresses all shadow intervention
+            if config.AUDIT_MODE:
+                # Check for trail/BE updates anyway to log them?
+                # For now, just skip to ensure zero interference.
+                continue
+
             # 1. Trigger Shadow SL Market Close (Airlock Bypass)
             if position.shadow_sl_level is not None and position.shadow_sl_level > 0:
                 if position.side == "LONG" and current_price <= position.shadow_sl_level:
@@ -144,6 +164,10 @@ class ExitManager:
         for position in positions[:]:
             # Skip if already closing or shutting down
             if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
+                continue
+
+            if config.AUDIT_MODE:
+                # In Audit Mode, we don't do Micro-Exits
                 continue
 
             # 1. Grace Period (Don't micro-exit within first 5s to allow momentum to settle)

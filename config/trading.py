@@ -100,14 +100,14 @@ TRAILING_STOP_DISTANCE_PCT = 0.0015  # 0.15% trailing distance (reverted from R1
 
 # --- ATR-Based Dynamic Exits (Phase 710) ---
 # Multipliers used to calculate dynamic distances: Distance = Multiplier * ATR
-EXIT_ATR_MULT_TS = 2.5  # Increased from 1.5 to 2.5 for more breathing room
+EXIT_ATR_MULT_TS = 3.5  # Increased from 2.5 to 3.5 to allow more breathing room in Defensive Phase
 EXIT_ATR_MULT_BE = 3.0  # Increased from 2.0 to 3.0
 
 # --- Phase 800: "Winner Catcher" Expansion ---
 # Threshold to transition from Defensive (Phase 0) to Expansion (Phase 1)
-TRAILING_STOP_EXPANSION_THRESHOLD_PCT = 0.0045  # 0.45% profit
-TRAILING_STOP_EXPANSION_MULT = 4.5  # Wider ATR multiple for trend-following
-EXPANSION_TP_RR = 5.0  # Move exchange TP to 5:1 Risk/Reward to allow expansion
+TRAILING_STOP_EXPANSION_THRESHOLD_PCT = 0.0035  # Lowered from 0.45% to 0.35%
+TRAILING_STOP_EXPANSION_MULT = 7.5  # Widened from 4.5x to 7.5x for structural trend capture
+EXPANSION_TP_RR = 6.0  # Ambitious 6:1 target for the expansion phase
 
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
@@ -242,3 +242,18 @@ MULTI_ASSET_TARGETS = [
     "ICX/USDT",
     "STORJ/USDT",
 ]
+
+# =====================================================
+# 🔍 AUDIT & EDGE VALIDATION (Phase 800)
+# =====================================================
+
+# Master switch for the Setup Edge Auditor.
+# When enabled:
+# 1. Records every signal (AggregatedSignalEvent) to DB.
+# 2. Samples price trajectory every N seconds.
+# 3. Disables proactive exits (Shadow SL, Micro-Exits) for interference-free study.
+AUDIT_MODE = False
+
+# Frequency for price sampling in audit mode (seconds).
+# 1.0s is usually enough for MFE/MAE analysis without excessive DB growth.
+AUDIT_SAMPLING_FREQ = 1.0

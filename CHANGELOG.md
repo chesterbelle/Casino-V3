@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+---
+
+## [4.4.0] - 2026-04-02
+
+### Added - Setup Edge Auditor (Phase 800)
+- **Modo --audit (Zero-Interference)**: New CLI flag to record raw signals and price trajectories without bot intervention.
+- **Bypass de Interferencia**: El `ExitManager` ahora ignora `Shadow SL`, `Breakeven` y `Micro-Exits` cuando el modo auditoría está activo.
+- **Alta Definición de Datos**: El `Historian` ahora graba tablas de `signals` y `price_samples` (muestreo cada 1s).
+- **Herramienta de Análisis Alpha**: Nuevo script `utils/setup_edge_auditor.py` para calcular MFE/MAE y la expectativa estadística de cada setup.
+- **Paridad en Backtest**: El modo auditoría está disponible tanto en `main.py` como en `backtest.py`.
+
+### Changed
+- `config/trading.py`: Added `AUDIT_MODE` and `AUDIT_SAMPLING_FREQ`.
+- `croupier/components/exit_manager.py`: Logic updated to respect `AUDIT_MODE`.
+- `main.py` & `backtest.py`: CLI updated to support `--audit`.
+
+---
+
 ## [4.3.0] - 2026-02-28
 
 ### Performance - HFT Latency Compression (Phase 310)

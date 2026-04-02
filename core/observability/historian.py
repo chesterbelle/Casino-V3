@@ -51,6 +51,24 @@ def _historian_worker(db_path: str, q: mp.Queue):
                     data,
                 )
                 conn.commit()
+            elif action == "INSERT_SIGNAL":
+                conn.execute(
+                    """
+                    INSERT INTO signals (timestamp, symbol, side, setup_type, price, metadata, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    data,
+                )
+                conn.commit()
+            elif action == "INSERT_PRICE_SAMPLE":
+                conn.execute(
+                    """
+                    INSERT INTO price_samples (timestamp, symbol, price)
+                    VALUES (?, ?, ?)
+                    """,
+                    data,
+                )
+                conn.commit()
             elif action == "RECONCILE_LEDGER":
                 income_records, session_id, min_timestamp = data
                 for record in income_records:
@@ -247,11 +265,36 @@ class TradeHistorian:
         except sqlite3.OperationalError:
             pass  # Already exists
 
-        # Phase 102: Lifecycle attribution for reporting
+        # Phase 800: Setup Edge Auditor Tables
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                symbol TEXT,
+                side TEXT,
+                setup_type TEXT,
+                price REAL,
+                metadata TEXT,
+                session_id TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS price_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                symbol TEXT,
+                price REAL
+            )
+            """
+        )
         try:
-            conn.execute("ALTER TABLE trades ADD COLUMN lifecycle_phase TEXT DEFAULT 'ACTIVE'")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_price_ts_sym ON price_samples(timestamp, symbol)")
         except sqlite3.OperationalError:
-            pass  # Already exists
+            pass
 
         conn.commit()
 
@@ -304,6 +347,28 @@ class TradeHistorian:
 
         self._ensure_worker()
         self._queue.put(("INSERT_DEPTH", (timestamp, symbol, bids, asks)))
+
+    def record_signal(
+        self, timestamp: float, symbol: str, side: str, setup_type: str, price: float, metadata: str, session_id: str
+    ):
+        """
+        Phase 800: Edge Auditor. Records raw signals for post-trade Alpha analysis.
+        """
+        if not self._use_mp:
+            return
+
+        self._ensure_worker()
+        self._queue.put(("INSERT_SIGNAL", (timestamp, symbol, side, setup_type, price, metadata, session_id)))
+
+    def record_price_sample(self, timestamp: float, symbol: str, price: float):
+        """
+        Phase 800: Edge Auditor. Records high-frequency price snapshots for MFE/MAE analysis.
+        """
+        if not self._use_mp:
+            return
+
+        self._ensure_worker()
+        self._queue.put(("INSERT_PRICE_SAMPLE", (timestamp, symbol, price)))
 
     def record_trade(self, trade_data: Dict[str, Any]):
         """

@@ -42,7 +42,7 @@ from core.candle_maker import CandleMaker
 from core.clock import Clock
 from core.engine import Engine
 from core.error_handling.error_handler import RetryConfig, get_error_handler
-from core.events import AccountUpdateEvent, EventType, TickEvent
+from core.events import AccountUpdateEvent, AggregatedSignalEvent, EventType, TickEvent
 from core.execution import OrderManager
 from core.feed import StreamManager
 
@@ -146,6 +146,12 @@ def parse_args():
         help="Enable Terminal User Interface (Dashboard)",
     )
 
+    parser.add_argument(
+        "--audit",
+        action="store_true",
+        help="Enable Zero-Interference Audit Mode (Edge Validation)",
+    )
+
     return parser.parse_args()
 
 
@@ -238,6 +244,10 @@ async def main():
         pass
 
     logger.info(f"🚀 Starting Casino-V3 | Exchange: {args.exchange} | Mode: {args.mode}")
+
+    if args.audit:
+        trading_config.AUDIT_MODE = True
+        logger.warning("🔍 AUDIT MODE ENABLED: Signals will be recorded. Proactive exits DISABLED.")
 
     # 0. Start Metrics Server
     logger.info("📊 Starting metrics server...")
@@ -427,6 +437,37 @@ async def main():
 
     engine.subscribe(EventType.TICK, context_tick_handler)
     logger.info("🏛️ Context Registry linked to Tick Feed (Zero-Lag Mirror ACTIVE)")
+
+    # --- Phase 800: AUDIT MODE HANDLERS ---
+    if trading_config.AUDIT_MODE:
+
+        async def audit_signal_handler(event: AggregatedSignalEvent):
+            """Records all signals even if not picked up by Player."""
+            historian.record_signal(
+                timestamp=event.timestamp,
+                symbol=event.symbol,
+                side=event.side,
+                setup_type=event.setup_type or "unknown",
+                price=event.price,
+                metadata=str(event.metadata),
+                session_id=croupier.position_tracker.session_id,
+            )
+
+        engine.subscribe(EventType.AGGREGATED_SIGNAL, audit_signal_handler)
+        logger.info("🔍 Audit: Signal Recorder linked to AGGREGATED_SIGNAL")
+
+        # Throttled price sampling
+        last_sample_ts = {}
+
+        async def audit_price_handler(event: TickEvent):
+            now = event.timestamp
+            symbol = event.symbol
+            if symbol not in last_sample_ts or (now - last_sample_ts[symbol] >= trading_config.AUDIT_SAMPLING_FREQ):
+                historian.record_price_sample(now, symbol, event.price)
+                last_sample_ts[symbol] = now
+
+        engine.subscribe(EventType.TICK, audit_price_handler)
+        logger.info(f"🔍 Audit: Price Sampler linked (Freq: {trading_config.AUDIT_SAMPLING_FREQ}s)")
 
     # 12. Initialize State Manager (for crash recovery)
     from core.state import StateManager

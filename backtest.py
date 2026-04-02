@@ -27,12 +27,13 @@ time.time = sim_time_provider
 # Add root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import config.trading as trading_config  # noqa: E402
 from core.backtest_feed import BacktestFeed  # noqa: E402
 from core.candle_maker import CandleMaker  # noqa: E402
 from core.clock import Clock  # noqa: E402
 from core.context_registry import ContextRegistry  # noqa: E402
 from core.engine import Engine  # noqa: E402
-from core.events import EventType  # noqa: E402
+from core.events import AggregatedSignalEvent, EventType, TickEvent  # noqa: E402
 from core.execution import OrderManager  # noqa: E402
 from core.sensor_manager import SensorManager  # noqa: E402
 from croupier.croupier import Croupier  # noqa: E402
@@ -60,11 +61,16 @@ def parse_args():
     parser.add_argument(
         "--depth-db", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
     )
+    parser.add_argument("--audit", action="store_true", help="Enable Zero-Interference Audit Mode (Edge Validation)")
     return parser.parse_args()
 
 
 async def run_backtest():
     args = parse_args()
+
+    if args.audit:
+        trading_config.AUDIT_MODE = True
+        logger.warning("🔍 AUDIT MODE ENABLED: Simulation will record signals and prices. Proactive exits DISABLED.")
 
     if not os.path.exists(args.data):
         logger.error(f"❌ Data file not found: {args.data}")
@@ -155,7 +161,36 @@ async def run_backtest():
     engine.subscribe(EventType.ORDER_UPDATE, on_order_update_tracker)
     engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)
 
-    # Register reactor components
+    # 6.5 Setup Audit Handlers
+    if trading_config.AUDIT_MODE:
+        from core.observability.historian import historian
+
+        async def audit_signal_handler(event: AggregatedSignalEvent):
+            historian.record_signal(
+                timestamp=event.timestamp,
+                symbol=event.symbol,
+                side=event.side,
+                setup_type=event.setup_type or "unknown",
+                price=event.price,
+                metadata=str(event.metadata),
+                session_id=croupier.position_tracker.session_id,
+            )
+
+        engine.subscribe(EventType.AGGREGATED_SIGNAL, audit_signal_handler)
+
+        last_sample_ts = {}
+
+        async def audit_price_handler(event: TickEvent):
+            now = event.timestamp
+            symbol = event.symbol
+            if symbol not in last_sample_ts or (now - last_sample_ts[symbol] >= trading_config.AUDIT_SAMPLING_FREQ):
+                historian.record_price_sample(now, symbol, event.price)
+                last_sample_ts[symbol] = now
+
+        engine.subscribe(EventType.TICK, audit_price_handler)
+        logger.info(f"🔍 Audit: Listeners connected (Freq: {trading_config.AUDIT_SAMPLING_FREQ}s)")
+
+    # 6. Register reactor components
     clock.add_iterator(adapter)
     clock.add_iterator(croupier)
 
@@ -191,8 +226,6 @@ async def run_backtest():
     wins = [t for t in closed_trades if t["pnl"] > 0]
 
     # 8.5 Persist closed trades to Historian DB (Parity Infrastructure Fix)
-    from core.observability.historian import historian
-
     for ct in closed_trades:
         entry_price = float(ct.get("entry_price", 0.0))
         exit_price = float(ct.get("price", 0.0))

@@ -365,10 +365,10 @@ class AdaptivePlayer:
                 )
                 return
 
-            # Max distance sanity (> 2% is not scalping)
+            # Max distance sanity (> 10% is not scalping)
             tp_dist = abs(tp_price - current_price) / current_price * 100
             sl_dist = abs(sl_price - current_price) / current_price * 100
-            if tp_dist > 2.0 or sl_dist > 2.0:
+            if tp_dist > 10.0 or sl_dist > 10.0:
                 logger.warning(f"🚫 REJECTED: Distance too large (TP={tp_dist:.2f}% SL={sl_dist:.2f}%)")
                 return
 

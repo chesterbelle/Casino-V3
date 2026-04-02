@@ -143,14 +143,18 @@ python main.py --timeout 150  # Stop after 150 minutes
 python main.py --close-on-exit
 ```
 
-#### --leverage
-**Description**: Leverage multiplier
-**Type**: Integer
-**Default**: `10`
-**Range**: `1` - `125`
-
 ```bash
 python main.py --leverage 20
+```
+
+#### --audit
+**Description**: Enable Zero-Interference Audit Mode (Edge Validation)
+**Type**: Flag (no value needed)
+**Default**: False
+
+```bash
+python main.py --audit
+python backtest.py --data history.csv --audit
 ```
 
 ---
@@ -296,6 +300,14 @@ LOG_LEVEL=DEBUG
 ENABLE_METRICS=false
 MAX_POSITIONS=1
 BASE_BET_SIZE=0.01
+```
+
+### Audit & Validation (Edge Discovery)
+
+```env
+# config/trading.py
+AUDIT_MODE=true             # Disables proactive exits (Shadow SL, etc.)
+AUDIT_SAMPLING_FREQ=1.0      # Sample price every 1.0s
 ```
 
 ---
