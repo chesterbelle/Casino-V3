@@ -139,6 +139,7 @@ class SignalEvent(Event):
     metadata: Optional[Dict[str, Any]] = None
     trace_id: Optional[str] = None
     fast_track: bool = False  # Phase 240: If true, bypasses Aggregator 500ms delay
+    price: float = 0.0  # Phase 800: Required for level checks and auditor
 
     def __post_init__(self):
         self.type = EventType.SIGNAL
@@ -161,6 +162,7 @@ class AggregatedSignalEvent(Event):
     t1_decision_ts: Optional[float] = None  # Phase 10: Decision Time
     trace_id: Optional[str] = None
     setup_type: Optional[str] = None
+    price: float = 0.0  # Phase 800: Price at execution
 
     def __post_init__(self):
         self.type = EventType.AGGREGATED_SIGNAL

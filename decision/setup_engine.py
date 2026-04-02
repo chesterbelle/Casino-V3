@@ -549,6 +549,7 @@ class SetupEngineV4:
             t0_timestamp=t0,
             t1_decision_ts=time.time(),  # explicit wall time for Phase 1130 latency verification
             setup_type=setup_type,
+            price=getattr(source_event, "price", 0.0),
         )
         await self.engine.dispatch(out_evt)
 

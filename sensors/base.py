@@ -73,5 +73,6 @@ class SensorV3(ABC):
             sensor_id=self.__class__.__name__,  # Use class name as sensor ID
             score=score,
             metadata=md,
+            price=md.get("price", 0.0),
         )
         await self.engine.dispatch(signal)
