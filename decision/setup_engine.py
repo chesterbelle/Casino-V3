@@ -324,18 +324,19 @@ class SetupEngineV4:
         adaptive_threshold_trend = max(1.5, min(3.0, adaptive_threshold_trend))
         adaptive_threshold_neutral = max(2.5, min(4.5, adaptive_threshold_neutral))
 
-        # Sharp Sniper (Round 6) logic...
-        is_long_z = (z > adaptive_threshold_trend and otf == "UP") or (
+        # Phase 810: Trend Alignment logic
+        # If OTF is DOWN, we fade massive BUY spikes (going SHORT)
+        is_buy_spike = (z > adaptive_threshold_trend and otf == "DOWN") or (
             z > adaptive_threshold_neutral and otf == "NEUTRAL"
         )
         price_confirm_long = (price_delta >= 0) if z <= 3.5 else True
         skew_confirm_long = skewness > 0.55 or skewness == 0.5
 
-        if is_long_z:
+        if is_buy_spike:
             if not skew_confirm_long:
-                logger.debug(f"❌ [REJECT LONG] {sym} | Z: {z:.2f} | Skew {skewness:.2f} failed confirm")
+                logger.debug(f"❌ [REJECT SHORT] {sym} | Z: {z:.2f} | Skew {skewness:.2f} failed confirm")
             elif not price_confirm_long:
-                logger.debug(f"❌ [REJECT LONG] {sym} | Z: {z:.2f} | PriceDelta {price_delta:.4f} failed confirm")
+                logger.debug(f"❌ [REJECT SHORT] {sym} | Z: {z:.2f} | PriceDelta {price_delta:.4f} failed confirm")
             else:
                 trigger = {
                     "setup_name": "Toxic_OrderFlow",
@@ -353,17 +354,17 @@ class SetupEngineV4:
                 }
 
         # Short logic...
+        # Phase 810: If OTF is UP, we fade massive SELL spikes (going LONG)
         if not trigger and (
-            (z < -adaptive_threshold_trend and (otf == "DOWN"))
-            or (z < -adaptive_threshold_neutral and otf == "NEUTRAL")
+            (z < -adaptive_threshold_trend and otf == "UP") or (z < -adaptive_threshold_neutral and otf == "NEUTRAL")
         ):
             price_confirm_short = (price_delta <= 0) if z >= -3.5 else True
             skew_confirm_short = skewness < 0.45 or skewness == 0.5
 
             if not skew_confirm_short:
-                logger.debug(f"❌ [REJECT SHORT] {sym} | Z: {z:.2f} | Skew {skewness:.2f} failed confirm")
+                logger.debug(f"❌ [REJECT LONG] {sym} | Z: {z:.2f} | Skew {skewness:.2f} failed confirm")
             elif not price_confirm_short:
-                logger.debug(f"❌ [REJECT SHORT] {sym} | Z: {z:.2f} | PriceDelta {price_delta:.4f} failed confirm")
+                logger.debug(f"❌ [REJECT LONG] {sym} | Z: {z:.2f} | PriceDelta {price_delta:.4f} failed confirm")
             else:
                 trigger = {
                     "setup_name": "Toxic_OrderFlow",
