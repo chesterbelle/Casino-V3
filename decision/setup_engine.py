@@ -67,6 +67,10 @@ class SetupEngineV4:
         self.failed_auctions: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         self.last_volatility_spike: Dict[str, float] = defaultdict(float)
 
+        # Phase 850: Pullback and Climax Watch states
+        self.pullback_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        self.climax_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
+
         self._micro_count = 0
         logger.info(
             f"🎯 Setup Engine initialized (Sniper Mode Activated | Warmup: {'0m' if self.fast_track else '20m'})"
@@ -128,6 +132,51 @@ class SetupEngineV4:
 
         return nearest
 
+    def _evaluate_delta_divergence(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
+        """
+        Playbook 3: Delta Divergence (High Probability)
+        Trigger Condition:
+        1. TacticalDivergence signal in 5s memory.
+        2. Proximity to structural level (dist_pct < 0.20%).
+        3. Divergence direction matches rejection of that level.
+        """
+        divergence = None
+        for e in events:
+            md = e.metadata or {}
+            if md.get("tactical_type") == "TacticalDivergence":
+                divergence = md
+                break
+
+        if not divergence:
+            return None
+
+        # Get current price from latest microstructure
+        price = 0.0
+        if self.micro_memory[symbol]:
+            price = self.micro_memory[symbol][-1][2].price
+
+        if price > 0:
+            proximity = self._check_level_proximity(symbol, price)
+            if proximity:
+                # Basic check: Rejection is LONG if at support (poc, val, ibl), SHORT if at resistance (poc, vah, ibh)
+                # But Divergence already has a direction. We just ensure it's near a level.
+                trigger_meta = {
+                    "trigger": "DeltaDivergence",
+                    "setup_type": "reversion",
+                    "level_ref": proximity["level_ref"],
+                    "level_price": proximity["level_price"],
+                    "dist_pct": proximity["dist_pct"],
+                    "price": price,
+                }
+                trigger_meta = self._enrich_metadata(trigger_meta, symbol)
+
+                return {
+                    "setup_name": "Delta_Divergence",
+                    "side": divergence["direction"],
+                    "metadata": trigger_meta,
+                }
+        return None
+
     async def on_signal(self, event: SignalEvent):
         """Processes incoming tactical and regime events."""
         # Phase 1500: Sync Regime Filters with ContextRegistry
@@ -183,11 +232,34 @@ class SetupEngineV4:
         # 3. Evaluate Strict Playbooks against the 5s memory window
         events = [e[2] for e in self.memory[sym]]
 
-        trigger = self._evaluate_fade_extreme(sym, events)
-        setup_type = "reversion"
-        if not trigger:
-            trigger = self._evaluate_trend_continuation(sym, events)
-            setup_type = "continuation"
+        # Phase 850: Handle Climax Confirmation (Exhaustion)
+        md = event.metadata or {}
+        if md.get("tactical_type") == "TacticalExhaustion" and self.climax_watch[sym].get("active"):
+            climax = self.climax_watch[sym]
+            # Verify direction alignment (Exhaustion LONG confirms Climax SELL exhaustion -> LONG)
+            if md.get("direction") == climax["direction"]:
+                logger.info(f"🔥 [CONFIRMED] {sym} Climax matched with Exhaustion. Firing Toxic_OrderFlow.")
+                trigger = {
+                    "setup_name": "Toxic_OrderFlow_Confirmed",
+                    "side": climax["direction"],
+                    "metadata": climax["metadata"],
+                }
+                trigger["metadata"]["exhaustion_ratio"] = md.get("ratio")
+                self.climax_watch[sym]["active"] = False
+                setup_type = "reversion"
+            else:
+                trigger = None
+        else:
+            trigger = self._evaluate_delta_divergence(sym, events)
+            setup_type = "reversion"
+
+            if not trigger:
+                trigger = self._evaluate_fade_extreme(sym, events)
+                setup_type = "reversion"
+
+            if not trigger:
+                trigger = self._evaluate_trend_continuation(sym, events)
+                setup_type = "continuation"
 
         # 4. Fire 0ms Latency Action if playbook matches using Guarded Dispatch
         if trigger:
@@ -258,6 +330,8 @@ class SetupEngineV4:
             self._last_micro_prune_ts = now
             for s in list(self.micro_memory.keys()):
                 cutoff = now - 5.0
+                while self.memory[s] and self.memory[s][0][0] < cutoff:
+                    self.memory[s].popleft()
                 while self.micro_memory[s] and self.micro_memory[s][0][0] < cutoff:
                     self.micro_memory[s].popleft()
 
@@ -267,6 +341,39 @@ class SetupEngineV4:
 
         first_evt = self.micro_memory[sym][0][2]
         curr_evt = self.micro_memory[sym][-1][2]
+
+        # Phase 850: Pullback Watch Trigger
+        if self.pullback_watch[sym].get("active"):
+            pb = self.pullback_watch[sym]
+            if time.time() - pb["start_ts"] > 60:
+                pb["active"] = False
+            else:
+                retrace_touched = False
+                if pb["direction"] == "LONG":
+                    if event.price <= pb["target_poc"] * 1.0005:
+                        retrace_touched = True
+                else:
+                    if event.price >= pb["target_poc"] * 0.9995:
+                        retrace_touched = True
+
+                if retrace_touched:
+                    if self.context_registry:
+                        otf = self.context_registry.get_regime(sym)
+                        if otf == ("UP" if pb["direction"] == "LONG" else "DOWN") or otf == "NEUTRAL":
+                            logger.info(
+                                f"🎯 [PULLBACK_TRIGGER] {sym} price {event.price:.4f} hit POC {pb['target_poc']:.4f}. Firing {pb['direction']} Continuation."
+                            )
+                            await self._dispatch_guarded_signal(
+                                sym,
+                                pb["direction"],
+                                "Trend_Continuation_Pullback",
+                                pb["metadata"],
+                                curr_evt,
+                                setup_type="continuation",
+                            )
+                            pb["active"] = False
+                            return
+
         skewness = event.skewness
         price_delta = curr_evt.price - first_evt.price
 
@@ -381,6 +488,20 @@ class SetupEngineV4:
                     },
                 }
 
+        # Phase 850: Climax Gating (Toxic OrderFlow confirmed by Exhaustion)
+        if trigger and trigger["setup_name"] == "Toxic_OrderFlow":
+            if abs(trigger["metadata"]["z_score"]) > 4.5:
+                logger.info(
+                    f"🔍 [CLIMAX_WATCH] {sym} Extreme Z-Score ({trigger['metadata']['z_score']:.2f}). Waiting for Exhaustion."
+                )
+                self.climax_watch[sym] = {
+                    "active": True,
+                    "direction": trigger["side"],
+                    "metadata": trigger["metadata"],
+                    "start_ts": time.time(),
+                }
+                trigger = None
+
         # Phase 1600: Balanced Regime Gating & Slippage Guard (R12)
         if trigger:
             side = trigger.get("side", "")
@@ -392,32 +513,38 @@ class SetupEngineV4:
                 logger.warning(f"🚫 [PANIC BLOCK] {sym} {side} Reversion rejected due to recent Volatility Spike")
                 trigger = None
 
-            if not trigger:
-                pass
-            # 1. Regime Filter
-            elif side == "SHORT" and otf == "UP":
-                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP")
-                trigger = None
-            elif side == "LONG" and otf == "DOWN":
-                logger.debug("❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN")
-                trigger = None
+            if trigger:
+                # 1. Regime Filter
+                if side == "SHORT" and otf == "UP":
+                    logger.debug("❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP")
+                    trigger = None
+                elif side == "LONG" and otf == "DOWN":
+                    logger.debug("❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN")
+                    trigger = None
 
-            # 2. Slippage Guard (Phase 1300 / 800 Adaptive)
-            # Base threshold: 0.08%
-            # Adaptive threshold: max(0.08, ATR_1m / Price * 0.25)
-            atr_1m = getattr(event, "atr_1m", 0.0)
+            if trigger:
+                # 2. Slippage Guard (Phase 1300 / 800 Adaptive)
+                # Base threshold: 0.08%
+                # Adaptive threshold: max(0.08, ATR_1m / Price * 0.25)
+                # Note: event is the microstructure event
+                atr_1m = getattr(event, "atr_1m", 0.0)
 
-            base_max_slippage = 0.08
-            adaptive_slippage_limit = base_max_slippage
-            if atr_1m > 0 and event.price > 0:
-                adaptive_slippage_limit = max(base_max_slippage, (atr_1m / event.price) * 0.25 * 100)
+                base_max_slippage = 0.08
+                adaptive_slippage_limit = base_max_slippage
+                if atr_1m > 0 and event.price > 0:
+                    adaptive_slippage_limit = max(base_max_slippage, (atr_1m / event.price) * 0.25 * 100)
 
-            if trigger and estimated_slippage_pct > adaptive_slippage_limit:
-                logger.warning(
-                    f"⚠️ [SLIPPAGE GUARD] {sym} {side} Rejected | "
-                    f"Est. Slippage: {estimated_slippage_pct:.4f}% > {adaptive_slippage_limit:.4f}% (Adaptive)"
+                if estimated_slippage_pct > adaptive_slippage_limit:
+                    logger.warning(
+                        f"⚠️ [SLIPPAGE GUARD] {sym} {side} Rejected | "
+                        f"Est. Slippage: {estimated_slippage_pct:.4f}% > {adaptive_slippage_limit:.4f}% (Adaptive)"
+                    )
+                    trigger = None
+
+            if trigger:
+                await self._dispatch_guarded_signal(
+                    sym, trigger["side"], trigger["setup_name"], trigger["metadata"], curr_evt, setup_type=setup_type
                 )
-                trigger = None
 
             # 3. Phase 800: Dalton Target Confluence (Failed Auction Proximity)
             if trigger and trigger.get("setup_type") == "reversion":
@@ -686,22 +813,31 @@ class SetupEngineV4:
                     return None
 
             vol_ratio = self.context_registry.get_volatility_ratio(symbol) if self.context_registry else 1.0
-            skewness = getattr(latest_micro, "skewness", 0.5)
+            latest_micro_price = getattr(latest_micro, "price", 0.0)
+            target_poc = stacked.get("poc", latest_micro_price)
 
-            return {
-                "setup_name": "Trend_Continuation",
-                "side": stacked_dir,
-                "setup_type": "continuation",
+            # Phase 850: Enter PULLBACK_WATCH instead of firing
+            self.pullback_watch[symbol] = {
+                "active": True,
+                "direction": stacked_dir,
+                "target_poc": target_poc,
+                "start_ts": time.time(),
                 "metadata": {
-                    "trigger": "TrendContinuation",
+                    "trigger": "TrendContinuation_Pullback",
                     "setup_type": "continuation",
                     "levels": stacked.get("levels", []),
                     "confluence_count": sum(1 for c in confirmations if c.get("direction") == stacked_dir),
                     "has_confluence": has_confluence,
                     "cvd": getattr(latest_micro, "cvd", 0.0),
                     "vol_ratio": vol_ratio,
-                    "skewness": skewness,
-                    "price": getattr(latest_micro, "price", 0.0),
+                    "skewness": getattr(latest_micro, "skewness", 0.5),
+                    "price": latest_micro_price,
+                    "target_poc": target_poc,
                 },
             }
+
+            logger.info(
+                f"🔍 [PULLBACK_WATCH] {symbol} {stacked_dir} Stack detected. Waiting for retrace to {target_poc:.4f}"
+            )
+            return None
         return None

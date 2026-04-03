@@ -226,6 +226,7 @@ class FootprintStackedImbalance(SensorV3):
                     "pattern": "Stacked_Imbalance_Bid",
                     "levels": bid_stack["levels"],
                     "count": bid_stack["count"],
+                    "poc": get_val(candle, "poc"),
                 },
             }
 
@@ -247,6 +248,7 @@ class FootprintStackedImbalance(SensorV3):
                     "pattern": "Stacked_Imbalance_Ask",
                     "levels": ask_stack["levels"],
                     "count": ask_stack["count"],
+                    "poc": get_val(candle, "poc"),
                 },
             }
 
