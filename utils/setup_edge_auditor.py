@@ -177,8 +177,8 @@ class EdgeAuditor:
             print("-" * 60)
             for setup, group in df.groupby("setup_type"):
                 w = (group[ft_col] == "WIN").sum()
-                l = (group[ft_col] == "LOSS").sum()
-                d = w + l
+                loss_cnt = (group[ft_col] == "LOSS").sum()
+                d = w + loss_cnt
                 wr = (w / d * 100) if d > 0 else 0
                 if d < 20:
                     verdict = f"{YELLOW}INSUFFICIENT{RESET}"

@@ -330,7 +330,7 @@ class SetupEngineV4:
         if len(self.micro_memory[sym]) < 2:
             return
 
-        first_evt = self.micro_memory[sym][0][2]
+        # Phase 850: Pullback Watch Trigger
         curr_evt = self.micro_memory[sym][-1][2]
 
         # Phase 850: Pullback Watch Trigger
@@ -509,15 +509,27 @@ class SetupEngineV4:
             return None
 
         trap_price = trapped.get("trap_price") or trapped.get("high") or trapped.get("low") or 0.0
-        
+
         # Phase 950: Sniper Mode (HTF Location Gating)
         if trap_price > 0:
             proximity = self._check_level_proximity(symbol, trap_price)
             if not proximity:
-                logger.debug(f"❌ [LOCATION GATE] Trapped_Traders {direction} rejected: Price {trap_price:.4f} not near HTF level")
+                logger.debug(
+                    f"❌ [LOCATION GATE] Trapped_Traders {direction} rejected: Price {trap_price:.4f} not near HTF level"
+                )
                 return None
         else:
-            return None # Invalid price event
+            return None  # Invalid price event
+
+        # Phase 970: Structural Order Flow Exit Anchoring
+        # SL is placed precisely behind the trapped wick + 0.02% liquidity sweep buffer.
+        buffer_pct = 0.0002
+        if direction == "LONG":
+            sl_price = (trapped.get("low") or trap_price) * (1 - buffer_pct)
+            tp_price = trap_price * 1.0020  # Certified Edge
+        else:
+            sl_price = (trapped.get("high") or trap_price) * (1 + buffer_pct)
+            tp_price = trap_price * 0.9980
 
         trigger_meta = {
             "trigger": "TrappedTraders",
@@ -530,6 +542,8 @@ class SetupEngineV4:
             "level_ref": proximity["level_ref"],
             "level_price": proximity["level_price"],
             "level_dist_pct": proximity["dist_pct"],
+            "tp_price": tp_price,
+            "sl_price": sl_price,
         }
 
         return {"setup_name": "Trapped_Traders", "side": direction, "metadata": trigger_meta}
@@ -602,21 +616,39 @@ class SetupEngineV4:
         if reversal_direction and action_node:
             # Phase 950: Sniper Mode (HTF Location Gating)
             latest_micro_price = self.micro_memory[symbol][-1][2].price if self.micro_memory[symbol] else 0.0
-            reaction_price = action_node.get("trap_price") or action_node.get("high") or action_node.get("low") or latest_micro_price
+            reaction_price = (
+                action_node.get("trap_price") or action_node.get("high") or action_node.get("low") or latest_micro_price
+            )
 
             if reaction_price > 0:
                 proximity = self._check_level_proximity(symbol, reaction_price)
                 if not proximity:
-                    logger.debug(f"❌ [LOCATION GATE] Fade_Extreme {reversal_direction} rejected: Price {reaction_price:.4f} not near HTF level")
+                    logger.debug(
+                        f"❌ [LOCATION GATE] Fade_Extreme {reversal_direction} rejected: Price {reaction_price:.4f} not near HTF level"
+                    )
                     return None
             else:
                 return None
 
-            trigger_meta.update({
-                "level_ref": proximity["level_ref"],
-                "level_price": proximity["level_price"],
-                "level_dist_pct": proximity["dist_pct"],
-            })
+            # Phase 970: Structural Order Flow Exit Anchoring
+            # SL is placed precisely behind the absorption/rejection limit wall + 0.02% liquidity sweep buffer.
+            buffer_pct = 0.0002
+            if reversal_direction == "LONG":
+                sl_price = (action_node.get("low") or reaction_price) * (1 - buffer_pct)
+                tp_price = reaction_price * 1.0020
+            else:
+                sl_price = (action_node.get("high") or reaction_price) * (1 + buffer_pct)
+                tp_price = reaction_price * 0.9980
+
+            trigger_meta.update(
+                {
+                    "level_ref": proximity["level_ref"],
+                    "level_price": proximity["level_price"],
+                    "level_dist_pct": proximity["dist_pct"],
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
+                }
+            )
 
             # Regime Gate (Reversion only in Neutral)
             regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"

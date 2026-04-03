@@ -238,55 +238,21 @@ class AdaptivePlayer:
 
         # Phase 800/860: Structural TP/SL from Level Proximity (Primary Path)
         current_price = event.metadata.get("price")
-        poc = event.metadata.get("poc")
-        vah = event.metadata.get("vah")
-        val = event.metadata.get("val")
-        level_price = event.metadata.get("level_price")
 
-        # Phase 860: Extraction of candle-specific boundaries for refined SL
-        candle_high = event.metadata.get("candle_high")
-        candle_low = event.metadata.get("candle_low")
+        # Phase 970: Dumb Execution Layer (Absolute Order Flow Trust)
+        # The AdaptivePlayer is no longer responsible for guessing exits.
+        # It strictly executes the precise geometrical TP/SL calculated by the SetupEngine's Footprint analysis.
+        tp_price = event.metadata.get("tp_price")
+        sl_price = event.metadata.get("sl_price")
 
-        # Get tick size for structural buffer
-        tick_size = 0.01  # Default
-        if self.croupier and hasattr(self.croupier, "exchange_adapter"):
-            filters = self.croupier.exchange_adapter.get_market_filters(event.symbol)
-            tick_size = filters.get("tickSize", 0.01)
+        if tp_price is None or sl_price is None:
+            logger.warning(
+                f"🚫 [DUMB EXECUTION] Rejected Signal: Missing structural Stop Loss or Take Profit anchor in metadata. "
+                f"Type: {setup_type} | Symbol: {event.symbol}"
+            )
+            return
 
-        if current_price and current_price > 0 and poc and vah and val:
-            tp_sl_source = "structural_level"
-
-            if setup_type == "reversion":
-                # Fading at extreme → TP = POC (mean reversion target), SL = 2 ticks beyond the structural low/high
-                if event.side == "LONG":
-                    tp_price = poc
-                    sl_ref = candle_low or level_price or val
-                    sl_price = sl_ref - (2 * tick_size)
-                else:
-                    tp_price = poc
-                    sl_ref = candle_high or level_price or vah
-                    sl_price = sl_ref + (2 * tick_size)
-
-            elif setup_type == "continuation":
-                # Breaking through a level → TP = next level, SL = 2 ticks beyond candle/level
-                if event.side == "LONG":
-                    tp_price = vah if vah > current_price else current_price * 1.005
-                    sl_ref = candle_low or level_price or poc
-                    sl_price = sl_ref - (2 * tick_size)
-                else:
-                    tp_price = val if val < current_price else current_price * 0.995
-                    sl_ref = candle_high or level_price or poc
-                    sl_price = sl_ref + (2 * tick_size)
-            else:
-                # Fallback: structural but unknown setup type
-                if event.side == "LONG":
-                    tp_price = poc if current_price < poc else vah
-                    sl_ref = candle_low or val
-                    sl_price = sl_ref - (2 * tick_size)
-                else:
-                    tp_price = poc if current_price > poc else val
-                    sl_ref = candle_high or vah
-                    sl_price = sl_ref + (2 * tick_size)
+        tp_sl_source = "setup_engine_structural_anchor"
 
         # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
@@ -302,44 +268,6 @@ class AdaptivePlayer:
                     dist_pct = (current_price - target["price"]) / current_price
                     if dist_pct > 0.0005:
                         tp_sl_source = "unfinished_business"
-
-        # Phase 800: Direct Metadata Fallback (if sensors provide absolute prices)
-        if tp_price is None:
-            tp_price = event.metadata.get("tp_price")
-            if tp_price:
-                tp_sl_source = "metadata_direct"
-        if sl_price is None:
-            sl_price = event.metadata.get("sl_price")
-            if sl_price:
-                tp_sl_source = "metadata_direct"
-
-        # Phase 1300: Percentage Fallback (when structural levels are missing entirely)
-        if tp_price is None or sl_price is None:
-            if current_price and current_price > 0:
-                if setup_type == "reversion":
-                    tp_pct_fallback = 0.50
-                    sl_pct_fallback = 0.30
-                elif setup_type == "continuation":
-                    tp_pct_fallback = 0.60
-                    sl_pct_fallback = 0.35
-                else:
-                    tp_pct_fallback = 0.45
-                    sl_pct_fallback = 0.30
-
-                if event.side == "LONG":
-                    tp_price = current_price * (1 + tp_pct_fallback / 100)
-                    sl_price = current_price * (1 - sl_pct_fallback / 100)
-                else:
-                    tp_price = current_price * (1 - tp_pct_fallback / 100)
-                    sl_price = current_price * (1 + sl_pct_fallback / 100)
-                tp_sl_source = f"setup_type_fallback_{setup_type}"
-                logger.debug(
-                    f"📐 [FALLBACK] TP/SL generated: TP={tp_price:.4f} SL={sl_price:.4f} | Type={setup_type} | Price={current_price:.4f}"
-                )
-            else:
-                logger.warning(
-                    f"⚠️ [FALLBACK] Cannot generate TP/SL: current_price={current_price} | tp_price={tp_price} | sl_price={sl_price}"
-                )
 
         # Phase 700: Structural Validation (replace old clamps with RR + sanity checks)
         if tp_price and sl_price and current_price and current_price > 0:
@@ -425,12 +353,12 @@ class AdaptivePlayer:
             setup_type=getattr(event, "setup_type", setup_type),
             atr_1m=event.metadata.get("atr_1m", 0.0),
             timestamp=event.timestamp,
-            trigger_level=level_price or poc,
+            trigger_level=event.metadata.get("level_price") or event.metadata.get("poc"),
             trigger_type=event.metadata.get("pattern", "unknown"),
             initial_narrative={
-                "poc": poc,
-                "vah": vah,
-                "val": val,
+                "poc": event.metadata.get("poc"),
+                "vah": event.metadata.get("vah"),
+                "val": event.metadata.get("val"),
                 "z_score": event.metadata.get("z_score"),
             },
         )

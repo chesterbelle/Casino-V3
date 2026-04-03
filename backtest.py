@@ -162,8 +162,9 @@ async def run_backtest():
     engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)
 
     # 6.5 Setup Audit Handlers
+    from core.observability.historian import historian
+
     if trading_config.AUDIT_MODE:
-        from core.observability.historian import historian
 
         async def audit_signal_handler(event: AggregatedSignalEvent):
             historian.record_signal(
