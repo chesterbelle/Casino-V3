@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.0] - 2026-04-03
+
+### Added - Order Flow Refactor & Structural SL (Phase 850/860)
+- **Continuation Pullbacks (Option A)**: Transformed immediate market entries into `PULLBACK_WATCH` states, targeting the POC of the trigger candle.
+- **Delta Divergence Playbook**: New high-probability playbook with strict structural proximity gating (POC, VAH, VAL, IB).
+- **Exhaustion Climax Gating**: Toxic OrderFlow (Z > 4.5) now requires a confirming `TacticalExhaustion` event within a 5s window to validate reversals.
+- **Structural Stop-Loss**: Migrated from percentage-based SL to candle-boundary SL (+/- 2 ticks from trigger candle's high/low).
+- **Metadata Enrichment**: Tactical sensors now inject `high`, `low`, and `poc` into event metadata for precise structural targeting.
+
+### Fixed
+- **UnboundLocalError**: Resolved variable scoping issues in `SetupEngineV4._process_microstructure` during multi-event playbook evaluation.
+
+---
+
 ## [4.4.0] - 2026-04-02
 
 ### Added - Setup Edge Auditor (Phase 800)
