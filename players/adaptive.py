@@ -9,7 +9,8 @@ Supports optional Kelly Criterion sizing based on sensor performance.
 import asyncio
 import logging
 import time
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Tuple
 
 from core.events import AggregatedSignalEvent, Event, EventType
 from decision.sensor_tracker import SensorTracker
@@ -17,43 +18,31 @@ from decision.sensor_tracker import SensorTracker
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class DecisionEvent(Event):
     """Decision event with bet sizing and absolute TP/SL prices."""
 
-    def __init__(
-        self,
-        symbol: str,
-        side: str,
-        bet_size: float,
-        tp_pct: float = None,
-        sl_pct: float = None,
-        tp_price: float = None,
-        sl_price: float = None,
-        selected_sensor: str = None,
-        t0_timestamp: float = None,
-        t1_decision_ts: float = None,
-        trace_id: str = None,
-        setup_type: str = None,
-        atr_1m: float = 0.0,
-        timestamp: Optional[float] = None,
-    ):
-        super().__init__(type=EventType.DECISION, timestamp=timestamp or time.time())
-        self.t0_timestamp = t0_timestamp
-        self.t1_decision_ts = t1_decision_ts
-        self.trace_id = trace_id
-        self.setup_type = setup_type
-        self.symbol = symbol
-        self.side = side
-        self.bet_size = bet_size
-        self.tp_pct = tp_pct
-        self.sl_pct = sl_pct
-        self.tp_price = tp_price  # Absolute TP price (primary)
-        self.sl_price = sl_price  # Absolute SL price (primary)
-        self.selected_sensor = selected_sensor
-        self.atr_1m = atr_1m
-        # Compatibility fields for logging/Paroli
-        self.paroli_step = 0
-        self.unit_size = 0.0
+    type: EventType = EventType.DECISION
+    timestamp: float = field(default_factory=time.time)
+    symbol: str = ""
+    side: str = ""
+    bet_size: float = 0.0
+    tp_price: Optional[float] = None
+    sl_price: Optional[float] = None
+    selected_sensor: Optional[str] = None
+    t0_timestamp: Optional[float] = None
+    t1_decision_ts: Optional[float] = None
+    trace_id: Optional[str] = None
+    setup_type: str = "unknown"
+    atr_1m: float = 0.0
+    # Phase 880: Structural metadata for Auction Invalidation
+    trigger_level: Optional[float] = None
+    trigger_type: Optional[str] = "unknown"
+    initial_narrative: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        # Ensure type is always DECISION even if passed otherwise
+        self.type = EventType.DECISION
 
 
 class AdaptivePlayer:
@@ -436,6 +425,14 @@ class AdaptivePlayer:
             setup_type=getattr(event, "setup_type", setup_type),
             atr_1m=event.metadata.get("atr_1m", 0.0),
             timestamp=event.timestamp,
+            trigger_level=level_price or poc,
+            trigger_type=event.metadata.get("pattern", "unknown"),
+            initial_narrative={
+                "poc": poc,
+                "vah": vah,
+                "val": val,
+                "z_score": event.metadata.get("z_score"),
+            },
         )
         decision.decision_id = decision_id  # Add unique ID
         decision.shadow_sl_activation = shadow_sl_activation  # Phase 800

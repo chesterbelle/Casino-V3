@@ -131,6 +131,11 @@ class OpenPosition:
     level_ref: str = "unknown"
     level_price: float = 0.0
 
+    # Phase 880: Structural metadata for Auction Invalidation
+    trigger_level: Optional[float] = None
+    trigger_type: Optional[str] = "unknown"
+    initial_narrative: Optional[Dict[str, Any]] = None
+
     # Phase 85: Latency Telemetry
     t0_signal_ts: Optional[float] = None
     t1_decision_ts: Optional[float] = None
@@ -988,6 +993,9 @@ class PositionTracker:
                 contributors=order.get("contributors", []),
                 entry_fee=entry_fee,  # Phase 30
                 shadow_sl_activation=order.get("shadow_sl_activation", 0.0025),  # Phase 800
+                trigger_level=order.get("trigger_level"),  # Phase 880
+                trigger_type=order.get("trigger_type", "unknown"),
+                initial_narrative=order.get("initial_narrative"),
             )
 
             # Registrar posición
