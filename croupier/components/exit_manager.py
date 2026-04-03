@@ -174,33 +174,21 @@ class ExitManager:
             if now - position.timestamp < 5.0:
                 continue
 
-            # 2. Logic: Only exit if Z-score is AGGRESSIVELY moving AGAINST us.
-            # Phase 880: Auction Invalidation (Refined)
+            # Phase 900: Safety Net — Only exit on extreme toxic flow against position.
+            # This is a last-resort guard, not a strategy-level decision.
             z = event.z_score
-            burst_exit = False
-            slice_exit = False
+            emergency_exit = False
             reason = ""
 
-            # Refined Z-Burst: Exit if it moves 2.0 Z-points deeper against us than entry
             if position.side == "LONG" and z < -4.5:
-                burst_exit = True
-                reason = f"AUCTION_TOXIC_SELL (Z={z:.2f})"
+                emergency_exit = True
+                reason = f"EMERGENCY_TOXIC_SELL (Z={z:.2f})"
             elif position.side == "SHORT" and z > 4.5:
-                burst_exit = True
-                reason = f"AUCTION_TOXIC_BUY (Z={z:.2f})"
+                emergency_exit = True
+                reason = f"EMERGENCY_TOXIC_BUY (Z={z:.2f})"
 
-            # 3. Slicing Through Trigger Level (Auction Failure)
-            # If we enter a continuation and it immediately fails back through the level with force
-            if position.trigger_level:
-                if position.side == "LONG" and event.price < position.trigger_level and z < -3.0:
-                    slice_exit = True
-                    reason = f"AUCTION_POC_SLICE_DOWN (Price={event.price:.4f} < POC={position.trigger_level:.4f})"
-                elif position.side == "SHORT" and event.price > position.trigger_level and z > 3.0:
-                    slice_exit = True
-                    reason = f"AUCTION_POC_SLICE_UP (Price={event.price:.4f} > POC={position.trigger_level:.4f})"
-
-            if burst_exit or slice_exit:
-                self.logger.warning(f"🚨 AUCTION INVALIDATED for {position.trade_id} ({symbol_norm}): {reason}")
+            if emergency_exit:
+                self.logger.warning(f"🚨 EMERGENCY EXIT for {position.trade_id} ({symbol_norm}): {reason}")
                 asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=f"{reason}"))
 
     async def _check_signal_reversal(self, position: OpenPosition, signal: AggregatedSignalEvent):

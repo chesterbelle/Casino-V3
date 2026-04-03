@@ -90,8 +90,6 @@ class EdgeAuditor:
             prices_list = trajectory["price"].values
 
             if side == "LONG":
-                # Max Favorable = Highest High - Entry
-                # Max Adverse = Entry - Lowest Low
                 mfe_price = np.max(prices_list)
                 mae_price = np.min(prices_list)
                 mfe_pct = (mfe_price - entry_price) / entry_price * 100
@@ -102,8 +100,31 @@ class EdgeAuditor:
                 mfe_pct = (entry_price - mfe_price) / entry_price * 100
                 mae_pct = (mae_price - entry_price) / entry_price * 100
 
+            # Phase 900A: First Touch Win-Rate per TP/SL config
+            first_touch = {}
+            for tp_t, sl_t in [(0.2, 0.2), (0.3, 0.3), (0.5, 0.5), (0.5, 0.25)]:
+                result = "TIMEOUT"
+                for p in prices_list:
+                    if side == "LONG":
+                        pnl_pct = (p - entry_price) / entry_price * 100
+                    else:
+                        pnl_pct = (entry_price - p) / entry_price * 100
+                    if pnl_pct >= tp_t:
+                        result = "WIN"
+                        break
+                    if pnl_pct <= -sl_t:
+                        result = "LOSS"
+                        break
+                first_touch[f"ft_{tp_t}_{sl_t}"] = result
+
             results.append(
-                {"setup_type": sig["setup_type"], "mfe": mfe_pct, "mae": mae_pct, "ratio": mfe_pct / (mae_pct + 1e-9)}
+                {
+                    "setup_type": sig["setup_type"],
+                    "mfe": mfe_pct,
+                    "mae": mae_pct,
+                    "ratio": mfe_pct / (mae_pct + 1e-9),
+                    **first_touch,
+                }
             )
 
         df_results = pd.DataFrame(results)
@@ -126,19 +147,45 @@ class EdgeAuditor:
             color = GREEN if ratio > 1.2 else (YELLOW if ratio > 1.0 else RED)
             print(f"{setup:<25} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}")
 
-        # Probabilistic Expectancy
-        print(f"\n{BOLD}[2] THEORETICAL WIN-RATE (Fixed TP/SL study){RESET}")
-        print(f"{'Target TP':<10} {'Fixed SL':<10} {'Prob. WR%':<10} {'Expectancy'}")
+        # Phase 900A: First Touch Win-Rate (Correct temporal calculation)
+        print(f"\n{BOLD}[2] FIRST TOUCH WIN-RATE (Temporal Order){RESET}")
+        print(f"{'TP/SL':<12} {'Wins':<8} {'Losses':<8} {'Timeout':<8} {'WR%':<8} {'Expectancy'}")
         print("-" * 70)
 
         configs = [(0.2, 0.2), (0.3, 0.3), (0.5, 0.5), (0.5, 0.25)]
         for tp, sl in configs:
-            wins = (df["mfe"] >= tp) & (df["mae"] < sl)
-            # Simplified WR calc: assumes TP is hit before SL if both are reached in window
-            # (In reality we'd need temporal order, but for HFT edge study this is a good proxy)
-            wr = wins.mean() * 100
+            col = f"ft_{tp}_{sl}"
+            if col not in df.columns:
+                continue
+            wins = (df[col] == "WIN").sum()
+            losses = (df[col] == "LOSS").sum()
+            timeouts = (df[col] == "TIMEOUT").sum()
+            decided = wins + losses
+            wr = (wins / decided * 100) if decided > 0 else 0
+            ev = ((wr / 100) * tp - ((1 - wr / 100) * sl)) if decided > 0 else 0
             color = GREEN if wr > 55 else RED
-            print(f"{tp:>8.2f}% {sl:>8.2f}% {color}{wr:>8.1f}%{RESET}    {((wr/100)*tp - ((1-wr/100)*sl)):.4f}")
+            print(f"{tp:.1f}%/{sl:.1f}%    {wins:<8} {losses:<8} {timeouts:<8} {color}{wr:>6.1f}%{RESET}  {ev:>+.4f}")
+
+        # Phase 900A: Per-Setup First Touch Breakdown
+        print(f"\n{BOLD}[3] PER-SETUP FIRST TOUCH (0.3%/0.3%){RESET}")
+        ft_col = "ft_0.3_0.3"
+        if ft_col in df.columns:
+            print(f"{'Setup Type':<25} {'n':<6} {'Wins':<6} {'WR%':<8} {'Verdict'}")
+            print("-" * 60)
+            for setup, group in df.groupby("setup_type"):
+                w = (group[ft_col] == "WIN").sum()
+                l = (group[ft_col] == "LOSS").sum()
+                d = w + l
+                wr = (w / d * 100) if d > 0 else 0
+                if d < 20:
+                    verdict = f"{YELLOW}INSUFFICIENT{RESET}"
+                elif wr > 55:
+                    verdict = f"{GREEN}CERTIFIED{RESET}"
+                elif wr > 50:
+                    verdict = f"{YELLOW}WATCH{RESET}"
+                else:
+                    verdict = f"{RED}FAILED{RESET}"
+                print(f"{setup:<25} {len(group):<6} {w:<6} {wr:>6.1f}%  {verdict}")
 
         print(header("AUDIT COMPLETE"))
 

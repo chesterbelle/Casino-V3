@@ -232,36 +232,25 @@ class SetupEngineV4:
         # 3. Evaluate Strict Playbooks against the 5s memory window
         events = [e[2] for e in self.memory[sym]]
 
-        # Phase 850: Handle Climax Confirmation (Exhaustion)
-        md = event.metadata or {}
-        if md.get("tactical_type") == "TacticalExhaustion" and self.climax_watch[sym].get("active"):
-            climax = self.climax_watch[sym]
-            # Verify direction alignment (Exhaustion LONG confirms Climax SELL exhaustion -> LONG)
-            if md.get("direction") == climax["direction"]:
-                logger.info(f"🔥 [CONFIRMED] {sym} Climax matched with Exhaustion. Firing Toxic_OrderFlow.")
-                trigger = {
-                    "setup_name": "Toxic_OrderFlow_Confirmed",
-                    "side": climax["direction"],
-                    "metadata": climax["metadata"],
-                }
-                trigger["metadata"]["exhaustion_ratio"] = md.get("ratio")
-                trigger["metadata"]["candle_high"] = md.get("high")
-                trigger["metadata"]["candle_low"] = md.get("low")
-                self.climax_watch[sym]["active"] = False
-                setup_type = "reversion"
-            else:
-                trigger = None
-        else:
+        # Phase 900: Dale-Pure Playbook Evaluation (ordered by WR)
+        # Priority 1: Trapped Traders (Dale #3, WR 70-75%)
+        trigger = self._evaluate_trapped_traders(sym, events)
+        setup_type = "reversion"
+
+        # Priority 2: Delta Divergence (Dale #4, WR 70-75%)
+        if not trigger:
             trigger = self._evaluate_delta_divergence(sym, events)
             setup_type = "reversion"
 
-            if not trigger:
-                trigger = self._evaluate_fade_extreme(sym, events)
-                setup_type = "reversion"
+        # Priority 3: Fade Extreme / Absorption (Dale #1, WR 65-70%)
+        if not trigger:
+            trigger = self._evaluate_fade_extreme(sym, events)
+            setup_type = "reversion"
 
-            if not trigger:
-                trigger = self._evaluate_trend_continuation(sym, events)
-                setup_type = "continuation"
+        # Priority 4: Trend Continuation (Dale #2, WR 60-65%)
+        if not trigger:
+            trigger = self._evaluate_trend_continuation(sym, events)
+            setup_type = "continuation"
 
         # 4. Fire 0ms Latency Action if playbook matches using Guarded Dispatch
         if trigger:
@@ -377,12 +366,10 @@ class SetupEngineV4:
                             return
 
         skewness = event.skewness
-        price_delta = curr_evt.price - first_evt.price
 
         if event.price == 0:
             return
 
-        trigger = None
         z = event.z_score
         otf = "NEUTRAL"
 
@@ -390,206 +377,8 @@ class SetupEngineV4:
             otf = self.context_registry.get_regime(sym)
             self.context_registry.set_micro_state(sym, event.cvd, skewness, z)
 
-        # Throttled Debug Monitor (Phase 1300 Optimization)
-        if getattr(self, "_tick_count", 0) % 10000 == 0:
-            logger.debug(
-                f"🔍 [MONITOR] {sym} | Z: {z:.2f} | OTF: {otf} | Skew: {skewness:.2f} | CVD: {event.cvd:.2f} | "
-                f"Spread: {event.spread:.4f} | B5: {event.bid_depth_5:.2f} | A5: {event.ask_depth_5:.2f}"
-            )
-
-        # 3. Phase 1300: Slippage Guard (Market Impact Estimation)
-        # Assuming a default size of 100 USDT for impact calculation
-        order_size_usdt = 100.0
-        # Simple slippage estimate: OrderSize / (Available Liquidity in Top 5 * 0.5)
-        estimated_slippage_pct = 0.0
-
-        # L2 Warmup Check: If both depths are 0, it likely means the L2 sensor hasn't
-        # received its first snapshot yet (common at start of backtest/demo)
-        l2_ready = event.bid_depth_5 > 0 or event.ask_depth_5 > 0
-
-        if l2_ready and (side_for_impact := ("BUY" if z > 0 else "SELL")):
-            relevant_depth = event.ask_depth_5 if side_for_impact == "BUY" else event.bid_depth_5
-            if relevant_depth > 0:
-                # Price impact approximation (%)
-                estimated_slippage_pct = (order_size_usdt / (relevant_depth * event.price)) * 100
-            else:
-                estimated_slippage_pct = 1.0  # Empty book for one side (Toxic)
-        elif not l2_ready:
-            # Bypass guard during L2 warmup to avoid False Negatives in Parity Checks
-            estimated_slippage_pct = 0.0
-
-        # Adaptive Thresholds (Phase 1300)
-        vol_ratio = 1.0
-        if self.context_registry:
-            vol_ratio = self.context_registry.get_volatility_ratio(sym)
-
-        # Adjust base thresholds (2.0 and 3.0) by vol_ratio
-        # During expansion (vol_ratio > 1), thresholds DECREASE (easier to enter)
-        # During contraction (vol_ratio < 1), thresholds INCREASE (harder to enter)
-        adaptive_threshold_trend = 2.5 / vol_ratio
-        adaptive_threshold_neutral = 4.5 / vol_ratio
-
-        # Clamp adaptive thresholds to prevent extreme values
-        adaptive_threshold_trend = max(1.5, min(3.0, adaptive_threshold_trend))
-        adaptive_threshold_neutral = max(2.5, min(4.5, adaptive_threshold_neutral))
-
-        # Phase 810: Trend Alignment logic
-        # If OTF is DOWN, we fade massive BUY spikes (going SHORT)
-        is_buy_spike = (z > adaptive_threshold_trend and otf == "DOWN") or (
-            z > adaptive_threshold_neutral and otf == "NEUTRAL"
-        )
-        price_confirm_long = (price_delta >= 0) if z <= 3.5 else True
-        skew_confirm_long = skewness > 0.55 or skewness == 0.5
-
-        if is_buy_spike:
-            if not skew_confirm_long:
-                logger.debug(f"❌ [REJECT SHORT] {sym} | Z: {z:.2f} | Skew {skewness:.2f} failed confirm")
-            elif not price_confirm_long:
-                logger.debug(f"❌ [REJECT SHORT] {sym} | Z: {z:.2f} | PriceDelta {price_delta:.4f} failed confirm")
-            else:
-                trigger = {
-                    "setup_name": "Toxic_OrderFlow",
-                    "side": "SHORT",
-                    "setup_type": "reversion",
-                    "metadata": {
-                        "trigger": "Toxic_OrderFlow",
-                        "setup_type": "reversion",
-                        "z_score": z,
-                        "skewness": skewness,
-                        "price": curr_evt.price,
-                        "vol_ratio": vol_ratio,
-                        "t0_wall_time": self.micro_memory[sym][0][1],
-                        "candle_high": event.bid_depth_5,
-                        "candle_low": event.ask_depth_5,
-                    },
-                }
-
-        # Short logic...
-        # Phase 810: If OTF is UP, we fade massive SELL spikes (going LONG)
-        if not trigger and (
-            (z < -adaptive_threshold_trend and otf == "UP") or (z < -adaptive_threshold_neutral and otf == "NEUTRAL")
-        ):
-            price_confirm_short = (price_delta <= 0) if z >= -3.5 else True
-            skew_confirm_short = skewness < 0.45 or skewness == 0.5
-
-            if not skew_confirm_short:
-                logger.debug(f"❌ [REJECT LONG] {sym} | Z: {z:.2f} | Skew {skewness:.2f} failed confirm")
-            elif not price_confirm_short:
-                logger.debug(f"❌ [REJECT LONG] {sym} | Z: {z:.2f} | PriceDelta {price_delta:.4f} failed confirm")
-            else:
-                trigger = {
-                    "setup_name": "Toxic_OrderFlow",
-                    "side": "LONG",
-                    "setup_type": "reversion",
-                    "metadata": {
-                        "trigger": "Toxic_OrderFlow",
-                        "setup_type": "reversion",
-                        "z_score": z,
-                        "skewness": skewness,
-                        "price": curr_evt.price,
-                        "vol_ratio": vol_ratio,
-                        "t0_wall_time": self.micro_memory[sym][0][1],
-                    },
-                }
-
-        # Phase 850: Climax Gating (Toxic OrderFlow confirmed by Exhaustion)
-        if trigger and trigger["setup_name"] == "Toxic_OrderFlow":
-            if abs(trigger["metadata"]["z_score"]) > 4.5:
-                logger.info(
-                    f"🔍 [CLIMAX_WATCH] {sym} Extreme Z-Score ({trigger['metadata']['z_score']:.2f}). Waiting for Exhaustion."
-                )
-                self.climax_watch[sym] = {
-                    "active": True,
-                    "direction": trigger["side"],
-                    "metadata": trigger["metadata"],
-                    "start_ts": time.time(),
-                }
-                trigger = None
-
-        # Phase 1600: Balanced Regime Gating & Slippage Guard (R12)
-        if trigger:
-            side = trigger.get("side", "")
-            setup_type = trigger.get("metadata", {}).get("setup_type", "unknown")
-
-            # 0. Panic Block (Phase 800)
-            # Don't catch falling knives during extreme spikes
-            if setup_type == "reversion" and (now - self.last_volatility_spike[sym]) < 15.0:
-                logger.warning(f"🚫 [PANIC BLOCK] {sym} {side} Reversion rejected due to recent Volatility Spike")
-                trigger = None
-
-            if trigger:
-                # 1. Regime Filter
-                if side == "SHORT" and otf == "UP":
-                    logger.debug("❌ [REGIME GATE] Toxic_OrderFlow SHORT rejected — OTF=UP")
-                    trigger = None
-                elif side == "LONG" and otf == "DOWN":
-                    logger.debug("❌ [REGIME GATE] Toxic_OrderFlow LONG rejected — OTF=DOWN")
-                    trigger = None
-
-            if trigger:
-                # 2. Slippage Guard (Phase 1300 / 800 Adaptive)
-                # Base threshold: 0.08%
-                # Adaptive threshold: max(0.08, ATR_1m / Price * 0.25)
-                # Note: event is the microstructure event
-                atr_1m = getattr(event, "atr_1m", 0.0)
-
-                base_max_slippage = 0.08
-                adaptive_slippage_limit = base_max_slippage
-                if atr_1m > 0 and event.price > 0:
-                    adaptive_slippage_limit = max(base_max_slippage, (atr_1m / event.price) * 0.25 * 100)
-
-                if estimated_slippage_pct > adaptive_slippage_limit:
-                    logger.warning(
-                        f"⚠️ [SLIPPAGE GUARD] {sym} {side} Rejected | "
-                        f"Est. Slippage: {estimated_slippage_pct:.4f}% > {adaptive_slippage_limit:.4f}% (Adaptive)"
-                    )
-                    trigger = None
-
-            if trigger:
-                await self._dispatch_guarded_signal(
-                    sym, trigger["side"], trigger["setup_name"], trigger["metadata"], curr_evt, setup_type=setup_type
-                )
-
-            # 3. Phase 800: Dalton Target Confluence (Failed Auction Proximity)
-            if trigger and trigger.get("setup_type") == "reversion":
-                price = event.price
-                targets = self.failed_auctions.get(sym, [])
-                near_target = False
-                for target in targets:
-                    target_p = target.get("price", 0)
-                    # 0.05% proximity threshold
-                    if abs(price - target_p) / target_p < 0.0005:
-                        near_target = True
-                        logger.info(f"🎯 [DALTON_TARGETED] {sym} Reversion near {target['type']} @ {target_p}")
-                        break
-
-                if near_target:
-                    # Boost confidence
-                    trigger["metadata"]["dalton_confirmed"] = True
-                    trigger["metadata"]["confidence_boost"] = 1.5
-
-        if trigger:
-            # Phase 700: Level Proximity Gate for Toxic_OrderFlow
-            price = event.price
-            proximity = self._check_level_proximity(sym, price)
-            if not proximity:
-                logger.info(
-                    f"📍 [LEVEL_FILTER] {sym} {trigger['side']} Toxic_OrderFlow filtered: "
-                    f"Price {price:.4f} not near any structural level (threshold: 0.20%)"
-                )
-                return  # Not near a level — skip
-            # Inject level context into metadata
-            trigger["metadata"]["level_ref"] = proximity["level_ref"]
-            trigger["metadata"]["level_price"] = proximity["level_price"]
-            trigger["metadata"]["level_dist_pct"] = proximity["dist_pct"]
-            logger.info(
-                f"📍 [LEVEL_CONFIRMED] {sym} {trigger['side']} near {proximity['level_ref']} "
-                f"@ {proximity['level_price']:.4f} (dist: {proximity['dist_pct']:.4f}%)"
-            )
-
-            await self._dispatch_guarded_signal(
-                sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event, setup_type=setup_type
-            )
+        # Phase 900: Microstructure is now CONTEXT ONLY — no signal generation.
+        # Toxic_OrderFlow removed. Micro state stored for _check_micro_gate().
 
     async def _dispatch_guarded_signal(
         self, symbol: str, side: str, pattern: str, metadata: dict, source_event: Any, setup_type: str = "unknown"
@@ -622,35 +411,11 @@ class SetupEngineV4:
         if now - self.last_fire_ts[symbol] < self.fire_cooldown:
             return
 
-        # 2. Confluence Check (Priority 2: Quality)
-        # Ensure signal is backed by recent Footprint events (Absorption, Imbalance, Exhaustion)
-        recent_tactical = [
-            e[2]
-            for e in self.memory[symbol]
-            if e[2].metadata
-            and e[2].metadata.get("tactical_type")
-            in ("TacticalAbsorption", "TacticalImbalance", "TacticalExhaustion", "TacticalStackedImbalance")
-        ]
-
-        if not recent_tactical and abs(metadata.get("z_score", 0)) < 4.0:
-            logger.debug(
-                f"❌ [FILTER] {pattern} rejected: No Footprint Confluence in last 5s (Z: {metadata.get('z_score', 0):.2f})"
-            )
+        # 2. Phase 900: Micro-Confirmation Gate (replaces old Confluence Check)
+        # Reject signals where real-time order flow contradicts the direction.
+        if not self._check_micro_gate(symbol, side):
+            logger.info(f"❌ [MICRO_GATE] {pattern} {side} rejected: Real-time flow contradicts direction")
             return
-
-        # 2.5 Phase 1000: Microstructure Context Filter (POC vs Price)
-        if hasattr(self, "sensor_manager") and self.sensor_manager:
-            micro_sensor = self.sensor_manager.get_sensor("MicroStructureContext")
-            if micro_sensor:
-                micro_state = micro_sensor.get_state()
-                micro_bias = micro_state.get("bias", "NEUTRAL")
-
-                if side == "LONG" and micro_bias == "BEARISH":
-                    logger.debug(f"❌ [FILTER] {pattern} LONG rejected: MicroStructure is BEARISH (Price < POC)")
-                    return
-                elif side == "SHORT" and micro_bias == "BULLISH":
-                    logger.debug(f"❌ [FILTER] {pattern} SHORT rejected: MicroStructure is BULLISH (Price > POC)")
-                    return
 
         # 3. Confirmed - Enrich and Fire
         self.last_fire_ts[symbol] = now
@@ -685,68 +450,146 @@ class SetupEngineV4:
         )
         await self.engine.dispatch(out_evt)
 
-    def _evaluate_fade_extreme(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
+    def _check_micro_gate(self, symbol: str, side: str) -> bool:
+        """Phase 900: Micro-Confirmation Gate.
+
+        Checks if real-time order flow supports the proposed direction.
+        Returns False to REJECT the signal if the flow strongly contradicts.
+        This replaces the old Toxic_OrderFlow signal generation and
+        Confluence Check with a pure Dale-aligned context filter.
         """
-        Playbook 1: Fade the Extreme (Mean Reversion)
-        Trigger Condition (Adjusted for more signals):
-        1. TacticalAbsorption OR TacticalRejection/TrappedTraders event
-        2. TacticalImbalance event confirms the reversal direction
-        3. Optional: at_volume_level confirmation (not required)
+        if not self.micro_memory[symbol]:
+            return True  # No micro data yet — allow signal through
+
+        latest = self.micro_memory[symbol][-1][2]
+        z = latest.z_score
+
+        # Gate: reject if flow is significantly against the direction
+        if side == "LONG" and z < -2.0:
+            logger.debug(f"❌ [MICRO_GATE] {symbol} LONG blocked: Z-Score {z:.2f} (heavy selling flow)")
+            return False
+        if side == "SHORT" and z > 2.0:
+            logger.debug(f"❌ [MICRO_GATE] {symbol} SHORT blocked: Z-Score {z:.2f} (heavy buying flow)")
+            return False
+
+        return True
+
+    def _evaluate_trapped_traders(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
+        """Phase 900: Standalone Trapped Traders Playbook (Dale #3, WR 70-75%).
+
+        Trader Dale: "These traders entered at the wrong time.
+        They will eventually reverse, accelerating the move against them."
+
+        Trigger Conditions:
+        1. TacticalTrappedTraders detected in 5s memory.
+        2. Price near structural level (POC/VAH/VAL).
+        3. Regime is not a strong trend in the same direction as the trap.
+        """
+        trapped = None
+        for e in events:
+            md = e.metadata or {}
+            if md.get("tactical_type") == "TacticalTrappedTraders":
+                trapped = md
+                break
+
+        if not trapped:
+            return None
+
+        direction = trapped.get("direction")
+        if not direction:
+            return None
+
+        # Regime Gate: Don't trade trapped traders against a strong trend
+        regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
+        if direction == "LONG" and regime == "DOWN":
+            logger.debug("❌ [REGIME GATE] Trapped_Traders LONG rejected in DOWN trend")
+            return None
+        if direction == "SHORT" and regime == "UP":
+            logger.debug("❌ [REGIME GATE] Trapped_Traders SHORT rejected in UP trend")
+            return None
+
+        trigger_meta = {
+            "trigger": "TrappedTraders",
+            "setup_type": "reversion",
+            "trap_price": trapped.get("trap_price"),
+            "wick_vol_pct": trapped.get("wick_vol_pct"),
+            "pattern": trapped.get("pattern", "Trapped_Traders"),
+            "candle_high": trapped.get("high"),
+            "candle_low": trapped.get("low"),
+        }
+
+        return {"setup_name": "Trapped_Traders", "side": direction, "metadata": trigger_meta}
+
+    def _evaluate_fade_extreme(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
+        """Playbook: Fade the Extreme / Absorption Reversal (Dale #1, WR 65-70%).
+
+        Trigger Condition:
+        1. TacticalAbsorption OR TacticalRejection event
+        2. Confirmed by TacticalImbalance OR TacticalExhaustion in same direction
         ALL within the last 5 seconds.
         """
         has_absorption = None
         has_imbalance = None
         has_rejection = None
+        has_exhaustion = None
 
         for e in events:
             md = e.metadata or {}
             t_type = md.get("tactical_type")
 
-            # Adjustment: Accept any absorption/rejection event, not just at volume levels
             if t_type == "TacticalAbsorption":
                 has_absorption = md
             elif t_type == "TacticalImbalance":
                 has_imbalance = md
-            elif t_type in ["TacticalRejection", "TacticalTrappedTraders"]:
+            elif t_type == "TacticalRejection":
                 has_rejection = md
+            elif t_type == "TacticalExhaustion":
+                has_exhaustion = md
 
-        # We need either Reaction (Rejection/TrappedTraders) or Absorption + Imbalance
+        # Confirmation = Imbalance OR Exhaustion in same direction
+        confirmations = [c for c in [has_imbalance, has_exhaustion] if c is not None]
+
         reversal_direction = None
         trigger_meta = {"trigger": "FadeExtreme", "setup_type": "reversion"}
 
-        if has_absorption and has_imbalance:
-            if has_absorption["direction"] == has_imbalance["direction"]:
-                reversal_direction = has_absorption["direction"]
-                trigger_meta.update(
-                    {
-                        "poc": has_absorption.get("poc"),
-                        "vah": has_absorption.get("vah"),
-                        "val": has_absorption.get("val"),
-                    }
-                )
+        # Path A: Absorption + Confirmation
+        if has_absorption and confirmations:
+            for conf in confirmations:
+                if has_absorption["direction"] == conf.get("direction"):
+                    reversal_direction = has_absorption["direction"]
+                    trigger_meta.update(
+                        {
+                            "poc": has_absorption.get("poc"),
+                            "vah": has_absorption.get("vah"),
+                            "val": has_absorption.get("val"),
+                        }
+                    )
+                    break
 
-        elif has_rejection and has_imbalance:
-            if has_rejection["direction"] == has_imbalance["direction"]:
-                reversal_direction = has_rejection["direction"]
-                trigger_meta.update(
-                    {
-                        "poc": has_rejection.get("poc", 0),
-                        "vah": has_rejection.get("vah", 0),
-                        "val": has_rejection.get("val", 0),
-                        "candle_high": has_rejection.get("high"),
-                        "candle_low": has_rejection.get("low"),
-                    }
-                )
+        # Path B: Rejection + Confirmation
+        if not reversal_direction and has_rejection and confirmations:
+            for conf in confirmations:
+                if has_rejection["direction"] == conf.get("direction"):
+                    reversal_direction = has_rejection["direction"]
+                    trigger_meta.update(
+                        {
+                            "poc": has_rejection.get("poc", 0),
+                            "vah": has_rejection.get("vah", 0),
+                            "val": has_rejection.get("val", 0),
+                            "candle_high": has_rejection.get("high"),
+                            "candle_low": has_rejection.get("low"),
+                        }
+                    )
+                    break
 
         if reversal_direction:
-            # Phase 1600: Regime Gate (Reversion only in Neutral)
+            # Regime Gate (Reversion only in Neutral)
             regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
             if regime in ("UP", "DOWN"):
                 logger.debug(f"❌ [REGIME GATE] Fade_Extreme rejected in TREND regime ({regime})")
                 return None
 
-            # Phase 1300: L2 Wall Confirmation for Fade_Extreme
-            # RELAXED FOR PARITY CHECK (R4): From 0.55/0.45 -> 0.51/0.49
+            # L2 Wall Confirmation
             if self.micro_memory[symbol]:
                 latest = self.micro_memory[symbol][-1][2]
                 skew = latest.skewness
