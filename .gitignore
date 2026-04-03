@@ -40,3 +40,4 @@ tmp_l2/
 *.zip
 *.parquet
 .venv/
+.cache/

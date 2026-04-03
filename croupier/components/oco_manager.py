@@ -418,24 +418,33 @@ class OCOManager:
         sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
         self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
 
-        MIN_DISTANCE_PCT = 0.0010
-        min_distance_abs = fill_price * MIN_DISTANCE_PCT
+        # Phase 970: Tick-Aware Minimum Distance (Sniper Edition)
+        # Instead of a fixed 0.10%, we use a floor of 2 ticks to avoid Binance -2021 rejects.
+        # This allows our 0.02% structural footprint stops to pass through.
+        tick_size = 0.0001
+        connector = getattr(self.adapter, "connector", None) or getattr(self.adapter, "_connector", None)
+        if connector and hasattr(connector, "get_tick_size"):
+            tick_size = connector.get_tick_size(symbol) or tick_size
+
+        min_dist_abs = tick_size * 2.0  # 2-tick floor for multi-symbol safety
 
         # Clamp logic
         tp_dist = abs(tp_price - fill_price)
         sl_dist = abs(sl_price - fill_price)
 
-        if tp_dist < min_distance_abs:
+        if tp_dist < min_dist_abs:
+            self.logger.warning(f"🛡️ TP Floor Triggered for {symbol}: Raising to 2 ticks.")
             tp_price = float(
                 self.adapter.price_to_precision(
-                    symbol, fill_price + (min_distance_abs if side == "LONG" else -min_distance_abs)
+                    symbol, fill_price + (min_dist_abs if side == "LONG" else -min_dist_abs)
                 )
             )
             position.tp_level = tp_price
-        if sl_dist < min_distance_abs:
+        if sl_dist < min_dist_abs:
+            self.logger.warning(f"🛡️ SL Floor Triggered for {symbol}: Raising to 2 ticks.")
             sl_price = float(
                 self.adapter.price_to_precision(
-                    symbol, fill_price - (min_distance_abs if side == "LONG" else -min_distance_abs)
+                    symbol, fill_price - (min_dist_abs if side == "LONG" else -min_dist_abs)
                 )
             )
             position.sl_level = sl_price

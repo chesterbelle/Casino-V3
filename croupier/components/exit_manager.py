@@ -177,15 +177,27 @@ class ExitManager:
             # Phase 900: Safety Net — Only exit on extreme toxic flow against position.
             # This is a last-resort guard, not a strategy-level decision.
             z = event.z_score
+            skew = getattr(event, "skewness", 0.5)
             emergency_exit = False
             reason = ""
 
-            if position.side == "LONG" and z < -4.5:
+            # 2. Emergency Toxic Flow (Z-Score Burst)
+            if position.side == "LONG" and z < -3.5:
                 emergency_exit = True
-                reason = f"EMERGENCY_TOXIC_SELL (Z={z:.2f})"
-            elif position.side == "SHORT" and z > 4.5:
+                reason = f"MICRO_Z_DELTA_BURST_SHORT (Z={z:.2f})"
+            elif position.side == "SHORT" and z > 3.5:
                 emergency_exit = True
-                reason = f"EMERGENCY_TOXIC_BUY (Z={z:.2f})"
+                reason = f"MICRO_Z_DELTA_BURST_LONG (Z={z:.2f})"
+
+            # 3. Liquidity Pull (Order Book Wall Collapse)
+            # Phase 800: Detect when the wall we are leaning on disappears.
+            if not emergency_exit:
+                if position.side == "LONG" and skew < 0.20:
+                    emergency_exit = True
+                    reason = "MICRO_LIQUIDITY_PULL_BID_WALL_COLLAPSE"
+                elif position.side == "SHORT" and skew > 0.80:
+                    emergency_exit = True
+                    reason = "MICRO_LIQUIDITY_PULL_ASK_WALL_COLLAPSE"
 
             if emergency_exit:
                 self.logger.warning(f"🚨 EMERGENCY EXIT for {position.trade_id} ({symbol_norm}): {reason}")

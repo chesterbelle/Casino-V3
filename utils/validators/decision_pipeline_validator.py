@@ -334,6 +334,10 @@ class TraceBulletValidator:
         regime = random.choice(["TREND_WINDOW", "RANGE_WINDOW", "NORMAL"])
         self.context_registry.set_regime(symbol, regime)
 
+        # Phase 970: Dumb Execution requires absolute prices in metadata
+        tp_price = poc  # Using POC as target for the fuzzer
+        sl_price = val if side == "LONG" else vah
+
         signal_event = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=time.time(),
@@ -344,7 +348,14 @@ class TraceBulletValidator:
             side=side,
             confidence=0.9,
             total_signals=1,
-            metadata={"price": base_price, "poc": poc, "val": val, "vah": vah},
+            metadata={
+                "price": base_price,
+                "poc": poc,
+                "val": val,
+                "vah": vah,
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+            },
             trace_id=trace_id,
         )
 

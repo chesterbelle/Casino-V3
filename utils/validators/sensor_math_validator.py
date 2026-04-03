@@ -64,6 +64,8 @@ async def run_validator():
                 "1h_poc": 95.0,
                 "1h_vah": 105.0,  # SL should be above entry
                 "1h_val": 90.0,
+                "tp_price": 99.80,  # 0.20% TP
+                "sl_price": 100.02,  # structural SL
             },
         },
         # Scenario 2: LONG at VAL (Reversion)
@@ -77,6 +79,8 @@ async def run_validator():
                 "1h_poc": 95.0,
                 "1h_vah": 100.0,
                 "1h_val": 89.5,
+                "tp_price": 90.18,
+                "sl_price": 89.98,
             },
         },
         # Scenario 3: SHORT Continuation
@@ -90,6 +94,8 @@ async def run_validator():
                 "1h_poc": 95.0,
                 "1h_vah": 100.0,
                 "1h_val": 92.0,
+                "tp_price": 89.73,
+                "sl_price": 90.27,
             },
         },
         # Scenario 4: DOTUSDT crash data (Inversion suspected)
@@ -102,6 +108,8 @@ async def run_validator():
                 "poc": 1.405,  # TP below entry for SHORT
                 "vah": 1.515,
                 "val": 1.385,
+                "tp_price": 1.490,
+                "sl_price": 1.500,
             },
         },
         # Scenario 5: TREND_WINDOW (Aggressive Target)
@@ -110,13 +118,15 @@ async def run_validator():
             "symbol": "BTCUSDT",
             "side": "LONG",
             "regime": "TREND_WINDOW",
-            "expect_reject": True,  # RR will be < 1.2 due to structural constraints
+            "expect_reject": False,  # Phase 970: Dumb Player no longer performs RR filtering
             "metadata": {
                 "setup_type": "continuation",
                 "price": 60500.0,
                 "vah": 60600.0,  # TP
                 "val": 60200.0,
                 "poc": 60300.0,
+                "tp_price": 60621,
+                "sl_price": 60400,
             },
         },
         # Scenario 6: RANGE_WINDOW (Mean Reversion)
@@ -132,6 +142,8 @@ async def run_validator():
                 "val": 2485.0,
                 "poc": 2500.0,
                 "atr_1m": 5.0,
+                "tp_price": 2505.0,
+                "sl_price": 2512.0,
             },
         },
         # Scenario 7: ATR Breathing Room Floor
@@ -146,6 +158,8 @@ async def run_validator():
                 "1h_vah": 105.0,
                 "1h_val": 99.8,
                 "atr_1m": 1.0,
+                "tp_price": 102.0,
+                "sl_price": 99.7,
             },
         },
     ]

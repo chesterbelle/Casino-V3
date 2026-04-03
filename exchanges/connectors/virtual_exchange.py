@@ -690,16 +690,39 @@ class VirtualExchangeConnector(BaseConnector):
 
         # If Market order (but NOT conditional market orders), execute immediately
         # Conditional orders like 'stop_market' and 'take_profit_market' should wait for trigger
+        # Phase 970: Immediate Trigger-on-Arrival for conditional orders
         is_conditional = "stop" in order_type or "take_profit" in order_type
 
+        # If it's a simple market order, fill now
         if order_type == "market" and not is_conditional:
-            # Use current price
             self._execute_order_fill(order, self._current_price)
-        else:
-            # Log creation of pending order
-            stop_price = (params or {}).get("stopPrice")
-            price_str = f"stop={stop_price:.2f}" if stop_price else (f"{price:.2f}" if price else "MKT")
-            self.logger.info(f"📝 Order created | {side.upper()} {amount} @ {price_str} | id={order_id}")
+            return order
+
+        # For conditional orders, check if they are ALREADY triggered at creation time
+        if is_conditional and order.get("stopPrice"):
+            stop_price = order["stopPrice"]
+            triggered = False
+
+            # Use same logic as _process_order for consistency
+            if side == "SELL":
+                # If price is already below stop (SL already hit) or above stop (TP already hit)
+                if self._current_price <= stop_price or self._current_price >= stop_price:
+                    # Wait, we need to know the intent (SL vs TP).
+                    # But if it's already past the stop, it must trigger.
+                    triggered = True
+            else:  # BUY
+                if self._current_price >= stop_price or self._current_price <= stop_price:
+                    triggered = True
+
+            if triggered:
+                self.logger.warning(f"⚡ Order filled on arrival (Already triggered) | {side} @ {self._current_price}")
+                self._execute_order_fill(order, self._current_price)
+                return order
+
+        # Log creation of pending order
+        stop_price = (params or {}).get("stopPrice")
+        price_str = f"stop={stop_price:.2f}" if stop_price else (f"{price:.2f}" if price else "MKT")
+        self.logger.info(f"📝 Order created | {side.upper()} {amount} @ {price_str} | id={order_id}")
 
         return order
 
