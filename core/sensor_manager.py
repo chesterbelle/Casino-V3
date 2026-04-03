@@ -552,6 +552,7 @@ class SensorManager:
             score=signal_data.get("score", 1.0),
             metadata=metadata,
             fast_track=bool(metadata.get("fast_track", False)),
+            price=metadata.get("price", 0.0),
         )
         # Phase 180: Silent Sensors (Switch to DEBUG to reduce minute-boundary log burst)
         logger.debug(f"📡 Signal Detected: {sensor_name}@{signal_tf} -> {signal_data['side']} [{target_symbol}]")

@@ -77,6 +77,9 @@ class EdgeAuditor:
             entry_price = sig["price"]
             side = sig["side"]
 
+            if entry_price <= 0:
+                continue
+
             if sym not in prices_by_sym:
                 continue
 

@@ -446,7 +446,7 @@ class SetupEngineV4:
             t0_timestamp=t0,
             t1_decision_ts=time.time(),  # explicit wall time for Phase 1130 latency verification
             setup_type=setup_type,
-            price=getattr(source_event, "price", 0.0),
+            price=getattr(source_event, "price", 0.0) or metadata.get("price", 0.0),
         )
         await self.engine.dispatch(out_evt)
 
@@ -508,14 +508,28 @@ class SetupEngineV4:
             logger.debug("❌ [REGIME GATE] Trapped_Traders SHORT rejected in UP trend")
             return None
 
+        trap_price = trapped.get("trap_price") or trapped.get("high") or trapped.get("low") or 0.0
+        
+        # Phase 950: Sniper Mode (HTF Location Gating)
+        if trap_price > 0:
+            proximity = self._check_level_proximity(symbol, trap_price)
+            if not proximity:
+                logger.debug(f"❌ [LOCATION GATE] Trapped_Traders {direction} rejected: Price {trap_price:.4f} not near HTF level")
+                return None
+        else:
+            return None # Invalid price event
+
         trigger_meta = {
             "trigger": "TrappedTraders",
             "setup_type": "reversion",
-            "trap_price": trapped.get("trap_price"),
+            "trap_price": trap_price,
             "wick_vol_pct": trapped.get("wick_vol_pct"),
             "pattern": trapped.get("pattern", "Trapped_Traders"),
             "candle_high": trapped.get("high"),
             "candle_low": trapped.get("low"),
+            "level_ref": proximity["level_ref"],
+            "level_price": proximity["level_price"],
+            "level_dist_pct": proximity["dist_pct"],
         }
 
         return {"setup_name": "Trapped_Traders", "side": direction, "metadata": trigger_meta}
@@ -549,6 +563,7 @@ class SetupEngineV4:
         # Confirmation = Imbalance OR Exhaustion in same direction
         confirmations = [c for c in [has_imbalance, has_exhaustion] if c is not None]
 
+        action_node = None
         reversal_direction = None
         trigger_meta = {"trigger": "FadeExtreme", "setup_type": "reversion"}
 
@@ -557,6 +572,7 @@ class SetupEngineV4:
             for conf in confirmations:
                 if has_absorption["direction"] == conf.get("direction"):
                     reversal_direction = has_absorption["direction"]
+                    action_node = has_absorption
                     trigger_meta.update(
                         {
                             "poc": has_absorption.get("poc"),
@@ -571,6 +587,7 @@ class SetupEngineV4:
             for conf in confirmations:
                 if has_rejection["direction"] == conf.get("direction"):
                     reversal_direction = has_rejection["direction"]
+                    action_node = has_rejection
                     trigger_meta.update(
                         {
                             "poc": has_rejection.get("poc", 0),
@@ -582,7 +599,25 @@ class SetupEngineV4:
                     )
                     break
 
-        if reversal_direction:
+        if reversal_direction and action_node:
+            # Phase 950: Sniper Mode (HTF Location Gating)
+            latest_micro_price = self.micro_memory[symbol][-1][2].price if self.micro_memory[symbol] else 0.0
+            reaction_price = action_node.get("trap_price") or action_node.get("high") or action_node.get("low") or latest_micro_price
+
+            if reaction_price > 0:
+                proximity = self._check_level_proximity(symbol, reaction_price)
+                if not proximity:
+                    logger.debug(f"❌ [LOCATION GATE] Fade_Extreme {reversal_direction} rejected: Price {reaction_price:.4f} not near HTF level")
+                    return None
+            else:
+                return None
+
+            trigger_meta.update({
+                "level_ref": proximity["level_ref"],
+                "level_price": proximity["level_price"],
+                "level_dist_pct": proximity["dist_pct"],
+            })
+
             # Regime Gate (Reversion only in Neutral)
             regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
             if regime in ("UP", "DOWN"):
