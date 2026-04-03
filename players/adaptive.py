@@ -412,9 +412,14 @@ class AdaptivePlayer:
             )
         )
 
-        # Phase 800: Adaptive Shadow SL (Shark Breath)
-        # Structural setups need more room to breathe.
-        shadow_sl_activation = 0.0075 if setup_type in ["reversion", "fade_extreme"] else 0.0045
+        # Phase 800/870: Adaptive Shadow SL (Shark Breath)
+        # Structural setups need more room to breathe, but high z-scores need tighter exits.
+        base_activation = 0.0075 if setup_type in ["reversion", "fade_extreme"] else 0.0045
+        z_score = abs(event.metadata.get("z_score", 3.0))
+        # Multiplier: as Z increases, activation DECREASES (tighter).
+        # Scale: Z=3.0 -> mult=0.7, Z=5.0 -> mult=0.5, Z=1.0 -> mult=0.9
+        activation_multiplier = max(0.5, min(1.2, 1.0 - (z_score / 10.0)))
+        shadow_sl_activation = base_activation * activation_multiplier
 
         # Emit Decision with unique ID for tracking
         decision_id = f"DEC_{int(time.time()*1000000)}"  # Microsecond precision
