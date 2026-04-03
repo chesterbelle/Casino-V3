@@ -86,6 +86,8 @@ class FootprintPOCRejection(SensorV3):
                     "pattern": "POC_Rejection",
                     "poc_level": prev_poc,
                     "rejection_price": curr_close,
+                    "high": curr_high,
+                    "low": curr_low,
                 },
             }
         return None
@@ -148,9 +150,11 @@ class FootprintDeltaDivergence(SensorV3):
                 "metadata": {
                     "tactical_type": "TacticalDivergence",
                     "direction": signal,
-                    "pattern": "Delta_Divergence",
-                    "price_change": p1 - p2,
-                    "delta_change": d1 - d2,
+                    "pattern": "Price_Delta_Divergence",
+                    "price_delta": p1 - p2,
+                    "delta_delta": d1 - d2,
+                    "high": get_val(c1, "high"),
+                    "low": get_val(c1, "low"),
                 },
             }
         return None
@@ -227,6 +231,8 @@ class FootprintStackedImbalance(SensorV3):
                     "levels": bid_stack["levels"],
                     "count": bid_stack["count"],
                     "poc": get_val(candle, "poc"),
+                    "high": curr_high,
+                    "low": curr_low,
                 },
             }
 
@@ -249,6 +255,8 @@ class FootprintStackedImbalance(SensorV3):
                     "levels": ask_stack["levels"],
                     "count": ask_stack["count"],
                     "poc": get_val(candle, "poc"),
+                    "high": curr_high,
+                    "low": curr_low,
                 },
             }
 
@@ -447,6 +455,8 @@ class FootprintTrappedTraders(SensorV3):
                             "pattern": "Trapped_Buyers",
                             "trap_price": prev_high,
                             "wick_vol_pct": wick_vol / total_vol,
+                            "high": prev_high,
+                            "low": prev_low,
                         },
                     }
 
@@ -470,6 +480,8 @@ class FootprintTrappedTraders(SensorV3):
                             "pattern": "Trapped_Sellers",
                             "trap_price": prev_low,
                             "wick_vol_pct": wick_vol / total_vol,
+                            "high": prev_high,
+                            "low": prev_low,
                         },
                     }
 

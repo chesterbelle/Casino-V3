@@ -247,56 +247,57 @@ class AdaptivePlayer:
         setup_type = getattr(event, "setup_type", event.metadata.get("setup_type", "unknown"))
         tp_sl_source = "config_fallback"
 
-        # Phase 700: Structural TP/SL from Level Proximity (Primary Path)
+        # Phase 800/860: Structural TP/SL from Level Proximity (Primary Path)
         current_price = event.metadata.get("price")
         poc = event.metadata.get("poc")
         vah = event.metadata.get("vah")
         val = event.metadata.get("val")
         level_price = event.metadata.get("level_price")
 
+        # Phase 860: Extraction of candle-specific boundaries for refined SL
+        candle_high = event.metadata.get("candle_high")
+        candle_low = event.metadata.get("candle_low")
+
+        # Get tick size for structural buffer
+        tick_size = 0.01  # Default
+        if self.croupier and hasattr(self.croupier, "exchange_adapter"):
+            filters = self.croupier.exchange_adapter.get_market_filters(event.symbol)
+            tick_size = filters.get("tickSize", 0.01)
+
         if current_price and current_price > 0 and poc and vah and val:
             tp_sl_source = "structural_level"
 
             if setup_type == "reversion":
-                # Fading at extreme → TP = POC (mean reversion target), SL = beyond the faded level
+                # Fading at extreme → TP = POC (mean reversion target), SL = 2 ticks beyond the structural low/high
                 if event.side == "LONG":
-                    # Entering LONG at support (VAL/IBL) → TP toward POC
                     tp_price = poc
-                    # SL just beyond the level we're fading
-                    if level_price and level_price > 0:
-                        sl_price = level_price * 0.999  # Just beyond the support level
-                    else:
-                        sl_price = val * 0.999
+                    sl_ref = candle_low or level_price or val
+                    sl_price = sl_ref - (2 * tick_size)
                 else:
-                    # Entering SHORT at resistance (VAH/IBH) → TP toward POC
                     tp_price = poc
-                    if level_price and level_price > 0:
-                        sl_price = level_price * 1.001  # Just beyond the resistance level
-                    else:
-                        sl_price = vah * 1.001
+                    sl_ref = candle_high or level_price or vah
+                    sl_price = sl_ref + (2 * tick_size)
 
             elif setup_type == "continuation":
-                # Breaking through a level → TP = next level, SL = back inside
+                # Breaking through a level → TP = next level, SL = 2 ticks beyond candle/level
                 if event.side == "LONG":
                     tp_price = vah if vah > current_price else current_price * 1.005
-                    if level_price and level_price > 0:
-                        sl_price = level_price * 0.999
-                    else:
-                        sl_price = poc * 0.999
+                    sl_ref = candle_low or level_price or poc
+                    sl_price = sl_ref - (2 * tick_size)
                 else:
                     tp_price = val if val < current_price else current_price * 0.995
-                    if level_price and level_price > 0:
-                        sl_price = level_price * 1.001
-                    else:
-                        sl_price = poc * 1.001
+                    sl_ref = candle_high or level_price or poc
+                    sl_price = sl_ref + (2 * tick_size)
             else:
                 # Fallback: structural but unknown setup type
                 if event.side == "LONG":
                     tp_price = poc if current_price < poc else vah
-                    sl_price = val * 0.999
+                    sl_ref = candle_low or val
+                    sl_price = sl_ref - (2 * tick_size)
                 else:
                     tp_price = poc if current_price > poc else val
-                    sl_price = vah * 1.001
+                    sl_ref = candle_high or vah
+                    sl_price = sl_ref + (2 * tick_size)
 
         # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])

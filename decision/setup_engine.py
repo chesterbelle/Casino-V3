@@ -245,6 +245,8 @@ class SetupEngineV4:
                     "metadata": climax["metadata"],
                 }
                 trigger["metadata"]["exhaustion_ratio"] = md.get("ratio")
+                trigger["metadata"]["candle_high"] = md.get("high")
+                trigger["metadata"]["candle_low"] = md.get("low")
                 self.climax_watch[sym]["active"] = False
                 setup_type = "reversion"
             else:
@@ -457,6 +459,8 @@ class SetupEngineV4:
                         "price": curr_evt.price,
                         "vol_ratio": vol_ratio,
                         "t0_wall_time": self.micro_memory[sym][0][1],
+                        "candle_high": event.bid_depth_5,
+                        "candle_low": event.ask_depth_5,
                     },
                 }
 
@@ -726,9 +730,11 @@ class SetupEngineV4:
                 reversal_direction = has_rejection["direction"]
                 trigger_meta.update(
                     {
-                        "poc": has_imbalance.get("poc", 0),
-                        "vah": has_imbalance.get("vah", 0),
-                        "val": has_imbalance.get("val", 0),
+                        "poc": has_rejection.get("poc", 0),
+                        "vah": has_rejection.get("vah", 0),
+                        "val": has_rejection.get("val", 0),
+                        "candle_high": has_rejection.get("high"),
+                        "candle_low": has_rejection.get("low"),
                     }
                 )
 
@@ -833,6 +839,8 @@ class SetupEngineV4:
                     "skewness": getattr(latest_micro, "skewness", 0.5),
                     "price": latest_micro_price,
                     "target_poc": target_poc,
+                    "candle_high": stacked.get("high"),
+                    "candle_low": stacked.get("low"),
                 },
             }
 
