@@ -28,6 +28,12 @@ Each layer must pass before proceeding to the next.
 ```
 **Must pass**: Liquidity pull and Delta inversion burst detection must target exits properly.
 
+## Layer 0.3: Setup Data Integrity (Phase 975)
+```bash
+.venv/bin/python utils/validators/setup_data_validator.py
+```
+**Must pass**: All setup playbooks (DeltaDivergence, TrappedTraders, FadeExtreme, TrendContinuation) must produce valid `tp_price` and `sl_price` in metadata. No setup should return with missing or zero TP/SL values.
+
 ## Layer 1: Preflight (Single-Symbol Lifecycle)
 ```bash
 .venv/bin/python -m utils.validators.trading_flow_validator --exchange binance --symbol LTCUSDT --mode demo --size 0.05 --execute-orders

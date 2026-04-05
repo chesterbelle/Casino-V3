@@ -28,6 +28,7 @@ ACTIVE_SENSORS = {
     "SessionValueArea": True,
     "FootprintDeltaVelocity": True,
     "MicroStructureContext": True,
+    "VolatilitySpike": False,
 }
 
 # =====================================================
@@ -51,6 +52,7 @@ SENSOR_TIMEFRAMES = {
     "SessionValueArea": ["1m"],
     "FootprintDeltaVelocity": ["1m"],
     "MicroStructureContext": ["1m"],
+    "VolatilitySpike": ["1m"],
 }
 
 # =====================================================
@@ -101,6 +103,9 @@ SENSOR_PARAMS = {
     "MicroStructureContext": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor, no TP/SL needed
     },
+    # "VolatilitySpike": {
+    #     "1m": {"tp_pct": 0.50, "sl_pct": 0.30},
+    # },
     # === DEFAULT FALLBACK ===
     "_default": {
         "1m": {"tp_pct": 0.50, "sl_pct": 0.30},

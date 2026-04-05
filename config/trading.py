@@ -25,8 +25,8 @@ TAKE_PROFIT = DEFAULT_TP_PCT
 STOP_LOSS = DEFAULT_SL_PCT
 
 # Límite de tiempo máximo para mantener una posición abierta.
-# En Scalping, si el impulso no se materializa de inmediato, salimos.
-MAX_HOLD_BARS = 30  # Asumiendo 1m timeframe, 30 velas (o 30s si cambiamos a ticks)
+# Phase 974: Sniper Patience Lock - Increased to 60 to permit structural TP development.
+MAX_HOLD_BARS = 60  # 60 candles @ 1m = 1 hour window
 
 # --- Cierre Progresivo (Fase de Drenaje) ---
 # Duración de la fase de salida suave antes del apagado total del bot.
@@ -90,7 +90,7 @@ DEFAULT_MARGIN_TYPE = "ISOLATED"  # Aislado protege el resto del balance de liqu
 # --- Trailing Stop ---
 # Dynamic SL that follows price when it moves in favor.
 # Best for Capturing Trends but can be stopped out by noise in Scalping.
-TRAILING_STOP_ENABLED = True  # Shadow Trailing Enabled
+TRAILING_STOP_ENABLED = False  # Deactivated for 'Pure Sniper' (Let trades breathe)
 # En Footprint scalping, una vez alcanzado el 0.20% (66% del TP esperado),
 # iniciamos el trailing a una distancia de 0.08% para asegurar ganancias pero dar más aire.
 TRAILING_STOP_ACTIVATION_PCT = (
@@ -111,7 +111,7 @@ EXPANSION_TP_RR = 6.0  # Ambitious 6:1 target for the expansion phase
 
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
-BREAKEVEN_ENABLED = True
+BREAKEVEN_ENABLED = False  # Deactivated for 'Pure Sniper' (Structural Anchors only)
 BREAKEVEN_ACTIVATION_PCT = 0.0025  # Loosened from 0.15% to 0.25%
 
 # --- Signal Reversal ---
@@ -254,6 +254,23 @@ MULTI_ASSET_TARGETS = [
 # 3. Disables proactive exits (Shadow SL, Micro-Exits) for interference-free study.
 AUDIT_MODE = False
 
-# Frequency for price sampling in audit mode (seconds).
-# 1.0s is usually enough for MFE/MAE analysis without excessive DB growth.
-AUDIT_SAMPLING_FREQ = 1.0
+# =====================================================
+# 🚀 HFT EXIT MANAGER (Phase 1000 - Dumb Execution Layer)
+# =====================================================
+
+# Master switch: Enable HFT "Dumb" Exit Manager instead of complex ExitManager.
+# When True: Trusts OCO brackets completely, zero shadow interventions.
+# When False: Uses legacy ExitManager with all its features.
+HFT_EXIT_MODE = True
+
+# ÚNICA protección en HFT mode: Liquidation prevention.
+# Solo interviene si el precio cae más de X% (catastrófico).
+CATASTROPHIC_STOP_PCT = 0.50  # 50% drawdown = true emergency only
+
+# Legacy ExitManager features (ignored when HFT_EXIT_MODE = True):
+SHADOW_SL_ENABLED = False
+SHADOW_BREAKEVEN_ENABLED = False
+SHADOW_TRAILING_ENABLED = False
+TACTICAL_AIRBAG_ENABLED = False
+TIME_BASED_EXIT_ENABLED = False
+SIGNAL_REVERSAL_ENABLED = False

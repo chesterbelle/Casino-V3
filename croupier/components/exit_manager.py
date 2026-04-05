@@ -150,9 +150,11 @@ class ExitManager:
 
     async def on_microstructure(self, event: MicrostructureEvent):
         """
-        Phase 3: Order Flow Dynamic Exits (Micro-Exits).
-        Evaluates real-time anomalies to cut losses before structural SL is hit.
-        Phase 1210: Grace Period and Direction-Aware Exit (Round 8 Fix)
+        Phase 1210: 'Tactical Silence' Airbag (Sniper-Aware Safety Net).
+
+        Mandatory Rule: The ExitManager MUST NOT play strategy. It only closes if
+        the order flow becomes 'radioactive' (Toxic Flow) or if the institutional
+        wall we are leaning on (Skewness) disappears suddenly.
         """
         symbol_norm = normalize_symbol(event.symbol)
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
@@ -162,46 +164,43 @@ class ExitManager:
 
         now = event.timestamp
         for position in positions[:]:
-            # Skip if already closing or shutting down
             if position.status == "CLOSING" or self.croupier.error_handler.shutdown_mode:
                 continue
 
             if config.AUDIT_MODE:
-                # In Audit Mode, we don't do Micro-Exits
                 continue
 
-            # 1. Grace Period (Don't micro-exit within first 5s to allow momentum to settle)
-            if now - position.timestamp < 5.0:
+            # 1. Grace Period (Initial 3s to avoid exit on the entry-wick absorption)
+            if now - position.timestamp < 3.0:
                 continue
 
-            # Phase 900: Safety Net — Only exit on extreme toxic flow against position.
-            # This is a last-resort guard, not a strategy-level decision.
             z = event.z_score
             skew = getattr(event, "skewness", 0.5)
             emergency_exit = False
             reason = ""
 
-            # 2. Emergency Toxic Flow (Z-Score Burst)
-            if position.side == "LONG" and z < -3.5:
+            # 2. EMERGENCY: Toxic Flow Burst (Z > 4.5)
+            # Higher threshold to ensure we 'let the trade breathe' unless it's a liquidation.
+            if position.side == "LONG" and z < -4.5:
                 emergency_exit = True
-                reason = f"MICRO_Z_DELTA_BURST_SHORT (Z={z:.2f})"
-            elif position.side == "SHORT" and z > 3.5:
+                reason = f"TOXIC_FLOW_BURST_SHORT (Z={z:.1f})"
+            elif position.side == "SHORT" and z > 4.5:
                 emergency_exit = True
-                reason = f"MICRO_Z_DELTA_BURST_LONG (Z={z:.2f})"
+                reason = f"TOXIC_FLOW_BURST_LONG (Z={z:.1f})"
 
-            # 3. Liquidity Pull (Order Book Wall Collapse)
-            # Phase 800: Detect when the wall we are leaning on disappears.
+            # 3. EMERGENCY: Order Book Wall Collapse (Liquidity Pull)
+            # If the wall we leaning on (<15% support) disappears, exit before the trap.
             if not emergency_exit:
-                if position.side == "LONG" and skew < 0.20:
+                if position.side == "LONG" and skew < 0.15:
                     emergency_exit = True
-                    reason = "MICRO_LIQUIDITY_PULL_BID_WALL_COLLAPSE"
-                elif position.side == "SHORT" and skew > 0.80:
+                    reason = "WALL_COLLAPSE_BID_LEAK"
+                elif position.side == "SHORT" and skew > 0.85:
                     emergency_exit = True
-                    reason = "MICRO_LIQUIDITY_PULL_ASK_WALL_COLLAPSE"
+                    reason = "WALL_COLLAPSE_ASK_LEAK"
 
             if emergency_exit:
-                self.logger.warning(f"🚨 EMERGENCY EXIT for {position.trade_id} ({symbol_norm}): {reason}")
-                asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=f"{reason}"))
+                self.logger.warning(f"⚠️ AIRBAG TRIGGERED for {position.trade_id}: {reason}")
+                asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=reason))
 
     async def _check_signal_reversal(self, position: OpenPosition, signal: AggregatedSignalEvent):
         """

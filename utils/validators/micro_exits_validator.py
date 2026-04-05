@@ -77,7 +77,7 @@ async def run_validator():
 
     # ---------------------------------------------------------
     # Scenario 1: Liquidity Pull on LONG (Bid Wall Collapse)
-    # Long positions need Skewness > 0. If it drops to < 0.20, it's a pull.
+    # Long positions need Skewness > 0. If it drops to < 0.15, it's a pull.
     # ---------------------------------------------------------
     event_pull_long = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
@@ -92,10 +92,10 @@ async def run_validator():
     await asyncio.sleep(0.1)  # Let the CreateTask close_position run
 
     if "long_1" not in mock_croupier.closed_positions:
-        fail("Logic Error: Failed to trigger Micro-Exit for LONG on Bid Wall Collapse (Skewness < 0.20)")
+        fail("Logic Error: Failed to trigger Micro-Exit for LONG on Bid Wall Collapse (Skewness < 0.15)")
     else:
         reason = mock_croupier.exit_reasons[mock_croupier.closed_positions.index("long_1")]
-        if reason != "MICRO_LIQUIDITY_PULL_BID_WALL_COLLAPSE":
+        if reason != "WALL_COLLAPSE_BID_LEAK":
             fail(f"Logic Error: Wrong exit reason {reason}")
         ok("Liquidity Pull (LONG) detected securely")
 
@@ -105,7 +105,7 @@ async def run_validator():
 
     # ---------------------------------------------------------
     # Scenario 2: Liquidity Pull on SHORT (Ask Wall Collapse)
-    # Short positions need Ask pressure (Skewness < 1.0). If it > 0.80, danger.
+    # Short positions need Ask pressure (Skewness < 1.0). If it > 0.85, danger.
     # ---------------------------------------------------------
     event_pull_short = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
@@ -120,7 +120,7 @@ async def run_validator():
     await asyncio.sleep(0.1)
 
     if "short_1" not in mock_croupier.closed_positions:
-        fail("Logic Error: Failed to trigger Micro-Exit for SHORT on Ask Wall Collapse (Skewness > 0.80)")
+        fail("Logic Error: Failed to trigger Micro-Exit for SHORT on Ask Wall Collapse (Skewness > 0.85)")
     else:
         ok("Liquidity Pull (SHORT) detected securely")
 
@@ -129,7 +129,6 @@ async def run_validator():
 
     # ---------------------------------------------------------
     # Scenario 3: Delta Inversion Burst (Against LONG)
-    # Notional CVD < -$50k
     # ---------------------------------------------------------
     event_burst_long = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
@@ -138,7 +137,7 @@ async def run_validator():
         cvd=-1.5,
         skewness=0.5,
         price=50000.0,
-        z_score=-4.0,  # Danger! Negative burst (< -3.5)
+        z_score=-4.6,  # Danger! Negative burst (< -4.5)
     )
 
     await exit_manager.on_microstructure(event_burst_long)
@@ -148,7 +147,7 @@ async def run_validator():
         fail("Logic Error: Failed to trigger Micro-Exit for LONG on Negative Z-Score Burst")
     else:
         reason = mock_croupier.exit_reasons[mock_croupier.closed_positions.index("long_1")]
-        if not reason.startswith("MICRO_Z_DELTA_BURST_SHORT"):
+        if not reason.startswith("TOXIC_FLOW_BURST_SHORT"):
             fail(f"Logic Error: Wrong exit reason {reason}")
         ok("Delta Inversion Burst (against LONG) detected securely")
 

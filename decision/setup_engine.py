@@ -136,9 +136,9 @@ class SetupEngineV4:
         """
         Playbook 3: Delta Divergence (High Probability)
         Trigger Condition:
-        1. TacticalDivergence signal in 5s memory.
+        1. TacticalDivergence signal in 5s memory (Phase 972: Now requires Delta Flip).
         2. Proximity to structural level (dist_pct < 0.20%).
-        3. Divergence direction matches rejection of that level.
+        3. Wick Confirmation: Rejection wick > 25% of candle size.
         """
         divergence = None
         for e in events:
@@ -150,16 +150,43 @@ class SetupEngineV4:
         if not divergence:
             return None
 
-        # Get current price from latest microstructure
-        price = 0.0
-        if self.micro_memory[symbol]:
-            price = self.micro_memory[symbol][-1][2].price
+        # Get current price
+        price = divergence.get("close", 0.0)
+        side = divergence.get("direction")
 
         if price > 0:
+            # Phase 972: Wick Confirmation (Dale's Rule)
+            # Ensure price isn't closing at the extreme.
+            high = divergence.get("high", price)
+            low = divergence.get("low", price)
+            open_p = divergence.get("open", price)
+            total_range = high - low
+
+            if total_range > 0:
+                if side == "SHORT":
+                    # For SHORT, we need a Top Wick (Price rejected from High)
+                    wick_size = high - max(open_p, price)
+                else:
+                    # For LONG, we need a Bottom Wick (Price rejected from Low)
+                    wick_size = min(open_p, price) - low
+
+                wick_ratio = wick_size / total_range
+                if wick_ratio < 0.25:
+                    # Too 'clean' - price is still pushing hard. Skip.
+                    return None
+
             proximity = self._check_level_proximity(symbol, price)
             if proximity:
-                # Basic check: Rejection is LONG if at support (poc, val, ibl), SHORT if at resistance (poc, vah, ibh)
-                # But Divergence already has a direction. We just ensure it's near a level.
+                # Phase 970: Structural Order Flow Exit Anchoring for Delta Divergence
+                # SL is placed behind the rejection wick + 0.02% liquidity sweep buffer
+                buffer_pct = 0.0002
+                if side == "LONG":
+                    sl_price = low * (1 - buffer_pct)
+                    tp_price = price * 1.0020  # Certified Edge
+                else:
+                    sl_price = high * (1 + buffer_pct)
+                    tp_price = price * 0.9980
+
                 trigger_meta = {
                     "trigger": "DeltaDivergence",
                     "setup_type": "reversion",
@@ -167,6 +194,10 @@ class SetupEngineV4:
                     "level_price": proximity["level_price"],
                     "dist_pct": proximity["dist_pct"],
                     "price": price,
+                    "wick_ratio": round(wick_ratio, 2) if total_range > 0 else 0,
+                    "z_score": divergence.get("z_score"),
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
                 }
                 trigger_meta = self._enrich_metadata(trigger_meta, symbol)
 
@@ -227,6 +258,12 @@ class SetupEngineV4:
 
         # 2. Check strict Post-Trade Cooldown
         if now - self.last_fire_ts[sym] < self.fire_cooldown:
+            return
+
+        # Phase 974: Sniper Patience Lock
+        # If the symbol is already 'In Trade' (position open in Croupier),
+        # we skip ALL tactical evaluation to avoid self-cannibalization.
+        if self.context_registry and self.context_registry.is_in_trade(sym):
             return
 
         # 3. Evaluate Strict Playbooks against the 5s memory window
@@ -534,6 +571,7 @@ class SetupEngineV4:
         trigger_meta = {
             "trigger": "TrappedTraders",
             "setup_type": "reversion",
+            "price": trap_price,
             "trap_price": trap_price,
             "wick_vol_pct": trapped.get("wick_vol_pct"),
             "pattern": trapped.get("pattern", "Trapped_Traders"),
@@ -642,6 +680,7 @@ class SetupEngineV4:
 
             trigger_meta.update(
                 {
+                    "price": reaction_price,
                     "level_ref": proximity["level_ref"],
                     "level_price": proximity["level_price"],
                     "level_dist_pct": proximity["dist_pct"],
@@ -732,6 +771,16 @@ class SetupEngineV4:
             latest_micro_price = getattr(latest_micro, "price", 0.0)
             target_poc = stacked.get("poc", latest_micro_price)
 
+            # Phase 970: Calculate TP/SL for Trend Continuation
+            # SL behind the pullback low/high, TP towards next structural level
+            buffer_pct = 0.0002
+            if stacked_dir == "LONG":
+                sl_price = (stacked.get("low") or latest_micro_price) * (1 - buffer_pct)
+                tp_price = (stacked.get("high") or latest_micro_price) * 1.0020
+            else:
+                sl_price = (stacked.get("high") or latest_micro_price) * (1 + buffer_pct)
+                tp_price = (stacked.get("low") or latest_micro_price) * 0.9980
+
             # Phase 850: Enter PULLBACK_WATCH instead of firing
             self.pullback_watch[symbol] = {
                 "active": True,
@@ -751,6 +800,8 @@ class SetupEngineV4:
                     "target_poc": target_poc,
                     "candle_high": stacked.get("high"),
                     "candle_low": stacked.get("low"),
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
                 },
             }
 

@@ -96,6 +96,9 @@ class FootprintPOCRejection(SensorV3):
 class FootprintDeltaDivergence(SensorV3):
     """
     Detects divergence between Price Trend and Delta Trend.
+    Enhanced (Phase 972):
+    1. Delta Flip: Current Delta MUST be opposite to price trend.
+    2. Conviction: Current Delta must be >1.5 StdDev of recent delta volume.
     """
 
     @property
@@ -104,44 +107,51 @@ class FootprintDeltaDivergence(SensorV3):
 
     def __init__(self, engine=None):
         self.timeframe = "1m"
-        self.history = deque(maxlen=5)
+        self.history = deque(maxlen=20)
+        self.delta_zscore = RollingZScore(window_size=100)
 
     def calculate(self, context: Dict[str, Any]) -> Optional[Dict]:
         candle = context.get(self.timeframe)
         if not candle:
             return None
 
+        # Update statistics for conviction
+        d = getattr(candle, "delta", 0.0) if hasattr(candle, "delta") else candle.get("delta", 0.0)
+        z = self.delta_zscore.update(abs(d))
+
         self.history.append(candle)
-
-        if len(self.history) < 3:
+        if len(self.history) < 2:
             return None
-
-        # Helper to get attr
-        def get_val(obj, key):
-            return getattr(obj, key) if hasattr(obj, key) else obj.get(key)
 
         # Get last 2 candles
         c1 = self.history[-1]  # Current/Last closed
         c2 = self.history[-2]  # Previous
 
+        # Helper to get attr
+        def get_val(obj, key):
+            return getattr(obj, key) if hasattr(obj, key) else obj.get(key)
+
         p1 = get_val(c1, "close")
         p2 = get_val(c2, "close")
-
         d1 = get_val(c1, "delta")
-        d2 = get_val(c2, "delta")
+        v1 = get_val(c1, "volume")
 
         signal = None
 
-        # Bearish Divergence: Price Higher, Delta Lower (or Negative)
-        # Price made a higher high (or close), but Delta is weaker
-        if p1 > p2:  # Uptrend in price
-            if d1 < d2:  # Downtrend in momentum (Delta)
-                # Stronger if d1 is negative
+        # 1. Conviction Filter (Phase 972)
+        # Avoid thin volume noise.
+        if z is None or z < 1.5:
+            return None
+
+        # 2. Delta Flip Logic (Axia Futures style)
+        # Bearish Divergence: Price Up, Delta is NEGATIVE (NOT just 'lower').
+        if p1 > p2:  # Price Trend: UP
+            if d1 < 0:  # Delta Flip: Sellers entering aggressively at the high.
                 signal = "SHORT"
 
-        # Bullish Divergence: Price Lower, Delta Higher (or Positive)
-        elif p1 < p2:  # Downtrend in price
-            if d1 > d2:  # Uptrend in momentum
+        # Bullish Divergence: Price Down, Delta is POSITIVE.
+        elif p1 < p2:  # Price Trend: DOWN
+            if d1 > 0:  # Delta Flip: Buyers entering aggressively at the low.
                 signal = "LONG"
 
         if signal:
@@ -150,11 +160,14 @@ class FootprintDeltaDivergence(SensorV3):
                 "metadata": {
                     "tactical_type": "TacticalDivergence",
                     "direction": signal,
-                    "pattern": "Price_Delta_Divergence",
-                    "price_delta": p1 - p2,
-                    "delta_delta": d1 - d2,
+                    "pattern": "Price_Delta_Divergence_Flip",
+                    "z_score": round(z, 2),
+                    "delta": d1,
+                    "volume": v1,
                     "high": get_val(c1, "high"),
                     "low": get_val(c1, "low"),
+                    "open": get_val(c1, "open"),
+                    "close": p1,
                 },
             }
         return None

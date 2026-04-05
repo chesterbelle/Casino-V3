@@ -32,6 +32,7 @@ from utils.symbol_norm import normalize_symbol
 
 from .components.drift_auditor import DriftAuditor
 from .components.exit_manager import ExitManager
+from .components.hft_exit_manager import HFTExitManager
 from .components.oco_manager import OCOManager
 from .components.order_executor import OrderExecutor
 from .components.reconciliation_service import ReconciliationService
@@ -96,7 +97,12 @@ class Croupier(TimeIterator):
             exchange_adapter, self.position_tracker, self.oco_manager, croupier=self
         )
 
-        self.exit_manager = ExitManager(self)
+        self.exit_manager = (
+            HFTExitManager(self) if getattr(trading_config, "HFT_EXIT_MODE", False) else ExitManager(self)
+        )
+
+        # Initialize ContextRegistry for execute_order
+        self.context_registry = None  # Set externally by main.py
 
         # Phase 103: Forensic Traceability
         self.auditor = DecisionAuditor()
@@ -630,10 +636,15 @@ class Croupier(TimeIterator):
             self.logger.warning("⚠️ OCOManager didn't return position, attempting manual registration")
             position = await self._register_position(order, result)
 
-        # Update balance (reserve margin)
+            # Update balance (reserve margin)
         margin_used = order.get("margin_used", 0)
         if margin_used > 0:
             self.balance_manager.reserve_margin(margin_used)
+
+        # Update ContextRegistry (Phase 974 Sniper Patience Lock)
+        if self.context_registry:
+            self.context_registry.set_in_trade(symbol, True)
+            self.logger.debug(f"🔒 [CONCURRENCY] {symbol} locked. Ignoring new signals.")
 
         # Use safe get for fill_price as optimistic OCOs won't have it yet
         entry_p = result.get("fill_price") or getattr(position, "entry_price", 0)
@@ -758,6 +769,17 @@ class Croupier(TimeIterator):
                         pnl=pnl,
                         fee=0.0,
                     )
+
+                    # Update ContextRegistry (Phase 974 Sniper Patience Lock)
+                    if self.context_registry:
+                        # Check if any OTHER position for this symbol is still open
+                        other_positions = [
+                            p for p in self.position_tracker.open_positions if p.symbol == position.symbol
+                        ]
+                        if not other_positions:
+                            self.context_registry.set_in_trade(position.symbol, False)
+                            self.logger.debug(f"🔓 [CONCURRENCY] {position.symbol} unlocked. Accepting new signals.")
+
                     return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
                 else:
                     self.logger.error(f"❌ Smart Close Failed for {trade_id}: {e}. Triggering RAW EMERGENCY BYPASS.")
@@ -806,6 +828,19 @@ class Croupier(TimeIterator):
                                 self.position_tracker.confirm_close(
                                     trade_id=trade_id, exit_price=exit_price, exit_reason="TP_SL_HIT", pnl=pnl, fee=0.0
                                 )
+
+                                # Update ContextRegistry (Phase 974 Sniper Patience Lock)
+                                if self.context_registry:
+                                    # Check if any OTHER position for this symbol is still open
+                                    other_positions = [
+                                        p for p in self.position_tracker.open_positions if p.symbol == position.symbol
+                                    ]
+                                    if not other_positions:
+                                        self.context_registry.set_in_trade(position.symbol, False)
+                                        self.logger.debug(
+                                            f"🔓 [CONCURRENCY] {position.symbol} unlocked. Accepting new signals."
+                                        )
+
                                 return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
 
                             self.logger.critical(f"🔥 RAW EMERGENCY BYPASS FAILED. POSITION ORPHANED: {bypass_err}")
@@ -855,6 +890,14 @@ class Croupier(TimeIterator):
                 pnl=pnl,
                 fee=0.0,  # Initially 0, will be updated by background task
             )
+
+            # Update ContextRegistry (Phase 974 Sniper Patience Lock)
+            if self.context_registry:
+                # Check if any OTHER position for this symbol is still open
+                other_positions = [p for p in self.position_tracker.open_positions if p.symbol == position.symbol]
+                if not other_positions:
+                    self.context_registry.set_in_trade(position.symbol, False)
+                    self.logger.debug(f"🔓 [CONCURRENCY] {position.symbol} unlocked. Accepting new signals.")
 
             # IMPORTANT: Position is now removed from tracker, lock is effectively gone.
 

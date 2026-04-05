@@ -350,14 +350,14 @@ def compute_latency_stats(trades):
     }
 
 
-def parse_setup_type_from_logs(log_glob: str) -> dict:
+def parse_setup_type_from_logs(log_glob: str) -> tuple[dict, dict]:
     """Parse logs to extract setup_type per trade decision.
 
     Returns dict mapping approximate timestamp -> setup_type
     """
     log_files = _iter_log_files(log_glob)
     if not log_files:
-        return {}
+        return {}, {}
 
     # Pattern: 🎯 Decision: ... | Setup: reversion | TP: ...
     rx_decision = re.compile(r"🎯 Decision: (LONG|SHORT).*?Setup: (\w+).*?TP: ([\d.]+)")

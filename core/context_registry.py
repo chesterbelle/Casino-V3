@@ -41,6 +41,7 @@ class ContextRegistry:
         self.tick_stats: Dict[str, dict] = {}  # symbol -> {speed, last_ts, count}
         self.micro_state: Dict[str, dict] = {}  # symbol -> {cvd, skewness, z_score, last_update}
         self.ib_levels: Dict[str, dict] = {}  # symbol -> {high, low}  Phase 700: IB levels for proximity gate
+        self.active_trades: Dict[str, bool] = defaultdict(bool)  # symbol -> in_trade (Phase 974)
 
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
@@ -98,8 +99,17 @@ class ContextRegistry:
         return None, None
 
     def get_regime(self, symbol: str) -> str:
-        """Returns the current market regime."""
-        return self.regimes.get(symbol, "NEUTRAL")
+        """Returns (TREND, RANGE, NORMAL)."""
+        return self.regimes.get(symbol, "NORMAL")
+
+    def set_in_trade(self, symbol: str, in_trade: bool):
+        """Phase 974: Set active trade status for a symbol."""
+        self.active_trades[symbol] = in_trade
+        logger.debug(f"⚖️  [CONTEXT] {symbol} trade status: {'IN_TRADE' if in_trade else 'FLAT'}")
+
+    def is_in_trade(self, symbol: str) -> bool:
+        """Phase 974: Check if a symbol is currently in an active trade."""
+        return self.active_trades.get(symbol, False)
 
     def get_pulse(self, symbol: str) -> dict:
         """Returns real-time speed and volatility metrics."""

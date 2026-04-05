@@ -865,8 +865,8 @@ class OCOManager:
             # Fallback to REST check
             self.logger.warning(f"🕒 Timeout waiting for WS fill ({order_id}). Falling back to REST...")
             try:
-                # Phase 56: Anti-Hang Timeout for REST Fallback
-                order_info = await asyncio.wait_for(self.adapter.fetch_order(order_id, symbol), timeout=5.0)
+                # Phase 56: Anti-Hang Timeout for REST Fallback (Increased for demo/testnet)
+                order_info = await asyncio.wait_for(self.adapter.fetch_order(order_id, symbol), timeout=15.0)
                 if order_info.get("status") in ("closed", "filled"):
                     return order_info
             except Exception as e:

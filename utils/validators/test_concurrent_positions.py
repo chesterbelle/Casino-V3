@@ -27,6 +27,7 @@ from croupier.croupier import Croupier
 from exchanges.adapters import ExchangeAdapter
 from exchanges.connectors import ResilientConnector
 from exchanges.connectors.binance.binance_native_connector import BinanceNativeConnector
+from players.adaptive import AdaptivePlayer
 
 
 def setup_logging():

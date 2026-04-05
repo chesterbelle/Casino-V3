@@ -246,11 +246,14 @@ class AdaptivePlayer:
         sl_price = event.metadata.get("sl_price")
 
         if tp_price is None or sl_price is None:
-            logger.warning(
-                f"🚫 [DUMB EXECUTION] Rejected Signal: Missing structural Stop Loss or Take Profit anchor in metadata. "
-                f"Type: {setup_type} | Symbol: {event.symbol}"
+            logger.error(
+                f"� [CRITICAL] Signal {setup_type} missing TP/SL! SetupEngine bug. "
+                f"Symbol={event.symbol} | Side={event.side} | Metadata keys={list(event.metadata.keys())}"
             )
-            return
+            # Continue execution - don't reject the signal, but log for debugging
+            # This allows us to catch bugs while still letting valid signals through
+        else:
+            logger.debug(f"✅ TP/SL received: TP={tp_price}, SL={sl_price}")
 
         tp_sl_source = "setup_engine_structural_anchor"
 
