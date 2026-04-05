@@ -9,7 +9,7 @@ multi-condition playbooks. Fires instantly (0ms latency) upon pattern completion
 import logging
 import time
 from collections import defaultdict, deque
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.events import (
     AggregatedSignalEvent,
@@ -57,11 +57,11 @@ class SetupEngineV4:
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
         self.engine.subscribe(EventType.MICROSTRUCTURE_BATCH, self.on_microstructure_batch)
 
-        # Phase 1800: Cold Start Warmup Guard
-        # Require 20 minutes of market data before firing any signals
-        # to allow Volume Profile (POC/VAH/VAL) and CVD to calibrate properly
+        # Phase 1800: Cold Start Warmup Guard (Dynamic)
+        # Normal Mode: Requires 60 minutes of data AND structural levels (POC/VAH/VAL).
+        # Fast-Track Mode: Bypasses the 60m timer, but STILL REQUIRES structural levels.
         self.first_event_ts = 0.0
-        self.warmup_seconds = 0.0 if self.fast_track else 1200.0  # 20 minutes
+        self.warmup_seconds = 0.0 if self.fast_track else 3600.0  # 60 minutes (User's Official Warmup)
 
         # Phase 800: Failed Auction Memory (Dalton Targets)
         self.failed_auctions: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -73,8 +73,27 @@ class SetupEngineV4:
 
         self._micro_count = 0
         logger.info(
-            f"🎯 Setup Engine initialized (Sniper Mode Activated | Warmup: {'0m' if self.fast_track else '20m'})"
+            f"🎯 Setup Engine initialized (Sniper Mode Activated | Official Warmup: {'0m' if self.fast_track else '60m'})"
         )
+
+    def is_system_warm(self, symbol: str, now: float) -> Tuple[bool, List[str]]:
+        """Phase 1800: Checks if the system is ready to trade based on time AND data.
+        Returns (is_ready, missing_reasons).
+        """
+        reasons = []
+        # 1. Check structural readiness (Blindness Gate)
+        if self.context_registry and not self.context_registry.is_structural_ready(symbol):
+            reasons.append("Structural Levels (POC/VAH/VAL)")
+
+        # 2. Check time-based warmup (Calibration Gate)
+        if self.first_event_ts == 0.0:
+            self.first_event_ts = now
+
+        elapsed = now - self.first_event_ts
+        if elapsed < self.warmup_seconds:
+            reasons.append(f"Warmup Timer ({round((self.warmup_seconds - elapsed) / 60, 1)}m remain)")
+
+        return len(reasons) == 0, reasons
 
     def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
         """Phase 950: Inject structural levels from ContextRegistry into trigger metadata.
@@ -433,15 +452,13 @@ class SetupEngineV4:
         else:
             now = getattr(source_event, "timestamp", time.time())
 
-        # 0. Cold Start Warmup Check (Priority 0: Calibration)
-        if self.first_event_ts == 0.0:
-            self.first_event_ts = now
-        elif now - self.first_event_ts < self.warmup_seconds:
+        # 0. Cold Start Warmup Check (Priority 0: Dynamic Readiness)
+        is_warm, missing = self.is_system_warm(symbol, now)
+        if not is_warm:
             # Throttled logging for warmup
             if getattr(self, "_warmup_log_count", 0) % 50 == 0:
-                logger.info(
-                    f"⏳ [WARMUP] {pattern} gated | Time elapsed: {(now - self.first_event_ts) / 60:.1f}m / 60m"
-                )
+                missing_str = ", ".join(missing)
+                logger.info(f"⏳ [WARMUP] {pattern} {side} gated | Waiting for: [{missing_str}]")
             self._warmup_log_count = getattr(self, "_warmup_log_count", 0) + 1
             return
 

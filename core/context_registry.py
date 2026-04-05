@@ -98,6 +98,13 @@ class ContextRegistry:
             return ib["high"], ib["low"]
         return None, None
 
+    def is_structural_ready(self, symbol: str) -> bool:
+        """Phase 1800: Returns True if structural levels (POC, VAH, VAL) are loaded.
+        Used by SetupEngine to ensure the bot isn't "blind" before firing signals.
+        """
+        poc, vah, val = self.get_structural(symbol)
+        return poc > 0 and vah > 0 and val > 0
+
     def get_regime(self, symbol: str) -> str:
         """Returns (TREND, RANGE, NORMAL)."""
         return self.regimes.get(symbol, "NORMAL")
