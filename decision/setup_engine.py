@@ -120,7 +120,7 @@ class SetupEngineV4:
         if ib_low and ib_low > 0:
             levels.append(("IBL", ib_low))
 
-        PROX_THRESHOLD = 0.0020  # 0.20% — approved by developer meeting
+        PROX_THRESHOLD = 1.0 if self.fast_track else 0.0020  # Phase 990: Fast-Track bypasses location gating
 
         nearest = None
         min_dist = float("inf")
@@ -171,8 +171,8 @@ class SetupEngineV4:
                     wick_size = min(open_p, price) - low
 
                 wick_ratio = wick_size / total_range
-                if wick_ratio < 0.25:
-                    # Too 'clean' - price is still pushing hard. Skip.
+                if wick_ratio < 0.25 and not self.fast_track:
+                    # Too 'clean' - price is still pushing hard. Skip unless Fast-Track.
                     return None
 
             proximity = self._check_level_proximity(symbol, price)
@@ -496,8 +496,8 @@ class SetupEngineV4:
         This replaces the old Toxic_OrderFlow signal generation and
         Confluence Check with a pure Dale-aligned context filter.
         """
-        if not self.micro_memory[symbol]:
-            return True  # No micro data yet — allow signal through
+        if not self.micro_memory[symbol] or self.fast_track:
+            return True  # No micro data yet, or Fast-Track forces execution
 
         latest = self.micro_memory[symbol][-1][2]
         z = latest.z_score
@@ -539,12 +539,13 @@ class SetupEngineV4:
 
         # Regime Gate: Don't trade trapped traders against a strong trend
         regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
-        if direction == "LONG" and regime == "DOWN":
-            logger.debug("❌ [REGIME GATE] Trapped_Traders LONG rejected in DOWN trend")
-            return None
-        if direction == "SHORT" and regime == "UP":
-            logger.debug("❌ [REGIME GATE] Trapped_Traders SHORT rejected in UP trend")
-            return None
+        if not self.fast_track:
+            if direction == "LONG" and regime == "DOWN":
+                logger.debug("❌ [REGIME GATE] Trapped_Traders LONG rejected in DOWN trend")
+                return None
+            if direction == "SHORT" and regime == "UP":
+                logger.debug("❌ [REGIME GATE] Trapped_Traders SHORT rejected in UP trend")
+                return None
 
         trap_price = trapped.get("trap_price") or trapped.get("high") or trapped.get("low") or 0.0
 
@@ -694,7 +695,7 @@ class SetupEngineV4:
 
             # Regime Gate (Reversion only in Neutral)
             regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
-            if regime in ("UP", "DOWN"):
+            if regime in ("UP", "DOWN") and not self.fast_track:
                 logger.debug(f"❌ [REGIME GATE] Fade_Extreme rejected in TREND regime ({regime})")
                 return None
 
@@ -742,17 +743,18 @@ class SetupEngineV4:
             has_confluence = any(c.get("direction") == stacked_dir for c in confirmations)
 
             # In Neutral regime, we REQUIRE confluence for trend continuation
-            if regime == "NEUTRAL" and not has_confluence:
+            if regime == "NEUTRAL" and not has_confluence and not self.fast_track:
                 logger.debug("❌ [REGIME GATE] Trend_Continuation rejected: No confluence in NEUTRAL regime")
                 return None
 
             # Trend Alignment Filter (Phase 1600/1700)
-            if regime == "UP" and stacked_dir == "SHORT":
-                logger.debug("❌ [REGIME GATE] Trend_Continuation SHORT rejected — Trend is UP")
-                return None
-            if regime == "DOWN" and stacked_dir == "LONG":
-                logger.debug("❌ [REGIME GATE] Trend_Continuation LONG rejected — Trend is DOWN")
-                return None
+            if not self.fast_track:
+                if regime == "UP" and stacked_dir == "SHORT":
+                    logger.debug("❌ [REGIME GATE] Trend_Continuation SHORT rejected — Trend is UP")
+                    return None
+                if regime == "DOWN" and stacked_dir == "LONG":
+                    logger.debug("❌ [REGIME GATE] Trend_Continuation LONG rejected — Trend is DOWN")
+                    return None
 
             # CVD Divergence Guard (Phase 1300)
             # Find the latest Microstructure event for CVD
