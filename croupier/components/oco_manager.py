@@ -301,7 +301,7 @@ class OCOManager:
                     f"✅ Position {position.trade_id if position else 'unknown'} was already closed during OCO creation."
                 )
                 if position:
-                    self.tracker.confirm_close(
+                    await self.tracker.confirm_close(
                         trade_id=position.trade_id,
                         exit_price=position.entry_price,
                         exit_reason="TP_SL_HIT",
@@ -319,7 +319,7 @@ class OCOManager:
             if "main_order" in locals() and main_order:
                 await self._cleanup_partial_oco(main_order, None, None)
             if position:
-                self.tracker.confirm_close(
+                await self.tracker.confirm_close(
                     trade_id=position.trade_id,
                     exit_price=position.entry_price,
                     exit_reason="OCO_ABORT",
@@ -347,12 +347,27 @@ class OCOManager:
         try:
             # 1. Wait for fill
             local_fill_data = None
-            if wait_for_fill:
+
+            # Phase 81: Simulation Parity Fix - Detect immediate fills in backtest
+            mode = "live"
+            if hasattr(self.adapter, "connector"):
+                mode = getattr(self.adapter.connector, "mode", "live")
+
+            # Check if main_order is already filled (common in VirtualExchange)
+            price_resp = main_order.get("price") or main_order.get("avgPrice") or main_order.get("average")
+            status_resp = main_order.get("status")
+
+            if mode == "testing" and (status_resp in ("closed", "filled") or (price_resp and float(price_resp) > 0)):
+                self.logger.info(f"⚡ SIMULATION: Detected immediate fill for {client_order_id}. Skipping wait.")
+                local_fill_data = main_order
+                # Resolve the future so other parts of the system aren't left waiting
+                if future and not future.done():
+                    future.set_result(main_order)
+            elif wait_for_fill:
                 local_fill_data = await self._wait_for_fill(
                     client_order_id, symbol, timeout=fill_timeout, future=future
                 )
             else:
-                price_resp = main_order.get("price") or main_order.get("avgPrice") or main_order.get("average")
                 if price_resp and float(price_resp) > 0:
                     local_fill_data = main_order
                 else:
@@ -858,7 +873,23 @@ class OCOManager:
         poll_task = asyncio.create_task(self._poll_for_fill(order_id, symbol, future))
 
         try:
-            # Wait for WS result
+            # Phase 81: Simulation Parity Fix - Deterministic Fill check for backtests
+            mode = "live"
+            if hasattr(self.adapter, "connector"):
+                mode = getattr(self.adapter.connector, "mode", "live")
+
+            if mode == "testing":
+                # In simulation, the fill is immediate at the point of tick processing.
+                # If we are here, and the WS event hasn't settled the future yet,
+                # we do a single non-blocking fetch to finalize the state.
+                try:
+                    order_info = await self.adapter.fetch_order(order_id, symbol)
+                    if order_info.get("status") in ("closed", "filled"):
+                        return order_info
+                except Exception:
+                    pass  # Fall back to normal wait if fetch fails
+
+            # Wait for WS result (Real-time timeout)
             fill_data = await asyncio.wait_for(future, timeout=timeout)
             return fill_data
         except (asyncio.TimeoutError, asyncio.CancelledError):

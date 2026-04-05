@@ -85,10 +85,11 @@ class CandleMaker:
     Multi-Symbol Safe: Maintains separate candle state per symbol.
     """
 
-    def __init__(self, engine, timeframe_seconds=60, tick_size=0.01):
+    def __init__(self, engine, timeframe_seconds=60, tick_size=0.01, is_backtest=False):
         self.engine = engine
         self.timeframe = timeframe_seconds
         self.tick_size = tick_size
+        self.is_backtest = is_backtest
         # Multi-symbol safe: Dict[symbol, candle_data]
         self.current_candles: Dict[str, dict] = {}
         self.last_candle_times: Dict[str, int] = {}
@@ -117,8 +118,8 @@ class CandleMaker:
 
         # If we have a current candle for this symbol and we moved to a new minute
         if current_candle and candle_start_time > last_candle_time:
-            # Emit the closed candle (Phase 180: Background processing)
-            asyncio.create_task(self._emit_candle(current_candle))
+            # Emit the closed candle (Deterministic Sequential Emission)
+            await self._emit_candle(current_candle)
             # Reset for new candle
             current_candle = None
             self.current_candles[symbol] = None
@@ -161,18 +162,22 @@ class CandleMaker:
             current_candle["delta"] += tick.volume
 
     async def _emit_candle(self, candle_data: dict):
-        """Emit a closed candle event with background footprint calculation."""
-        # Calculate advanced stats in executor (Phase 180)
-        loop = asyncio.get_running_loop()
-        try:
-            # Offload heavy sort and VA calculation to process pool
-            # This prevents 42 simultaneous candle closures from blocking the main loop
-            poc, vah, val = await loop.run_in_executor(
-                self._executor, calculate_footprint_stats_worker, candle_data["profile"], candle_data["volume"]
-            )
-        except Exception as e:
-            logger.error(f"❌ Footprint Calculation Failed for {candle_data['symbol']}: {e}")
-            poc, vah, val = 0.0, 0.0, 0.0
+        """Emit a closed candle event with footprint calculation."""
+        # Phase 81: Simulation Parity Fix - Calculate inline for backtests
+        if self.is_backtest:
+            poc, vah, val = calculate_footprint_stats_worker(candle_data["profile"], candle_data["volume"])
+        else:
+            # Calculate advanced stats in executor (Live Only: avoid blocking UI/API threads)
+            loop = asyncio.get_running_loop()
+            try:
+                # Offload heavy sort and VA calculation to process pool
+                # This prevents 42 simultaneous candle closures from blocking the main loop
+                poc, vah, val = await loop.run_in_executor(
+                    self._executor, calculate_footprint_stats_worker, candle_data["profile"], candle_data["volume"]
+                )
+            except Exception as e:
+                logger.error(f"❌ Footprint Calculation Failed for {candle_data['symbol']}: {e}")
+                poc, vah, val = 0.0, 0.0, 0.0
 
         # Calculate ATR
         symbol = candle_data["symbol"]

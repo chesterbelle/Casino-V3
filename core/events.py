@@ -20,6 +20,7 @@ class EventType(Enum):
     ACCOUNT_UPDATE = auto()
     MICROSTRUCTURE = auto()
     MICROSTRUCTURE_BATCH = auto()
+    TRADE_CLOSED = auto()
 
 
 @dataclass
@@ -176,3 +177,19 @@ class AccountUpdateEvent(Event):
 
     def __post_init__(self):
         self.type = EventType.ACCOUNT_UPDATE
+
+
+@dataclass
+class TradeClosedEvent(Event):
+    """Event emitted when a position is closed and finalized."""
+
+    trade_id: str
+    symbol: str
+    side: str
+    pnl: float
+    won: bool
+    exit_reason: str
+    exit_price: float
+
+    def __post_init__(self):
+        self.type = EventType.TRADE_CLOSED

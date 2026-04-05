@@ -702,7 +702,7 @@ class ReconciliationService:
                             fee_info = tp_order.get("fee", {})
                             exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
 
-                            self.tracker.confirm_close(
+                            await self.tracker.confirm_close(
                                 pos.trade_id,
                                 exit_price=price,
                                 exit_reason="TP (Recon)",
@@ -750,7 +750,7 @@ class ReconciliationService:
                         fee_info = sl_order.get("fee", {})
                         exit_fee = float(fee_info.get("cost", 0) if isinstance(fee_info, dict) else 0)
 
-                        self.tracker.confirm_close(
+                        await self.tracker.confirm_close(
                             pos.trade_id,
                             exit_price=price,
                             exit_reason="SL (Recon)",
@@ -829,7 +829,7 @@ class ReconciliationService:
                             f"🕵️ Deep Search found closing trade: {last_trade.get('id')} @ {price} "
                             f"(PnL: {pnl}, Fee: {fee_real})"
                         )
-                        self.tracker.confirm_close(
+                        await self.tracker.confirm_close(
                             pos.trade_id,
                             exit_price=price,
                             exit_reason="TRADE_CONFIRMED",

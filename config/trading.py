@@ -254,6 +254,9 @@ MULTI_ASSET_TARGETS = [
 # 3. Disables proactive exits (Shadow SL, Micro-Exits) for interference-free study.
 AUDIT_MODE = False
 
+# How often (in seconds) to sample price after a signal for MFE/MAE tracking.
+AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
+
 # =====================================================
 # 🚀 HFT EXIT MANAGER (Phase 1000 - Dumb Execution Layer)
 # =====================================================

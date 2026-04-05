@@ -132,7 +132,7 @@ class TestingDataSource(DataSource):
                         net_pnl = pnl - fee
 
                         # Confirm close with REAL PnL
-                        self.croupier.position_tracker.confirm_close(
+                        await self.croupier.position_tracker.confirm_close(
                             trade_id=trade_id, exit_price=current_price, exit_reason="END_SESSION", pnl=net_pnl, fee=fee
                         )
 

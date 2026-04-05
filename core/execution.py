@@ -8,7 +8,7 @@ import logging
 import time
 
 import config.trading
-from core.events import EventType
+from core.events import EventType, TradeClosedEvent
 from core.observability import metrics
 from core.portfolio.portfolio_guard import GuardState
 from croupier.croupier import Croupier
@@ -36,6 +36,9 @@ class OrderManager:
 
         # Subscribe to CANDLE events to check for TP/SL exits
         self.engine.subscribe(EventType.CANDLE, self.on_candle)
+
+        # Subscribe to TRADE_CLOSED events to update Paroli/Tracker (Unified Architecture)
+        self.engine.subscribe(EventType.TRADE_CLOSED, self.on_trade_closed)
 
     async def start(self):
         """Start the Order Manager."""
@@ -324,6 +327,13 @@ class OrderManager:
             # Clean up
             del self.pending_trades[trade_id]
 
+    async def on_trade_closed(self, event: TradeClosedEvent):
+        """Handle unified trade closure event to update execution state."""
+        logger.info(
+            f"📊 Trade Closed Callback: {event.trade_id} | {event.exit_reason} | Won: {event.won} | PnL: {event.pnl:.2f}"
+        )
+        self.handle_trade_outcome(event.trade_id, event.won, event.pnl)
+
     async def on_candle(self, event):
         """Handle new candle to check for potential exits."""
         if not self.active:
@@ -362,77 +372,24 @@ class OrderManager:
         for exit_info in potential_exits:
             trade_id = exit_info["trade_id"]
             exit_reason = exit_info["exit_reason_detected"]
-            exit_price = exit_info["exit_price_detected"]
 
-            # LIVE / DEMO MODE HANDLING
-            if mode in ["live", "demo"]:
-                # Case 1: Internal Exits (TIME_EXIT, MANUAL, etc.)
-                # These are NOT handled by the exchange automatically, so we MUST execute them.
-                if exit_reason in ["TIME_EXIT", "MANUAL_SYNC", "FORCE_CLOSE"]:
-                    logger.info(f"⏳ Executing {exit_reason} for {trade_id} in {mode} mode")
-                    try:
-                        # close_position will:
-                        # 1. Cancel TP/SL orders
-                        # 2. Execute Market Close (ReduceOnly)
-                        # 3. Confirm close in tracker
-                        await self.croupier.close_position(trade_id)
+            # Unified Execution Architecture:
+            # All modes (Live, Demo, Backtest) follow the same execution funnel.
+            # 1. Internal Exits (TIME, MANUAL) are executed by OrderManager.
+            # 2. Exchange Exits (TP, SL, LIQ) are managed by the exchange and waited for.
 
-                        # Update Paroli/Tracker is handled by the callback registered in main.py
-                        # But we might want to log here
-                        logger.info(f"✅ {exit_reason} executed successfully for {trade_id}")
+            # Case 1: Internal Exits (TIME_EXIT, MANUAL_SYNC, etc.)
+            if exit_reason in ["TIME_EXIT", "MANUAL_SYNC", "FORCE_CLOSE"]:
+                logger.info(f"⏳ Executing {exit_reason} for {trade_id} in {mode} mode")
+                try:
+                    # close_position handles bracket cancellation and market exit
+                    await self.croupier.close_position(trade_id)
+                    logger.info(f"✅ {exit_reason} executed successfully for {trade_id}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to execute {exit_reason} for {trade_id}: {e}")
 
-                    except Exception as e:
-                        logger.error(f"❌ Failed to execute {exit_reason} for {trade_id}: {e}")
-
-                # Case 2: Exchange Exits (TP, SL, LIQUIDATION)
-                # These ARE handled by the exchange (Limit/Stop orders).
-                # We should NOT simulate them here. We wait for WebSocket confirmation.
-                elif exit_reason in ["TP", "SL", "LIQUIDATION"]:
-                    logger.debug(f"⏭️ Skipping {exit_reason} detection in {mode} mode - waiting for WebSocket")
-                    continue
-
-            # TESTING / BACKTEST MODE HANDLING
-            else:
-                # In Backtest, we trust the candle data and confirm immediately
-
-                # Calculate PnL
-                position = self.croupier.position_tracker.get_position(trade_id)
-                if not position:
-                    continue
-
-                # Protección contra división por cero
-                if position.entry_price == 0:
-                    logger.warning(f"⚠️ Position {trade_id} has entry_price=0, using exit_price as fallback")
-                    pnl_pct = 0.0
-                    pnl = 0.0
-                else:
-                    if position.side == "LONG":
-                        pnl_pct = (exit_price - position.entry_price) / position.entry_price
-                    else:
-                        pnl_pct = (position.entry_price - exit_price) / position.entry_price
-
-                    # Calculate PnL - use notional if available, else estimate from typical position size
-                    if position.notional and position.notional > 0:
-                        pnl = position.notional * pnl_pct
-                    else:
-                        # Fallback: estimate notional from typical bet size (1% of 10000 = 100)
-                        estimated_notional = 100.0  # Typical small bet
-                        pnl = estimated_notional * pnl_pct
-
-                # Calculate fee (0.06% taker fee on notional)
-                fee = position.notional * 0.0006
-
-                # Confirm close
-                result = self.croupier.position_tracker.confirm_close(
-                    trade_id=trade_id,
-                    exit_price=exit_price,
-                    exit_reason=exit_reason,
-                    pnl=pnl,
-                    fee=fee,
-                )
-
-                if result:
-                    logger.info(f"✅ Trade Closed (Simulated): {trade_id} | {exit_reason} | PnL: {pnl:.2f}")
-                    # Update Paroli and Tracker
-                    won = result["result"] == "WIN"
-                    self.handle_trade_outcome(trade_id, won, pnl)
+            # Case 2: Exchange Exits (TP, SL, LIQUIDATION)
+            # We skip detection here and wait for Fill/Callback (real WS or VirtualExchange event).
+            elif exit_reason in ["TP", "SL", "LIQUIDATION"]:
+                logger.debug(f"⏭️ Skipping {exit_reason} detection in {mode} mode - delegating to exchange engine")
+                continue

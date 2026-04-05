@@ -211,7 +211,7 @@ class BacktestFeed:
         if self.exchange_connector:
             if hasattr(self.exchange_connector, "process_tick"):
                 tick_data = {"price": price, "timestamp": timestamp}
-                self.exchange_connector.process_tick(tick_data)
+                await self.exchange_connector.process_tick(tick_data)
 
         event = TickEvent(
             type=EventType.TICK,

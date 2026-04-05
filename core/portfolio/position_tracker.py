@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from exchanges.adapters import ExchangeAdapter
 
 import config.trading
+from core.events import TradeClosedEvent
 from core.observability.historian import historian
 from utils.symbol_norm import normalize_symbol
 
@@ -245,17 +246,20 @@ class PositionTracker:
         adapter: Optional["ExchangeAdapter"] = None,
         on_close_callback: Optional[callable] = None,
         session_id: Optional[str] = None,
+        engine: Optional[Any] = None,
     ):
         """
         Args:
             adapter: ExchangeAdapter para cancelar órdenes OCO (agnóstico del conector)
             session_id: ID de la sesión actual (para Historian)
         """
-        self.session_id = session_id
+        self.adapter = adapter
+        self.on_close_callback = on_close_callback
+        self.session_id = session_id or "default_session"
+        self.engine = engine
         self.session_start_ts = time.time()  # Phase 110: Session Isolation
         self.open_positions: List[OpenPosition] = []
         self.blocked_capital: float = 0.0
-        self.adapter = adapter  # For OCO cancellation
         self._close_listeners: List[callable] = []
         # Callback for immediate state persistence
         self.state_change_callback: Optional[Callable[[], Awaitable[None]]] = None
@@ -632,7 +636,7 @@ class PositionTracker:
         logger.info(f"⚡ Atomic Alias Registered: {order_type} {order_id} -> {position.symbol}")
         self._trigger_state_change()
 
-    def handle_order_update(self, event: Dict[str, Any]) -> Optional[str]:
+    async def handle_order_update(self, event: Dict[str, Any]) -> Optional[str]:
         """
         Handle WebSocket ORDER_UPDATE event with O(1) lookup.
 
@@ -670,15 +674,15 @@ class PositionTracker:
             return None
 
         # Delegate to position's event handler
-        event_type = position.on_order_update(event)
+        match_type = position.on_order_update(event)
 
-        if event_type == "TP_FILLED":
+        if match_type == "TP_FILLED":
             logger.info(f"🎯 TP FILLED detected for {position.trade_id} via unified routing")
-            self._handle_tp_filled(position, event)
-        elif event_type == "SL_FILLED":
+            await self._handle_tp_filled(position, event)
+        elif match_type == "SL_FILLED":
             logger.info(f"🛑 SL FILLED detected for {position.trade_id} via unified routing")
-            self._handle_sl_filled(position, event)
-        elif event_type == "MAIN_FILLED":
+            await self._handle_sl_filled(position, event)
+        elif match_type == "MAIN_FILLED":
             # Phase 50: In-Flight Promotion (OPENING -> ACTIVE)
             if position.status == "OPENING":
                 position.status = "ACTIVE"
@@ -764,17 +768,17 @@ class PositionTracker:
                         else:
                             pnl = 0.0
 
-                        # Force Close logic
-                        self.confirm_close(
+                        # Force Close logic (Phase 81 Refactor)
+                        await self.confirm_close(
                             trade_id=pos.trade_id,
                             exit_price=exit_price,
                             exit_reason="LIQUIDATION",
                             pnl=pnl,
-                            fee=0.0,  # Fees usually handled in separate events, but let's assume 0 for now
+                            fee=0.0,
                         )
                         logger.info(f"⚰️ Buried Ghost Position {pos.trade_id} (PnL: {pnl:.4f})")
 
-    def _handle_tp_filled(self, position: "OpenPosition", event: Dict[str, Any]):
+    async def _handle_tp_filled(self, position: "OpenPosition", event: Dict[str, Any]):
         """Handle TP fill event - close position and cancel SL."""
         if position.tp_order:
             exit_price = position.tp_order.filled_price or position.tp_level
@@ -789,13 +793,16 @@ class PositionTracker:
             else:
                 pnl = 0.0
 
-            self.confirm_close(trade_id=position.trade_id, exit_price=exit_price, exit_reason="TP", pnl=pnl, fee=fee)
+            # Finalize removal and capital release
+            await self.confirm_close(
+                trade_id=position.trade_id, exit_price=exit_price, exit_reason="TP", pnl=pnl, fee=fee
+            )
 
             # Cancel SL order
             if position.sl_order and self.adapter:
                 asyncio.create_task(self._cancel_sl_order(position))
 
-    def _handle_sl_filled(self, position: "OpenPosition", event: Dict[str, Any]):
+    async def _handle_sl_filled(self, position: "OpenPosition", event: Dict[str, Any]):
         """Handle SL fill event - close position and cancel TP."""
         if position.sl_order:
             exit_price = position.sl_order.filled_price or position.sl_level
@@ -810,7 +817,10 @@ class PositionTracker:
             else:
                 pnl = 0.0
 
-            self.confirm_close(trade_id=position.trade_id, exit_price=exit_price, exit_reason="SL", pnl=pnl, fee=fee)
+            # Finalize removal and capital release
+            await self.confirm_close(
+                trade_id=position.trade_id, exit_price=exit_price, exit_reason="SL", pnl=pnl, fee=fee
+            )
 
             # Cancel TP order
             if position.tp_order and self.adapter:
@@ -1154,7 +1164,7 @@ class PositionTracker:
 
         return potential_closes
 
-    def confirm_close(
+    async def confirm_close(
         self,
         trade_id: str,
         exit_price: float,
@@ -1294,7 +1304,19 @@ class PositionTracker:
             position._lock.release()
             logger.debug(f"🔓 Final governance lock released for {trade_id}")
 
-        self._trigger_state_change()
+        # Dispatch TradeClosedEvent (Unified Architecture) - Phase 800 fix
+        if self.engine:
+            event = TradeClosedEvent(
+                trade_id=trade_id,
+                symbol=result["symbol"],
+                side=result["side"],
+                pnl=pnl,
+                won=result["result"] == "WIN",
+                exit_reason=exit_reason,
+                exit_price=exit_price,
+                timestamp=time.time(),
+            )
+            await self.engine.dispatch(event)
 
         return result
 

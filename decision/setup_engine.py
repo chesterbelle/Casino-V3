@@ -177,15 +177,16 @@ class SetupEngineV4:
 
             proximity = self._check_level_proximity(symbol, price)
             if proximity:
-                # Phase 970: Structural Order Flow Exit Anchoring for Delta Divergence
-                # SL is placed behind the rejection wick + 0.02% liquidity sweep buffer
-                buffer_pct = 0.0002
+                # Phase 970: Shark Breath Edge Validation (Axia-Style)
+                # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
+                tp_pct = 0.0030
+                sl_pct = 0.0030
                 if side == "LONG":
-                    sl_price = low * (1 - buffer_pct)
-                    tp_price = price * 1.0020  # Certified Edge
+                    sl_price = price * (1 - sl_pct)
+                    tp_price = price * (1 + tp_pct)
                 else:
-                    sl_price = high * (1 + buffer_pct)
-                    tp_price = price * 0.9980
+                    sl_price = price * (1 + sl_pct)
+                    tp_price = price * (1 - tp_pct)
 
                 trigger_meta = {
                     "trigger": "DeltaDivergence",
@@ -558,15 +559,16 @@ class SetupEngineV4:
         else:
             return None  # Invalid price event
 
-        # Phase 970: Structural Order Flow Exit Anchoring
-        # SL is placed precisely behind the trapped wick + 0.02% liquidity sweep buffer.
-        buffer_pct = 0.0002
+        # Phase 970: Shark Breath Edge Validation (Axia-Style)
+        # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
+        tp_pct = 0.0030
+        sl_pct = 0.0030
         if direction == "LONG":
-            sl_price = (trapped.get("low") or trap_price) * (1 - buffer_pct)
-            tp_price = trap_price * 1.0020  # Certified Edge
+            sl_price = trap_price * (1 - sl_pct)
+            tp_price = trap_price * (1 + tp_pct)
         else:
-            sl_price = (trapped.get("high") or trap_price) * (1 + buffer_pct)
-            tp_price = trap_price * 0.9980
+            sl_price = trap_price * (1 + sl_pct)
+            tp_price = trap_price * (1 - tp_pct)
 
         trigger_meta = {
             "trigger": "TrappedTraders",
@@ -668,15 +670,16 @@ class SetupEngineV4:
             else:
                 return None
 
-            # Phase 970: Structural Order Flow Exit Anchoring
-            # SL is placed precisely behind the absorption/rejection limit wall + 0.02% liquidity sweep buffer.
-            buffer_pct = 0.0002
+            # Phase 970: Shark Breath Edge Validation (Axia-Style)
+            # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
+            tp_pct = 0.0030
+            sl_pct = 0.0030
             if reversal_direction == "LONG":
-                sl_price = (action_node.get("low") or reaction_price) * (1 - buffer_pct)
-                tp_price = reaction_price * 1.0020
+                sl_price = reaction_price * (1 - sl_pct)
+                tp_price = reaction_price * (1 + tp_pct)
             else:
-                sl_price = (action_node.get("high") or reaction_price) * (1 + buffer_pct)
-                tp_price = reaction_price * 0.9980
+                sl_price = reaction_price * (1 + sl_pct)
+                tp_price = reaction_price * (1 - tp_pct)
 
             trigger_meta.update(
                 {
@@ -771,15 +774,16 @@ class SetupEngineV4:
             latest_micro_price = getattr(latest_micro, "price", 0.0)
             target_poc = stacked.get("poc", latest_micro_price)
 
-            # Phase 970: Calculate TP/SL for Trend Continuation
-            # SL behind the pullback low/high, TP towards next structural level
-            buffer_pct = 0.0002
+            # Phase 970: Shark Breath Edge Validation (Axia-Style)
+            # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
+            tp_pct = 0.0030
+            sl_pct = 0.0030
             if stacked_dir == "LONG":
-                sl_price = (stacked.get("low") or latest_micro_price) * (1 - buffer_pct)
-                tp_price = (stacked.get("high") or latest_micro_price) * 1.0020
+                sl_price = latest_micro_price * (1 - sl_pct)
+                tp_price = latest_micro_price * (1 + tp_pct)
             else:
-                sl_price = (stacked.get("high") or latest_micro_price) * (1 + buffer_pct)
-                tp_price = (stacked.get("low") or latest_micro_price) * 0.9980
+                sl_price = latest_micro_price * (1 + sl_pct)
+                tp_price = latest_micro_price * (1 - tp_pct)
 
             # Phase 850: Enter PULLBACK_WATCH instead of firing
             self.pullback_watch[symbol] = {

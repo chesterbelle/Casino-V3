@@ -9,6 +9,7 @@ trading environment that is identical to the Live/Demo environment from
 the perspective of the TradingSession and Croupier.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -76,6 +77,7 @@ class VirtualExchangeConnector(BaseConnector):
             f"🏦 VirtualExchange initialized | Balance: ${initial_balance:,.2f} | "
             f"Fee: {fee_rate:.2%} | Slippage: {slippage_rate:.2%}"
         )
+        self.mode = "testing"
 
     # =========================================================
     # 🔌 CONNECTION MANAGEMENT
@@ -138,7 +140,7 @@ class VirtualExchangeConnector(BaseConnector):
     # ⚙️ ENGINE (The "Virtual" part)
     # =========================================================
 
-    def process_tick(self, tick: Dict[str, Any]) -> None:
+    async def process_tick(self, tick: Dict[str, Any]) -> None:
         """
         Update state with a single tick and check for fills.
 
@@ -155,9 +157,9 @@ class VirtualExchangeConnector(BaseConnector):
         for order_id, order in list(self._orders.items()):
             if order["status"] != "open":
                 continue
-            self._process_order(order, high=price, low=price)
+            await self._process_order(order, high=price, low=price)
 
-    def update_market_state(self, candle: Dict[str, Any]) -> None:
+    async def update_market_state(self, candle: Dict[str, Any]) -> None:
         """
         Legacy: Update with candle.
         """
@@ -171,9 +173,9 @@ class VirtualExchangeConnector(BaseConnector):
         for order_id, order in list(self._orders.items()):
             if order["status"] != "open":
                 continue
-            self._process_order(order, high, low)
+            await self._process_order(order, high, low)
 
-    def _process_order(self, order: Dict, high: float, low: float) -> None:
+    async def _process_order(self, order: Dict, high: float, low: float) -> None:
         """Check if an order should be triggered/filled based on price action."""
         side = order["side"]
         order_type = order["type"]
@@ -263,9 +265,9 @@ class VirtualExchangeConnector(BaseConnector):
                     execution_price = limit_price
 
         if triggered:
-            self._execute_order_fill(order, execution_price)
+            await self._execute_order_fill(order, execution_price)
 
-    def _execute_order_fill(self, order: Dict, price: float) -> None:
+    async def _execute_order_fill(self, order: Dict, price: float) -> None:
         """Execute the fill of an order."""
         # Apply slippage for stop/market orders (not limit)
         is_limit = order["type"] == "limit"
@@ -300,14 +302,17 @@ class VirtualExchangeConnector(BaseConnector):
             f"Fee: {fee_cost:.4f} | PnL: {order.get('realized_pnl', 0):.2f}"
         )
 
-        # Handle OCO-like behavior (cancel siblings)
-        self._cancel_siblings(order)
-
         # Notify order update callback (like Binance WebSocket)
         if self._order_update_callback:
             try:
                 normalized = self._normalize_order(order)
-                self._order_update_callback(normalized)
+                # Phase 81: Deterministic Async Call
+                if asyncio.iscoroutinefunction(self._order_update_callback) or asyncio.iscoroutine(
+                    self._order_update_callback
+                ):
+                    await self._order_update_callback(normalized)
+                else:
+                    self._order_update_callback(normalized)
             except Exception as e:
                 self.logger.error(f"❌ Order update callback error: {e}")
 
@@ -495,7 +500,13 @@ class VirtualExchangeConnector(BaseConnector):
             if self._order_update_callback:
                 try:
                     normalized = self._normalize_order(sibling_order)
-                    self._order_update_callback(normalized)
+                    # Phase 81: Unified Async Bridge - Dispatch without blocking
+                    if asyncio.iscoroutinefunction(self._order_update_callback) or asyncio.iscoroutine(
+                        self._order_update_callback
+                    ):
+                        asyncio.create_task(self._order_update_callback(normalized))
+                    else:
+                        self._order_update_callback(normalized)
                 except Exception as e:
                     self.logger.error(f"❌ Sibling cancel callback error: {e}")
 
@@ -666,11 +677,13 @@ class VirtualExchangeConnector(BaseConnector):
             raise ValueError(f"Insolvent: Balance {self._balance} <= 0. Cannot open new positions.")
 
         self._order_seq += 1
-        order_id = f"v_{self._current_timestamp}_{self._order_seq}"
+        client_order_id = (params or {}).get("client_order_id")
+        order_id = client_order_id if client_order_id else f"v_{self._current_timestamp}_{self._order_seq}"
 
         order = {
             "id": order_id,
             "order_id": order_id,  # For Croupier compatibility
+            "client_order_id": client_order_id,
             "symbol": symbol,
             "side": side,
             "amount": amount,
@@ -703,15 +716,15 @@ class VirtualExchangeConnector(BaseConnector):
             stop_price = order["stopPrice"]
             triggered = False
 
-            # Use same logic as _process_order for consistency
-            if side == "SELL":
-                # If price is already below stop (SL already hit) or above stop (TP already hit)
-                if self._current_price <= stop_price or self._current_price >= stop_price:
-                    # Wait, we need to know the intent (SL vs TP).
-                    # But if it's already past the stop, it must trigger.
+            if order_type.lower() == "take_profit_market":
+                if side == "SELL" and self._current_price >= stop_price:
                     triggered = True
-            else:  # BUY
-                if self._current_price >= stop_price or self._current_price <= stop_price:
+                elif side == "BUY" and self._current_price <= stop_price:
+                    triggered = True
+            elif order_type.lower() == "stop_market":
+                if side == "SELL" and self._current_price <= stop_price:
+                    triggered = True
+                elif side == "BUY" and self._current_price >= stop_price:
                     triggered = True
 
             if triggered:

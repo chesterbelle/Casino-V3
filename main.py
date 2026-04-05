@@ -353,7 +353,7 @@ async def main():
     initial_balance = (initial_balance_data.get("total") or {}).get("USDT", 10000.0)
     logger.info(f"💰 Initial Balance: {initial_balance:.2f} USDT")
 
-    croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance)
+    croupier = Croupier(exchange_adapter=adapter, initial_balance=initial_balance, engine=engine)
     await croupier.start()
 
     # Phase 4: Start ReconciliationWorker (Independent Process for State Isolation)
@@ -381,7 +381,7 @@ async def main():
     async def unified_order_update_handler(event: dict):
         """Unified handler that routes through PositionTracker."""
         # PositionTracker is now the single source of truth for order events
-        matched = croupier.position_tracker.handle_order_update(event)
+        matched = await croupier.position_tracker.handle_order_update(event)
         if matched:
             logger.debug(f"[Phase31] ✅ ORDER_UPDATE handled by PositionTracker: {matched}")
 

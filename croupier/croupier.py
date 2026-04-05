@@ -65,7 +65,7 @@ class Croupier(TimeIterator):
     # Phase 240: Shutdown Performance
     EXCHANGE_SHUTDOWN_TIMEOUT = 10.0
 
-    def __init__(self, exchange_adapter, initial_balance: float):
+    def __init__(self, exchange_adapter, initial_balance: float, engine: Optional[Any] = None):
         """
         Initialize Croupier orchestrator.
 
@@ -83,7 +83,7 @@ class Croupier(TimeIterator):
         # Initialize core components
         self.error_handler = get_error_handler()
         self.balance_manager = BalanceManager(initial_balance)
-        self.position_tracker = PositionTracker(adapter=exchange_adapter, session_id=self.session_id)
+        self.position_tracker = PositionTracker(adapter=exchange_adapter, session_id=self.session_id, engine=engine)
 
         # Phase 31: PositionTracker is now the single source of truth for order state
         # Initialize specialized components
@@ -129,13 +129,7 @@ class Croupier(TimeIterator):
         # Phase 79.1: Connect Order Updates (Total Visibility)
         # PositionTracker must listen to ORDER_TRADE_UPDATE to catch real-time fills
         # OCOManager must also listen to resolve futures immediately (Phase 91.2 Fix)
-        def _on_order_update_wrapper(data: Dict):
-            # 1. Update PositionTracker (Primary)
-            self.position_tracker.handle_order_update(data)
-            # 2. Update OCOManager (Secondary - for bracket fill confirmation)
-            asyncio.create_task(self.oco_manager.on_order_update(data))
-
-        self.adapter.set_order_update_callback(_on_order_update_wrapper)
+        self.adapter.set_order_update_callback(self._on_order_update_wrapper)
 
         # Debounce for reconciliations
         self._reconciliation_tasks: Dict[str, float] = {}
@@ -175,6 +169,14 @@ class Croupier(TimeIterator):
         # Phase 249.1: Trigger initial solvency check (Startup Sanity)
         if initial_balance > 0:
             self.portfolio_guard.on_balance_update(initial_balance)
+
+    async def _on_order_update_wrapper(self, data):
+        """Internal wrapper to route order updates to specialized components."""
+        # Route to PositionTracker
+        await self.position_tracker.handle_order_update(data)
+
+        # Route to OCO Manager (for entry fill detection)
+        await self.oco_manager.on_order_update(data)
 
     @property
     def is_settled(self) -> bool:
@@ -762,7 +764,7 @@ class Croupier(TimeIterator):
                     else:
                         pnl = 0.0
 
-                    self.position_tracker.confirm_close(
+                    await self.position_tracker.confirm_close(
                         trade_id=trade_id,
                         exit_price=exit_price,
                         exit_reason="TP_SL_HIT",
@@ -825,7 +827,7 @@ class Croupier(TimeIterator):
                                 else:
                                     pnl = 0.0
 
-                                self.position_tracker.confirm_close(
+                                await self.position_tracker.confirm_close(
                                     trade_id=trade_id, exit_price=exit_price, exit_reason="TP_SL_HIT", pnl=pnl, fee=0.0
                                 )
 
@@ -883,7 +885,7 @@ class Croupier(TimeIterator):
 
             asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
 
-            self.position_tracker.confirm_close(
+            await self.position_tracker.confirm_close(
                 trade_id=trade_id,
                 exit_price=fill_price,
                 exit_reason=exit_reason,

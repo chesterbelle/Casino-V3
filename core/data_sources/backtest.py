@@ -260,7 +260,7 @@ class BacktestDataSource(DataSource):
 
         # CRITICAL: Update Virtual Exchange state
         # This triggers TP/SL checks, order execution, and PnL updates
-        self.connector.update_market_state(candle_dict)
+        await self.connector.update_market_state(candle_dict)
 
         # Get updated account state from Croupier (which queries Connector via Adapter)
         balance = self.croupier.get_balance()

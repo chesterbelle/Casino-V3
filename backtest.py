@@ -98,7 +98,7 @@ async def run_backtest():
     )
 
     # 4. Setup Execution Layer
-    croupier = Croupier(exchange_adapter=adapter, initial_balance=args.balance)
+    croupier = Croupier(exchange_adapter=adapter, initial_balance=args.balance, engine=engine)
     await connector.connect()
 
     # Phase 249: Connect VirtualExchange balance updates to BalanceManager for PortfolioGuard # noqa: E402
@@ -137,7 +137,7 @@ async def run_backtest():
     )
 
     # 5.1 Candle Maker (Crucial for Regime Sensors)
-    CandleMaker(engine, tick_size=0.01)
+    CandleMaker(engine, tick_size=0.01, is_backtest=True)
 
     om = OrderManager(engine, croupier, player, setup_engine.tracker)
     await om.start()
@@ -150,7 +150,7 @@ async def run_backtest():
         await croupier.exit_manager.on_tick(e)
 
     async def on_order_update_tracker(e):
-        croupier.position_tracker.handle_order_update(e)
+        await croupier.position_tracker.handle_order_update(e)
 
     async def on_candle_context(e):
         context_registry.on_candle(e.symbol, e.high, e.low)
@@ -251,8 +251,8 @@ async def run_backtest():
                 "notional": qty * entry_price if entry_price > 0 else 0,
                 "bars_held": 0,
                 "session_id": "backtest",
-                "t0_signal_ts": float(ct.get("entry_time", 0)) if ct.get("entry_time") else None,
-                "t4_fill_ts": float(ct.get("timestamp", 0)) if ct.get("timestamp") else None,
+                "t0_signal_ts": None,
+                "t4_fill_ts": None,
                 "setup_type": ct.get("setup_type", "unknown"),
             }
         )
