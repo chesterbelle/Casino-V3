@@ -297,6 +297,9 @@ class VirtualExchangeConnector(BaseConnector):
         # Update Balance & Positions
         self._update_account_state(order)
 
+        # Handle OCO-like behavior (cancel siblings)
+        self._cancel_siblings(order)
+
         self.logger.info(
             f"⚡ Order filled (Virtual) | {order['side'].upper()} {amount} @ {price:.2f} | "
             f"Fee: {fee_cost:.4f} | PnL: {order.get('realized_pnl', 0):.2f}"
@@ -708,7 +711,7 @@ class VirtualExchangeConnector(BaseConnector):
 
         # If it's a simple market order, fill now
         if order_type == "market" and not is_conditional:
-            self._execute_order_fill(order, self._current_price)
+            await self._execute_order_fill(order, self._current_price)
             return order
 
         # For conditional orders, check if they are ALREADY triggered at creation time
@@ -729,7 +732,7 @@ class VirtualExchangeConnector(BaseConnector):
 
             if triggered:
                 self.logger.warning(f"⚡ Order filled on arrival (Already triggered) | {side} @ {self._current_price}")
-                self._execute_order_fill(order, self._current_price)
+                await self._execute_order_fill(order, self._current_price)
                 return order
 
         # Log creation of pending order
