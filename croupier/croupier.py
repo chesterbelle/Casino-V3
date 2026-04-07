@@ -1,15 +1,15 @@
 """
-Croupier - Portfolio Orchestrator (Refactored).
+Croupier V4 - Institutional Execution Engine (Phase 1100)
+========================================================
 
-Lightweight orchestrator that delegates to specialized components:
-- OrderExecutor: Handles individual order execution
-- OCOManager: Manages OCO bracket orders
-- ReconciliationService: Syncs state with exchange
+The Croupier is the central orchestrator of the trading floor. It manages
+the lifecycle of all positions, from signal dispatch to final settlement.
 
-This replaces the 1911-line God Object with a clean facade pattern.
-
-Author: Casino V3 Team
-Version: 3.0.0
+Philosophical Evolution:
+- Phase 1100: Transition to 'Professional Patience' (Axia-Style).
+- Implements setup-aware exit management via HFTExitManager.
+- Enforces structural integrity of Footprint setups (Invalidation).
+- Manages real-time reactor state and drift auditing.
 """
 
 import asyncio
@@ -40,26 +40,16 @@ from .components.reconciliation_service import ReconciliationService
 
 class Croupier(TimeIterator):
     """
-    Portfolio orchestrator - delegates to specialized components.
+    Central Execution Reactor.
 
-    Components:
-    - OrderExecutor: Execute individual orders with retry
-    - OCOManager: Create OCO brackets atomically
-    - ReconciliationService: Sync state with exchange
-    - ExitManager: Handle dynamic exits (Trailing, Breakeven, Reversal)
+    Orchestrates the entire trade lifecycle by unifying sensors,
+    decision engines (SetupEngine), and execution (OrderExecutor/OCOManager).
 
-    Example:
-        adapter = ExchangeAdapter(connector, symbol="BTC/USDT:USDT")
-        croupier = Croupier(adapter, initial_balance=10000.0)
-
-        # Execute OCO bracket order
-        result = await croupier.execute_order({
-            "symbol": "BTC/USDT:USDT",
-            "side": "LONG",
-            "size": 0.01,
-            "tp_price": 50500.0,
-            "sl_price": 49500.0
-        })
+    Key Responsibilities:
+    - Signal-to-Order Conversion (High-Resolution Dispatch).
+    - Position Governance (Concurrency & Shutdown).
+    - Settlement & PnL Attribution (Historian Integration).
+    - Exit Lifecycle Management (Axia Professional Patience).
     """
 
     # Phase 240: Shutdown Performance

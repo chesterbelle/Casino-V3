@@ -1,15 +1,12 @@
 """
-OCOManager - Manages OCO (One-Cancels-Other) bracket orders.
+OCO Manager - Atomic Execution Engine (Phase 1100)
 
-This component is responsible for:
-- Creating bracketed orders (Main + TP + SL)
-- Ensuring atomicity of OCO creation
-- Waiting for fill confirmation via WebSocket
-- Validating OCO integrity (all 3 orders exist)
-- Cleanup on partial failure
+Handles the creation and management of OCO (Once-Cancels-Other) bracket orders.
+Ensures atomicity between Entry, Take Profit, and Stop Loss legs.
 
-Author: Casino V3 Team
-Version: 3.0.0
+Philosophical Alignment:
+- Professional Patience: Supports structural anchors (TP/SL) that allow trades to breathe.
+- Zero-Lag Resolution: Resolves futures and locks immediately on fill events.
 """
 
 import asyncio
@@ -36,26 +33,17 @@ class OCOAtomicityError(Exception):
 
 class OCOManager:
     """
-    Manages creation and validation of OCO bracket orders.
+    Atomic Bracket Controller.
 
-    OCO Flow:
-    1. Execute main market order
-    2. Wait for fill confirmation (WebSocket or polling)
-    3. Create TP limit order
-    4. Create SL stop order
-    5. Validate all 3 orders exist
-    6. If any step fails: cleanup and raise error
+    Manages the lifecycle of structural trade anchors.
+    In the Axia-Style execution model, the OCOManager is the primary
+    source of truth for trade geometry (TP/SL prices).
 
-    Example:
-        oco_manager = OCOManager(order_executor, position_tracker, exchange_adapter)
-
-        result = await oco_manager.create_bracketed_order({
-            "symbol": "BTC/USDT:USDT",
-            "side": "LONG",
-            "size": 0.01,
-            "tp_price": 50500.0,   # Absolute TP price
-            "sl_price": 49500.0,   # Absolute SL price
-        })
+    Key Features:
+    - Atomic Bracket Creation (Main + TP/SL).
+    - Optimistic Position Registration (Zero-Lag).
+    - Intelligent Modification (Race-condition safe).
+    - Shadow Leg Cleanup (Anti-Orphan Hygiene).
     """
 
     def __init__(self, order_executor, position_tracker: PositionTracker, exchange_adapter):
@@ -232,6 +220,9 @@ class OCOManager:
                 leverage=order.get("leverage", 1),
                 order_params=order,
                 trace_id=order.get("trace_id"),
+                setup_type=order.get("setup_type"),
+                trigger_level=order.get("trigger_level"),
+                initial_narrative=order.get("metadata"),
             )
 
             # Step 0.8: Prioritize Supersonic Batch Execution

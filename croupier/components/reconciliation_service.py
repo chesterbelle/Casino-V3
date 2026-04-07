@@ -330,9 +330,9 @@ class ReconciliationService:
                     if entry_time_ms < 100000000000:  # Detect seconds vs milliseconds
                         entry_time_ms *= 1000
                     now_ms = time.time() * 1000
-                    if (now_ms - entry_time_ms) < 60000:  # 60 seconds
+                    if (now_ms - entry_time_ms) < 120000:  # 120 seconds grace for simulation lag
                         self.logger.debug(
-                            f"⏳ Sync: {pos.trade_id} is GHOST but in 60s grace period. Skipping ghost removal."
+                            f"⏳ Sync: {pos.trade_id} is GHOST but in 120s grace period. Skipping ghost removal."
                         )
                         continue
                 except (ValueError, TypeError):
@@ -378,7 +378,7 @@ class ReconciliationService:
 
             # Integrity check
             status = getattr(pos, "status", "ACTIVE")
-            if status in ["OPENING", "CLOSING", "MODIFYING", "OFF_BOARDING"]:
+            if status in ["OPENING", "CLOSING", "MODIFYING", "OFF_BOARDING", "SYMLINK"]:
                 continue
 
             # Phase 51: Naked Protection Grace Period
@@ -390,8 +390,8 @@ class ReconciliationService:
                     if entry_time_ms < 100000000000:
                         entry_time_ms *= 1000
                     now_ms = time.time() * 1000
-                    if (now_ms - entry_time_ms) < 60000:
-                        # self.logger.debug(f"⏳ Sync: {pos.trade_id} is ACTIVE but in 60s grace period. Skipping naked check.")
+                    if (now_ms - entry_time_ms) < 120000:
+                        # self.logger.debug(f"⏳ Sync: {pos.trade_id} is ACTIVE but in 120s grace period. Skipping naked check.")
                         continue
                 except (ValueError, TypeError):
                     pass
@@ -405,7 +405,7 @@ class ReconciliationService:
                 # --- CONCURRENCY GRACE PERIOD (Phase 34) ---
                 # If a TP/SL order is missing from exchange data, check if it was recently updated/created locally.
                 # This prevents "Naked" closure due to exchange REST indexing lag without adding execution lag.
-                grace_period = 20.0  # seconds (Phase 120: Increased for MULTI REST lag)
+                grace_period = 120.0  # seconds (Phase 120: Increased for MULTI REST lag)
                 now = time.time()
 
                 tp_recent = False

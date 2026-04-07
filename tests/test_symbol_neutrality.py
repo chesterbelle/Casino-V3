@@ -114,6 +114,7 @@ class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
                 side="LONG",
                 entry_price=10.0,
                 entry_timestamp="0",
+                timestamp=time.time(),
                 margin_used=10.0,
                 notional=10.0,
                 leverage=1.0,

@@ -258,17 +258,28 @@ AUDIT_MODE = False
 AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
 
 # =====================================================
-# 🚀 HFT EXIT MANAGER (Phase 1000 - Dumb Execution Layer)
+# 🚀 HFT EXIT MANAGER (Phase 1100 - Axia-Style Patience)
 # =====================================================
 
-# Master switch: Enable HFT "Dumb" Exit Manager instead of complex ExitManager.
-# When True: Trusts OCO brackets completely, zero shadow interventions.
-# When False: Uses legacy ExitManager with all its features.
+# Master switch: Enable HFT "Dumb" Exit Manager instead of complex ExitManager (v1).
+# Phase 1100: Transitioning from 'Dumb' to 'Axia-Style Professional Invalidation'.
 HFT_EXIT_MODE = True
+
+# Mode Toggle: If True, uses setup-specific structural invalidation (Patience).
+AXIA_INVALIDATION_ENABLED = False
+
+# Grace Period: Minimum seconds a trade must 'breathe' before any tactical exit allowed.
+PATIENCE_LOCK_GRACE_PERIOD = 15.0
 
 # ÚNICA protección en HFT mode: Liquidation prevention.
 # Solo interviene si el precio cae más de X% (catastrófico).
 CATASTROPHIC_STOP_PCT = 0.50  # 50% drawdown = true emergency only
+
+# HFT Airbag (Phase 1210 - Tactical Silence):
+# Closes position if order flow becomes toxic (extreme Z-Score).
+HFT_AIRBAG_ENABLED = False
+HFT_TOXIC_FLOW_THRESHOLD = 4.5  # Standard: 4.5 (Patience limit)
+HFT_WALL_COLLAPSE_THRESHOLD = 0.15  # Skewness < 0.15 means our wall vanished
 
 # Legacy ExitManager features (ignored when HFT_EXIT_MODE = True):
 SHADOW_SL_ENABLED = False

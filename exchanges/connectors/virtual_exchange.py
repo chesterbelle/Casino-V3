@@ -436,9 +436,27 @@ class VirtualExchangeConnector(BaseConnector):
                 self.logger.error(f"❌ Balance update callback error: {e}")
 
         # 3. Record Trade
+        exit_reason = order.get("params", {}).get("exit_reason")
+        if not exit_reason:
+            o_type = order.get("type", "")
+            ot_upper = o_type.upper() if o_type else ""
+            if ot_upper in [
+                "STOP",
+                "STOP_LOSS",
+                "STOP_LOSS_LIMIT",
+                "STOP_MARKET",
+                "TRAILING_STOP",
+                "TRAILING_STOP_MARKET",
+            ]:
+                exit_reason = "SL_HIT"
+            elif ot_upper in ["TAKE_PROFIT", "TAKE_PROFIT_LIMIT", "TAKE_PROFIT_MARKET", "LIMIT", "MARKET"]:
+                exit_reason = "TP_HIT"
+            else:
+                exit_reason = "VIRTUAL_CLOSE"
+
         trade_record = {
             "id": f"tr_{self._order_seq}",
-            "order": order["id"],
+            "order": order.get("id", "unknown"),
             "symbol": symbol,
             "side": side,
             "amount": amount,
@@ -448,6 +466,7 @@ class VirtualExchangeConnector(BaseConnector):
             "pnl": order.get("realized_pnl"),  # None for opening trades
             "gemini_trade_id": order.get("params", {}).get("gemini_trade_id"),
             "setup_type": order.get("setup_type") or order.get("params", {}).get("setup_type", "unknown"),
+            "exit_reason": exit_reason,
         }
 
         # Add entry details for closing trades

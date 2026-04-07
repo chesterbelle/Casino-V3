@@ -46,8 +46,10 @@ logger = logging.getLogger("PositionTracker")
 @dataclass
 class OrderState:
     """
-    Represents the state of a single order within a position.
-    Phase 31: Unified architecture - orders are embedded in positions.
+    Unified Order State - Tracks the lifecycle of a single OCO leg.
+
+    Responsible for reconciling WebSocket acknowledgements with
+    our internal execution state to ensure 100% fill visibility.
     """
 
     client_order_id: str  # Our ID (e.g., "CASINO_TP_abc123")
@@ -94,7 +96,14 @@ class OrderState:
 
 @dataclass
 class OpenPosition:
-    """Representa una posición abierta con TP/SL pendientes."""
+    """
+    Institutional Grade Open Position Tracking.
+
+    Encapsulates all metadata required for 'Professional Patience' management:
+    - Setup Thesis: Why we entered (trapped_traders, delta_div, etc.)
+    - Invalidation: Price levels where the entry thesis is broken.
+    - Life Cycle: Tracks from sub-ms fill to reconciliation finish.
+    """
 
     trade_id: str
     symbol: str
@@ -1606,6 +1615,9 @@ class PositionTracker:
         leverage: float,
         order_params: Dict[str, Any],
         trace_id: Optional[str] = None,
+        setup_type: Optional[str] = None,
+        trigger_level: Optional[float] = None,
+        initial_narrative: Optional[Dict[str, Any]] = None,
     ) -> OpenPosition:
         """Optimistically registers a position before fill."""
         normalized_symbol = normalize_symbol(symbol)
@@ -1629,7 +1641,9 @@ class PositionTracker:
             t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
             t1_decision_ts=order_params.get("t1_decision_ts"),  # Phase 10: Decision Latency
             trace_id=trace_id or order_params.get("trace_id"),
-            setup_type=order_params.get("setup_type") or order_params.get("params", {}).get("setup_type") or "unknown",
+            setup_type=setup_type or order_params.get("setup_type") or "unknown",
+            trigger_level=trigger_level or order_params.get("trigger_level"),
+            initial_narrative=initial_narrative or order_params.get("metadata"),
             entry_atr=float(order_params.get("atr_1m", 0.0)),
         )
         main_order_state = OrderState(
