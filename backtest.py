@@ -126,7 +126,7 @@ async def run_backtest():
 
     # 5. Setup Logic Layer
     context_registry = ContextRegistry(tick_size=0.01)  # Phase 800: Use 0.01 for LTC precision # noqa: E402
-    SensorManager(engine)
+    sensor_mgr = SensorManager(engine)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry, fast_track=args.fast_track)
     player = AdaptivePlayer(  # noqa: E402
         engine,
@@ -144,6 +144,8 @@ async def run_backtest():
 
     # 6. Subscribe Components
     async def on_tick_context(e):
+        global SIM_TIME
+        SIM_TIME = e.timestamp
         context_registry.on_tick(e.symbol, e.price, e.volume, e.side)
 
     async def on_tick_croupier(e):
@@ -290,6 +292,7 @@ async def run_backtest():
     sys.stderr.flush()
 
     await croupier.stop()
+    sensor_mgr.stop()  # Phase 1201: Terminate worker processes AFTER croupier (prevents zombie processes)
     historian.stop()
 
     await connector.close()

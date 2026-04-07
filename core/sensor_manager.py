@@ -185,6 +185,7 @@ class SensorManager:
             worker = SensorWorker(
                 worker_id=i, sensor_classes=chunks[i], input_queue=q_in, output_queue=self.output_queue
             )
+            worker.daemon = True  # Phase 1201: Daemon flag — prevents main process from blocking on exit
             worker.start()
             self.workers.append(worker)
 
@@ -420,15 +421,10 @@ class SensorManager:
     async def _listen_for_signals(self):
         """Async loop to consume signals from workers."""
         logger.info("👂 Listening for signals from workers...")
-        # loop = asyncio.get_event_loop() # Unused
 
         while True:
             try:
-                # Non-blocking check of the queue
-                # Queue.get is blocking. We should use run_in_executor
-                # wrapper or a non-blocking get loop with sleep
-
-                # Option A: Polling with sleep (simplest, low overhead if sleep is small)
+                # Non-blocking polling of the output queue
                 processed = 0
                 while not self.output_queue.empty() and processed < 1000:
                     msg = self.output_queue.get_nowait()
@@ -440,9 +436,14 @@ class SensorManager:
                 else:
                     await asyncio.sleep(0)  # Yield for other tasks if busy
 
+            except asyncio.CancelledError:
+                # Phase 1201: Critical fix — must break cleanly on shutdown.
+                # Previously caught by `except Exception` and re-awaited,
+                # creating an infinite retry loop that blocked asyncio.run() from returning.
+                logger.info("🛑 SensorManager signal listener stopped.")
+                break
             except Exception as e:
-                if not isinstance(e, asyncio.CancelledError):
-                    logger.error(f"❌ Error in signal listener: {e}")
+                logger.error(f"❌ Error in signal listener: {e}")
                 await asyncio.sleep(0.1)
 
     async def _handle_worker_message(self, msg: dict):
