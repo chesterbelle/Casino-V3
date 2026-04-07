@@ -821,7 +821,8 @@ async def main():
                 elapsed_min = (time.time() - start_time) / 60
 
                 # A. Drain Phase (Soft Timeout) — skipped in --fast-track mode
-                if not getattr(args, "fast_track", False):
+                # ONLY activate Drain Phase if the user explicitly provided --close-on-exit flag
+                if not getattr(args, "fast_track", False) and getattr(args, "close_on_exit", False):
                     drain_duration = (
                         args.drain_duration if args.drain_duration is not None else trading_config.DRAIN_PHASE_MINUTES
                     )
@@ -990,7 +991,7 @@ async def main():
         # 0.7. Emergency Sweep / Close Positions (WHILE FEEDS ARE ALIVE)
         # Event loop is now "Cold" (no strategy noise) but cache is "Warm".
         logger.info("🧹 Performing final exchange sweep...")
-        should_close = args.close_on_exit
+        should_close = args.close_on_exit or exit_reason_str == "TIMEOUT"
         sweep_report = {}
 
         try:
