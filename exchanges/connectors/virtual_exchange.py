@@ -399,13 +399,13 @@ class VirtualExchangeConnector(BaseConnector):
                 else:
                     close_amount = min(amount, position["amount"])
 
-                # Calculate PnL (net of closing fee only)
+                # Calculate PnL (gross)
                 if pos_side == "LONG":
                     gross_pnl = (price - position["entry_price"]) * close_amount
                 else:
                     gross_pnl = (position["entry_price"] - price) * close_amount
 
-                # Closing fee is embedded in PnL — no separate deduction from balance
+                # Closing fee is deducted from balance
                 closing_fee = close_amount * price * self.fee_rate
                 pnl = gross_pnl - closing_fee
 
@@ -417,8 +417,8 @@ class VirtualExchangeConnector(BaseConnector):
                 position["amount"] -= close_amount
                 self.logger.info(f"💰 Margin Released: ${margin_released:,.2f} | PnL: ${pnl:+.2f}")
 
-                # Store PnL in order for reporting
-                order["realized_pnl"] = pnl
+                # Store GROSS PnL in order for reporting (historian subtracts fees later)
+                order["realized_pnl"] = gross_pnl
 
                 if position["amount"] < self.min_amount:
                     self._positions.remove(position)
@@ -588,7 +588,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "price": close_price,
                 "fee": closing_fee,
                 "timestamp": self._current_timestamp,
-                "pnl": net_pnl,
+                "pnl": gross_pnl,  # Store GROSS PnL so historian doesn't subtract fees twice
                 "gemini_trade_id": None,
                 "entry_price": entry_price,
                 "entry_time": pos["timestamp"],

@@ -113,6 +113,16 @@ class SetupEngineV4:
                 metadata["ib_high"] = ib_high
             if ib_low and ib_low > 0:
                 metadata["ib_low"] = ib_low
+
+        # Phase 980: Pre-Entry Breakeven Guard (Institutional Guard)
+        if "tp_price" in metadata and "price" in metadata and metadata["price"] > 0:
+            tp_dist = abs(metadata["tp_price"] - metadata["price"]) / metadata["price"]
+            # 0.05% Taker + 0.02% Maker + 0.02% Slippage safety
+            fee_friction = 0.0009
+            if tp_dist < fee_friction:
+                metadata["aborted_by_breakeven_guard"] = True
+                metadata["cancel_reason"] = f"TP dist {tp_dist:.4%} < Fee {fee_friction:.4%}"
+
         return metadata
 
     def _check_level_proximity(self, symbol: str, price: float) -> Optional[dict]:
@@ -478,8 +488,13 @@ class SetupEngineV4:
             f"🎯 [SETUP ENGINE] {pattern} PATTERN CONFIRMED! Firing {side} on {symbol} | MarketTime: {now} | SetupType: {setup_type}"
         )
 
-        # Enrich metadata with structural levels
+        # Enrich metadata with structural levels and perform pre-entry Breakeven Guard check
         metadata = self._enrich_metadata(metadata, symbol)
+
+        # Phase 980: Block execution if target is within fee danger zone
+        if metadata.get("aborted_by_breakeven_guard"):
+            logger.warning(f"🛡️ [BREAKEVEN_GUARD] {pattern} {side} aborted: {metadata.get('cancel_reason')}")
+            return
 
         # Phase 85/1130: t0_timestamp uses strict wall clock time for valid latencies.
         # Fallback to general memory tracking if trigger source doesn't provide it

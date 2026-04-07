@@ -335,8 +335,10 @@ class ExitManager:
         Apply soft exit (narrow TP) if max hold time reached.
         """
         if position.bars_held >= config.MAX_HOLD_BARS:
-            if not getattr(position, "soft_exit_triggered", False):
-                await self._execute_soft_exit(position, "Max Time")
+            # Only apply soft exits if the system is explicitly in drain mode (--close-on-exit)
+            if getattr(self.croupier, "is_drain_mode", False):
+                if not getattr(position, "soft_exit_triggered", False):
+                    await self._execute_soft_exit(position, "Max Time")
 
             # HARD LIMIT: If it reaches 2x MAX_HOLD_BARS, then close at market for absolute safety
             if position.bars_held >= config.MAX_HOLD_BARS * 2:
@@ -367,26 +369,31 @@ class ExitManager:
             try:
                 new_tp = None
 
+                # Breakeven spread = Entry * 0.0009 (0.05% Taker + 0.02% Maker + 0.02% Slippage Protection)
+                min_profit_dist = position.entry_price * 0.0009
+
                 if phase == "OPTIMISTIC":
                     # Original Soft Exit Logic: 50% of target
                     current_diff = abs(position.tp_level - position.entry_price)
-                    narrowed_diff = current_diff * config.SOFT_EXIT_TP_MULT
+                    narrowed_diff = max(current_diff * config.SOFT_EXIT_TP_MULT, min_profit_dist)
                     if position.side == "LONG":
                         new_tp = position.entry_price + narrowed_diff
                     else:
                         new_tp = position.entry_price - narrowed_diff
 
                 elif phase == "DEFENSIVE":
-                    # Breakeven
-                    new_tp = position.entry_price
+                    # Breakeven + Fee Cover (Floor)
+                    if position.side == "LONG":
+                        new_tp = position.entry_price + min_profit_dist
+                    else:
+                        new_tp = position.entry_price - min_profit_dist
 
                 elif phase == "AGGRESSIVE":
-                    # Accept small loss (-0.1%)
-                    loss_dist = position.entry_price * 0.001
+                    # Breakeven + Fee Cover (Floor) - Aggressive shouldn't actively seek a loss either via TP
                     if position.side == "LONG":
-                        new_tp = position.entry_price - loss_dist
+                        new_tp = position.entry_price + (min_profit_dist * 0.5)
                     else:
-                        new_tp = position.entry_price + loss_dist
+                        new_tp = position.entry_price - (min_profit_dist * 0.5)
 
                 elif phase == "PANIC":
                     self.logger.warning(f"🚨 PANIC Exit for {position.trade_id} | Force Closing")
