@@ -67,9 +67,14 @@ def validate_execution_quality(log_path: str):
         for f in failures:
             print(f"   ↳ {f}")
         return False
-    else:
-        print("✅ VERDICT: PASS - Ejecución Limpia y Determinística.")
-        return True
+
+    actual_positions = positions_opened // 2 if positions_opened // 2 > 0 else positions_opened
+    if actual_positions == 0:
+        print("❌ VERDICT: FAIL - No se detectó ninguna actividad real (0 trades ejecutados). Test nulo.")
+        return False
+
+    print("✅ VERDICT: PASS - Ejecución Limpia y Determinística.")
+    return True
 
 
 if __name__ == "__main__":
