@@ -230,6 +230,8 @@ async def run_backtest():
 
     # 8.5 Persist closed trades to Historian DB (Parity Infrastructure Fix)
     for ct in closed_trades:
+        from datetime import datetime
+
         entry_price = float(ct.get("entry_price", 0.0))
         exit_price = float(ct.get("price", 0.0))
         side = ct.get("position_side", "LONG")
@@ -238,6 +240,11 @@ async def run_backtest():
         pnl = float(ct.get("pnl", 0.0))
         exit_reason = ct.get("exit_reason", "VIRTUAL_CLOSE")
         trade_id = ct.get("gemini_trade_id") or ct.get("order", ct.get("id", ""))
+
+        # Phase 800: Restore mechanical parity telemetry
+        mkt_ts = float(ct.get("timestamp", 0))
+        iso_ts = datetime.fromtimestamp(mkt_ts).isoformat() if mkt_ts > 0 else None
+
         historian.record_trade(
             {
                 "trade_id": trade_id,
@@ -253,8 +260,9 @@ async def run_backtest():
                 "notional": qty * entry_price if entry_price > 0 else 0,
                 "bars_held": 0,
                 "session_id": "backtest",
-                "t0_signal_ts": None,
-                "t4_fill_ts": None,
+                "timestamp": iso_ts,
+                "t0_signal_ts": ct.get("entry_time"),
+                "t4_fill_ts": mkt_ts,
                 "setup_type": ct.get("setup_type", "unknown"),
             }
         )

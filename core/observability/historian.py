@@ -385,8 +385,15 @@ class TradeHistorian:
             exit_price = float(trade_data.get("exit_price", 0.0))
 
             if entry_price <= 0:
-                logger.warning(f"⚠️ Historian: Trade {trade_id} has invalid entry_price: {entry_price}. Skipping.")
-                return
+                # PHASE 800: Resilient Historian. NEVER skip a trade record.
+                # If entry_price is missing, fallback to exit_price or a symbolic minimum
+                # to ensure trade_id traceability and balance reconciliation.
+                fallback_price = exit_price if exit_price > 0 else 0.00000001
+                logger.critical(
+                    f"🔥 Historian ERROR: Trade {trade_id} has entry_price 0.0. "
+                    f"FORCING record with fallback {fallback_price} to avoid Silent Skip!"
+                )
+                entry_price = fallback_price
 
             gross = float(trade_data.get("pnl", 0.0))
             fee = float(trade_data.get("fee", 0.0))
@@ -406,6 +413,9 @@ class TradeHistorian:
 
             session_id = trade_data.get("session_id")
             healed = 1 if trade_data.get("healed") else 0
+            # PHASE 800: Deterministic backtest support.
+            # Honor injected timestamp if provided (avoids 'Wall Clock' drift in parity checks)
+            timestamp = trade_data.get("timestamp") or datetime.now().isoformat()
 
             params = (
                 trade_id,
@@ -419,7 +429,7 @@ class TradeHistorian:
                 gross,
                 net_pnl,
                 trade_data.get("exit_reason"),
-                datetime.now().isoformat(),
+                timestamp,
                 trade_data.get("bars_held", 0),
                 session_id,
                 healed,

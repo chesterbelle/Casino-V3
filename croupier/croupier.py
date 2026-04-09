@@ -852,9 +852,13 @@ class Croupier(TimeIterator):
                     fill_price = await asyncio.wait_for(self.adapter.get_current_price(position.symbol), timeout=5.0)
                     self.logger.info(f"✅ Fetched fallback price: {fill_price}")
                 except Exception as e:
-                    self.logger.error(f"❌ Failed to fetch current price for fallback: {e}")
-                    # Fallback to entry price to avoid massive PnL spike (neutral exit)
-                    fill_price = position.entry_price
+                    # Final fallback: use entry price or trigger price to keep the record alive
+                    fallback_base = position.entry_price if position.entry_price > 0 else position.order.get("price", 0)
+                    fill_price = fallback_base if fallback_base > 0 else 0.00000001
+                    self.logger.critical(
+                        f"🔥 FAILED to fetch current price fallback: {e}. "
+                        f"Using position entry/order price fallback: {fill_price}"
+                    )
 
             self.logger.info(f"✅ Position closed: {trade_id} | Fill: {fill_price}")
 

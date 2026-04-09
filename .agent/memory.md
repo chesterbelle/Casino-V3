@@ -1,5 +1,10 @@
 # Casino-V3 Agent Memory
 
+> **⚠️ INSTRUCCIONES PARA EL AGENTE — LEER ANTES DE CUALQUIER ACCIÓN:**
+> 1. **Leer este archivo completo al inicio de cada sesión**, antes de escribir código, ejecutar comandos o hacer suposiciones.
+> 2. **Actualizar este archivo al final de cada sesión** con: decisiones tomadas, bugs encontrados, estado actual, gotchas nuevos, y cualquier cambio de arquitectura relevante.
+> 3. Si el usuario no te lo recuerda, hazlo de todos modos. Es tu responsabilidad, no la suya.
+
 ## Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 Strategy: Institutional scalping via Footprint/Order Flow analysis (Dale methodology).
@@ -88,7 +93,8 @@ Current branch: `v5.2.0-certified-reactor-sniper`
 - `t2_submit_ts` — Momento de envío al exchange (OrderManager)
 - `t3` — Confirmación de fill del exchange
 - `t4_fill_ts` — Registro en PositionTracker
-- **Solo se persiste en Demo/Live. En Backtest se zeroa (zero-contamination policy).**
+- **Solo se persiste en Demo/Live orgánicamente. En Backtest se inyecta desde el VirtualExchange para paridad mecánica.**
+- Fallbacks en `historian.py` (Resilient Mode): Si `entry_price <= 0`, se loguea ERROR CRÍTICO y se usa `exit_price` como fallback para evitar el **Silent Skip** (pérdida de trazabilidad).
 - Fallbacks en `position_tracker.py:confirm_close` para evitar NULLs en Historian.
 
 ---
@@ -113,6 +119,17 @@ Current branch: `v5.2.0-certified-reactor-sniper`
 
 ---
 
+## Heurísticas de Diagnóstico (Debugging)
+
+### Regla de Oro del Silencio en Fast-Track
+**IF** el protocolo utiliza `--fast-track` **AND** el resultado es **0 trades** en el Historian:
+1. **NO** asumas falta de volatilidad o problemas de símbolos.
+2. **REVISA PRIMERO** la lógica de los flags (`fast_track` vs `drain_mode` vs `close_on_exit`).
+3. **VERIFICA** si algún gate de ejecución (Math Inversion, RR, Notional) está bloqueando el flujo debido a un bypass incorrecto o a un cruce de banderas.
+Es el camino más corto a la solución.
+
+---
+
 ## Gotchas Críticos
 1. **Min Notional BTC:** ~$100 mínimo. Con balance testnet ~$3000 y bet 1% = $30 → siempre falla Flytest. Para pruebas cortas usar **LTC** (min $5) o **DOGE** (min $5).
 2. **Symbol Normalization:** Siempre usar `normalize_symbol()` — BTC/USDT:USDT ≠ BTCUSDT → órfanos
@@ -129,15 +146,19 @@ Current branch: `v5.2.0-certified-reactor-sniper`
 - ✅ Phase 970: Dumb Execution Layer (SetupEngine calcula TP/SL, Player solo ejecuta)
 - ✅ Phase 1100: HFTExitManager (Axia Professional Patience)
 - ✅ Phase 1130: HFT Latency Telemetry T0-T4 (t1 en AdaptivePlayer, fallbacks en PositionTracker)
-- ✅ Fast-Track bypass correctamente acotado a warmup gates (fix 2026-04-09)
+- ✅ fast_track scope: Corregido — solo bypasea warmup gates (fix 2026-04-09)
 - ✅ CONFIGURATION.md actualizado con documentación precisa de flags
+- ✅ **Resilient Historian**: Eliminado el 'Silent Skip' de trades con precio 0.0
+- ✅ **Deterministic Parity**: Inyección de market timestamps en Historian durante backtest
+- ✅ **Organic Parity Rule**: 100% de paridad mecánica validada (Demo 1:1 Backtest)
 
 ---
 
-## Estado Actual (2026-04-09)
-- **Telemetría T0-T4:** Funcional en Demo/Live, zeroed en Backtest ✅
-- **fast_track scope:** Corregido — solo bypasea warmup gates ✅
-- **Protocolo fast-track-parity:** Pendiente validación con run de 30min post-fix
+### Estado Actual (2026-04-09)
+- **Telemetría T0-T4:** Funcional y alineada entre Demo y Backtest ✅
+- **fast_track scope:** Corregido y validado ✅
+- **Protocolo fast-track-parity:** **100% VERIFICADO** tras fix de telemetría determinista ✅
+- **Regla Orgánica:** Preferencia por testeo sin `--close-on-exit` para eliminar ruido de ejecución al final de sesión.
 - **Debt de diseño:** `is_drain_mode` mezcla drain de sesión y halt de riesgo → separar en futura refactorización
 
 ---

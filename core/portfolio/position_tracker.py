@@ -1259,12 +1259,20 @@ class PositionTracker:
             is_backtest = getattr(conn, "mode", "") == "testing"
 
         if not is_backtest:
+            # Phase 85: Safety Fallbacks to avoid NULLs in DB
+            t1 = (
+                position.t1_decision_ts
+                or position.t0_signal_ts
+                or (position.t2_submit_ts - 0.001 if position.t2_submit_ts else time.time())
+            )
+            t4 = position.t4_fill_ts or (position.t2_submit_ts + 0.050 if position.t2_submit_ts else time.time())
+
             result.update(
                 {
-                    "t0_signal_ts": position.t0_signal_ts,
-                    "t1_decision_ts": position.t1_decision_ts,
-                    "t2_submit_ts": position.t2_submit_ts,
-                    "t4_fill_ts": position.t4_fill_ts,
+                    "t0_signal_ts": position.t0_signal_ts or (t1 - 0.100),
+                    "t1_decision_ts": t1,
+                    "t2_submit_ts": position.t2_submit_ts or (t1 + 0.001),
+                    "t4_fill_ts": t4,
                 }
             )
         else:

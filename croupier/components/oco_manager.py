@@ -178,10 +178,16 @@ class OCOManager:
                         self.adapter.get_current_price(symbol), timeout=OCO_PRICE_FETCH_TIMEOUT
                     )
                 except asyncio.TimeoutError:
-                    raise OCOAtomicityError(f"Price fetch timed out for {symbol} (REST may be blocked)")
+                    # Final attempt: use the price provided by the strategy decision
+                    est_price = order.get("price") or order.get("estimated_price") or 0
+                    if not est_price:
+                        raise OCOAtomicityError(f"Price fetch timed out and no decision price available for {symbol}")
+                    self.logger.warning(
+                        f"⚠️ Price fetch timed out for {symbol}. Using strategy decision price: {est_price}"
+                    )
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Pre-validation skipped (price fetch failed): {e}")
-                    est_price = 0
+                    est_price = order.get("price") or order.get("estimated_price") or 0
+                    self.logger.warning(f"⚠️ Pre-validation failed ({e}): using strategy decision price: {est_price}")
 
             if est_price > 0:
                 watchdog.heartbeat(operation_id, f"Got price {est_price}")

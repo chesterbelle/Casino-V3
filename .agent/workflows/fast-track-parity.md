@@ -6,6 +6,8 @@ Este workflow automatiza la validación de paridad mecánica entre Demo y Simula
 
 > **⚠️ AI EXECUTION DIRECTIVE:**
 > **OBJETIVO:** Este protocolo es exclusivamente para encontrar y arreglar bugs de infraestructura (fugas de simulación, gaps de tiempo, etc.). **ESTÁ ESTRICTAMENTE PROHIBIDO MODIFICAR LA ESTRATEGIA (sensores, RR, thresholds)** basándose en los resultados de este test.
+> **REGLA DE DIAGNÓSTICO (CERO TRADES):** Si la Fase 1 termina con **0 trades** en el Historian, **NO** asumas falta de volatilidad. Revisa inmediatamente la lógica de bypass del flag `--fast-track` y su interacción con `drain_mode`.
+> **ORGANIC PARITY RULE:** Ya no usamos `--close-on-exit`. El protocolo solo compara trades que se completaron (entrada y salida) orgánicamente dentro de la ventana de 30 min. Los trades abiertos al final de la sesión se ignoran.
 > **EJECUCIÓN POR RONDAS:** El protocolo se ejecuta en "Rondas". Una ronda consiste en completar las Fases 1 a 4.
 > Al finalizar la **Fase 4**, la IA **DEBE DETENERSE TOTALMENTE**, presentar el reporte final de paridad/fugas al usuario, y **ESPERAR APROBACIÓN** antes de intentar realizar correcciones de código en el motor o iniciar una nueva Ronda. No automatices múltiples rondas ni asumas correcciones sin consultar.
 
@@ -20,7 +22,7 @@ echo $START_TS > tests/validation/ft_parity_start.txt
 
 2. Ejecutar sesión corta (30 min) en modo Fast-Track:
 ```bash
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track --close-on-exit
+.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track
 ```
 
 ## Phase 2: Data Extraction
