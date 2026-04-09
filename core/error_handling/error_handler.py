@@ -20,6 +20,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, TypeVar
 
+from core.exceptions import OrderNotFoundError, PositionAlreadyClosedError
 from exchanges.resilience.error_classifier import ErrorCategory, ErrorClassifier
 
 from .circuit_breaker import CircuitBreaker
@@ -164,10 +165,25 @@ class ErrorHandler:
 
                 # Check if retriable
                 if not classification.is_retriable:
-                    self.logger.error(
-                        f"❌ Non-retriable error in {context}: "
-                        f"{classification.category.value} | {classification.message}"
-                    )
+                    # Phase 900: Mute noisy ERROR logs for semantic successes (already closed, not found)
+                    semantic_categories = [
+                        ErrorCategory.POSITION_ALREADY_CLOSED,
+                        ErrorCategory.ORDER_NOT_FOUND,
+                        ErrorCategory.GRACEFUL_SHUTDOWN,
+                    ]
+                    if classification.category in semantic_categories:
+                        self.logger.info(f"ℹ️ Semantic result in {context}: {classification.message}")
+
+                        # Phase 900: Raise specific semantic exceptions for cleaner upstream handling
+                        if classification.category == ErrorCategory.POSITION_ALREADY_CLOSED:
+                            raise PositionAlreadyClosedError(classification.message) from e
+                        if classification.category == ErrorCategory.ORDER_NOT_FOUND:
+                            raise OrderNotFoundError(classification.message) from e
+                    else:
+                        self.logger.error(
+                            f"❌ Non-retriable error in {context}: "
+                            f"{classification.category.value} | {classification.message}"
+                        )
                     raise
 
                 # Check if max retries reached
@@ -259,9 +275,12 @@ class ErrorHandler:
                     # PROOF OF LIFE: If the exchange responds with a validation error,
                     # it means the service is healthy and the circuit should close.
                     await breaker.record_success()
+                elif isinstance(e, asyncio.CancelledError):
+                    # Phase 900: Cancelled task (due to external wait_for timeout or shutdown)
+                    # should NOT penalize the circuit breaker. Silence != Network Failure.
+                    pass
                 else:
                     # Record failure for actual system issues (Network, Timeout, etc)
-                    # or if the call was cancelled (which we treat as a timeout/failure).
                     await breaker.record_failure()
 
                 # Phase 249: Notify PortfolioGuard of execution errors

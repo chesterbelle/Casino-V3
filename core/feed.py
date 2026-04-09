@@ -313,7 +313,7 @@ class StreamManager:
                             backoff_max=30.0,
                         ),
                     ),
-                    timeout=10.0,  # 10s timeout for ticker (should be frequent)
+                    timeout=60.0,  # Phase 900: Increased from 10s to 60s for Multi-Symbol
                 )
 
                 # Report heartbeat for this symbol
@@ -508,7 +508,7 @@ class StreamManager:
                             backoff_max=30.0,
                         ),
                     ),
-                    timeout=30.0,  # 30s timeout for trades (might be less frequent)
+                    timeout=120.0,  # Phase 900: Increased from 30.0s for Multi-Symbol
                 )
 
                 # Create and dispatch TickEvent with REAL side (BUY/SELL)

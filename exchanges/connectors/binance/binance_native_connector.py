@@ -1391,7 +1391,24 @@ class BinanceNativeConnector(BaseConnector):
             except Exception as e:
                 # Intercept -4118, -2022, and -4164 for Algo orders too
                 error_msg = str(e)
-                if any(code in error_msg for code in ["-4118", "-2022", "-4164"]) and is_reduce_only:
+                # Phase 900: Robust Ghost Handling. If the exchange says -2022,
+                # it's a ReduceOnly failure which we should handle regardless of internal flag state.
+                if "-2022" in error_msg:
+                    self.logger.warning(f"⚠️ Ghost Position Candidate (-2022) for {symbol}. Verifying...")
+                    if not await self._wait_for_position_sync(symbol):
+                        self.logger.info(f"👻 Ghost Position confirmed! Returning synthetic closed order for {symbol}.")
+                        return {
+                            "id": f"ghost_{int(time.time()*1000)}",
+                            "symbol": symbol,
+                            "status": "closed",
+                            "side": side.lower(),
+                            "price": price or 0.0,
+                            "amount": amount,
+                            "t2_submit_ts": time.time(),
+                            "t3_ack_ts": time.time(),
+                        }
+
+                if any(code in error_msg for code in ["-4118", "-4164"]) and is_reduce_only:
                     self.logger.warning(f"⚠️ ReduceOnly Algo Sync Lag detected ({error_msg}) for {symbol}. Syncing...")
                     if await self._wait_for_position_sync(symbol):
                         # Retry with same instrumentation
@@ -1416,13 +1433,28 @@ class BinanceNativeConnector(BaseConnector):
             t3_ack_ts = time.time()
 
             result = self._normalize_order(response)
-            result["t2_submit_ts"] = t2_submit_ts
             result["t3_ack_ts"] = t3_ack_ts
             return result
         except Exception as e:
-            # Handle the "Speed Paradox" errors (ReduceOnly Failed because position not propagated yet)
             error_msg = str(e)
-            if any(code in error_msg for code in ["-4118", "-2022", "-4164"]) and is_reduce_only:
+
+            # Phase 900: Robust Ghost Handling for regular orders
+            if "-2022" in error_msg:
+                self.logger.warning(f"⚠️ Ghost Position Candidate (-2022) for {symbol}. Verifying...")
+                if not await self._wait_for_position_sync(symbol):
+                    self.logger.info(f"👻 Ghost Position confirmed! Returning synthetic closed order for {symbol}.")
+                    return {
+                        "id": f"ghost_{int(time.time()*1000)}",
+                        "symbol": symbol,
+                        "status": "closed",
+                        "side": side.lower(),
+                        "price": price or 0.0,
+                        "amount": amount,
+                        "t2_submit_ts": time.time(),
+                        "t3_ack_ts": time.time(),
+                    }
+
+            if any(code in error_msg for code in ["-4118", "-4164"]) and is_reduce_only:
                 self.logger.warning(
                     f"⚠️ ReduceOnly Sync Lag detected ({error_msg}) for {symbol}. Waiting for position propagation..."
                 )
@@ -1463,7 +1495,7 @@ class BinanceNativeConnector(BaseConnector):
             endpoint_type="order",
         )
 
-    async def _wait_for_position_sync(self, symbol: str, timeout: float = 3.0) -> bool:
+    async def _wait_for_position_sync(self, symbol: str, timeout: float = 5.0) -> bool:
         """Poll the position endpoint until a position appears (Internal Sync)."""
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -1477,7 +1509,7 @@ class BinanceNativeConnector(BaseConnector):
                 self.logger.warning(f"⚠️ Error during position sync fetch for {symbol}: {e}")
 
             await asyncio.sleep(0.2)  # Poll every 200ms
-        self.logger.error(f"❌ Position sync TIMEOUT for {symbol} after {timeout}s")
+        self.logger.warning(f"⚠️ Position sync TIMEOUT for {symbol} after {timeout}s (Position is zero)")
         return False
 
     async def create_market_order(
@@ -1503,6 +1535,9 @@ class BinanceNativeConnector(BaseConnector):
 
     async def cancel_order(self, order_id: str, symbol: str, timeout: Optional[float] = None) -> None:
         """Cancel an order (regular or algo)."""
+        if order_id and order_id.startswith("ghost_"):
+            return  # Ghost orders are synthetic, nothing to cancel
+
         native_symbol = self._normalize_symbol(symbol)
 
         try:
@@ -1680,6 +1715,10 @@ class BinanceNativeConnector(BaseConnector):
         Crucial for ReduceOnly orders to avoid "Exceeds Position Limit" rejection.
         """
         native_symbol = self._normalize_symbol(symbol)
+
+        if order_id and order_id.startswith("ghost_"):
+            return {"id": order_id, "status": "closed"}  # Synthetic success for ghost orders
+
         args = {"symbol": native_symbol, "side": side.upper()}
         params = params or {}
 

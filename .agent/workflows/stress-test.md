@@ -25,9 +25,9 @@ El objetivo es eliminarlos completamente.
 .venv/bin/python reset_data.py
 ```
 
-### 2. Ejecutar Test (150 minutos)
+### 2. Ejecutar Test (120 minutos Hiperactivos)
 ```bash
-.venv/bin/python main.py --mode demo --symbol MULTI --timeout 150 --close-on-exit 2>&1 | tee logs/stress_test_$(date +%Y%m%d_%H%M%S).log
+.venv/bin/python main.py --mode demo --symbol MULTI --timeout 120 --fast-track --close-on-exit 2>&1 | tee logs/stress_test_$(date +%Y%m%d_%H%M%S).log
 ```
 
 ### 3. Auditoría Estadística (Protocolo V2)

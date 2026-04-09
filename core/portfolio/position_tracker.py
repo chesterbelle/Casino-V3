@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from exchanges.adapters import ExchangeAdapter
 
 import config.trading
-from core.events import TradeClosedEvent
+from core.events import EventType, TradeClosedEvent
 from core.observability.historian import historian
 from utils.symbol_norm import normalize_symbol
 
@@ -1015,6 +1015,10 @@ class PositionTracker:
                 trigger_level=order.get("trigger_level"),  # Phase 880
                 trigger_type=order.get("trigger_type", "unknown"),
                 initial_narrative=order.get("initial_narrative"),
+                # Phase 1350: Restore HFT Telemetry
+                t0_signal_ts=order.get("t0_signal_ts"),
+                t1_decision_ts=order.get("t1_decision_ts"),
+                t2_submit_ts=order.get("t2_submit_ts") or time.time(),
             )
 
             # Registrar posición
@@ -1246,6 +1250,34 @@ class PositionTracker:
             "level_price": getattr(position, "level_price", 0.0),
         }
 
+        # Phase 1350: Restore HFT Telemetry (T0-T1-T2-T4)
+        # We only record wall-clock telemetry in Demo/Live modes.
+        # In Backtest, these are artificial or identical to market time.
+        is_backtest = False
+        if self.adapter and hasattr(self.adapter, "connector"):
+            conn = self.adapter.connector
+            is_backtest = getattr(conn, "mode", "") == "testing"
+
+        if not is_backtest:
+            result.update(
+                {
+                    "t0_signal_ts": position.t0_signal_ts,
+                    "t1_decision_ts": position.t1_decision_ts,
+                    "t2_submit_ts": position.t2_submit_ts,
+                    "t4_fill_ts": position.t4_fill_ts,
+                }
+            )
+        else:
+            # Explicitly zero out for backtest to avoid accidental Wall Clock pollution
+            result.update(
+                {
+                    "t0_signal_ts": 0.0,
+                    "t1_decision_ts": 0.0,
+                    "t2_submit_ts": 0.0,
+                    "t4_fill_ts": 0.0,
+                }
+            )
+
         # Phase 247: Prevent Double Recording (Ghost Inflation)
         # Set an ultra-fast in-memory flag before passing to historian thread.
         # This stops ReconciliationService from ghost-auditing positions we've already closed.
@@ -1316,6 +1348,7 @@ class PositionTracker:
         # Dispatch TradeClosedEvent (Unified Architecture) - Phase 800 fix
         if self.engine:
             event = TradeClosedEvent(
+                type=EventType.TRADE_CLOSED,
                 trade_id=trade_id,
                 symbol=result["symbol"],
                 side=result["side"],
@@ -1640,6 +1673,7 @@ class PositionTracker:
             status="OPENING",
             t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
             t1_decision_ts=order_params.get("t1_decision_ts"),  # Phase 10: Decision Latency
+            t2_submit_ts=time.time(),  # Phase 1350: Restore HFT Wire Submission Telemetry
             trace_id=trace_id or order_params.get("trace_id"),
             setup_type=setup_type or order_params.get("setup_type") or "unknown",
             trigger_level=trigger_level or order_params.get("trigger_level"),
