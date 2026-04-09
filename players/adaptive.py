@@ -39,6 +39,7 @@ class DecisionEvent(Event):
     trigger_level: Optional[float] = None
     trigger_type: Optional[str] = "unknown"
     initial_narrative: Optional[Dict[str, Any]] = None
+    fast_track: bool = False
 
     def __post_init__(self):
         # Ensure type is always DECISION even if passed otherwise
@@ -364,6 +365,7 @@ class AdaptivePlayer:
                 "val": event.metadata.get("val"),
                 "z_score": event.metadata.get("z_score"),
             },
+            fast_track=self.fast_track,
         )
         decision.decision_id = decision_id  # Add unique ID
         decision.shadow_sl_activation = shadow_sl_activation  # Phase 800

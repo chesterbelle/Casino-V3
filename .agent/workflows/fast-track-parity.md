@@ -1,8 +1,8 @@
 ---
-description: Protocolo de Fast-Track Parity Check (15m Mechanical Proof)
+description: Protocolo de Fast-Track Parity Check (30m Mechanical Proof)
 ---
 
-Este workflow automatiza la validación de paridad mecánica entre Demo y Simulador en una ventana corta (15 min) forzando ejecuciones mediante el flag `--fast-track`.
+Este workflow automatiza la validación de paridad mecánica entre Demo y Simulador en una ventana corta (30 min) forzando ejecuciones mediante el flag `--fast-track`.
 
 > **⚠️ AI EXECUTION DIRECTIVE:**
 > **OBJETIVO:** Este protocolo es exclusivamente para encontrar y arreglar bugs de infraestructura (fugas de simulación, gaps de tiempo, etc.). **ESTÁ ESTRICTAMENTE PROHIBIDO MODIFICAR LA ESTRATEGIA (sensores, RR, thresholds)** basándose en los resultados de este test.
@@ -18,9 +18,9 @@ START_TS=$(date +%s)
 echo $START_TS > tests/validation/ft_parity_start.txt
 ```
 
-2. Ejecutar sesión corta (15 min) en modo Fast-Track:
+2. Ejecutar sesión corta (30 min) en modo Fast-Track:
 ```bash
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track --close-on-exit
+.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track --close-on-exit
 ```
 
 ## Phase 2: Data Extraction
@@ -29,7 +29,7 @@ echo $START_TS > tests/validation/ft_parity_start.txt
 ```bash
 # Phase 1300: Add 60s offset to ignore initial L2 sensor warmup/initialization
 START=$(( $(cat tests/validation/ft_parity_start.txt) + 60 ))
-END_TS=$((START + 920))
+END_TS=$((START + 1820))
 echo $END_TS > tests/validation/ft_parity_end.txt
 cp data/historian.db tests/validation/ft_demo_historian.db
 cp data/historian.db-wal tests/validation/ft_demo_historian.db-wal 2>/dev/null || :
