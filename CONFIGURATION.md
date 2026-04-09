@@ -135,17 +135,56 @@ python main.py --timeout 150  # Stop after 150 minutes
 ```
 
 #### --close-on-exit
-**Description**: Close all positions on shutdown
+**Description**: Gracefully close all open positions on shutdown. Activates two behaviors:
+
+1. **Drain Phase** (during session, before timeout): Stops opening new positions and progressively adjusts TP/SL on existing positions to close them cleanly before the session ends.
+   - Stage schedule (within the drain window):
+     - `DEFENSIVE` — Moves TP to breakeven
+     - `AGGRESSIVE` — Accepts small loss to close faster
+     - `PANIC` — Market-closes remaining positions
+2. **Emergency Sweep** (at shutdown): Cancels all open orders and closes any remaining positions on the exchange.
+
+**Use case**: Live and Demo modes only. **Never use in Backtest** — there are no real exchange positions to close.
+
 **Type**: Flag (no value needed)
 **Default**: False
 
 ```bash
-python main.py --close-on-exit
+python main.py --mode demo --close-on-exit --timeout 30
 ```
 
+> **Note**: The drain phase is automatically skipped when `--fast-track` is active (see below), since fast-track test windows are too short for progressive drain stages to be meaningful.
+
+---
+
+#### --fast-track
+**Description**: Bypasses time-based warmup gates to make short validation sessions (≤30 min) statistically valid. In normal operation the bot requires up to 60 minutes of sensor data before firing any signal.
+
+**What it bypasses (warmup gates only):**
+- `SetupEngine` 60-minute warmup timer → set to 0
+- Micro-structure gate (requires N ticks before evaluation) → bypassed
+- Wick confirmation gate (requires candle history) → bypassed
+- Regime gate checks that depend on historical context → bypassed
+- Drain Phase activation → skipped (session is too short for drain to make sense)
+
+**What it does NOT bypass (always enforced):**
+- Math Inversion check (`execution.py`) — if the market moved past TP/SL since signal generation, the trade is always rejected
+- Inverted TP/SL validation (`adaptive.py`) — structural integrity of the signal
+- Max distance check (`adaptive.py`) — >10% TP/SL distance is never scalping
+- RR Ratio minimum (`adaptive.py`) — trades must always have R:R ≥ 1.0
+- PortfolioGuard risk gates — risk management is always sovereign
+- Min Notional check — exchange minimums always apply
+
+**Type**: Flag (no value needed)
+**Default**: False
+
 ```bash
-python main.py --leverage 20
+python main.py --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track --close-on-exit
 ```
+
+> **Warning**: Do not use `--fast-track` in production. It is exclusively for infrastructure validation protocols (`/fast-track-parity`, `/execution-quality-audit`).
+
+---
 
 #### --audit
 **Description**: Enable Zero-Interference Audit Mode (Edge Validation)

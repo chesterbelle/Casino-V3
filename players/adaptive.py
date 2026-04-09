@@ -300,11 +300,9 @@ class AdaptivePlayer:
                 rr_ratio = reward / risk
 
                 # Phase 700: Simple RR validation — trust the structure
-                rr_threshold = 0.5 if self.fast_track else 1.0
-
-                if rr_ratio < rr_threshold:
+                if rr_ratio < 1.0:
                     logger.warning(
-                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < {rr_threshold}) | "
+                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.0) | "
                         f"Symbol: {event.symbol} | Side: {event.side}"
                     )
                     return
@@ -344,6 +342,10 @@ class AdaptivePlayer:
 
         # Emit Decision with unique ID for tracking
         decision_id = f"DEC_{int(time.time()*1000000)}"  # Microsecond precision
+
+        # Phase 85: Finalize T1 (Decision Time)
+        t1_ts = getattr(event, "t1_decision_ts", None) or time.time()
+
         decision = DecisionEvent(
             symbol=event.symbol,
             side=event.side,
@@ -351,8 +353,8 @@ class AdaptivePlayer:
             tp_price=tp_price,
             sl_price=sl_price,
             selected_sensor=event.selected_sensor,
-            t0_timestamp=getattr(event, "t0_timestamp", None),
-            t1_decision_ts=getattr(event, "t1_decision_ts", None),
+            t0_timestamp=getattr(event, "t0_timestamp", event.timestamp),
+            t1_decision_ts=t1_ts,
             trace_id=getattr(event, "trace_id", None),
             setup_type=getattr(event, "setup_type", setup_type),
             atr_1m=event.metadata.get("atr_1m", 0.0),

@@ -186,7 +186,7 @@ class OrderManager:
                 if tp_price >= current_price or sl_price <= current_price:
                     is_inverted = True
 
-            if is_inverted and not is_fast_track:
+            if is_inverted:
                 logger.warning(
                     f"🚫 PRE-FLIGHT REJECT (Slippage/Math Inversion) | {symbol} {side} @ {current_price:.4f} | "
                     f"Signal TP: {tp_price:.4f} | Signal SL: {sl_price:.4f}. "
@@ -194,11 +194,6 @@ class OrderManager:
                     f"Discarding trade to save capital."
                 )
                 return
-            elif is_inverted and is_fast_track:
-                logger.warning(
-                    f"⚠️ [FAST-TRACK] Math Inversion detected but BYPASSING rejection for parity testing. "
-                    f"Symbol={symbol} | TP={tp_price:.4f} | SL={sl_price:.4f} | Current={current_price:.4f}"
-                )
 
         # Phase 249: Min Notional Solvency Gate
         try:
