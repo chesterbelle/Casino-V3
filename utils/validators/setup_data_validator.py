@@ -1,9 +1,9 @@
 """
-Setup Data Validator - Phase 975
-Validates that SetupEngine produces TP/SL for ALL setup types.
+Setup Data Validator - Phase 975 (LTA V4 Upgrade)
+Validates that SetupEngine produces TP/SL for LTA_STRUCTURAL setups.
 
-This validator ensures that every playbook in SetupEngineV4 returns
-properly calculated tp_price and sl_price in the signal metadata.
+Ensures the new geometric targets (POC/VAH/VAL) are correctly
+populated in the signal metadata.
 """
 
 import asyncio
@@ -37,30 +37,6 @@ class MockEngine:
         self.dispatched_events.append(event)
 
 
-class MockConnector:
-    """Mock exchange connector."""
-
-    def get_latest_micro(self, symbol: str):
-        # Return a mock micro bar with OHLCV data
-        class MockMicro:
-            def __init__(self):
-                self.timestamp = time.time()
-                self.price = 100.0
-                self.open = 99.5
-                self.high = 100.5
-                self.low = 99.0
-                self.close = 100.0
-                self.volume = 1000.0
-                self.delta = 50.0
-                self.cvd = 500.0
-                self.skewness = 0.6
-
-        return MockMicro()
-
-    def get_atr(self, symbol: str, timeframe: str = "1m"):
-        return 0.5
-
-
 def create_test_signal(
     sensor_type: str, direction: str, price: float, metadata_override: Optional[Dict] = None
 ) -> SignalEvent:
@@ -69,11 +45,6 @@ def create_test_signal(
         "tactical_type": sensor_type,
         "direction": direction,
         "price": price,
-        "trap_price": price,
-        "high": price * 1.005,
-        "low": price * 0.995,
-        "wick_vol_pct": 0.25,
-        "pattern": sensor_type,
     }
     if metadata_override:
         base_metadata.update(metadata_override)
@@ -90,61 +61,15 @@ def create_test_signal(
     )
 
 
-def create_delta_divergence_signal(direction: str, price: float) -> SignalEvent:
-    """Create a Delta Divergence signal."""
+def create_lta_signal(direction: str, price: float) -> SignalEvent:
+    """Create a structural signal for LTA."""
     return create_test_signal(
-        "TacticalCumulativeDelta",  # Delta sensor type
-        direction,
-        price,
-        {
-            "divergence": "bullish" if direction == "LONG" else "bearish",
-            "z_score": 2.5,
-            "price_high": price * 1.002,
-            "price_low": price * 0.998,
-            "total_range": price * 0.004,
-        },
-    )
-
-
-def create_trapped_traders_signal(direction: str, price: float) -> SignalEvent:
-    """Create a Trapped Traders signal."""
-    return create_test_signal(
-        "TacticalTrappedTraders",
-        direction,
-        price,
-        {
-            "wick_vol_pct": 0.35,
-            "pattern": "Long_Wick_Trap",
-        },
-    )
-
-
-def create_fade_extreme_signal(direction: str, price: float) -> SignalEvent:
-    """Create a Fade Extreme signal."""
-    return create_test_signal(
-        "TacticalAbsorption",  # Absorption at extremes
+        "TacticalAbsorption",
         direction,
         price,
         {
             "absorption_detected": True,
-            "reversal_direction": direction,
-            "node_high": price * 1.003,
-            "node_low": price * 0.997,
-        },
-    )
-
-
-def create_stacked_imbalance_signal(direction: str, price: float) -> SignalEvent:
-    """Create a Stacked Imbalance signal for Trend Continuation."""
-    return create_test_signal(
-        "TacticalStackedImbalance",
-        direction,
-        price,
-        {
-            "levels": [price * 0.998, price, price * 1.002],
-            "poc": price,
-            "confirmations": [{"direction": direction, "weight": 1.0}],
-            "has_confluence": True,
+            "z_score": 3.5,
         },
     )
 
@@ -189,35 +114,19 @@ def validate_setup_metadata(setup_name: str, metadata: Dict[str, Any]) -> List[s
 
 def populate_context_registry(context_registry: ContextRegistry, symbol: str, poc: float, vah: float, val: float):
     """Populate ContextRegistry with synthetic market data to generate structural levels."""
-    # Feed ticks to build up the market profile
-    # The MarketProfile will calculate POC/VAH/VAL from this data
-    # base_price = poc  # Removed unused variable
+    from unittest.mock import MagicMock
 
-    # Simulate trades around POC with some distribution to create VAH/VAL
-    for i in range(100):
-        # Create normal distribution around POC
-        if i < 30:
-            price = val + (poc - val) * 0.5  # Near VAL
-        elif i < 70:
-            price = poc  # Near POC (most volume)
-        else:
-            price = poc + (vah - poc) * 0.5  # Near VAH
-
-        volume = 10.0 + (50.0 if abs(price - poc) < 0.1 else 10.0)
-        side = "buy" if i % 2 == 0 else "sell"
-
-        context_registry.on_tick(symbol, price, volume, side)
-
-    # Set IB levels
-    context_registry.set_ib(symbol, vah + 1.0, val - 1.0)
-
-    logger.debug(f"Populated {symbol} with synthetic market data")
+    context_registry.get_structural = MagicMock(return_value=(poc, vah, val))
+    context_registry.get_regime = MagicMock(return_value="NEUTRAL")
+    context_registry.get_ib = MagicMock(return_value=(vah + 1.0, val - 1.0))
+    context_registry.is_in_trade = MagicMock(return_value=False)
+    logger.debug(f"Populated {symbol} with synthetic market data (Mocks applied)")
 
 
 async def run_validator():
     """Main validation routine."""
     logger.info("=" * 60)
-    logger.info("SETUP DATA VALIDATOR - Phase 975")
+    logger.info("SETUP DATA VALIDATOR - Phase 975 (LTA Upgrade)")
     logger.info("Validating TP/SL production from SetupEngineV4")
     logger.info("=" * 60)
 
@@ -231,18 +140,18 @@ async def run_validator():
     )
 
     # Configure context for testing by populating with synthetic market data
-    populate_context_registry(context_registry, "TESTUSDT", poc=100.0, vah=102.0, val=98.0)
+    poc = 100.0
+    vah = 105.0
+    val = 95.0
+    populate_context_registry(context_registry, "TESTUSDT", poc=poc, vah=vah, val=val)
 
-    # Test scenarios - all setups must produce TP/SL
+    # Test scenarios - LTA requires price at extreme, and direction reversing to POC
+    # SHORT at VAH, LONG at VAL
     test_scenarios = [
-        ("DeltaDivergence", "LONG", 100.0, create_delta_divergence_signal),
-        ("DeltaDivergence", "SHORT", 100.0, create_delta_divergence_signal),
-        ("TrappedTraders", "LONG", 100.0, create_trapped_traders_signal),
-        ("TrappedTraders", "SHORT", 100.0, create_trapped_traders_signal),
-        ("FadeExtreme", "LONG", 98.0, create_fade_extreme_signal),  # Near VAL
-        ("FadeExtreme", "SHORT", 102.0, create_fade_extreme_signal),  # Near VAH
-        ("TrendContinuation", "LONG", 100.0, create_stacked_imbalance_signal),
-        ("TrendContinuation", "SHORT", 100.0, create_stacked_imbalance_signal),
+        ("LTA_STRUCTURAL", "SHORT", vah + 0.01, create_lta_signal),  # Valid: Price near VAH
+        ("LTA_STRUCTURAL", "LONG", val - 0.01, create_lta_signal),  # Valid: Price near VAL
+        ("LTA_STRUCTURAL", "LONG", vah, create_lta_signal),  # Invalid: LONG at VAH
+        ("LTA_STRUCTURAL", "SHORT", poc, create_lta_signal),  # Invalid: Price at POC
     ]
 
     all_passed = True
@@ -256,26 +165,19 @@ async def run_validator():
         # Create signal
         signal = signal_factory(direction, price)
 
+        # Inject memory for SetupEngine since it expects lists
+        setup_engine.memory["TESTUSDT"] = [(time.time(), time.time(), signal)]
+
         # Evaluate setup
         try:
-            if setup_name == "DeltaDivergence":
-                result = setup_engine._evaluate_delta_divergence("TESTUSDT", [signal])
-            elif setup_name == "TrappedTraders":
-                result = setup_engine._evaluate_trapped_traders("TESTUSDT", [signal])
-            elif setup_name == "FadeExtreme":
-                result = setup_engine._evaluate_fade_extreme("TESTUSDT", [signal])
-            elif setup_name == "TrendContinuation":
-                result = setup_engine._evaluate_trend_continuation("TESTUSDT", [signal])
-            else:
-                result = None
-
+            result = setup_engine._evaluate_lta_structural("TESTUSDT", [signal])
         except Exception as e:
             logger.error(f"💥 Exception during evaluation: {e}")
             result = None
 
         # Analyze result
         if result is None:
-            logger.info(f"⚠️  Setup returned None (gated by proximity/regime - OK for this test)")
+            logger.info(f"⚠️  Setup returned None (gated by proximity/direction - Expected if invalid)")
             results_summary.append(
                 {
                     "setup": setup_name,
@@ -321,6 +223,8 @@ async def run_validator():
                 if risk > 0:
                     rr = reward / risk
                     logger.info(f"   RR Ratio: {rr:.2f}:1")
+                else:
+                    logger.warning("   ⚠️ RR Ratio: Infinity (Zero Risk)")
 
                 results_summary.append(
                     {

@@ -96,6 +96,7 @@ class ExitManager:
 
             self.logger.debug(f"⚡ Processing Candle Exit Logic for {position.symbol} | Price: {current_price}")
             await self._check_time_exit(position, event)
+            await self._check_poc_migration(position)
 
     async def on_tick(self, event: TickEvent):
         """
@@ -179,12 +180,12 @@ class ExitManager:
             emergency_exit = False
             reason = ""
 
-            # 2. EMERGENCY: Toxic Flow Burst (Z > 4.5)
-            # Higher threshold to ensure we 'let the trade breathe' unless it's a liquidation.
-            if position.side == "LONG" and z < -4.5:
+            # 2. EMERGENCY: Toxic Flow Burst (Z > 7.0)
+            # Desensitized for LTA V4: We trust structural stops unless it's a true black swan.
+            if position.side == "LONG" and z < -7.0:
                 emergency_exit = True
                 reason = f"TOXIC_FLOW_BURST_SHORT (Z={z:.1f})"
-            elif position.side == "SHORT" and z > 4.5:
+            elif position.side == "SHORT" and z > 7.0:
                 emergency_exit = True
                 reason = f"TOXIC_FLOW_BURST_LONG (Z={z:.1f})"
 
@@ -347,6 +348,58 @@ class ExitManager:
                     await self.croupier.close_position(position.trade_id, exit_reason="HARD_TIME_EXIT")
                 except Exception as e:
                     self.logger.error(f"❌ Failed to execute hard time exit: {e}")
+
+    async def _check_poc_migration(self, position: OpenPosition):
+        """
+        Phase 650: Dynamic Value Migration Tracking (LTA V4).
+        Adjusts Take Profit if the Point of Control shifts significantly.
+        Implements 48-symbol concurrency safeguards (Debounce & Throttle).
+        """
+        # 1. Null check
+        if not hasattr(self.context_registry, "get_structural") or not position.tp_order_id:
+            return
+
+        # 2. Debounce: 5 minute Cooldown (300 seconds)
+        import time
+
+        now = time.time()
+        last_update = getattr(position, "last_poc_migration", 0)
+        if now - last_update < 300:
+            return
+
+        # 3. O(1) POC Lookup
+        poc, _, _ = self.context_registry.get_structural(position.symbol)
+        if not poc or poc <= 0:
+            return
+
+        # 4. Math: Has it moved more than 0.20%?
+        current_tp = position.tp_level
+        if not current_tp or current_tp <= 0:
+            return
+
+        migration_pct = abs(poc - current_tp) / current_tp
+
+        if migration_pct >= 0.0020:  # 0.20% Migration Threshold
+            self.logger.info(
+                f"🧲 [VALUE MIGRATION] POC shifted for {position.symbol}. Old TP: {current_tp:.4f} -> New POC: {poc:.4f} (Shift: {migration_pct:.2%})"
+            )
+            try:
+                # Execution Throttling for MULTI-mode (Spreads load across loop)
+                await asyncio.sleep(0.05)
+
+                await self.croupier.modify_tp(
+                    trade_id=position.trade_id,
+                    new_tp_price=poc,
+                    symbol=position.symbol,
+                    old_tp_order_id=position.tp_order_id,
+                )
+
+                # Register Update timestamp
+                position.last_poc_migration = now
+                position.tp_level = poc
+                self.logger.info(f"✅ TP re-anchored to new POC for {position.trade_id}")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to migrate POC for {position.trade_id}: {e}")
 
     async def apply_dynamic_exit(self, position: OpenPosition, phase: str):
         """
