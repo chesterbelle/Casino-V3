@@ -174,6 +174,12 @@ class AdaptivePlayer:
 
     async def on_aggregated_signal(self, event: AggregatedSignalEvent):
         """Process aggregated signal and place bet."""
+        import config.trading as trading_config
+
+        if getattr(trading_config, "AUDIT_MODE", False):
+            logger.debug(f"🔍 Audit Mode: Signal {event.setup_type} (ignored by player)")
+            return
+
         if event.side == "SKIP":
             return
 

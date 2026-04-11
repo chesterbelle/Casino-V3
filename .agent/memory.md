@@ -12,7 +12,10 @@ Current branch: `v5.2.0-certified-reactor-sniper`
 
 ---
 
-## Key Architecture
+## Capas de Certificación (Roadmap)
+- **🏛️ Capa de Hierro (Infraestructura)**: Paridad 1:1, Resiliencia del Historian, Latencia < 50ms. [COMPLETADO]
+- **💎 Capa de Cristal (Estrategia/Alpha)**: Validación de Edge, Win Rate > 55%, MAE/MFE. [ENFOQUE ACTUAL]
+- **⚔️ Capa de Acero (Resiliencia)**: PortfolioGuard V2, Hyperliquid, ML Regime. [PRÓXIMO PASO]
 
 ### Core Components
 | Component | Purpose |
@@ -30,15 +33,14 @@ Current branch: `v5.2.0-certified-reactor-sniper`
 | `SensorManager` | Multiprocess sensor workers → SignalEvents |
 | `HFTExitManager` | Axia-style professional exit management |
 
-### Key Files
-- `main.py` — Entry point, flag wiring, main loop, drain phase, shutdown
-- `config/trading.py` — Trading configuration
-- `croupier/croupier.py` — Croupier V4
-- `players/adaptive.py` — AdaptivePlayer + DecisionEvent definition
-- `decision/setup_engine.py` — SetupEngineV4 (playbooks, gates)
-- `core/execution.py` — OrderManager.on_decision (sizing, pre-flight checks)
-- `core/portfolio/position_tracker.py` — Position lifecycle + HFT telemetry (t0-t4)
-- `CONFIGURATION.md` — Official flag documentation (keep updated)
+### Key Files & Documentation
+- `ROADMAP.md` — Certification Layers (Iron, Glass, Steel)
+- `docs/strategies/` — Theoretical Manifests (Quick Scalping, Velocity & Vacuum, LTA-V4)
+- `docs/implementations/` — Technical Specs (Sniper Footprint Scalper)
+- `main.py` — Entry point with unified flag wiring
+- `croupier/croupier.py` — Core execution orchestrator
+- `core/portfolio/position_tracker.py` — Position lifecycle + HFT telemetry
+- `CONFIGURATION.md` — Flag documentation and usage
 
 ---
 
@@ -140,26 +142,16 @@ Es el camino más corto a la solución.
 
 ---
 
-## Milestones Completados
-- ✅ Fases 1-800+: Hardening de estabilidad, contabilidad, shutdown graceful
-- ✅ Phase 800: Pipeline unificado TP/SL con precios absolutos
-- ✅ Phase 970: Dumb Execution Layer (SetupEngine calcula TP/SL, Player solo ejecuta)
-- ✅ Phase 1100: HFTExitManager (Axia Professional Patience)
-- ✅ Phase 1130: HFT Latency Telemetry T0-T4 (t1 en AdaptivePlayer, fallbacks en PositionTracker)
-- ✅ fast_track scope: Corregido — solo bypasea warmup gates (fix 2026-04-09)
-- ✅ CONFIGURATION.md actualizado con documentación precisa de flags
-- ✅ **Resilient Historian**: Eliminado el 'Silent Skip' de trades con precio 0.0
-- ✅ **Deterministic Parity**: Inyección de market timestamps en Historian durante backtest
-- ✅ **Organic Parity Rule**: 100% de paridad mecánica validada (Demo 1:1 Backtest)
+- ✅ **Capa de Hierro**: Paridad Mecánica 1:1 verificada (v5.2.0)
+- ✅ **Resilient Historian**: Eliminación de Silent Skips y Fallback de precios
+- ✅ **Deterministic Sim**: Inyección de timestamps de mercado en backtest
 
 ---
 
 ### Estado Actual (2026-04-09)
-- **Telemetría T0-T4:** Funcional y alineada entre Demo y Backtest ✅
-- **fast_track scope:** Corregido y validado ✅
-- **Protocolo fast-track-parity:** **100% VERIFICADO** tras fix de telemetría determinista ✅
-- **Regla Orgánica:** Preferencia por testeo sin `--close-on-exit` para eliminar ruido de ejecución al final de sesión.
-- **Debt de diseño:** `is_drain_mode` mezcla drain de sesión y halt de riesgo → separar en futura refactorización
+- **Infraestructura (Hierro)**: Certificada v5.2.0 ✅
+- **Estrategia (Cristal)**: Iniciando Auditoría de Edge para `quick_scalping_strategy.md` 🛡️
+- **Meta Actual**: Encontrar rentabilidad orgánica con paridad confirmada.
 
 ---
 *Last Updated: 2026-04-09*

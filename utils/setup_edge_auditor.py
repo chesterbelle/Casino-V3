@@ -105,7 +105,7 @@ class EdgeAuditor:
 
             # Phase 900A: First Touch Win-Rate per TP/SL config
             first_touch = {}
-            for tp_t, sl_t in [(0.2, 0.2), (0.3, 0.3), (0.5, 0.5), (0.5, 0.25)]:
+            for tp_t, sl_t in [(0.2, 0.2), (0.3, 0.3), (0.5, 0.5), (0.5, 0.25), (0.6, 0.4)]:
                 result = "TIMEOUT"
                 for p in prices_list:
                     if side == "LONG":
@@ -155,7 +155,7 @@ class EdgeAuditor:
         print(f"{'TP/SL':<12} {'Wins':<8} {'Losses':<8} {'Timeout':<8} {'WR%':<8} {'Expectancy'}")
         print("-" * 70)
 
-        configs = [(0.2, 0.2), (0.3, 0.3), (0.5, 0.5), (0.5, 0.25)]
+        configs = [(0.2, 0.2), (0.3, 0.3), (0.5, 0.5), (0.5, 0.25), (0.6, 0.4)]
         for tp, sl in configs:
             col = f"ft_{tp}_{sl}"
             if col not in df.columns:
