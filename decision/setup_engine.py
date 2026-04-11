@@ -11,6 +11,7 @@ import time
 from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional, Tuple
 
+import config.strategies as strat_config
 from core.events import (
     AggregatedSignalEvent,
     EventType,
@@ -161,82 +162,85 @@ class SetupEngineV4:
 
         return nearest
 
-    def _evaluate_delta_divergence(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
+    def _evaluate_lta_structural(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
         """
-        Playbook 3: Delta Divergence (High Probability)
-        Trigger Condition:
-        1. TacticalDivergence signal in 5s memory (Phase 972: Now requires Delta Flip).
-        2. Proximity to structural level (dist_pct < 0.20%).
-        3. Wick Confirmation: Rejection wick > 25% of candle size.
-        """
-        divergence = None
-        for e in events:
-            md = e.metadata or {}
-            if md.get("tactical_type") == "TacticalDivergence":
-                divergence = md
-                break
+        LTA V4: Structural Reversion (Unified Playbook)
 
-        if not divergence:
+        Strategy: Identify extreme exhaustion/absorption at VA edges and
+        target the POC (Point of Control) as the primary magnet.
+
+        Conditions:
+        1. Price is near VAH or VAL (dist < 0.20%).
+        2. Footprint confluence (Absorption, Rejection, or Delta Flip).
+        3. Target is the current POC.
+        """
+        if not self.context_registry:
             return None
 
-        # Get current price
-        price = divergence.get("close", 0.0)
-        side = divergence.get("direction")
+        # 1. Get structural anchors
+        poc, vah, val = self.context_registry.get_structural(symbol)
+        if not (poc > 0 and vah > 0 and val > 0):
+            return None
 
-        if price > 0:
-            # Phase 972: Wick Confirmation (Dale's Rule)
-            # Ensure price isn't closing at the extreme.
-            high = divergence.get("high", price)
-            low = divergence.get("low", price)
-            open_p = divergence.get("open", price)
-            total_range = high - low
+        # 2. Find the most recent reversal signal in 5s memory
+        reversal_signal = None
+        for e in events:
+            md = e.metadata or {}
+            t_type = md.get("tactical_type")
+            if t_type in ("TacticalAbsorption", "TacticalRejection", "TacticalDivergence", "TacticalTrappedTraders"):
+                reversal_signal = md
+                break
 
-            if total_range > 0:
-                if side == "SHORT":
-                    # For SHORT, we need a Top Wick (Price rejected from High)
-                    wick_size = high - max(open_p, price)
-                else:
-                    # For LONG, we need a Bottom Wick (Price rejected from Low)
-                    wick_size = min(open_p, price) - low
+        if not reversal_signal:
+            return None
 
-                wick_ratio = wick_size / total_range
-                if wick_ratio < 0.25 and not self.fast_track:
-                    # Too 'clean' - price is still pushing hard. Skip unless Fast-Track.
-                    return None
+        price = reversal_signal.get("close") or reversal_signal.get("price") or 0.0
+        side = reversal_signal.get("direction")
 
-            proximity = self._check_level_proximity(symbol, price)
-            if proximity:
-                # Phase 970: Shark Breath Edge Validation (Axia-Style)
-                # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
-                tp_pct = 0.0030
-                sl_pct = 0.0030
-                if side == "LONG":
-                    sl_price = price * (1 - sl_pct)
-                    tp_price = price * (1 + tp_pct)
-                else:
-                    sl_price = price * (1 + sl_pct)
-                    tp_price = price * (1 - tp_pct)
+        if price <= 0:
+            return None
 
-                trigger_meta = {
-                    "trigger": "DeltaDivergence",
-                    "setup_type": "reversion",
-                    "level_ref": proximity["level_ref"],
-                    "level_price": proximity["level_price"],
-                    "dist_pct": proximity["dist_pct"],
-                    "price": price,
-                    "wick_ratio": round(wick_ratio, 2) if total_range > 0 else 0,
-                    "z_score": divergence.get("z_score"),
-                    "tp_price": tp_price,
-                    "sl_price": sl_price,
-                }
-                trigger_meta = self._enrich_metadata(trigger_meta, symbol)
+        # 3. Location Gate: Must be at the edges to play LTA
+        is_at_vah = abs(price - vah) / price < strat_config.LTA_PROXIMITY_THRESHOLD
+        is_at_val = abs(price - val) / price < strat_config.LTA_PROXIMITY_THRESHOLD
 
-                return {
-                    "setup_name": "Delta_Divergence",
-                    "side": divergence["direction"],
-                    "metadata": trigger_meta,
-                }
-        return None
+        if not (is_at_vah or is_at_val):
+            return None
+
+        # 4. Directional Logic:
+        # If at VAH, we want to SHORT back to POC.
+        # If at VAL, we want to LONG back to POC.
+        if is_at_vah and side != "SHORT":
+            return None
+        if is_at_val and side != "LONG":
+            return None
+
+        # 5. Calculate Structural Targets (LTA Core)
+        tp_price = poc  # Magnet target
+
+        # SL is structural: Buffer outside the edge
+        sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
+        if side == "LONG":
+            sl_price = val * (1 - sl_buffer)
+        else:
+            sl_price = vah * (1 + sl_buffer)
+
+        # 6. Metadata Enrichment
+        trigger_meta = {
+            "trigger": f"LTA_{reversal_signal.get('tactical_type')}",
+            "setup_type": "reversion",
+            "price": price,
+            "tp_price": tp_price,
+            "sl_price": sl_price,
+            "poc": poc,
+            "vah": vah,
+            "val": val,
+            "level_ref": "VAH" if is_at_vah else "VAL",
+            "z_score": reversal_signal.get("z_score"),
+        }
+        trigger_meta = self._enrich_metadata(trigger_meta, symbol)
+
+        return {"setup_name": f"LTA_Structural_{side}", "side": side, "metadata": trigger_meta}
 
     async def on_signal(self, event: SignalEvent):
         """Processes incoming tactical and regime events."""
@@ -296,28 +300,10 @@ class SetupEngineV4:
         if self.context_registry and self.context_registry.is_in_trade(sym):
             return
 
-        # 3. Evaluate Strict Playbooks against the 5s memory window
+        # 3. Evaluate LTA Structural Playbook (The single LTA focus)
         events = [e[2] for e in self.memory[sym]]
-
-        # Phase 900: Dale-Pure Playbook Evaluation (ordered by WR)
-        # Priority 1: Trapped Traders (Dale #3, WR 70-75%)
-        trigger = self._evaluate_trapped_traders(sym, events)
+        trigger = self._evaluate_lta_structural(sym, events)
         setup_type = "reversion"
-
-        # Priority 2: Delta Divergence (Dale #4, WR 70-75%)
-        if not trigger:
-            trigger = self._evaluate_delta_divergence(sym, events)
-            setup_type = "reversion"
-
-        # Priority 3: Fade Extreme / Absorption (Dale #1, WR 65-70%)
-        if not trigger:
-            trigger = self._evaluate_fade_extreme(sym, events)
-            setup_type = "reversion"
-
-        # Priority 4: Trend Continuation (Dale #2, WR 60-65%)
-        if not trigger:
-            trigger = self._evaluate_trend_continuation(sym, events)
-            setup_type = "continuation"
 
         # 4. Fire 0ms Latency Action if playbook matches using Guarded Dispatch
         if trigger:
@@ -544,307 +530,4 @@ class SetupEngineV4:
 
         return True
 
-    def _evaluate_trapped_traders(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
-        """Phase 900: Standalone Trapped Traders Playbook (Dale #3, WR 70-75%).
-
-        Trader Dale: "These traders entered at the wrong time.
-        They will eventually reverse, accelerating the move against them."
-
-        Trigger Conditions:
-        1. TacticalTrappedTraders detected in 5s memory.
-        2. Price near structural level (POC/VAH/VAL).
-        3. Regime is not a strong trend in the same direction as the trap.
-        """
-        trapped = None
-        for e in events:
-            md = e.metadata or {}
-            if md.get("tactical_type") == "TacticalTrappedTraders":
-                trapped = md
-                break
-
-        if not trapped:
-            return None
-
-        direction = trapped.get("direction")
-        if not direction:
-            return None
-
-        # Regime Gate: Don't trade trapped traders against a strong trend
-        regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
-        if not self.fast_track:
-            if direction == "LONG" and regime == "DOWN":
-                logger.debug("❌ [REGIME GATE] Trapped_Traders LONG rejected in DOWN trend")
-                return None
-            if direction == "SHORT" and regime == "UP":
-                logger.debug("❌ [REGIME GATE] Trapped_Traders SHORT rejected in UP trend")
-                return None
-
-        trap_price = trapped.get("trap_price") or trapped.get("high") or trapped.get("low") or 0.0
-
-        # Phase 950: Sniper Mode (HTF Location Gating)
-        if trap_price > 0:
-            proximity = self._check_level_proximity(symbol, trap_price)
-            if not proximity:
-                logger.debug(
-                    f"❌ [LOCATION GATE] Trapped_Traders {direction} rejected: Price {trap_price:.4f} not near HTF level"
-                )
-                return None
-        else:
-            return None  # Invalid price event
-
-        # Phase 970: Shark Breath Edge Validation (Axia-Style)
-        # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
-        tp_pct = 0.0030
-        sl_pct = 0.0030
-        if direction == "LONG":
-            sl_price = trap_price * (1 - sl_pct)
-            tp_price = trap_price * (1 + tp_pct)
-        else:
-            sl_price = trap_price * (1 + sl_pct)
-            tp_price = trap_price * (1 - tp_pct)
-
-        trigger_meta = {
-            "trigger": "TrappedTraders",
-            "setup_type": "reversion",
-            "price": trap_price,
-            "trap_price": trap_price,
-            "wick_vol_pct": trapped.get("wick_vol_pct"),
-            "pattern": trapped.get("pattern", "Trapped_Traders"),
-            "candle_high": trapped.get("high"),
-            "candle_low": trapped.get("low"),
-            "level_ref": proximity["level_ref"],
-            "level_price": proximity["level_price"],
-            "level_dist_pct": proximity["dist_pct"],
-            "tp_price": tp_price,
-            "sl_price": sl_price,
-        }
-
-        return {"setup_name": "Trapped_Traders", "side": direction, "metadata": trigger_meta}
-
-    def _evaluate_fade_extreme(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
-        """Playbook: Fade the Extreme / Absorption Reversal (Dale #1, WR 65-70%).
-
-        Trigger Condition:
-        1. TacticalAbsorption OR TacticalRejection event
-        2. Confirmed by TacticalImbalance OR TacticalExhaustion in same direction
-        ALL within the last 5 seconds.
-        """
-        has_absorption = None
-        has_imbalance = None
-        has_rejection = None
-        has_exhaustion = None
-
-        for e in events:
-            md = e.metadata or {}
-            t_type = md.get("tactical_type")
-
-            if t_type == "TacticalAbsorption":
-                has_absorption = md
-            elif t_type == "TacticalImbalance":
-                has_imbalance = md
-            elif t_type == "TacticalRejection":
-                has_rejection = md
-            elif t_type == "TacticalExhaustion":
-                has_exhaustion = md
-
-        # Confirmation = Imbalance OR Exhaustion in same direction
-        confirmations = [c for c in [has_imbalance, has_exhaustion] if c is not None]
-
-        action_node = None
-        reversal_direction = None
-        trigger_meta = {"trigger": "FadeExtreme", "setup_type": "reversion"}
-
-        # Path A: Absorption + Confirmation
-        if has_absorption and confirmations:
-            for conf in confirmations:
-                if has_absorption["direction"] == conf.get("direction"):
-                    reversal_direction = has_absorption["direction"]
-                    action_node = has_absorption
-                    trigger_meta.update(
-                        {
-                            "poc": has_absorption.get("poc"),
-                            "vah": has_absorption.get("vah"),
-                            "val": has_absorption.get("val"),
-                        }
-                    )
-                    break
-
-        # Path B: Rejection + Confirmation
-        if not reversal_direction and has_rejection and confirmations:
-            for conf in confirmations:
-                if has_rejection["direction"] == conf.get("direction"):
-                    reversal_direction = has_rejection["direction"]
-                    action_node = has_rejection
-                    trigger_meta.update(
-                        {
-                            "poc": has_rejection.get("poc", 0),
-                            "vah": has_rejection.get("vah", 0),
-                            "val": has_rejection.get("val", 0),
-                            "candle_high": has_rejection.get("high"),
-                            "candle_low": has_rejection.get("low"),
-                        }
-                    )
-                    break
-
-        if reversal_direction and action_node:
-            # Phase 950: Sniper Mode (HTF Location Gating)
-            latest_micro_price = self.micro_memory[symbol][-1][2].price if self.micro_memory[symbol] else 0.0
-            reaction_price = (
-                action_node.get("trap_price") or action_node.get("high") or action_node.get("low") or latest_micro_price
-            )
-
-            if reaction_price > 0:
-                proximity = self._check_level_proximity(symbol, reaction_price)
-                if not proximity:
-                    logger.debug(
-                        f"❌ [LOCATION GATE] Fade_Extreme {reversal_direction} rejected: Price {reaction_price:.4f} not near HTF level"
-                    )
-                    return None
-            else:
-                return None
-
-            # Phase 970: Shark Breath Edge Validation (Axia-Style)
-            # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
-            tp_pct = 0.0030
-            sl_pct = 0.0030
-            if reversal_direction == "LONG":
-                sl_price = reaction_price * (1 - sl_pct)
-                tp_price = reaction_price * (1 + tp_pct)
-            else:
-                sl_price = reaction_price * (1 + sl_pct)
-                tp_price = reaction_price * (1 - tp_pct)
-
-            trigger_meta.update(
-                {
-                    "price": reaction_price,
-                    "level_ref": proximity["level_ref"],
-                    "level_price": proximity["level_price"],
-                    "level_dist_pct": proximity["dist_pct"],
-                    "tp_price": tp_price,
-                    "sl_price": sl_price,
-                }
-            )
-
-            # Regime Gate (Reversion only in Neutral)
-            regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
-            if regime in ("UP", "DOWN") and not self.fast_track:
-                logger.debug(f"❌ [REGIME GATE] Fade_Extreme rejected in TREND regime ({regime})")
-                return None
-
-            # L2 Wall Confirmation
-            if self.micro_memory[symbol]:
-                latest = self.micro_memory[symbol][-1][2]
-                skew = latest.skewness
-                if reversal_direction == "LONG" and skew < 0.51:
-                    logger.debug(f"❌ [L2 GUARD] Fade_Extreme LONG rejected: No Bid Wall (Skew: {skew:.2f})")
-                    return None
-                if reversal_direction == "SHORT" and skew > 0.49:
-                    logger.debug(f"❌ [L2 GUARD] Fade_Extreme SHORT rejected: No Ask Wall (Skew: {skew:.2f})")
-                    return None
-
-            return {"setup_name": "Fade_Extreme", "side": reversal_direction, "metadata": trigger_meta}
-
-        return None
-
-    def _evaluate_trend_continuation(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
-        """
-        Playbook 2: Trend Continuation (Breakout)
-        Trigger Condition (Phase 950 — Confluence Required):
-        1. TacticalStackedImbalance detects institutional footprint in trend direction.
-        2. At least ONE confirming event (TacticalImbalance or TacticalDivergence)
-           in the SAME direction within the 5s memory window.
-        """
-        stacked = None
-        confirmations = []
-
-        for e in events:
-            md = e.metadata or {}
-            t_type = md.get("tactical_type")
-            direction = md.get("direction")
-
-            if t_type == "TacticalStackedImbalance":
-                stacked = md
-            elif t_type in ("TacticalImbalance", "TacticalDivergence") and direction:
-                confirmations.append(md)
-
-        if stacked:
-            stacked_dir = stacked.get("direction")
-
-            # Phase 1600: Tighten Confluence Gate
-            regime = self.context_registry.get_regime(symbol) if self.context_registry else "NEUTRAL"
-            has_confluence = any(c.get("direction") == stacked_dir for c in confirmations)
-
-            # In Neutral regime, we REQUIRE confluence for trend continuation
-            if regime == "NEUTRAL" and not has_confluence and not self.fast_track:
-                logger.debug("❌ [REGIME GATE] Trend_Continuation rejected: No confluence in NEUTRAL regime")
-                return None
-
-            # Trend Alignment Filter (Phase 1600/1700)
-            if not self.fast_track:
-                if regime == "UP" and stacked_dir == "SHORT":
-                    logger.debug("❌ [REGIME GATE] Trend_Continuation SHORT rejected — Trend is UP")
-                    return None
-                if regime == "DOWN" and stacked_dir == "LONG":
-                    logger.debug("❌ [REGIME GATE] Trend_Continuation LONG rejected — Trend is DOWN")
-                    return None
-
-            # CVD Divergence Guard (Phase 1300)
-            # Find the latest Microstructure event for CVD
-            latest_micro = None
-            if self.micro_memory[symbol]:
-                latest_micro = self.micro_memory[symbol][-1][2]
-
-            if latest_micro:
-                cvd = latest_micro.cvd
-                # Reject if CVD is opposing the stacked imbalance significantly
-                if stacked_dir == "LONG" and cvd < -50:  # Phase 850: Tightened from -500
-                    logger.debug(f"❌ [FILTER] Trend_Continuation rejected: CVD Divergence ({cvd:.2f})")
-                    return None
-                elif stacked_dir == "SHORT" and cvd > 50:  # Phase 850: Tightened from +500
-                    logger.debug(f"❌ [FILTER] Trend_Continuation rejected: CVD Divergence SHORT ({cvd:.2f})")
-                    return None
-
-            vol_ratio = self.context_registry.get_volatility_ratio(symbol) if self.context_registry else 1.0
-            latest_micro_price = getattr(latest_micro, "price", 0.0)
-            target_poc = stacked.get("poc", latest_micro_price)
-
-            # Phase 970: Shark Breath Edge Validation (Axia-Style)
-            # Physical stop at certified 0.3% to avoid noise. Invalidation handled by ExitManager.
-            tp_pct = 0.0030
-            sl_pct = 0.0030
-            if stacked_dir == "LONG":
-                sl_price = latest_micro_price * (1 - sl_pct)
-                tp_price = latest_micro_price * (1 + tp_pct)
-            else:
-                sl_price = latest_micro_price * (1 + sl_pct)
-                tp_price = latest_micro_price * (1 - tp_pct)
-
-            # Phase 850: Enter PULLBACK_WATCH instead of firing
-            self.pullback_watch[symbol] = {
-                "active": True,
-                "direction": stacked_dir,
-                "target_poc": target_poc,
-                "start_ts": time.time(),
-                "metadata": {
-                    "trigger": "TrendContinuation_Pullback",
-                    "setup_type": "continuation",
-                    "levels": stacked.get("levels", []),
-                    "confluence_count": sum(1 for c in confirmations if c.get("direction") == stacked_dir),
-                    "has_confluence": has_confluence,
-                    "cvd": getattr(latest_micro, "cvd", 0.0),
-                    "vol_ratio": vol_ratio,
-                    "skewness": getattr(latest_micro, "skewness", 0.5),
-                    "price": latest_micro_price,
-                    "target_poc": target_poc,
-                    "candle_high": stacked.get("high"),
-                    "candle_low": stacked.get("low"),
-                    "tp_price": tp_price,
-                    "sl_price": sl_price,
-                },
-            }
-
-            logger.info(
-                f"🔍 [PULLBACK_WATCH] {symbol} {stacked_dir} Stack detected. Waiting for retrace to {target_poc:.4f}"
-            )
-            return None
-        return None
+    # LTA V4: Dale-specific legacy evaluations REMOVED.

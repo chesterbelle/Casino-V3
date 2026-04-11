@@ -10,7 +10,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from core.events import AggregatedSignalEvent, Event, EventType
 from decision.sensor_tracker import SensorTracker
@@ -97,80 +97,8 @@ class AdaptivePlayer:
             f"Max Positions: {max_positions}"
         )
 
-    def _get_best_htf_levels(self, metadata: dict) -> dict:
-        """
-        Phase 700: Get the most relevant HTF levels from metadata.
-        Priority: 1h > 15m > 4h (1h is optimal balance for scalping).
-        Returns dict with poc, vah, val and source_tf.
-        """
-        for tf in ("1h", "15m", "4h"):
-            poc = metadata.get(f"{tf}_poc")
-            vah = metadata.get(f"{tf}_vah")
-            val = metadata.get(f"{tf}_val")
-            if poc and poc > 0 and vah and vah > 0 and val and val > 0:
-                return {"poc": poc, "vah": vah, "val": val, "source_tf": tf}
-        return {}
-
-    def _calculate_structural_tp_sl(
-        self, side: str, entry_price: float, htf_levels: dict, setup_type: str, regime: str = "NORMAL"
-    ) -> Tuple[Optional[float], Optional[float]]:
-        poc = htf_levels.get("poc")
-        vah = htf_levels.get("vah")
-        val = htf_levels.get("val")
-
-        if not all([poc, vah, val]) or entry_price <= 0:
-            return None, None
-
-        tp_price = None
-        sl_price = None
-
-        # Phase 650: REGIME-AWARE EXIT STRATEGIES
-        if regime == "TREND_WINDOW":
-            # In TREND, we give the trade more room to breathe and target extensions
-            # SL is tighter to entry (protecting capital) but TP is wider
-            if side == "LONG":
-                tp_price = vah * 1.005  # Target extension above VAH
-                sl_price = entry_price * 0.998  # Tighter 0.2% SL
-            else:
-                tp_price = val * 0.995  # Target extension below VAL
-                sl_price = entry_price * 1.002
-        elif regime == "RANGE_WINDOW":
-            # In RANGE, we scalp specifically between POC and extremes
-            # TP is hard-gated at the opposite boundary
-            if side == "LONG":
-                tp_price = vah if entry_price < poc else vah * 1.002
-                sl_price = min(entry_price * 0.998, val * 0.999)
-            else:
-                tp_price = val if entry_price > poc else val * 0.998
-                sl_price = max(entry_price * 1.002, vah * 1.001)
-        else:
-            # NORMAL/DEVELOPING: Legacy structural logic
-            if setup_type == "reversion":
-                if side == "LONG":
-                    tp_price = poc
-                    sl_price = min(entry_price * 0.998, val * 0.999)
-                else:
-                    tp_price = poc
-                    sl_price = max(entry_price * 1.002, vah * 1.001)
-            else:
-                if side == "LONG":
-                    tp_price = vah
-                    sl_price = min(entry_price * 0.998, poc * 0.999)
-                else:
-                    tp_price = val
-                    sl_price = max(entry_price * 1.002, poc * 1.001)
-
-        # Final Sanity Check: Ensure structural targets make sense relative to entry
-        if tp_price and sl_price:
-            if side == "LONG":
-                if tp_price <= entry_price or sl_price >= entry_price:
-                    return None, None
-            elif side == "SHORT":
-                if tp_price >= entry_price or sl_price <= entry_price:
-                    return None, None
-            return tp_price, sl_price
-
-        return None, None
+    # Phase 600: Refactored - Structural TP/SL is now handled EXCLUSIVELY by the SetupEngine.
+    # The Player is a "Dumb Executor" that trusts the Footprint-calculated targets.
 
     async def on_aggregated_signal(self, event: AggregatedSignalEvent):
         """Process aggregated signal and place bet."""
@@ -237,34 +165,26 @@ class AdaptivePlayer:
         base_bet_size = bet_size
 
         # Phase 800: Unified TP/SL pipeline — absolute prices are primary
-        tp_price = None
-        sl_price = None
-
         setup_type = getattr(event, "setup_type", event.metadata.get("setup_type", "unknown"))
-        tp_sl_source = "config_fallback"
-
-        # Phase 800/860: Structural TP/SL from Level Proximity (Primary Path)
         current_price = event.metadata.get("price")
 
         # Phase 970: Dumb Execution Layer (Absolute Order Flow Trust)
         # The AdaptivePlayer is no longer responsible for guessing exits.
-        # It strictly executes the precise geometrical TP/SL calculated by the SetupEngine's Footprint analysis.
+        # It strictly executes the precise geometrical TP/SL calculated by the SetupEngine.
         tp_price = event.metadata.get("tp_price")
         sl_price = event.metadata.get("sl_price")
 
         if tp_price is None or sl_price is None:
-            logger.error(
-                f"� [CRITICAL] Signal {setup_type} missing TP/SL! SetupEngine bug. "
-                f"Symbol={event.symbol} | Side={event.side} | Metadata keys={list(event.metadata.keys())}"
+            logger.warning(
+                f"🚫 Signal {setup_type} REJECTED: Missing structural TP/SL. "
+                f"LTA V4 requires absolute targets from SetupEngine."
             )
-            # Continue execution - don't reject the signal, but log for debugging
-            # This allows us to catch bugs while still letting valid signals through
-        else:
-            logger.debug(f"✅ TP/SL received: TP={tp_price}, SL={sl_price}")
+            return
 
         tp_sl_source = "setup_engine_structural_anchor"
 
         # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
+
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
         if unfinished_targets and current_price and current_price > 0:
             for target in unfinished_targets:
