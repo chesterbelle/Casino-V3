@@ -88,6 +88,7 @@ class FootprintPOCRejection(SensorV3):
                     "rejection_price": curr_close,
                     "high": curr_high,
                     "low": curr_low,
+                    "price": curr_close,
                 },
             }
         return None
@@ -169,6 +170,7 @@ class FootprintDeltaDivergence(SensorV3):
                     "low": get_val(c1, "low"),
                     "open": get_val(c1, "open"),
                     "close": p1,
+                    "price": p1,
                 },
             }
         return None
@@ -247,6 +249,7 @@ class FootprintStackedImbalance(SensorV3):
                     "poc": get_val(candle, "poc"),
                     "high": curr_high,
                     "low": curr_low,
+                    "price": curr_close,
                 },
             }
 
@@ -271,6 +274,7 @@ class FootprintStackedImbalance(SensorV3):
                     "poc": get_val(candle, "poc"),
                     "high": curr_high,
                     "low": curr_low,
+                    "price": curr_close,
                 },
             }
 
@@ -366,6 +370,7 @@ class FootprintStackedImbalance(SensorV3):
                                 "original_stack": "ASK_STACK",
                                 "stack_zone": [stack_low, stack_high],
                                 "pullback_pct": round(pullback_pct, 2),
+                                "price": curr_close,
                             },
                         }
 
@@ -390,6 +395,7 @@ class FootprintStackedImbalance(SensorV3):
                                 "original_stack": "BID_STACK",
                                 "stack_zone": [stack_low, stack_high],
                                 "pullback_pct": round(pullback_pct, 2),
+                                "price": curr_close,
                             },
                         }
 
@@ -471,6 +477,7 @@ class FootprintTrappedTraders(SensorV3):
                             "wick_vol_pct": wick_vol / total_vol,
                             "high": prev_high,
                             "low": prev_low,
+                            "price": curr_close,
                         },
                     }
 
@@ -496,6 +503,7 @@ class FootprintTrappedTraders(SensorV3):
                             "wick_vol_pct": wick_vol / total_vol,
                             "high": prev_high,
                             "low": prev_low,
+                            "price": curr_close,
                         },
                     }
 

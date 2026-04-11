@@ -75,6 +75,7 @@ class FootprintVolumeExhaustion(SensorV3):
                         "ratio": round(low_total / avg_vol, 2),
                         "low_ask": low_ask,
                         "low_bid": low_bid,
+                        "price": prices[0],
                     },
                 }
 
@@ -102,6 +103,7 @@ class FootprintVolumeExhaustion(SensorV3):
                         "ratio": round(high_total / avg_vol, 2),
                         "high_bid": high_bid,
                         "high_ask": high_ask,
+                        "price": prices[-1],
                     },
                 }
 

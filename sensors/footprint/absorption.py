@@ -135,6 +135,7 @@ class FootprintAbsorptionV3(SensorV3):
                         "poc": poc,
                         "vah": vah,
                         "val": val,
+                        "price": current_price,
                     },
                 }
 
@@ -160,6 +161,7 @@ class FootprintAbsorptionV3(SensorV3):
                             "poc": poc,
                             "vah": vah,
                             "val": val,
+                            "price": current_price,
                         },
                     }
 
@@ -318,6 +320,7 @@ class FootprintAbsorptionV3(SensorV3):
                 "poc": poc,
                 "vah": vah,
                 "val": val,
+                "price": current_price,
             },
         }
 

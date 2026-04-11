@@ -56,9 +56,9 @@ class FootprintDeltaPoCShift(SensorV3):
                 "metadata": {
                     "tactical_type": "TacticalPoCShift",
                     "direction": "LONG",
-                    "subtype": "PoC_Shift_Up",
                     "poc_change": curr_poc - prev_poc,
                     "delta": delta,
+                    "price": close,
                 },
             }
 
@@ -72,9 +72,9 @@ class FootprintDeltaPoCShift(SensorV3):
                 "metadata": {
                     "tactical_type": "TacticalPoCShift",
                     "direction": "SHORT",
-                    "subtype": "PoC_Shift_Down",
                     "poc_change": curr_poc - prev_poc,
                     "delta": delta,
+                    "price": close,
                 },
             }
 

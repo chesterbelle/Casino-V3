@@ -170,6 +170,7 @@ class FootprintImbalanceV3(SensorV3):
                     "poc": poc,
                     "vah": vah,
                     "val": val,
+                    "price": price,
                     "unfinished_business_targets": unfinished_business,
                 },
             }
@@ -188,6 +189,7 @@ class FootprintImbalanceV3(SensorV3):
                     "poc": poc,
                     "vah": vah,
                     "val": val,
+                    "price": price,
                     "unfinished_business_targets": unfinished_business,
                 },
             }
