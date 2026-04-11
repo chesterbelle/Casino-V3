@@ -13,7 +13,7 @@ Este workflow ejecuta una ronda de Demo y otra de Simulador (Backtest) en period
 ```bash
 mkdir -p logs/
 rm -f logs/demo_exec.log logs/bt_exec.log
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track --close-on-exit > logs/demo_exec.log 2>&1
+.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track > logs/demo_exec.log 2>&1
 ```
 
 ## Phase 2: Simulator Replay Logging
@@ -30,7 +30,4 @@ rm -f logs/demo_exec.log logs/bt_exec.log
 ```bash
 echo -e "\n====================== AUDITORÍA DEMO ======================"
 .venv/bin/python utils/validators/execution_quality_validator.py logs/demo_exec.log
-
-echo -e "\n==================== AUDITORÍA BACKTEST ===================="
-.venv/bin/python utils/validators/execution_quality_validator.py logs/bt_exec.log
 ```

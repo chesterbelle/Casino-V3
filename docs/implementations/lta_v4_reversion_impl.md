@@ -1,0 +1,54 @@
+# Casino-V3 Strategy Specification: LTA V4 Structural Reversion
+
+## 1. Overview
+The **LTA V4 Structural Reversion** strategy is a context-aware, order-flow-driven methodology based on **Liquidity Target Area (LTA)** theory. It replaces the legacy static-target scalping model with a dynamic, structural goal-seeking engine.
+
+The core objective is to identify exhaustion at the extremes of the high-volume Value Area and trade the high-probability regression back to the **Point of Control (POC)**.
+
+---
+
+## 2. The Core Edge (Why it works)
+The LTA edge relies on the "Magnetism of Value":
+- **Balance vs Imbalance**: Market prices spend 70% of the time inside the Value Area. When price touches the edges (VAH/VAL), it is either going to break out (Imbalance) or revert to the mean (Balance).
+- **The Target (POC)**: The POC represents the price with the highest transacted volume. It is the path of least resistance and the natural exit for liquidity-seeking algorithms.
+- **Fee Dominance**: By targeting structural levels (POC) instead of fixed percentages (0.3%), the distance to target naturally expands to 0.6% - 1.2%, making exchange fees negligible relative to the gross profit.
+
+---
+
+## 3. Structural Gating (The "LTA Hook" Rule)
+The bot **WILL NOT** fire unless the "Structural Hook" is perfectly aligned:
+
+1.  **Value Area Proximity (`LTA_PROXIMITY_THRESHOLD`)**: The entry price MUST be within **0.25%** of the **VAH** (for Shorts) or **VAL** (for Longs).
+    - *If the price is near the POC (the center), no trades are allowed.*
+2.  **Regime Neutrality**: LTA Reversions are strictly performed in `NEUTRAL` regimes. In strong trends, we do not catch falling knives unless there is extreme exhaustion.
+3.  **Micro-Flow Confluence**: A reversal signal (Absorption, Rejection, or Delta Flip) MUST print precisely at the structural boundary to trigger the engine.
+
+---
+
+## 4. Operational Playbook: LTA Reversion
+Unlike previous multi-setup models, LTA V4 uses a **Unified Structural Setup**:
+
+- **Detector**: Confluence of `TacticalAbsorption`, `TacticalRejection`, or `TacticalTrappedTraders`.
+- **Logic**:
+    - **Step 1**: Price touches VAH/VAL.
+    - **Step 2**: Footprint confirms institutional absorption (aggressive sellers at the bottom/buyers at the top are "stopped" by limit orders).
+    - **Step 3**: The engine calculates the absolute distance to the **POC**.
+- **Action**: Enter position with a market order.
+
+---
+
+## 5. Absolute Target Management (The "Dumb Executor" Model)
+This version introduces the **Decoupled Execution Pipeline**:
+
+1.  **TP (Take Profit)**: Hard-coded to the **POC Price** at the time of entry.
+    - *The TP price is absolute and injected directly into the OCO order.*
+2.  **SL (Stop Loss)**: Placed structurally **2 ticks outside** the Value Area extremes (VAH/VAL).
+    - *Distance: (VA_Edge * LTA_SL_BUFFER). This ensures we exit only when the structural hypothesis is invalidated.*
+3.  **RR Validation**: The engine rejects any setup where the Reward (Distance to POC) to Risk (Distance to SL) ratio is less than **1.0**.
+
+---
+
+## 6. Evolution Paths
+This architecture is designed to support future "LTA-derived" playbooks:
+- **LTA Breakout (The Vacuum)**: Targeting the *next* VA POC after a successful value area breach.
+- **Value Migration**: Real-time adjustment of targets if the POC moves during an active trade.

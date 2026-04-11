@@ -5,7 +5,7 @@ Detects absorption patterns where high volume on both sides occurs but price fai
 1. At extremes (High/Low) - Original logic
 2. Distributed zones - NEW: Multiple adjacent levels with balanced volume
 
-Trader Dale: "Absorption can be distributed across multiple cells, not just one price level."
+LTA V4 Confluence Mode: Absorption acts as a primary confirmation signal when occurring at structural extremes (VAH/VAL).
 """
 
 import logging
@@ -102,7 +102,7 @@ class FootprintAbsorptionV3(SensorV3):
 
         poc, vah, val = self.market_profile.calculate_value_area()
 
-        # Phase 660: Trader Dale Level Filter
+        # Phase 660: Structural Level Filter
         prox = self.level_proximity_ticks * self.market_profile.tick_size
         at_level = (
             abs(current_price - poc) <= prox or abs(current_price - vah) <= prox or abs(current_price - val) <= prox

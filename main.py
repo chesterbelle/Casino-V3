@@ -137,7 +137,7 @@ def parse_args():
     parser.add_argument(
         "--fast-track",
         action="store_true",
-        help="Bypass 60m Warmup and lower RR threshold for rapid execution testing",
+        help="Bypass LTA Location Gate and structural targets for rapid infrastructure testing",
     )
 
     parser.add_argument(

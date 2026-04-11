@@ -181,8 +181,8 @@ class FootprintStackedImbalance(SensorV3):
     1. Initial stacked imbalance (trend direction)
     2. Continuation after pullback (high win rate setup)
 
-    Trader Dale: "Stacked imbalances show institutional footprints.
-    When price pulls back to the stack and bounces, it's a continuation signal."
+    LTA V4 Confluence Mode: Used to detect institutional volume footprints
+    to confirm structural reversals at VAH/VAL boundaries.
     """
 
     @property

@@ -1,13 +1,13 @@
 """
 Cumulative Volume Delta (CVD) Sensor with Delta Divergence Detection.
 
-Implements Trader Dale's Delta Divergence setup:
+Implements Structural Delta Divergence setup:
 - Price goes UP, Delta goes DOWN/FLAT → Bearish Divergence (SHORT signal)
 - Price goes DOWN, Delta goes UP/FLAT → Bullish Divergence (LONG signal)
 
 Key principle: "Price ALWAYS follows Delta eventually"
 
-Win Rate: 70-75% (Dale's favorite setup)
+Win Rate: 70-75% (Structural Edge)
 """
 
 import time
@@ -24,7 +24,7 @@ class CumulativeDeltaSensorV3(SensorV3):
     Cumulative Volume Delta (CVD) Sensor.
 
     Tracks the ongoing battle between aggressive buyers and sellers.
-    Implements Dale's Delta Divergence: compare PRICE direction vs DELTA direction.
+    Implements Structural Delta Divergence: compare PRICE direction vs DELTA direction.
     """
 
     def __init__(
@@ -150,7 +150,7 @@ class CumulativeDeltaSensorV3(SensorV3):
         """
         Detect divergence between price direction and delta direction.
 
-        Dale's method:
+        Divergence validation method:
         - Compare price movement over last N periods
         - Compare delta movement over same periods
         - If they diverge, signal in direction of delta

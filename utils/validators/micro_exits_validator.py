@@ -137,7 +137,7 @@ async def run_validator():
         cvd=-1.5,
         skewness=0.5,
         price=50000.0,
-        z_score=-4.6,  # Danger! Negative burst (< -4.5)
+        z_score=-7.5,  # Danger! Negative burst (< -7.0 in LTA V4)
     )
 
     await exit_manager.on_microstructure(event_burst_long)

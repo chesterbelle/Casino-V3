@@ -158,14 +158,16 @@ python main.py --mode demo --close-on-exit --timeout 30
 ---
 
 #### --fast-track
-**Description**: Bypasses time-based warmup gates to make short validation sessions (≤30 min) statistically valid. In normal operation the bot requires up to 60 minutes of sensor data before firing any signal.
+**Description**: Bypasses infrastructure gates to force mechanical execution and make short validation sessions (≤30 min) statistically viable for testing the orchestration pipeline.
 
-**What it bypasses (warmup gates only):**
-- `SetupEngine` 60-minute warmup timer → set to 0
+**What it bypasses (Infrastructure Validation Mocking Mode):**
+- **LTA Location Gate**: Bypasses the strict `VAH/VAL` geographic requirement (simulates touches) to force mechanical testing on every micro-anomaly.
 - Micro-structure gate (requires N ticks before evaluation) → bypassed
 - Wick confirmation gate (requires candle history) → bypassed
 - Regime gate checks that depend on historical context → bypassed
 - Drain Phase activation → skipped (session is too short for drain to make sense)
+
+*Note: The archaic 60-minute warmup timer was eradicated in v6.1.0. Warmup is now purely dynamic.*
 
 **What it does NOT bypass (always enforced):**
 - Math Inversion check (`execution.py`) — if the market moved past TP/SL since signal generation, the trade is always rejected

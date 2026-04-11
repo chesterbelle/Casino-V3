@@ -39,7 +39,7 @@ class FootprintVolumeExhaustion(SensorV3):
             return None
 
         # 1. Calculate Average Volume per level for the "Exhaustion" filter
-        # Dale defining exhaustion: extreme level volume < average volume * threshold
+        # LTA defining exhaustion: extreme level volume < average volume * threshold
         total_vol = 0
         level_count = 0
         for p_str, vols in profile.items():

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [6.1.0] - 2026-04-11
+
+### Added - LTA V4 Structural Reversion Pivot
+- **Structural Location Gate**: Strategy migrated from Dale's micro-footprint signals to LTA V4 geometric bounds targeting the POC from VAH/VAL boundaries.
+- **Dynamic Warmup**: Removed the arbitrary 60-minute time-lock. The `SetupEngine` now assumes "Combat Ready" status dynamically once the `ContextRegistry` loads the daily volume profile.
+- **Fast-Track Infrastructure Bypass**: The `--fast-track` flag now overrides the Location Gate to force extreme mechanical execution testing without having to wait for actual VAH/VAL border crosses.
+- **Execution Validation**: The execution quality workflow now gracefully accepts 0-trade runs as normal for short Live windows, and validates the event loop natively.
+
+---
+
 ## [4.5.0] - 2026-04-03
 
 ### Added - Order Flow Refactor & Structural SL (Phase 850/860)

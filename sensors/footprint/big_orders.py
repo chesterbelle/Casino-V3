@@ -1,7 +1,7 @@
 """
 Big Orders Sensor - Detects large individual trades (Icebergs/Smart Money).
 
-Implements Trader Dale's Big Order setup:
+Implements Institutional Big Order setup:
 - Filter trades to show only large orders (3-5x average size)
 - When big order appears at key level → Confirmation signal
 - Big buyer at support = LONG signal

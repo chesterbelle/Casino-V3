@@ -300,6 +300,20 @@ grep "Analyzing Ghost Position" logs/stress_test_*.log
 
 **Understanding**: Ghost removals of 1-2 per 150-minute session are normal ("Orphan Hygiene"). The system correctly identifies, audits, and closes these positions. Only flag if count exceeds 5.
 
+### "0 Trades" in Live Demo or Validation Protocols
+
+**Cause**: LTA V4 imposes strict geometric constraints (VAH/VAL limits). The market often stays inside the Value Area.
+
+**Diagnosis**:
+```bash
+# Verify if execution_quality_validator reports a CONDITIONAL PASS
+grep "CONDITIONAL PASS" logs/demo_exec.log
+```
+
+**Understanding & Solution**:
+1. This is **100% normal behavior** in 15-30 min windows. The bot safely parsed data but didn't find edges.
+2. If your goal was to *mechanically stress test* the bot (test OCOs, async loops, exits), you **must use the `--fast-track` flag**. It will legally bypass the Location Gate and force the bot to fire orders dynamically for testing purposes.
+
 ### HFT Latency Too High (T0-T2 > 50ms)
 
 **Cause**: WebSocket cache misses causing REST API fallbacks

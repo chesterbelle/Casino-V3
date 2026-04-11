@@ -1,7 +1,7 @@
 """
 Setup Engine V4 - Precise pattern matching machine for Institutional Scalping.
 
-Replaces the old Consensus Aggregator. Instead of averaging scores, it maintains
+Setup Engine mapping tactical confluence markers dynamically against Structural matrices.
 a 5-second short-term memory of stateless Tactical events and evaluates strict
 multi-condition playbooks. Fires instantly (0ms latency) upon pattern completion.
 """
@@ -58,11 +58,8 @@ class SetupEngineV4:
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
         self.engine.subscribe(EventType.MICROSTRUCTURE_BATCH, self.on_microstructure_batch)
 
-        # Phase 1800: Cold Start Warmup Guard (Dynamic)
-        # Normal Mode: Requires 60 minutes of data AND structural levels (POC/VAH/VAL).
-        # Fast-Track Mode: Bypasses the 60m timer, but STILL REQUIRES structural levels.
-        self.first_event_ts = 0.0
-        self.warmup_seconds = 0.0 if self.fast_track else 3600.0  # 60 minutes (User's Official Warmup)
+        # Phase 1800: Cold Start Warmup Guard (Dynamic/Structural)
+        # LTA V4: No time limits. Purely relies on the ContextRegistry returning valid structural levels.
 
         # Phase 800: Failed Auction Memory (Dalton Targets)
         self.failed_auctions: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -73,26 +70,16 @@ class SetupEngineV4:
         self.climax_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
         self._micro_count = 0
-        logger.info(
-            f"🎯 Setup Engine initialized (Sniper Mode Activated | Official Warmup: {'0m' if self.fast_track else '60m'})"
-        )
+        logger.info("🎯 LTA V4 Setup Engine initialized (Structural Warmup: Dynamic)")
 
     def is_system_warm(self, symbol: str, now: float) -> Tuple[bool, List[str]]:
-        """Phase 1800: Checks if the system is ready to trade based on time AND data.
+        """Phase 1800: Checks if the system is ready to trade based purely on structural data availability.
         Returns (is_ready, missing_reasons).
         """
         reasons = []
         # 1. Check structural readiness (Blindness Gate)
         if self.context_registry and not self.context_registry.is_structural_ready(symbol):
             reasons.append("Structural Levels (POC/VAH/VAL)")
-
-        # 2. Check time-based warmup (Calibration Gate)
-        if self.first_event_ts == 0.0:
-            self.first_event_ts = now
-
-        elapsed = now - self.first_event_ts
-        if elapsed < self.warmup_seconds:
-            reasons.append(f"Warmup Timer ({round((self.warmup_seconds - elapsed) / 60, 1)}m remain)")
 
         return len(reasons) == 0, reasons
 
@@ -201,8 +188,14 @@ class SetupEngineV4:
             return None
 
         # 3. Location Gate: Must be at the edges to play LTA
-        is_at_vah = abs(price - vah) / price < strat_config.LTA_PROXIMITY_THRESHOLD
-        is_at_val = abs(price - val) / price < strat_config.LTA_PROXIMITY_THRESHOLD
+        if self.fast_track:
+            # Phase 990: Infrastructure Validation Bypass
+            # Mock edge proximity to guarantee execution flow tests during short windows
+            is_at_vah = side == "SHORT"
+            is_at_val = side == "LONG"
+        else:
+            is_at_vah = abs(price - vah) / price < strat_config.LTA_PROXIMITY_THRESHOLD
+            is_at_val = abs(price - val) / price < strat_config.LTA_PROXIMITY_THRESHOLD
 
         if not (is_at_vah or is_at_val):
             return None

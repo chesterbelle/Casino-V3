@@ -7,8 +7,8 @@
 
 ## Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
-Strategy: Institutional scalping via Footprint/Order Flow analysis (Dale methodology).
-Current branch: `v5.2.0-certified-reactor-sniper`
+Strategy: LTA V4 Structural Reversion (Institutional geometric scalping targeting POC from VAH/VAL).
+Current branch: `v6.1.0-lta-structural-pivot`
 
 ---
 
@@ -53,17 +53,13 @@ Current branch: `v5.2.0-certified-reactor-sniper`
 - **Solo Demo/Live. NUNCA en Backtest.**
 
 ### `--fast-track`
-- **Solo bypasea gates de tiempo/calentamiento:**
-  - Warmup timer de 60min del SetupEngine → 0
-  - Micro-gate, wick gate, regime gate (dependen de historia de datos)
-  - Drain Phase (sesión demasiado corta para que tenga sentido)
-- **NUNCA bypasea reglas de calidad:**
-  - Math Inversion check (execution.py) — soberano siempre
-  - Inverted TP/SL, Max Distance, RR ≥ 1.0 (adaptive.py) — reglas de estrategia
-  - PortfolioGuard — riesgo siempre soberano
-  - Min Notional — límites del exchange siempre aplican
-- **Exclusivamente para protocolos de validación de infraestructura.**
+- **Exclusivamente para protocolos de validación de infraestructura (Mocking).**
 - **NUNCA en producción.**
+- Bypasea gates de infraestructura para forzar la saturación del Event Loop en ventanas cortas (15/30m).
+- **LTA V4 Location Bypass (Phase 990):** Miente temporalmente al `SetupEngine` simulando que  se tocó el VAH/VAL para forzar la creación de OCOs, purgar el ExitManager y testear el Portfolio Guard durante el protocolo `/fast-track-parity`.
+- **NUNCA bypasea reglas de calidad defensiva:**
+  - Math Inversion check (execution.py)
+  - PortfolioGuard / Min Notional Limits
 
 ### `--audit`
 - Zero-Interference Audit Mode para validación de edge
@@ -138,7 +134,9 @@ Es el camino más corto a la solución.
 3. **Drain Mode vs Risk Halt:** Son conceptos distintos. `is_drain_mode` hoy mezcla ambos (debt de diseño). `PortfolioGuard` puede activar drain por riesgo aunque no haya timeout.
 4. **OCO "would immediately trigger":** Si TP/SL ya está en precio al colocar el bracket → Binance rechaza con -2021. Causa: señal llegó stale y pasó el PreFlight por bypass de fast_track (ya corregido).
 5. **Sensor UNKNOWN side:** Ticks sin clasificación buy/sell resultan en delta=0, degradando CVD. Investigar origen en conector si se repite frecuentemente.
-6. **Historian 0 trades:** Si el bot ejecuta pero no registra → verificar que la posición pasó por `confirm_close` en PositionTracker completo (no force-closed por OCO failure antes de que se registrara el trade).
+6. **Historian 0 trades:** Si el bot ejecuta pero no registra → verificar que la posición pasó por `confirm_close` en PositionTracker.
+7. **LTA V4 Live Validation (0 Trades):** Es matemáticamente natural obtener 0 trades en ventanas de 15 minutos en red en vivo. Si se requiere estresar la red (ej. `/execution-quality-audit`), `--fast-track` ES OBLIGATORIO para bypassear temporalmente el Location Gate y forzar órdenes orgánicas falsas de testeo.
+8. **Warmup de Setup Engine:** Ya no existe el timer hardcodeado de 60m. LTA asume "Combat Ready" tan pronto el `ContextRegistry` resuelve `is_structural_ready()` procesando Historical Klines.
 
 ---
 
@@ -148,10 +146,10 @@ Es el camino más corto a la solución.
 
 ---
 
-### Estado Actual (2026-04-09)
-- **Infraestructura (Hierro)**: Certificada v5.2.0 ✅
-- **Estrategia (Cristal)**: Iniciando Auditoría de Edge para `quick_scalping_strategy.md` 🛡️
-- **Meta Actual**: Encontrar rentabilidad orgánica con paridad confirmada.
+### Estado Actual (2026-04-11)
+- **Infraestructura (Hierro)**: Certificada (v6) ✅ (Zero-Latency OCOs asíncronos bajo 5mins de modo caos).
+- **Estrategia (Cristal)**: Ejecución Structural LTA V4 consolidada y auditada con éxito asíncrono.
+- **Meta Actual**: Validar paridad y comenzar pruebas de Edge Audit extensas sobre los targets orgánicos de VAH a POC.
 
 ---
-*Last Updated: 2026-04-09*
+*Last Updated: 2026-04-11*
