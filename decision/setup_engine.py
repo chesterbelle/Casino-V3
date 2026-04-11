@@ -78,6 +78,10 @@ class SetupEngineV4:
         """
         reasons = []
         # 1. Check structural readiness (Blindness Gate)
+        if self.fast_track:
+            # Phase 1800: Audit/Validation Bypass
+            return True, []
+
         if self.context_registry and not self.context_registry.is_structural_ready(symbol):
             reasons.append("Structural Levels (POC/VAH/VAL)")
 
@@ -171,10 +175,21 @@ class SetupEngineV4:
 
         # 2. Find the most recent reversal signal in 5s memory
         reversal_signal = None
+        # Phase 800: Expanded Whitelist for LTA V4 Confluence
+        TACTICAL_WHITELIST = (
+            "TacticalAbsorption",
+            "TacticalRejection",
+            "TacticalDivergence",
+            "TacticalTrappedTraders",
+            "TacticalExhaustion",
+            "TacticalPoCShift",
+            "TacticalImbalance",
+            "TacticalStackedImbalance",
+        )
         for e in events:
             md = e.metadata or {}
             t_type = md.get("tactical_type")
-            if t_type in ("TacticalAbsorption", "TacticalRejection", "TacticalDivergence", "TacticalTrappedTraders"):
+            if t_type in TACTICAL_WHITELIST:
                 reversal_signal = md
                 break
 

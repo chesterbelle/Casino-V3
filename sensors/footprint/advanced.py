@@ -117,7 +117,8 @@ class FootprintDeltaDivergence(SensorV3):
 
         # Update statistics for conviction
         d = getattr(candle, "delta", 0.0) if hasattr(candle, "delta") else candle.get("delta", 0.0)
-        z = self.delta_zscore.update(abs(d))
+        self.delta_zscore.update(abs(d))
+        z = self.delta_zscore.get_zscore(abs(d))
 
         self.history.append(candle)
         if len(self.history) < 2:
