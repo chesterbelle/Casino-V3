@@ -294,11 +294,19 @@ class VirtualExchangeConnector(BaseConnector):
         order["fee"] = {"cost": fee_cost, "currency": self.base_currency}
         order["closed_timestamp"] = self._current_timestamp
 
+        # Phase 85: Carry over latency telemetry for parity reporting
+        # MUST BE DONE BEFORE _update_account_state so the trade_record captures it
+        order["t0_signal_ts"] = order.get("params", {}).get("t0_signal_ts")
+        order["t1_decision_ts"] = order.get("params", {}).get("t1_decision_ts")
+        order["t2_submit_ts"] = order.get("params", {}).get("t2_submit_ts")
+
         # Update Balance & Positions
         self._update_account_state(order)
 
         # Handle OCO-like behavior (cancel siblings)
         self._cancel_siblings(order)
+
+        # Handle realized PnL for closing trades
 
         self.logger.info(
             f"⚡ Order filled (Virtual) | {order['side'].upper()} {amount} @ {price:.2f} | "
@@ -362,6 +370,9 @@ class VirtualExchangeConnector(BaseConnector):
                 "leverage": leverage,
                 "margin_used": margin_required,
                 "setup_type": order.get("setup_type") or order.get("params", {}).get("setup_type", "unknown"),
+                "t0_signal_ts": order.get("t0_signal_ts"),
+                "t1_decision_ts": order.get("t1_decision_ts"),
+                "t2_submit_ts": order.get("t2_submit_ts"),
             }
             self._positions.append(new_pos)
             self._balance -= margin_required
@@ -467,6 +478,9 @@ class VirtualExchangeConnector(BaseConnector):
             "gemini_trade_id": order.get("params", {}).get("gemini_trade_id"),
             "setup_type": order.get("setup_type") or order.get("params", {}).get("setup_type", "unknown"),
             "exit_reason": exit_reason,
+            "t0_signal_ts": None,
+            "t1_decision_ts": None,
+            "t2_submit_ts": None,
         }
 
         # Add entry details for closing trades
@@ -475,10 +489,19 @@ class VirtualExchangeConnector(BaseConnector):
             trade_record["entry_time"] = position["timestamp"]
             trade_record["position_side"] = position["side"]
             trade_record["setup_type"] = position.get("setup_type", trade_record["setup_type"])
+            trade_record["t0_signal_ts"] = position.get("t0_signal_ts")
+            trade_record["t1_decision_ts"] = position.get("t1_decision_ts")
+            trade_record["t2_submit_ts"] = position.get("t2_submit_ts")
         elif position:
             trade_record["setup_type"] = position.get("setup_type", trade_record["setup_type"])
+            trade_record["t0_signal_ts"] = position.get("t0_signal_ts")
+            trade_record["t1_decision_ts"] = position.get("t1_decision_ts")
+            trade_record["t2_submit_ts"] = position.get("t2_submit_ts")
         else:
             trade_record["setup_type"] = new_pos.get("setup_type", trade_record["setup_type"])
+            trade_record["t0_signal_ts"] = new_pos.get("t0_signal_ts")
+            trade_record["t1_decision_ts"] = new_pos.get("t1_decision_ts")
+            trade_record["t2_submit_ts"] = new_pos.get("t2_submit_ts")
 
         self._trades.append(trade_record)
 
@@ -595,6 +618,9 @@ class VirtualExchangeConnector(BaseConnector):
                 "position_side": side,
                 "exit_reason": "END_OF_DATA",
                 "setup_type": pos.get("setup_type", "unknown"),
+                "t0_signal_ts": pos.get("t0_signal_ts"),
+                "t1_decision_ts": pos.get("t1_decision_ts"),
+                "t2_submit_ts": pos.get("t2_submit_ts"),
             }
             self._trades.append(trade_record)
 

@@ -256,8 +256,14 @@ class OrderManager:
             "shadow_sl_activation": getattr(event, "shadow_sl_activation", 0.0025),  # Phase 800
         }
 
-        # Phase 650: Explicitly propagate setup_type to nested params for adapters
-        order_payload["params"] = {"setup_type": order_payload["setup_type"], "trace_id": order_payload["trace_id"]}
+        # Phase 650: Explicitly propagate setup_type and latency telemetry for adapters
+        order_payload["params"] = {
+            "setup_type": order_payload["setup_type"],
+            "trace_id": order_payload["trace_id"],
+            "t0_signal_ts": order_payload["t0_signal_ts"],
+            "t1_decision_ts": order_payload["t1_decision_ts"],
+            "t2_submit_ts": time.time(),  # Capture exact wire-time for T2
+        }
 
         # Store for outcome tracking (include sensor_id if available)
         sensor_id = getattr(event, "selected_sensor", "Unknown")

@@ -542,6 +542,7 @@ class OCOManager:
             "type": "MARKET",
             "quantity": self.adapter.amount_to_precision(symbol, amount),
             "newClientOrderId": client_order_id,
+            "params": order.get("params", {}).copy(),
         }
 
         # TP (Limit ReduceOnly)

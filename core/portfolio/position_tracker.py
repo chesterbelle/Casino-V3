@@ -1251,40 +1251,29 @@ class PositionTracker:
         }
 
         # Phase 1350: Restore HFT Telemetry (T0-T1-T2-T4)
-        # We only record wall-clock telemetry in Demo/Live modes.
-        # In Backtest, these are artificial or identical to market time.
-        is_backtest = False
-        if self.adapter and hasattr(self.adapter, "connector"):
-            conn = self.adapter.connector
-            is_backtest = getattr(conn, "mode", "") == "testing"
+        # We record telemetry in all modes (Backtest uses simulation timestamps).
 
-        if not is_backtest:
-            # Phase 85: Safety Fallbacks to avoid NULLs in DB
-            t1 = (
-                position.t1_decision_ts
-                or position.t0_signal_ts
-                or (position.t2_submit_ts - 0.001 if position.t2_submit_ts else time.time())
-            )
-            t4 = position.t4_fill_ts or (position.t2_submit_ts + 0.050 if position.t2_submit_ts else time.time())
+        # 1. Determine T1 (Decision)
+        t1 = (
+            position.t1_decision_ts
+            or position.t0_signal_ts
+            or (position.t2_submit_ts - 0.001 if position.t2_submit_ts else position.timestamp)
+        )
 
-            result.update(
-                {
-                    "t0_signal_ts": position.t0_signal_ts or (t1 - 0.100),
-                    "t1_decision_ts": t1,
-                    "t2_submit_ts": position.t2_submit_ts or (t1 + 0.001),
-                    "t4_fill_ts": t4,
-                }
-            )
-        else:
-            # Explicitly zero out for backtest to avoid accidental Wall Clock pollution
-            result.update(
-                {
-                    "t0_signal_ts": 0.0,
-                    "t1_decision_ts": 0.0,
-                    "t2_submit_ts": 0.0,
-                    "t4_fill_ts": 0.0,
-                }
-            )
+        # 2. Determine T4 (Fill)
+        t4 = position.t4_fill_ts or (
+            position.t2_submit_ts + 0.050 if position.t2_submit_ts else position.timestamp + 0.050
+        )
+
+        # 3. Populate result
+        result.update(
+            {
+                "t0_signal_ts": position.t0_signal_ts or (t1 - 0.100),
+                "t1_decision_ts": t1,
+                "t2_submit_ts": position.t2_submit_ts or (t1 + 0.001),
+                "t4_fill_ts": t4,
+            }
+        )
 
         # Phase 247: Prevent Double Recording (Ghost Inflation)
         # Set an ultra-fast in-memory flag before passing to historian thread.

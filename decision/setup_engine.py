@@ -508,7 +508,7 @@ class SetupEngineV4:
             total_signals=1,
             metadata=metadata,
             t0_timestamp=t0,
-            t1_decision_ts=time.time(),  # explicit wall time for Phase 1130 latency verification
+            t1_decision_ts=now,  # Phase 1130: Use simulation-aware 'now' for deterministic parity
             setup_type=setup_type,
             price=getattr(source_event, "price", 0.0) or metadata.get("price", 0.0),
         )
