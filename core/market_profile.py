@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Dict, Tuple
 
 
@@ -14,6 +14,7 @@ class MarketProfile:
         self.value_area_pct = value_area_pct
         self.profile: Dict[float, float] = defaultdict(float)  # price_level -> volume
         self.total_volume = 0.0
+        self.poc_history = deque(maxlen=300)  # Phase 1150: Track POC migration
 
     def round_price(self, price: float) -> float:
         """Rounds price to the nearest tick size."""
@@ -30,6 +31,10 @@ class MarketProfile:
         level = self.round_price(price)
         self.profile[level] += volume
         self.total_volume += volume
+
+        # Phase 1150: Update POC history
+        poc = max(self.profile.items(), key=lambda x: x[1])[0]
+        self.poc_history.append(poc)
 
     def calculate_value_area(self) -> Tuple[float, float, float]:
         """
@@ -130,6 +135,32 @@ class MarketProfile:
         avg_local_vol = local_vol / levels_counted
 
         return avg_local_vol / avg_vol_per_level
+
+    def calculate_va_integrity(self) -> float:
+        """
+        Phase 1150: Calculate Value Area Integrity Score (Axia style).
+        Formula: (POC_volume / Total_volume) * (1 / VA_range_pct)
+
+        A 'Clean' VA has a concentrated POC and tight range.
+        An 'Unhealthy' VA is expanded and double-peaked.
+        """
+        if self.total_volume <= 0:
+            return 0.0
+
+        poc, vah, val = self.calculate_value_area()
+        if vah <= val:
+            return 0.0
+
+        poc_vol = self.profile.get(poc, 0.0)
+        va_range_pct = (vah - val) / poc
+
+        # Integrity = Concentration * Magnetism
+        # Concentration: % of volume at POC
+        # Magnetism: Inverse of range (tightness)
+        concentration = poc_vol / self.total_volume
+        magnetism = 1.0 / (va_range_pct * 100)  # Scale to match goal >= 0.25
+
+        return concentration * magnetism
 
     def reset(self):
         """Clears the profile for a new session/day."""

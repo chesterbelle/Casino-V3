@@ -11,7 +11,7 @@ edge erosion by avoiding full SL hits on dead trades.
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import config.trading as config
 from core.events import TickEvent
@@ -46,6 +46,9 @@ class HFTExitManager:
         self.catastrophic_drawdown_pct = getattr(config, "CATASTROPHIC_STOP_PCT", 0.50)
         self.patience_lock_grace_period = getattr(config, "PATIENCE_LOCK_GRACE_PERIOD", 3.0)
 
+        # Phase 1100: Pending termination guard for HFT high-frequency loops
+        self._pending_terminations = set()
+
         self.logger.info(
             "🎯 HFTExitManager initialized | "
             f"Catastrophic stop: {self.catastrophic_drawdown_pct:.1%} | "
@@ -68,8 +71,8 @@ class HFTExitManager:
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
 
         for position in positions:
-            # Skip positions already closing
-            if position.status == "CLOSING":
+            # Skip positions already closing or already triggered for exit by this manager
+            if position.status == "CLOSING" or position.trade_id in self._pending_terminations:
                 continue
 
             now = event.timestamp
@@ -77,7 +80,8 @@ class HFTExitManager:
 
             # --- 1. CATASTROPHIC STOP (Liquidation Sheriff) ---
             if self._check_catastrophe(position, event):
-                asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason="CATASTROPHIC_STOP"))
+                self._pending_terminations.add(position.trade_id)
+                asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason="THESIS_CATASTROPHE"))
                 continue
 
             # --- 2. PATIENCE LOCK (Airlock Period) ---
@@ -88,19 +92,21 @@ class HFTExitManager:
 
             # --- 3. AXIA PROFESSIONAL EXIT (Thesis Invalidation) ---
             if getattr(config, "AXIA_INVALIDATION_ENABLED", False):
-                if self._check_thesis_invalidation(position, event):
+                invalidation_reason = self._check_thesis_invalidation(position, event)
+                if invalidation_reason:
+                    self._pending_terminations.add(position.trade_id)
                     asyncio.create_task(
-                        self.croupier.close_position(position.trade_id, exit_reason="THESIS_INVALIDATED")
+                        self.croupier.close_position(position.trade_id, exit_reason=invalidation_reason)
                     )
                     continue
 
             # --- 4. TACTICAL SILENCE (Order Flow Airbag) ---
             if getattr(config, "HFT_AIRBAG_ENABLED", False):
                 # Close if flow becomes toxic or structural walls collapse
-                if self._check_tactical_airbag(position, event):
-                    asyncio.create_task(
-                        self.croupier.close_position(position.trade_id, exit_reason="TACTICAL_AIRBAG_PULL")
-                    )
+                airbag_reason = self._check_tactical_airbag(position, event)
+                if airbag_reason:
+                    self._pending_terminations.add(position.trade_id)
+                    asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=airbag_reason))
                     continue
 
     def _check_catastrophe(self, position, event: TickEvent) -> bool:
@@ -115,20 +121,54 @@ class HFTExitManager:
 
         return drawdown > self.catastrophic_drawdown_pct
 
-    def _check_thesis_invalidation(self, position, event: TickEvent) -> bool:
+    def _check_thesis_invalidation(self, position, event: TickEvent) -> Optional[str]:
         """
         Institutional Invalidation Logic.
 
         Evaluates if the 'Physics' of the Footprint setup that triggered
         the trade is still valid. If the thesis is dead, exit immediately.
+        Returns the specific exit reason or None.
         """
         setup = position.setup_type
         if setup == "unknown":
-            return False
+            return None
 
         price = event.price
 
         # Setup-Specific Invalidation Logic
+        if "reversion" in setup:
+            # Phase 650: LTA-V4 Structural Reversion Invalidation
+            # 1. PRICE-DELTA DIVERGENCE FAILURE
+            # If we entered on absorption but aggression (Z-Score) continues violently against us
+            cvd, skew, z = (0, 0.5, 0)
+            if self.croupier.context_registry:
+                cvd, skew, z = self.croupier.context_registry.get_micro_state(position.symbol)
+
+            if position.side == "LONG" and z < -config.HFT_TOXIC_FLOW_THRESHOLD:
+                self.logger.warning(f"📉 [AXIA] Invalidation: Toxic Sell Flow (Z={z:.1f}) | Reversion Failed")
+                return "THESIS_TOXIC_FLOW"
+            if position.side == "SHORT" and z > config.HFT_TOXIC_FLOW_THRESHOLD:
+                self.logger.warning(f"📈 [AXIA] Invalidation: Toxic Buy Flow (Z={z:.1f}) | Reversion Failed")
+                return "THESIS_TOXIC_FLOW"
+
+            # 2. DYNAMIC STAGNATION (ATR-BASED)
+            # If price fails to rotate within a volatility-adjusted window
+            base_timeout = 3600.0  # Phase 650.3: 1 hour base (Institutional Patience)
+            vol_ratio = 1.0
+            if self.croupier.context_registry:
+                vol_ratio = self.croupier.context_registry.get_volatility_ratio(position.symbol)
+
+            # High vol = less patience (Timeout / 2.0 = 5 min)
+            # Low vol = more patience (Timeout / 0.5 = 20 min)
+            effective_timeout = base_timeout / vol_ratio
+            elapsed = event.timestamp - position.timestamp
+
+            if elapsed > effective_timeout:
+                self.logger.info(
+                    f"⌛ [AXIA] Stagnation: Price unresolved after {elapsed:.0f}s (Max: {effective_timeout:.0f}s, VolRatio: {vol_ratio:.2f})"
+                )
+                return "THESIS_STAGNATION"
+
         if "Trapped_Traders" in setup or "TrappedTraders" in setup:
             # LONG (Bears Trapped): Invalidation if price goes BELOW the trap zone.
             # SHORT (Bulls Trapped): Invalidation if price goes ABOVE the trap zone.
@@ -138,25 +178,25 @@ class HFTExitManager:
                     self.logger.warning(
                         f"📉 [AXIA] Invalidation: Bears released at {price:.4f} (Trap: {position.trigger_level:.4f})"
                     )
-                    return True
+                    return "THESIS_TRAP_RELEASED"
                 if position.side == "SHORT" and price > position.trigger_level * 1.0015:
                     self.logger.warning(
                         f"📈 [AXIA] Invalidation: Bulls released at {price:.4f} (Trap: {position.trigger_level:.4f})"
                     )
-                    return True
+                    return "THESIS_TRAP_RELEASED"
 
         if "Delta_Divergence" in setup or "DeltaDivergence" in setup:
             # Invalidation: If price moves significantly through the extreme (price in metadata)
             # showing that absorption failed and aggressive expansion won.
             # Phase 650 Fix: Widened to 0.25% (just inside the 0.3% hard SL)
             if position.side == "LONG" and price < position.entry_price * 0.9975:
-                return True
+                return "THESIS_ABSORPTION_FAILED"
             if position.side == "SHORT" and price > position.entry_price * 1.0025:
-                return True
+                return "THESIS_ABSORPTION_FAILED"
 
-        return False
+        return None
 
-    def _check_tactical_airbag(self, position, event: TickEvent) -> bool:
+    def _check_tactical_airbag(self, position, event: TickEvent) -> Optional[str]:
         """
         'Tactical Silence' Airbag for HFT.
 
@@ -164,27 +204,27 @@ class HFTExitManager:
         order flow or the sudden disappearance of institutional support (Walls).
         """
         if not self.croupier.context_registry:
-            return False
+            return None
 
         cvd, skew, z = self.croupier.context_registry.get_micro_state(position.symbol)
 
         # 1. Toxic Flow Burst (Extreme Z-Score)
         if position.side == "LONG" and z < -config.HFT_TOXIC_FLOW_THRESHOLD:
             self.logger.warning(f"🚨 [AIRBAG] Toxic Flow Detected (Z={z:.1f}) | Closing LONG")
-            return True
+            return "AIRBAG_TOXIC_FLOW"
         if position.side == "SHORT" and z > config.HFT_TOXIC_FLOW_THRESHOLD:
             self.logger.warning(f"🚨 [AIRBAG] Toxic Flow Detected (Z={z:.1f}) | Closing SHORT")
-            return True
+            return "AIRBAG_TOXIC_FLOW"
 
         # 2. Wall Collapse (Liquidity Pull)
         if position.side == "LONG" and skew < config.HFT_WALL_COLLAPSE_THRESHOLD:
             self.logger.warning(f"🚨 [AIRBAG] Wall Collapse (Skew: {skew:.2f}) | Closing LONG")
-            return True
+            return "AIRBAG_WALL_COLLAPSE"
         if position.side == "SHORT" and skew > (1 - config.HFT_WALL_COLLAPSE_THRESHOLD):
             self.logger.warning(f"🚨 [AIRBAG] Wall Collapse (Skew: {skew:.2f}) | Closing SHORT")
-            return True
+            return "AIRBAG_WALL_COLLAPSE"
 
-        return False
+        return None
 
     async def on_signal(self, event):
         """NO-OP: Thesis Invalidation handles this in real-time."""

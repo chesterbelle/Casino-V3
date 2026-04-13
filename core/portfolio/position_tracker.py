@@ -995,7 +995,7 @@ class PositionTracker:
                 side=side,
                 entry_price=entry_price,
                 entry_timestamp=entry_timestamp,
-                timestamp=time.time(),
+                timestamp=order.get("timestamp") or time.time(),
                 margin_used=margin_used,
                 notional=notional,
                 leverage=leverage,

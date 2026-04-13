@@ -38,13 +38,13 @@ async def fetch_agg_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict
 
                 print(f"Fetched {len(trades)} trades... (Last TS: {current_start})")
 
+                # Always sleep a bit to avoid 429 Rate Limit (High safety margin)
+                await asyncio.sleep(0.5)
+
                 if len(data) < 1000:
                     # End of range reached for this chunk but check if there's more time
                     if current_start >= end_ts:
                         break
-                    else:
-                        # Wait 100ms to avoid rate limits
-                        await asyncio.sleep(0.1)
 
     return trades
 

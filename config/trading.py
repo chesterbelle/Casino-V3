@@ -266,7 +266,7 @@ AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
 HFT_EXIT_MODE = True
 
 # Mode Toggle: If True, uses setup-specific structural invalidation (Patience).
-AXIA_INVALIDATION_ENABLED = False
+AXIA_INVALIDATION_ENABLED = True
 
 # Grace Period: Minimum seconds a trade must 'breathe' before any tactical exit allowed.
 PATIENCE_LOCK_GRACE_PERIOD = 15.0
@@ -277,8 +277,8 @@ CATASTROPHIC_STOP_PCT = 0.50  # 50% drawdown = true emergency only
 
 # HFT Airbag (Phase 1210 - Tactical Silence):
 # Closes position if order flow becomes toxic (extreme Z-Score).
-HFT_AIRBAG_ENABLED = False
-HFT_TOXIC_FLOW_THRESHOLD = 4.5  # Standard: 4.5 (Patience limit)
+HFT_AIRBAG_ENABLED = True
+HFT_TOXIC_FLOW_THRESHOLD = 5.5  # Phase 650.1: Professional Patience Tuning
 HFT_WALL_COLLAPSE_THRESHOLD = 0.15  # Skewness < 0.15 means our wall vanished
 
 # Legacy ExitManager features (ignored when HFT_EXIT_MODE = True):

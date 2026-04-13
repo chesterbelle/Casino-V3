@@ -109,6 +109,32 @@ class ContextRegistry:
         """Returns (TREND, RANGE, NORMAL)."""
         return self.regimes.get(symbol, "NORMAL")
 
+    def get_poc_migration(self, symbol: str, lookback_ticks: int = 300) -> float:
+        """
+        Phase 1150: Returns the % change of POC over the lookback period.
+        Used to detect 'Value Migration' (Price Acceptance) vs Rejection.
+        """
+        profile = self.profiles.get(symbol)
+        if not profile or len(profile.poc_history) < 2:
+            return 0.0
+
+        history = list(profile.poc_history)
+        current_poc = history[-1]
+        start_idx = max(0, len(history) - lookback_ticks)
+        start_poc = history[start_idx]
+
+        if start_poc == 0:
+            return 0.0
+
+        return (current_poc - start_poc) / start_poc
+
+    def get_va_integrity(self, symbol: str) -> float:
+        """Phase 1150: Returns the VA Integrity Score (Axia style)."""
+        profile = self.profiles.get(symbol)
+        if not profile:
+            return 0.0
+        return profile.calculate_va_integrity()
+
     def set_in_trade(self, symbol: str, in_trade: bool):
         """Phase 974: Set active trade status for a symbol."""
         self.active_trades[symbol] = in_trade

@@ -107,7 +107,9 @@ Current branch: `v6.1.0-lta-structural-pivot`
 - SetupEngine requiere patrones tácticos reales: TacticalTrappedTraders, TacticalDivergence
 - Cooldown entre señales: 15s por símbolo
 - Gate de proximidad a nivel estructural: 0.20% (fast_track: 1.0% — más permisivo pero real)
-- **PROHIBIDO inyectar señales sintéticas o "heartbeat signals"** — si no hay señales orgánicas, investigar el bug, no inventar datos
+- **PROHIBIDO inyectar señales sintéticas o "heartbeat signals"** — si no hay señales orgánicas, investigar el bug, no inventar datos.
+- **Agnostic Deployment (Anti-Overfitting)**: La estrategia debe ser **agnóstica al símbolo**. No se permiten ajustes de parámetros específicos por moneda (ej. thresholds distintos para SOL vs LTC) a menos que se decida explícitamente a futuro. El objetivo es el modo **MULTI**, lo que requiere una lógica que generalice y capture el edge institucional de forma global.
+- **Structural Gating (Phase 1150)**: Las reversiones LTA V4 ahora están protegidas por **4 Guardianes de Order Flow** (AMT/Axia style) para evitar reversiones mecánicas en zonas de descubrimiento de valor (tendencia fuerte).
 
 ### Drain Phase
 - Solo se activa si: `--close-on-exit` AND NOT `--fast-track` AND timeout configurado
@@ -146,10 +148,17 @@ Es el camino más corto a la solución.
 
 ---
 
-### Estado Actual (2026-04-11)
+### Estado Actual (2026-04-13)
 - **Infraestructura (Hierro)**: Certificada (v6) ✅ (Zero-Latency OCOs asíncronos bajo 5mins de modo caos).
-- **Estrategia (Cristal)**: Ejecución Structural LTA V4 consolidada y auditada con éxito asíncrono.
-- **Meta Actual**: Validar paridad y comenzar pruebas de Edge Audit extensas sobre los targets orgánicos de VAH a POC.
+- **Estrategia (Cristal)**: **PHASE 1150: ORDER FLOW GUARDIANS IMPLEMENTED**.
+  - **Problema Detectado en Audit v7**: Win Rate de 44.5% global (LONGs en 12.5% due to bear trend).
+  - **Solución**: Se implementó "Exhaustion Reading" en lugar de simple trend-following.
+  - **Mecanismos**:
+    - **POC Migration**: Bloquea reversiones si el valor se desplaza >0.3% (Discovery detected).
+    - **Failed Auction**: Exige wick de rechazo real fuera del VA.
+    - **VA Integrity**: Valida calidad magnética del POC (Integrity Score).
+    - **Delta Divergence**: Confirmación vía CVD Z-Score.
+  - **Próximo Paso**: Re-validación estadística (Audit v8) para confirmar restauración de Win Rate > 55%.
 
 ---
-*Last Updated: 2026-04-11*
+*Last Updated: 2026-04-13*

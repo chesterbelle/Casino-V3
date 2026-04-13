@@ -2,10 +2,13 @@ import asyncio
 import logging
 from unittest.mock import MagicMock
 
+import pytest
+
 from core.events import EventType, SignalEvent
 from decision.setup_engine import SetupEngineV4
 
 
+@pytest.mark.asyncio
 async def test_lta_logic():
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("TestLTA")
@@ -20,6 +23,9 @@ async def test_lta_logic():
     context.is_in_trade.return_value = False
     context.get_ib.return_value = (106.0, 94.0)  # IB High/Low
     context.get_volatility_ratio.return_value = 1.0
+    context.get_poc_migration.return_value = 0.0
+    context.get_va_integrity.return_value = 0.5
+    context.micro_state = {"LTC/USDT": {"z_score": 0.0}}
 
     setup = SetupEngineV4(engine, context_registry=context)
 
@@ -27,7 +33,10 @@ async def test_lta_logic():
     mock_metadata = {
         "tactical_type": "TacticalAbsorption",
         "direction": "SHORT",
-        "price": 105.01,  # Exactly at VAH
+        "price": 104.9,  # Closed inside (at VAH=105)
+        "high": 105.5,  # Probed above
+        "low": 104.0,
+        "open": 104.2,  # Green-ish candle but rejecting top
         "z_score": 3.5,
     }
 

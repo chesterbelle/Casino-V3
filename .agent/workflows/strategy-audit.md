@@ -31,14 +31,13 @@ Present results + possible fixes and **wait for explicit user approval** before 
 
 ## Step 1: Run Backtest
 Use the largest available dataset for maximum statistical power.
-The `--fast-track` flag bypasses the 60-minute warmup period so backtests run immediately.
+Ensuring the simulation respects the 60-minute warmup period is critical for accurate signal generation.
 
 ```bash
 .venv/bin/python backtest.py \
   --data tests/validation/ltc_24h_audit.csv \
   --symbol LTC/USDT:USDT \
   --depth-db data/historian.db \
-  --fast-track \
   2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 ```
 
@@ -47,7 +46,7 @@ The `--fast-track` flag bypasses the 60-minute warmup period so backtests run im
 
 > If `ltc_24h_audit.csv` yields fewer than 10 trades, re-run with `sol_24h_audit.csv`:
 > ```bash
-> .venv/bin/python backtest.py --data tests/validation/sol_24h_audit.csv --symbol SOL/USDT:USDT --depth-db data/historian.db --fast-track 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+> .venv/bin/python backtest.py --data tests/validation/sol_24h_audit.csv --symbol SOL/USDT:USDT --depth-db data/historian.db 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 > ```
 
 ## Step 2: Analyse Results

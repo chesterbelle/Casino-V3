@@ -215,6 +215,23 @@ class SetupEngineV4:
         if not (is_at_vah or is_at_val):
             return None
 
+        # Phase 1150: Order Flow Guardians (AMT/Axia Validation)
+        # 3.1. POC Migration Gate
+        if not self._check_poc_migration(symbol, side):
+            return None
+
+        # 3.2. VA Integrity Gate
+        if not self._check_va_integrity(symbol):
+            return None
+
+        # 3.3. Failed Auction Confirmation (Candle wick rejection)
+        if not self._check_failed_auction(symbol, side, reversal_signal):
+            return None
+
+        # 3.4. Delta Divergence Confirmation
+        if not self._check_delta_divergence(symbol, side):
+            return None
+
         # 4. Directional Logic:
         # If at VAH, we want to SHORT back to POC.
         # If at VAL, we want to LONG back to POC.
@@ -539,3 +556,125 @@ class SetupEngineV4:
         return True
 
     # LTA V4: Dale-specific legacy evaluations REMOVED.
+
+    def _check_poc_migration(self, symbol: str, side: str) -> bool:
+        """
+        Phase 1150: POC Migration Gate.
+        Rejection (Good) vs Discovery/Acceptance (Bad).
+        If POC is migrating in the direction of the trend, the trend is healthy.
+        Fading it is dangerous.
+        """
+        if self.fast_track:
+            return True
+
+        if not self.context_registry:
+            return True
+
+        migration = self.context_registry.get_poc_migration(symbol, lookback_ticks=300)
+
+        # If we want to LONG (at VAL), POC should NOT be migrating DOWN.
+        if side == "LONG" and migration < -strat_config.LTA_POC_MIGRATION_THRESHOLD:
+            logger.info(f"🛡️ [POC_MIGRATION] {symbol} LONG blocked: POC migrated {migration:.4%} (discovery)")
+            return False
+
+        # If we want to SHORT (at VAH), POC should NOT be migrating UP.
+        if side == "SHORT" and migration > strat_config.LTA_POC_MIGRATION_THRESHOLD:
+            logger.info(f"🛡️ [POC_MIGRATION] {symbol} SHORT blocked: POC migrated {migration:.4%} (discovery)")
+            return False
+
+        return True
+
+    def _check_va_integrity(self, symbol: str) -> bool:
+        """
+        Phase 1150: VA Integrity Gate (Axia style).
+        Ensure the POC is concentrated and the VA is tight (not expanded/gapped).
+        """
+        if self.fast_track:
+            return True
+
+        if not self.context_registry:
+            return True
+
+        integrity = self.context_registry.get_va_integrity(symbol)
+        if integrity < strat_config.LTA_VA_INTEGRITY_MIN:
+            logger.info(
+                f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} < {strat_config.LTA_VA_INTEGRITY_MIN}"
+            )
+            return False
+
+        return True
+
+    def _check_failed_auction(self, symbol: str, side: str, reversal_signal: dict) -> bool:
+        """
+        Phase 1150: Failed Auction Confirmation.
+        The price MUST have attempted to break the edge (wick) and closed back INSIDE.
+        """
+        if self.fast_track:
+            return True
+
+        poc, vah, val = self.context_registry.get_structural(symbol)
+        price = reversal_signal.get("close", 0.0)
+        high = reversal_signal.get("high", 0.0)
+        low = reversal_signal.get("low", 0.0)
+        open_p = reversal_signal.get("open", 0.0)
+
+        if side == "LONG":
+            # Must have probed below VAL and closed above (or at least close to) VAL
+            if low >= val:
+                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} >= {val:.4f})")
+                return False
+            # Check rejection body relative to wick
+            wick = min(open_p, price) - low
+            body = abs(price - open_p)
+            if wick < body * strat_config.LTA_FAILED_AUCTION_BODY_MIN:
+                logger.info(
+                    f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: Weak rejection wick ({wick:.4f} vs body {body:.4f})"
+                )
+                return False
+
+        if side == "SHORT":
+            # Must have probed above VAH and closed below (or at least close to) VAH
+            if high <= vah:
+                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} <= {vah:.4f})")
+                return False
+            wick = high - max(open_p, price)
+            body = abs(price - open_p)
+            if wick < body * strat_config.LTA_FAILED_AUCTION_BODY_MIN:
+                logger.info(
+                    f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: Weak rejection wick ({wick:.4f} vs body {body:.4f})"
+                )
+                return False
+
+        return True
+
+    def _check_delta_divergence(self, symbol: str, side: str) -> bool:
+        """
+        Phase 1150: Delta Divergence Confirmation.
+        For LONG at VAL: CVD should be positive or neutral (exhaustion of selling).
+        For SHORT at VAH: CVD should be negative or neutral (exhaustion of buying).
+        """
+        if self.fast_track:
+            return True
+
+        if not self.context_registry:
+            return True
+
+        state = self.context_registry.micro_state.get(symbol)
+        if not state:
+            return True
+
+        z_score = state.get("z_score", 0.0)
+
+        if side == "LONG":
+            # Reject if selling flow is still aggressively strong (z < -1.5)
+            if z_score < -1.5:
+                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} LONG blocked: Heavy selling flow (Z: {z_score:.2f})")
+                return False
+
+        if side == "SHORT":
+            # Reject if buying flow is still aggressively strong (z > 1.5)
+            if z_score > 1.5:
+                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} SHORT blocked: Heavy buying flow (Z: {z_score:.2f})")
+                return False
+
+        return True

@@ -20,7 +20,11 @@ The bot **WILL NOT** fire unless the "Structural Hook" is perfectly aligned:
 
 1.  **Value Area Proximity (`LTA_PROXIMITY_THRESHOLD`)**: The entry price MUST be within **0.25%** of the **VAH** (for Shorts) or **VAL** (for Longs).
     - *If the price is near the POC (the center), no trades are allowed.*
-2.  **Regime Neutrality**: LTA Reversions are strictly performed in `NEUTRAL` regimes. In strong trends, we do not catch falling knives unless there is extreme exhaustion.
+2.  **Regime Neutrality & Order Flow Guardians**: LTA Reversions are strictly performed in `NEUTRAL` regimes or when exhaustion is confirmed via the **4 Guardians**:
+    - **POC Migration (Discovery Filter)**: Blocks reversions if the Point of Control is migrating aggressively (>0.3%) in the trend direction.
+    - **Failed Auction (Rejection Hook)**: Requires a wick probing outside the VA extremes and closing BACK inside.
+    - **VA Integrity (Magnet Strength)**: Rejects setups if the VA is expanded/unhealthy (Integrity Score < 0.25).
+    - **Delta Divergence (Flow Exhaustion)**: Confirming that aggressive selling/buying has exhausted before fading.
 3.  **Micro-Flow Confluence**: A reversal signal (Absorption, Rejection, or Delta Flip) MUST print precisely at the structural boundary to trigger the engine.
 
 ---

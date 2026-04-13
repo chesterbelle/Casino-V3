@@ -503,7 +503,7 @@ class OrderExecutor:
             return RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
 
     async def force_close_position(
-        self, symbol: str, side: str, amount: float, skip_depth_analysis: bool = True
+        self, symbol: str, side: str, amount: float, skip_depth_analysis: bool = True, exit_reason: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Force close a position with "Smart Close" fallback logic.
@@ -543,7 +543,11 @@ class OrderExecutor:
                     "symbol": symbol,
                     "side": close_side,
                     "amount": amount,
-                    "params": {"reduceOnly": True, "client_order_id": client_id},
+                    "params": {
+                        "reduceOnly": True,
+                        "client_order_id": client_id,
+                        "exit_reason": exit_reason or "MANUAL_FORCE_CLOSE",
+                    },
                 },
                 skip_depth_analysis=skip_depth_analysis,
             )
@@ -555,11 +559,13 @@ class OrderExecutor:
             # -1013: Filter failure
             if "-4131" in err_str or "percent_price" in err_str or "filter" in err_str:
                 self.logger.warning(f"⚠️ Market Close blocked for {symbol} ({e}). Initiating Smart Close Fallbacks...")
-                return await self._execute_smart_close_fallback(symbol, close_side, amount)
+                return await self._execute_smart_close_fallback(symbol, close_side, amount, exit_reason=exit_reason)
 
             raise e
 
-    async def _execute_smart_close_fallback(self, symbol: str, close_side: str, amount: float) -> Dict[str, Any]:
+    async def _execute_smart_close_fallback(
+        self, symbol: str, close_side: str, amount: float, exit_reason: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Tier 1 & 2 Fallback logic for closures."""
         try:
             current_price = await self.adapter.get_current_price(symbol)
@@ -584,7 +590,11 @@ class OrderExecutor:
                         break
 
             return await self.execute_limit_order(
-                symbol=symbol, side=close_side, amount=amount, price=limit_price, params={"client_order_id": client_id}
+                symbol=symbol,
+                side=close_side,
+                amount=amount,
+                price=limit_price,
+                params={"client_order_id": client_id, "exit_reason": exit_reason or "SMART_CLOSE_T1"},
             )
 
         except Exception as tier1_e:
@@ -617,7 +627,7 @@ class OrderExecutor:
                     side=close_side,
                     amount=amount,
                     price=limit_price,
-                    params={"client_order_id": client_id},
+                    params={"client_order_id": client_id, "exit_reason": exit_reason or "SMART_CLOSE_T2"},
                 )
 
             raise tier1_e

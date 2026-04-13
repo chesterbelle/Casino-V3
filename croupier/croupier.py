@@ -659,6 +659,11 @@ class Croupier(TimeIterator):
         """
         # Centralized Governance: Attempt to lock position for closure
         # This replaces the manual status check with an atomic architectural guard
+        position = self.position_tracker.get_position(trade_id)
+        if position and position.status == "CLOSING":
+            self.logger.debug(f"⏭️ Skipping close_position: {trade_id} is already CLOSING")
+            return {"status": "skipped", "reason": "already_closing"}
+
         if not await self.position_tracker.lock_for_closure(trade_id):
             self.logger.debug(f"⏭️ Skipping close_position: {trade_id} is busy or already CLOSING")
             return {"status": "skipped", "reason": "already_closing"}
@@ -727,7 +732,7 @@ class Croupier(TimeIterator):
             try:
                 # Phase 43: Universal Funnel - Delegate "Smart Close" to OrderExecutor
                 result = await self.order_executor.force_close_position(
-                    symbol=position.symbol, side=position.side, amount=amount
+                    symbol=position.symbol, side=position.side, amount=amount, exit_reason=exit_reason
                 )
             except Exception as e:
                 # Phase 82: Handle position already closed by TP/SL gracefully

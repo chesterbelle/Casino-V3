@@ -40,7 +40,6 @@ We run across multiple assets to prevent overfitting to a single regime.
   --data tests/validation/ltc_24h_audit.csv \
   --symbol LTC/USDT:USDT \
   --depth-db data/historian.db \
-  --fast-track \
   --audit \
   2>&1 | tee logs/edge_audit_ltc_$(date +%Y%m%d_%H%M%S).log
 ```
@@ -51,16 +50,25 @@ We run across multiple assets to prevent overfitting to a single regime.
   --data tests/validation/sol_24h_audit.csv \
   --symbol SOL/USDT:USDT \
   --depth-db data/historian.db \
-  --fast-track \
   --audit \
   2>&1 | tee logs/edge_audit_sol_$(date +%Y%m%d_%H%M%S).log
+```
+
+### 1C: ETH (High Liquidity/Volume)
+```bash
+.venv/bin/python backtest.py \
+  --data tests/validation/eth_24h_audit.csv \
+  --symbol ETH/USDT:USDT \
+  --depth-db data/historian.db \
+  --audit \
+  2>&1 | tee logs/edge_audit_eth_$(date +%Y%m%d_%H%M%S).log
 ```
 
 ## Step 2: Verify Data Collection
 ```bash
 .venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian.db'); s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]; p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]; print(f'Signals: {s}, Price Samples: {p}')"
 ```
-**Must output**: Signals >= 50. If fewer, mark as INSUFFICIENT DATA.
+**Must output**: Signals >= 80. If fewer, mark as INSUFFICIENT DATA.
 
 ## Step 3: Statistical Extraction (MFE/MAE)
 Run the Edge Auditor tool.
