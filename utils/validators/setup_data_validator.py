@@ -63,14 +63,27 @@ def create_test_signal(
 
 def create_lta_signal(direction: str, price: float) -> SignalEvent:
     """Create a structural signal for LTA."""
+    # Phase 1150: Need high/low/open for Failed Auction check
+    metadata = {
+        "absorption_detected": True,
+        "z_score": 3.5,
+    }
+    if direction == "LONG":
+        metadata["low"] = price - 0.5  # Probed below
+        metadata["open"] = price - 0.1
+        metadata["close"] = price
+        metadata["high"] = price + 0.1
+    else:
+        metadata["high"] = price + 0.5  # Probed above
+        metadata["open"] = price + 0.1
+        metadata["close"] = price
+        metadata["low"] = price - 0.1
+
     return create_test_signal(
         "TacticalAbsorption",
         direction,
         price,
-        {
-            "absorption_detected": True,
-            "z_score": 3.5,
-        },
+        metadata,
     )
 
 
@@ -120,6 +133,11 @@ def populate_context_registry(context_registry: ContextRegistry, symbol: str, po
     context_registry.get_regime = MagicMock(return_value="NEUTRAL")
     context_registry.get_ib = MagicMock(return_value=(vah + 1.0, val - 1.0))
     context_registry.is_in_trade = MagicMock(return_value=False)
+    # Phase 1150: Mock new guardians
+    context_registry.get_poc_migration = MagicMock(return_value=0.0)
+    context_registry.get_va_integrity = MagicMock(return_value=0.5)
+    context_registry.micro_state = {symbol: {"z_score": 0.0}}
+
     logger.debug(f"Populated {symbol} with synthetic market data (Mocks applied)")
 
 

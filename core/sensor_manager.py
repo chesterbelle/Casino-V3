@@ -493,6 +493,14 @@ class SensorManager:
         metadata = dict(signal_data.get("metadata") or {})
         signal_tf = signal_data.get("timeframe", self.timeframe)
 
+        # Globally inject OHLC data for the structural guardians
+        if isinstance(context, dict):
+            candle_1m = context.get(self.timeframe) if self.timeframe in context else context.get("1m")
+            if isinstance(candle_1m, dict):
+                for k in ["open", "high", "low", "close"]:
+                    if metadata.get(k) is None and candle_1m.get(k) is not None:
+                        metadata[k] = candle_1m.get(k)
+
         # Strategy contract: always attach a reliable trigger price for level confirmation.
         # Priority:
         # 1) Explicit metadata price (sensor-provided)

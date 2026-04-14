@@ -620,8 +620,8 @@ class SetupEngineV4:
 
         if side == "LONG":
             # Must have probed below VAL and closed above (or at least close to) VAL
-            if low >= val:
-                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} >= {val:.4f})")
+            if low > val:
+                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} > {val:.4f})")
                 return False
             # Check rejection body relative to wick
             wick = min(open_p, price) - low
@@ -634,8 +634,8 @@ class SetupEngineV4:
 
         if side == "SHORT":
             # Must have probed above VAH and closed below (or at least close to) VAH
-            if high <= vah:
-                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} <= {vah:.4f})")
+            if high < vah:
+                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} < {vah:.4f})")
                 return False
             wick = high - max(open_p, price)
             body = abs(price - open_p)
