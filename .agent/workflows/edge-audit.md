@@ -73,7 +73,7 @@ We run across multiple assets to prevent overfitting to a single regime.
 ## Step 3: Statistical Extraction (MFE/MAE)
 Run the Edge Auditor tool.
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 300
+.venv/bin/python utils/setup_edge_auditor.py --window 900
 ```
 Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] THEORETICAL WIN-RATE**, and **[4] DECISION TRACE AUDIT**.
 

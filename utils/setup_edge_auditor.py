@@ -14,7 +14,7 @@ Metrics:
   - Expected Value (EV): Real edge for specific TP/SL targets.
 
 Usage:
-    python utils/setup_edge_auditor.py [--db data/historian.db] [--window 300]
+    python utils/setup_edge_auditor.py [--db data/historian.db] [--window 900]
 """
 
 import argparse
@@ -63,7 +63,7 @@ class EdgeAuditor:
         conn.close()
         return signals_df, prices_df, traces_df
 
-    def analyze(self, window_seconds=300):
+    def analyze(self, window_seconds=900):
         signals, prices, traces = self.load_data()
 
         if signals.empty:
@@ -217,7 +217,7 @@ class EdgeAuditor:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="data/historian.db")
-    parser.add_argument("--window", type=int, default=300, help="Analysis window in seconds")
+    parser.add_argument("--window", type=int, default=900, help="Analysis window in seconds")
     args = parser.parse_args()
 
     try:
