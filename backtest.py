@@ -70,7 +70,9 @@ async def run_backtest():
 
     if args.audit:
         trading_config.AUDIT_MODE = True
+        trading_config.ENABLE_DECISION_TRACE = True
         logger.warning("🔍 AUDIT MODE ENABLED: Simulation will record signals and prices. Proactive exits DISABLED.")
+        logger.warning("📝 DECISION TRACE ENABLED: Logic gates will be audited and recorded to DB.")
 
     if not os.path.exists(args.data):
         logger.error(f"❌ Data file not found: {args.data}")
@@ -192,6 +194,10 @@ async def run_backtest():
 
         engine.subscribe(EventType.TICK, audit_price_handler)
         logger.info(f"🔍 Audit: Listeners connected (Freq: {trading_config.AUDIT_SAMPLING_FREQ}s)")
+
+        # Phase 1850: Decision Trace Infrastructure (Capa de Hierro)
+        engine.subscribe(EventType.DECISION_TRACE, historian.on_decision_trace)
+        logger.info("📝 Audit: Decision Traces linked to DECISION_TRACE gates")
 
     # 6. Register reactor components
     clock.add_iterator(adapter)

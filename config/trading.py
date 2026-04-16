@@ -254,6 +254,11 @@ MULTI_ASSET_TARGETS = [
 # 3. Disables proactive exits (Shadow SL, Micro-Exits) for interference-free study.
 AUDIT_MODE = False
 
+# Phase 1850: Decision Trace Infrastructure (Capa de Hierro)
+# If True, records detailed accept/reject reasons for every potential signal.
+# Routed asynchronously to avoid HFT latency impact.
+ENABLE_DECISION_TRACE = False
+
 # How often (in seconds) to sample price after a signal for MFE/MAE tracking.
 AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
 

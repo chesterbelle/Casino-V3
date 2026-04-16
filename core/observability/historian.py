@@ -69,6 +69,15 @@ def _historian_worker(db_path: str, q: mp.Queue):
                     data,
                 )
                 conn.commit()
+            elif action == "INSERT_DECISION_TRACE":
+                conn.execute(
+                    """
+                    INSERT INTO decision_traces (timestamp, symbol, status, gate, reason, metrics, price, side)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    data,
+                )
+                conn.commit()
             elif action == "RECONCILE_LEDGER":
                 income_records, session_id, min_timestamp = data
                 for record in income_records:
@@ -248,6 +257,28 @@ class TradeHistorian:
             conn.execute("ALTER TABLE trades ADD COLUMN healed BOOLEAN DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # Already exists
+
+        # Phase 1850: Decision Trace Infrastructure
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS decision_traces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                symbol TEXT,
+                status TEXT,
+                gate TEXT,
+                reason TEXT,
+                metrics TEXT,
+                price REAL,
+                side TEXT
+            )
+            """
+        )
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_ts_sym ON decision_traces(timestamp, symbol)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_gate ON decision_traces(gate)")
+        except sqlite3.OperationalError:
+            pass
 
         # Phase 85: Schema Evolution for Latency Telemetry
         try:
@@ -966,6 +997,44 @@ class TradeHistorian:
         except Exception as e:
             print(f"❌ Export failed: {e}")
             return False
+
+    def record_decision_trace(self, data: dict):
+        """Asynchronously record a setup engine decision trace."""
+        if not self._use_mp:
+            logger.debug("Historian skipping decision trace (in-memory DB)")
+            return
+
+        import json
+
+        self._ensure_worker()
+        row = (
+            data.get("timestamp"),
+            data.get("symbol"),
+            data.get("status"),
+            data.get("gate"),
+            data.get("reason"),
+            json.dumps(data.get("metrics", {})),
+            data.get("price", 0.0),
+            data.get("side", ""),
+        )
+        try:
+            self._queue.put_nowait(("INSERT_DECISION_TRACE", row))
+        except Exception as e:
+            logger.error(f"Failed to enqueue decision trace: {e}")
+
+    async def on_decision_trace(self, event: Any):
+        """Event handler for decision traces."""
+        data = {
+            "timestamp": event.timestamp,
+            "symbol": event.symbol,
+            "status": event.status,
+            "gate": event.gate,
+            "reason": event.reason,
+            "metrics": event.metrics,
+            "price": event.price,
+            "side": event.side,
+        }
+        self.record_decision_trace(data)
 
     def clear_history(self):
         """

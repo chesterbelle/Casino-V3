@@ -21,12 +21,29 @@ class EventType(Enum):
     MICROSTRUCTURE = auto()
     MICROSTRUCTURE_BATCH = auto()
     TRADE_CLOSED = auto()
+    DECISION_TRACE = auto()
 
 
 @dataclass
 class Event:
     type: EventType
     timestamp: float
+
+
+@dataclass
+class DecisionTraceEvent(Event):
+    """Event for tracking setup engine accept/reject decisions."""
+
+    symbol: str
+    status: str  # 'PASS' or 'REJECT'
+    gate: str
+    reason: str
+    metrics: Dict[str, Any]
+    price: float
+    side: str
+
+    def __post_init__(self):
+        self.type = EventType.DECISION_TRACE
 
 
 @dataclass

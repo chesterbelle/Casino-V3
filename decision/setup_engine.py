@@ -555,7 +555,32 @@ class SetupEngineV4:
 
         return True
 
-    # LTA V4: Dale-specific legacy evaluations REMOVED.
+    def _trace_decision(
+        self, symbol: str, status: str, gate: str, reason: str, metrics: dict, price: float = 0.0, side: str = ""
+    ):
+        """Helper to fire internal decision traces to Historian."""
+        import config.trading as trading_config
+
+        if not getattr(strat_config, "ENABLE_DECISION_TRACE", False) and not getattr(
+            trading_config, "ENABLE_DECISION_TRACE", False
+        ):
+            return
+
+        import time
+
+        from core.observability.historian import historian
+
+        trace_data = {
+            "timestamp": time.time(),
+            "symbol": symbol,
+            "status": status,
+            "gate": gate,
+            "reason": reason,
+            "metrics": metrics,
+            "price": price,
+            "side": side,
+        }
+        historian.record_decision_trace(trace_data)
 
     def _check_poc_migration(self, symbol: str, side: str) -> bool:
         """
@@ -571,17 +596,21 @@ class SetupEngineV4:
             return True
 
         migration = self.context_registry.get_poc_migration(symbol, lookback_ticks=300)
+        metrics = {"migration": migration, "threshold": strat_config.LTA_POC_MIGRATION_THRESHOLD}
 
         # If we want to LONG (at VAL), POC should NOT be migrating DOWN.
         if side == "LONG" and migration < -strat_config.LTA_POC_MIGRATION_THRESHOLD:
             logger.info(f"🛡️ [POC_MIGRATION] {symbol} LONG blocked: POC migrated {migration:.4%} (discovery)")
+            self._trace_decision(symbol, "REJECT", "POC_MIGRATION", "Migration against side", metrics, 0.0, side)
             return False
 
         # If we want to SHORT (at VAH), POC should NOT be migrating UP.
         if side == "SHORT" and migration > strat_config.LTA_POC_MIGRATION_THRESHOLD:
             logger.info(f"🛡️ [POC_MIGRATION] {symbol} SHORT blocked: POC migrated {migration:.4%} (discovery)")
+            self._trace_decision(symbol, "REJECT", "POC_MIGRATION", "Migration against side", metrics, 0.0, side)
             return False
 
+        self._trace_decision(symbol, "PASS", "POC_MIGRATION", "Healthy migration", metrics, 0.0, side)
         return True
 
     def _check_va_integrity(self, symbol: str) -> bool:
@@ -596,12 +625,16 @@ class SetupEngineV4:
             return True
 
         integrity = self.context_registry.get_va_integrity(symbol)
+        metrics = {"integrity": integrity, "min_threshold": strat_config.LTA_VA_INTEGRITY_MIN}
+
         if integrity < strat_config.LTA_VA_INTEGRITY_MIN:
             logger.info(
                 f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} < {strat_config.LTA_VA_INTEGRITY_MIN}"
             )
+            self._trace_decision(symbol, "REJECT", "VA_INTEGRITY", "Low VA density", metrics, 0.0, "")
             return False
 
+        self._trace_decision(symbol, "PASS", "VA_INTEGRITY", "High VA density", metrics, 0.0, "")
         return True
 
     def _check_failed_auction(self, symbol: str, side: str, reversal_signal: dict) -> bool:
@@ -618,33 +651,46 @@ class SetupEngineV4:
         low = reversal_signal.get("low", 0.0)
         open_p = reversal_signal.get("open", 0.0)
 
+        metrics = {"price": price, "high": high, "low": low, "open": open_p, "val": val, "vah": vah}
+
         if side == "LONG":
             # Must have probed below VAL and closed above (or at least close to) VAL
             if low > val:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} > {val:.4f})")
+                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe below edge", metrics, price, side)
                 return False
             # Check rejection body relative to wick
             wick = min(open_p, price) - low
             body = abs(price - open_p)
+            metrics["wick"] = wick
+            metrics["body"] = body
+
             if wick < body * strat_config.LTA_FAILED_AUCTION_BODY_MIN:
                 logger.info(
                     f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: Weak rejection wick ({wick:.4f} vs body {body:.4f})"
                 )
+                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "Weak rejection body", metrics, price, side)
                 return False
 
         if side == "SHORT":
             # Must have probed above VAH and closed below (or at least close to) VAH
             if high < vah:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} < {vah:.4f})")
+                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe above edge", metrics, price, side)
                 return False
             wick = high - max(open_p, price)
             body = abs(price - open_p)
+            metrics["wick"] = wick
+            metrics["body"] = body
+
             if wick < body * strat_config.LTA_FAILED_AUCTION_BODY_MIN:
                 logger.info(
                     f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: Weak rejection wick ({wick:.4f} vs body {body:.4f})"
                 )
+                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "Weak rejection body", metrics, price, side)
                 return False
 
+        self._trace_decision(symbol, "PASS", "FAILED_AUCTION", "Valid wick rejection", metrics, price, side)
         return True
 
     def _check_delta_divergence(self, symbol: str, side: str) -> bool:
@@ -664,17 +710,25 @@ class SetupEngineV4:
             return True
 
         z_score = state.get("z_score", 0.0)
+        metrics = {"z_score": z_score, "threshold": 1.5}
 
         if side == "LONG":
             # Reject if selling flow is still aggressively strong (z < -1.5)
             if z_score < -1.5:
                 logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} LONG blocked: Heavy selling flow (Z: {z_score:.2f})")
+                self._trace_decision(
+                    symbol, "REJECT", "DELTA_DIVERGENCE", "Orderflow pressure too high", metrics, 0.0, side
+                )
                 return False
 
         if side == "SHORT":
             # Reject if buying flow is still aggressively strong (z > 1.5)
             if z_score > 1.5:
                 logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} SHORT blocked: Heavy buying flow (Z: {z_score:.2f})")
+                self._trace_decision(
+                    symbol, "REJECT", "DELTA_DIVERGENCE", "Orderflow pressure too high", metrics, 0.0, side
+                )
                 return False
 
+        self._trace_decision(symbol, "PASS", "DELTA_DIVERGENCE", "Orderflow supportive/neutral", metrics, 0.0, side)
         return True
