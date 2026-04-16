@@ -54,11 +54,17 @@ class EdgeAuditor:
         # Load Price Samples
         prices_df = pd.read_sql_query("SELECT * FROM price_samples", conn)
 
+        # Load Decision Traces
+        try:
+            traces_df = pd.read_sql_query("SELECT * FROM decision_traces", conn)
+        except sqlite3.OperationalError:
+            traces_df = pd.DataFrame()
+
         conn.close()
-        return signals_df, prices_df
+        return signals_df, prices_df, traces_df
 
     def analyze(self, window_seconds=300):
-        signals, prices = self.load_data()
+        signals, prices, traces = self.load_data()
 
         if signals.empty:
             print(f"{RED}❌ No signals found in database.{RESET}")
@@ -131,9 +137,9 @@ class EdgeAuditor:
             )
 
         df_results = pd.DataFrame(results)
-        self.print_report(df_results)
+        self.print_report(df_results, traces)
 
-    def print_report(self, df):
+    def print_report(self, df, traces=None):
         if df.empty:
             return
 
@@ -189,6 +195,21 @@ class EdgeAuditor:
                 else:
                     verdict = f"{RED}FAILED{RESET}"
                 print(f"{setup:<25} {len(group):<6} {w:<6} {wr:>6.1f}%  {verdict}")
+
+        # Phase 1850: Decision Trace Audit
+        if traces is not None and not traces.empty:
+            print(f"\n{BOLD}[4] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
+            print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
+            print("-" * 75)
+
+            trace_counts = traces.groupby(["gate", "reason"]).size().reset_index(name="count")
+            trace_counts = trace_counts.sort_values("count", ascending=False)
+
+            for _, row in trace_counts.iterrows():
+                count = row["count"]
+                gate = row["gate"]
+                # Highlight in red if it's a rejection, though reason tells us. Actually just print cleanly.
+                print(f"{gate:<25} {row['reason']:<40} {count:<6}")
 
         print(header("AUDIT COMPLETE"))
 

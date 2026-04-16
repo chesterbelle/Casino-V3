@@ -66,7 +66,7 @@ We run across multiple assets to prevent overfitting to a single regime.
 
 ## Step 2: Verify Data Collection
 ```bash
-.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian.db'); s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]; p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]; print(f'Signals: {s}, Price Samples: {p}')"
+.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian.db'); s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]; p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]; d = conn.execute('SELECT COUNT(*) FROM decision_traces').fetchone()[0] if conn.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='decision_traces' ''').fetchone()[0] == 1 else 0; print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')"
 ```
 **Must output**: Signals >= 80. If fewer, mark as INSUFFICIENT DATA.
 
@@ -75,7 +75,7 @@ Run the Edge Auditor tool.
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --window 300
 ```
-Review the output for **[1] SETUP EDGE BREAKDOWN** and **[2] THEORETICAL WIN-RATE**.
+Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] THEORETICAL WIN-RATE**, and **[4] DECISION TRACE AUDIT**.
 
 ---
 
@@ -85,7 +85,7 @@ After running Step 3, the agent MUST:
 
 1. **Present a concise summary table** containing the Setup Types, Sample Size (n), MFE%, MAE%, and Ratio.
 2. **Assign a Certification Status** for each setup based on the criteria below.
-3. **List highly specific observations** (e.g., "Setup X has great MFE but awful MAE, needs better entry filters").
+3. **List highly specific observations** (e.g., "Setup X has great MFE but awful MAE, needs better entry filters", or "Gate Y blocked Z signals, which indicates...").
 4. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
 
 ### Certification Matrix (Decision Logic)
