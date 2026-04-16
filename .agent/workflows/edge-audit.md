@@ -84,9 +84,10 @@ Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] THEORETICAL WIN-RATE**
 After running Step 3, the agent MUST:
 
 1. **Present a concise summary table** containing the Setup Types, Sample Size (n), MFE%, MAE%, and Ratio.
-2. **Assign a Certification Status** for each setup based on the criteria below.
-3. **List highly specific observations** (e.g., "Setup X has great MFE but awful MAE, needs better entry filters", or "Gate Y blocked Z signals, which indicates...").
-4. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
+2. **Present the Theoretical Win-Rate Matrix** (TP/SL combinations) identically to the auditor output.
+3. **Assign a Certification Status** for each setup based on the criteria below.
+4. **List highly specific observations** (e.g., "Setup X has great MFE but awful MAE, needs better entry filters", or "Gate Y blocked Z signals, which indicates...").
+5. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
 
 ### Certification Matrix (Decision Logic)
 
