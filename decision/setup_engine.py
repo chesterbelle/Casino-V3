@@ -65,6 +65,12 @@ class SetupEngineV4:
         self.failed_auctions: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         self.last_volatility_spike: Dict[str, float] = defaultdict(float)
 
+        # Phase 2000: Recent candle extremes for Failed Auction lookback (Axia-style)
+        # Stores last N candle (high, low) per symbol from SessionValueArea events
+        self.recent_extremes: Dict[str, deque] = defaultdict(
+            lambda: deque(maxlen=strat_config.LTA_FAILED_AUCTION_LOOKBACK)
+        )
+
         # Phase 850: Pullback and Climax Watch states
         self.pullback_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
         self.climax_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
@@ -336,6 +342,12 @@ class SetupEngineV4:
             window_name = event.metadata.get("liquidity_window")
             if window_name and self.context_registry:
                 self.context_registry.current_window[event.symbol] = window_name
+
+            # Phase 2000: Track recent candle extremes for Failed Auction lookback
+            c_high = event.metadata.get("candle_high")
+            c_low = event.metadata.get("candle_low")
+            if c_high and c_low:
+                self.recent_extremes[event.symbol].append({"high": c_high, "low": c_low})
 
         if event.side not in ["TACTICAL", "LONG", "SHORT", "NEUTRAL"]:
             return
@@ -722,8 +734,10 @@ class SetupEngineV4:
 
     def _check_failed_auction(self, symbol: str, side: str, reversal_signal: dict) -> bool:
         """
-        Phase 1150: Failed Auction Confirmation.
-        The price MUST have attempted to break the edge (wick) and closed back INSIDE.
+        Phase 2000: Failed Auction Confirmation with lookback.
+        The price must have attempted to break the edge (wick) in the current OR
+        recent candles and closed back inside. This aligns with Axia Futures methodology
+        where the probe and the tactical signal may be separated by 1-3 minutes.
         """
         if self.fast_track:
             return True
@@ -734,10 +748,28 @@ class SetupEngineV4:
         low = reversal_signal.get("low", 0.0)
         open_p = reversal_signal.get("open", 0.0)
 
-        metrics = {"price": price, "high": high, "low": low, "open": open_p, "val": val, "vah": vah}
+        # Phase 2000: Use max(high) and min(low) across recent candles
+        # This captures probes that happened 1-3 candles before the tactical signal
+        recent = self.recent_extremes.get(symbol)
+        if recent and len(recent) > 0:
+            lookback_high = max(c["high"] for c in recent)
+            lookback_low = min(c["low"] for c in recent)
+            # Use the wider of current signal vs lookback
+            high = max(high, lookback_high) if high > 0 else lookback_high
+            low = min(low, lookback_low) if low > 0 else lookback_low
+
+        metrics = {
+            "price": price,
+            "high": high,
+            "low": low,
+            "open": open_p,
+            "val": val,
+            "vah": vah,
+            "lookback_candles": len(recent) if recent else 0,
+        }
 
         if side == "LONG":
-            # Must have probed below VAL and closed above (or at least close to) VAL
+            # Must have probed below VAL (current or recent candles)
             if low > val:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} > {val:.4f})")
                 self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe below edge", metrics, price, side)
@@ -756,7 +788,7 @@ class SetupEngineV4:
                 return False
 
         if side == "SHORT":
-            # Must have probed above VAH and closed below (or at least close to) VAH
+            # Must have probed above VAH (current or recent candles)
             if high < vah:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} < {vah:.4f})")
                 self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe above edge", metrics, price, side)

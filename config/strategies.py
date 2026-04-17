@@ -12,6 +12,7 @@ LTA_TICK_PROXY = 0.0005  # 0.05% as a proxy for a single price tick
 LTA_POC_MIGRATION_THRESHOLD = 0.0050  # 0.5% max migration in opposite direction (Battle-Ready)
 LTA_VA_INTEGRITY_MIN = 0.08  # Min Integrity Score — global fallback (Refined Battle-Ready)
 LTA_FAILED_AUCTION_BODY_MIN = 0.05  # Rejection wick must be 5% of body (Battle-Ready)
+LTA_FAILED_AUCTION_LOOKBACK = 3  # Phase 2000: Check last N candles for probe (Axia-style)
 LTA_CVD_NEUTRAL_THRESHOLD = 0.0  # CVD neutrality for divergence check
 
 # Phase B1: Dynamic VA Integrity thresholds by liquidity window

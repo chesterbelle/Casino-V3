@@ -452,6 +452,9 @@ class SessionValueArea(SensorV3):
                 # Position
                 "position": position,
                 "ib_position": ib_position,
+                # Raw candle OHLC for Failed Auction lookback
+                "candle_high": candle["high"],
+                "candle_low": candle["low"],
                 # Excess/Single Prints
                 "excess": {"high": excess_high, "low": excess_low},
                 "single_print_count": len(single_prints),
