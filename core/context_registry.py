@@ -105,13 +105,21 @@ class ContextRegistry:
             return 0.0, 0.0, 0.0
         return profile.calculate_value_area()
 
-    def update_structural_from_session(self, symbol: str, poc: float, vah: float, val: float):
+    def update_structural_from_session(
+        self, symbol: str, poc: float, vah: float, val: float, va_integrity: float = 0.0
+    ):
         """Phase A2: Update structural levels from SessionValueArea sensor.
         This ensures the SetupEngine guardians use the same per-window
         levels as the session sensor, avoiding stale cumulative averages.
+        Phase 2000: Also caches session-scoped VA integrity.
         """
         if poc > 0 and vah > 0 and val > 0:
-            self._session_structural[symbol] = {"poc": poc, "vah": vah, "val": val}
+            self._session_structural[symbol] = {
+                "poc": poc,
+                "vah": vah,
+                "val": val,
+                "va_integrity": va_integrity,
+            }
 
     def set_ib(self, symbol: str, ib_high: float, ib_low: float):
         """Phase 700: Store IB boundaries for level proximity checks."""
@@ -155,7 +163,16 @@ class ContextRegistry:
         return (current_poc - start_poc) / start_poc
 
     def get_va_integrity(self, symbol: str) -> float:
-        """Phase 1150: Returns the VA Integrity Score (Axia style)."""
+        """Phase 1150: Returns the VA Integrity Score.
+        Phase 2000: Prefers session-scoped integrity from the SessionValueArea sensor.
+        Falls back to the global cumulative profile only on cold start.
+        """
+        # Prefer session-scoped integrity (fresh per liquidity window)
+        session = self._session_structural.get(symbol)
+        if session and session.get("va_integrity", 0) > 0:
+            return session["va_integrity"]
+
+        # Fallback: global cumulative profile (stale but better than nothing)
         profile = self.profiles.get(symbol)
         if not profile:
             return 0.0

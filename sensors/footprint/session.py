@@ -457,6 +457,7 @@ class SessionValueArea(SensorV3):
                 "single_print_count": len(single_prints),
                 "failed_auctions": failed_auctions,  # Phase 800
                 "vol_total": window_state.market_profile.total_volume,
+                "va_integrity": window_state.market_profile.calculate_va_integrity(),  # Phase 2000: Session-scoped
                 # MTF
                 "mtf_30m_poc": mtf_30m_poc,
                 "mtf_30m_side": mtf_30m_side,

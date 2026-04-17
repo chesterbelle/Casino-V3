@@ -326,8 +326,11 @@ class SetupEngineV4:
             s_poc = event.metadata.get("poc")
             s_vah = event.metadata.get("vah")
             s_val = event.metadata.get("val")
+            s_va_integrity = event.metadata.get("va_integrity", 0.0)  # Phase 2000
             if s_poc and s_vah and s_val and self.context_registry:
-                self.context_registry.update_structural_from_session(event.symbol, s_poc, s_vah, s_val)
+                self.context_registry.update_structural_from_session(
+                    event.symbol, s_poc, s_vah, s_val, va_integrity=s_va_integrity
+                )
 
             # Phase B1: Track current liquidity window for dynamic VA thresholds
             window_name = event.metadata.get("liquidity_window")
