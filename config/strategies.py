@@ -5,7 +5,7 @@ Decouples strategy-specific logic from global trading configuration.
 
 # LTA V4: Structural Reversion Settings
 LTA_PROXIMITY_THRESHOLD = 0.0025  # 0.25% distance from VA edges (VAH/VAL)
-LTA_SL_TICK_BUFFER = 2.0  # Number of ticks beyond the edge for SL (proxy: 0.05% per tick)
+LTA_SL_TICK_BUFFER = 3.0  # Phase 2000: 3 ticks beyond edge (0.15% buffer — crypto spread room)
 LTA_TICK_PROXY = 0.0005  # 0.05% as a proxy for a single price tick
 
 # Order Flow Guardians (AMT/Axia Thresholds)
