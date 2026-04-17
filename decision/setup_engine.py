@@ -189,7 +189,8 @@ class SetupEngineV4:
             "TacticalDivergence",
             "TacticalTrappedTraders",
             "TacticalExhaustion",
-            "TacticalPoCShift",
+            # "TacticalPoCShift" — Removed Phase 2000: POC shift is a trend-continuation
+            # signal, fundamentally incompatible with reversion. Axia: "POC acceptance = don't fade."
             "TacticalImbalance",
             "TacticalStackedImbalance",
             "TacticalLiquidationCascade",
