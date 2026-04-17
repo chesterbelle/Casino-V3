@@ -1,78 +1,311 @@
-# Casino-V3 Strategy Specification: LTA V4 Structural Reversion
+# LTA V4 — Implementation Manifest
 
-## 1. Overview
-The **LTA V4 Structural Reversion** strategy is a context-aware, order-flow-driven methodology based on **Liquidity Target Area (LTA)** theory. It replaces the legacy static-target scalping model with a dynamic, structural goal-seeking engine.
-
-The core objective is to identify exhaustion at the extremes of the high-volume Value Area and trade the high-probability regression back to the **Point of Control (POC)**.
-
----
-
-## 2. The Core Edge (Why it works)
-The LTA edge relies on the "Magnetism of Value":
-- **Balance vs Imbalance**: Market prices spend 70% of the time inside the Value Area. When price touches the edges (VAH/VAL), it is either going to break out (Imbalance) or revert to the mean (Balance).
-- **The Target (POC)**: The POC represents the price with the highest transacted volume. It is the path of least resistance and the natural exit for liquidity-seeking algorithms.
-- **Fee Dominance**: By targeting structural levels (POC) instead of fixed percentages (0.3%), the distance to target naturally expands to 0.6% - 1.2%, making exchange fees negligible relative to the gross profit.
+> **Architecture Reference**: Casino-V3 `v6.0.0-lta-structural-pivot`
+>
+> This document maps every theoretical concept of the LTA V4 strategy to its exact code location, config value, and architectural decision. It supersedes all previous implementation documents.
 
 ---
 
-## 3. Structural Gating (The "LTA Hook" Rule)
-The bot **WILL NOT** fire unless the "Structural Hook" is perfectly aligned:
+## 1. Signal Pipeline Architecture
 
-1.  **Value Area Proximity (`LTA_PROXIMITY_THRESHOLD`)**: The entry price MUST be within **0.25%** of the **VAH** (for Shorts) or **VAL** (for Longs).
-    - *If the price is near the POC (the center), no trades are allowed.*
-2.  **Regime Neutrality & Order Flow Guardians**: LTA Reversions are strictly performed in `NEUTRAL` regimes or when exhaustion is confirmed via the **4 Guardians**:
-    - **POC Migration (Discovery Filter)**: Blocks reversions if the Point of Control is migrating aggressively (>0.3%) in the trend direction.
-    - **Failed Auction (Rejection Hook)**: Requires a wick probing outside the VA extremes and closing BACK inside.
-    - **VA Integrity (Magnet Strength)**: Rejects setups if the VA is expanded/unhealthy (Integrity Score < 0.25).
-    - **Delta Divergence (Flow Exhaustion)**: Confirming that aggressive selling/buying has exhausted before fading.
-3.  **Micro-Flow Confluence**: A reversal signal (Absorption, Rejection, or Delta Flip) MUST print precisely at the structural boundary to trigger the engine.
-
----
-
-## 4. Operational Playbook: LTA Reversion
-Unlike previous multi-setup models, LTA V4 uses a **Unified Structural Setup**:
-
-- **Detector**: Confluence of `TacticalAbsorption`, `TacticalRejection`, or `TacticalTrappedTraders`.
-- **Logic**:
-    - **Step 1**: Price touches VAH/VAL.
-    - **Step 2**: Footprint confirms institutional absorption (aggressive sellers at the bottom/buyers at the top are "stopped" by limit orders).
-    - **Step 3**: The engine calculates the absolute distance to the **POC**.
-- **Action**: Enter position with a market order.
-
----
-
-## 5. Absolute Target Management (The "Dumb Executor" Model)
-This version introduces the **Decoupled Execution Pipeline**:
-
-1.  **TP (Take Profit)**: Hard-coded to the **POC Price** at the time of entry.
-    - *The TP price is absolute and injected directly into the OCO order.*
-2.  **SL (Stop Loss)**: Placed structurally **2 ticks outside** the Value Area extremes (VAH/VAL).
-    - *Distance: (VA_Edge * LTA_SL_BUFFER). This ensures we exit only when the structural hypothesis is invalidated.*
-3.  **RR Validation**: The engine rejects any setup where the Reward (Distance to POC) to Risk (Distance to SL) ratio is less than **1.0**.
-
----
-
-## 6. Evolution Paths
-This architecture is designed to support future "LTA-derived" playbooks:
-- **LTA Breakout (The Vacuum)**: Targeting the *next* VA POC after a successful value area breach.
-- **Value Migration**: Real-time adjustment of targets if the POC moves during an active trade.
+```
+Tick/Candle Events
+        │
+        ▼
+┌──────────────────┐
+│  SensorWorker(s)  │  Parallel processes (Actor Model)
+│  ├─ Absorption    │
+│  ├─ Exhaustion    │
+│  ├─ Cascade       │  ← NEW: LiquidationCascadeDetector
+│  └─ ...           │
+└────────┬─────────┘
+         │  SignalEvent (via IPC Queue)
+         ▼
+┌──────────────────┐
+│   SetupEngineV4   │  decision/setup_engine.py
+│   ├─ Signal Memory (5s sliding window)
+│   ├─ Strategy Evaluator (_evaluate_lta_structural)
+│   ├─ 6 Guardian Gates
+│   └─ TP/SL Calculator (structural anchors)
+└────────┬─────────┘
+         │  AggregatedSignalEvent
+         ▼
+┌──────────────────┐
+│  AdaptivePlayer   │  players/adaptive.py
+│  └─ Dumb Executor (trusts SetupEngine TP/SL)
+└────────┬─────────┘
+         │  DecisionEvent
+         ▼
+┌──────────────────┐     ┌─────────────┐
+│    Croupier       │────▶│ HFTExitMgr  │
+│    └─ OCO Orders  │     │ └─ Flow     │
+│                   │     │   Invalidation│
+└──────────────────┘     └─────────────┘
+```
 
 ---
 
-## 7. Performance Certification (Phase 800 Audit)
-The LTA V4 strategy has been statistically certified through zero-interference audits on high-fidelity crypto datasets (LTC, ETH, SOL).
+## 2. Core Entry: `_evaluate_lta_structural()`
 
-### [CERTIFIED] Edge Metrics (Battle-Ready Config)
-As of April 13, 2026, the strategy meets the following performance benchmarks:
+**File:** `decision/setup_engine.py` (line ~156)
 
-| Context | Target | Win Rate | Verdict |
-| :--- | :--- | :--- | :--- |
-| **Statistical Alpha (0.3% TP/SL)** | 60.0% | 55% Req. | ✅ **CERTIFIED** |
-| **Recovery Power (0.5% TP/SL)** | 66.7% | 50% Req. | ✅ **PROVEN** |
-| **Avg MFE (Profit Potential)** | 0.268% | N/A | — |
-| **Avg MAE (Adverse Risk)** | 0.381% | N/A | — |
+### 2.1 Signal Source — Tactical Whitelist
 
-### Structural Observations
-- **Slow-Burn Edge**: The structural reversion takes time. The edge significantly clarifies after **15 minutes** (900s), where Win Rate jumps from 37% to 60%.
-- **Sniper Frequency**: Under "Battle-Ready" settings (Integrity 0.08, Wick 0.05), the strategy generates ~1 setup every 3-8 hours per symbol, totaling ~20-50 setups per day across a 48-symbol portfolio.
-- **AMT Fidelity**: The guardians correctly filter noise, ensuring entries only occur during proven Auction Rejections (Failed Auctions).
+```python
+TACTICAL_WHITELIST = (
+    "TacticalAbsorption",
+    "TacticalRejection",
+    "TacticalDivergence",
+    "TacticalTrappedTraders",
+    "TacticalExhaustion",
+    "TacticalPoCShift",
+    "TacticalImbalance",
+    "TacticalStackedImbalance",
+    "TacticalLiquidationCascade",  # Phase C1
+)
+```
+
+### 2.2 OHLC Backfill (Phase A1 Fix)
+
+Tick-based sensors (e.g., `FootprintAbsorption`) only emit `price` in metadata, not candle OHLC. The Failed Auction gate requires `high`/`low` for wick rejection validation.
+
+**Fix:** After finding the reversal signal, the engine scans backwards through the 5-second memory for the most recent candle-based signal that carries OHLC data, and merges missing values into the reversal signal dict.
+
+```python
+for ohlc_key in ("high", "low", "open", "close"):
+    if not reversal_signal.get(ohlc_key):
+        for _, _, mem_event in reversed(self.memory[symbol]):
+            mem_md = mem_event.metadata or {}
+            if mem_md.get(ohlc_key) and mem_md[ohlc_key] > 0:
+                reversal_signal[ohlc_key] = mem_md[ohlc_key]
+                break
+```
+
+### 2.3 Location Gate
+
+```python
+LTA_PROXIMITY_THRESHOLD = 0.0025  # 0.25% from VAH/VAL
+```
+
+**Config:** `config/strategies.py:7`
+
+---
+
+## 3. The 6 Guardian Gates
+
+### 3.1 Guardian 1: Regime Alignment (`_check_regime_alignment`)
+
+**Purpose:** Prevents counter-trend reversions (e.g., shorting VAH during BULL_OTF).
+
+**Logic:**
+- NEUTRAL → PASS
+- Trend-aligned → PASS (LONG during UP, SHORT during DOWN)
+- Counter-trend → REJECT
+
+**Data Source:** `ContextRegistry.get_regime(symbol)` + `ContextRegistry.otf[symbol]`
+
+---
+
+### 3.2 Guardian 2: POC Migration (`_check_poc_migration`)
+
+**Purpose:** Rejects if POC is migrating aggressively against the intended direction (market in "discovery" phase).
+
+**Threshold:** `LTA_POC_MIGRATION_THRESHOLD = 0.0050` (0.5%)
+
+**Data Source:** `ContextRegistry.get_poc_migration(symbol, lookback_ticks=300)`
+
+The `MarketProfile.poc_history` (deque of 300 entries) tracks POC position over time. Migration is calculated as `(current_poc - start_poc) / start_poc`.
+
+---
+
+### 3.3 Guardian 3: VA Integrity (`_check_va_integrity`)
+
+**Purpose:** Ensures the Value Area is concentrated (bell-curve shaped) so the POC magnet effect is strong.
+
+**Formula:**
+```python
+concentration = poc_vol / total_volume
+magnetism = 1.0 / (va_range_pct * 100)
+integrity = concentration * magnetism
+```
+
+**Dynamic Threshold (Phase B1):**
+
+```python
+LTA_VA_INTEGRITY_BY_WINDOW = {
+    "asian": 0.06,
+    "london": 0.10,
+    "overlap": 0.12,
+    "ny": 0.10,
+    "quiet": 0.05,
+}
+LTA_VA_INTEGRITY_MIN = 0.08  # Global fallback
+```
+
+**Config:** `config/strategies.py:19-26`
+
+The current liquidity window is tracked per symbol in `ContextRegistry.current_window[symbol]`, updated by the `SetupEngine.on_signal()` handler when it receives `SessionValueArea` events.
+
+---
+
+### 3.4 Guardian 4: Failed Auction (`_check_failed_auction`)
+
+**Purpose:** Confirms the candle shows a wick rejection at the VA edge (price probed beyond the edge but closed inside).
+
+**Config:** `LTA_FAILED_AUCTION_BODY_MIN = 0.05` (wick must be 5% of body)
+
+**Dependency on A1 Fix:** This gate requires valid `high`/`low` data. Before Phase A1, tick-based sensor signals provided `high=0.0` which caused the probe check to fail mathematically.
+
+---
+
+### 3.5 Guardian 5: Delta Divergence (`_check_delta_divergence`)
+
+**Purpose:** Ensures order flow isn't aggressively opposing the trade direction.
+
+**Data Source:** `ContextRegistry.micro_state[symbol]["cvd"]`
+
+---
+
+### 3.6 Guardian 6: Spread Sanity (`_check_spread_sanity`)
+
+**Purpose:** Rejects entries when the bid/ask spread is abnormally wide (illiquid micro-moment) to protect against slippage.
+
+**Threshold:** Current spread > 2× the 5-minute rolling average.
+
+**Data Source:** `ContextRegistry.spread_state[symbol]` — updated every throttle cycle via `MicrostructureEvent.spread`.
+
+---
+
+## 4. Structural Source of Truth (Phase A2)
+
+### The Problem (Pre-Fix)
+
+The `ContextRegistry` accumulated all ticks into a single never-resetting `MarketProfile`. Over a 24-hour period, the POC/VAH/VAL became cumulative averages of the entire day, not clean per-window structures.
+
+Meanwhile, the `SessionValueArea` sensor correctly reset its profile on each liquidity window transition (Asian → London → NY, etc.), producing fresh per-window levels.
+
+**The guardians were checking stale cumulative levels while the sensor was producing fresh window levels.**
+
+### The Fix
+
+`ContextRegistry.get_structural()` now prioritizes session-aware levels stored in `_session_structural[symbol]`. These are updated by the `SetupEngine.on_signal()` handler when it receives `SessionValueArea` events:
+
+```python
+# In SetupEngine.on_signal():
+if event.sensor_id == "SessionValueArea":
+    self.context_registry.update_structural_from_session(
+        event.symbol, poc, vah, val
+    )
+    self.context_registry.current_window[event.symbol] = window_name
+```
+
+When no session data is available (cold start), it falls back to the tick-accumulated profile.
+
+---
+
+## 5. Cascade Liquidation Detector (Phase C1)
+
+**File:** `sensors/footprint/liquidation_cascade.py`
+
+### State Machine
+
+```
+IDLE → INITIATION → TRACKING → EXHAUSTION → SIGNAL
+ ↑                    ↓ (timeout)
+ └────────────────────┘
+```
+
+### Detection Criteria
+
+| Phase | Condition | Value |
+|-------|-----------|-------|
+| Initiation | Volume > N× avg | 5× |
+| Initiation | Delta Z-score > threshold | ±4.0 |
+| Exhaustion | Volume decay | < 50% of peak |
+| Exhaustion | Delta reversal | Sign flip |
+| Exhaustion | Price displacement | > 2× ATR |
+| Timeout | Max cascade bars | 5 |
+
+### Signal Output
+
+```python
+{
+    "side": "TACTICAL",
+    "metadata": {
+        "tactical_type": "TacticalLiquidationCascade",
+        "direction": "LONG" | "SHORT",  # Opposite of cascade
+        "cascade_direction": "UP" | "DOWN",
+        "cascade_bars": int,
+        "displacement_atr": float,
+        # Includes full OHLC for Failed Auction gate
+    }
+}
+```
+
+**Config Registration:**
+- `config/sensors.py`: `ACTIVE_SENSORS["LiquidationCascade"] = True`
+- `config/strategies.py`: `ACTIVE_STRATEGIES = ["LTA_STRUCTURAL", "LTA_CASCADE"]`
+- `core/sensor_manager.py`: `LiquidationCascadeDetector` in class loader
+
+---
+
+## 6. Exit Architecture
+
+### 6.1 Primary Exit: OCO Orders (TP/SL)
+
+Placed at order time with absolute prices from SetupEngine.
+
+### 6.2 Flow Invalidation (Phase B2)
+
+**File:** `croupier/components/hft_exit_manager.py`
+
+Always active. Monitors Z-score while position is open:
+- LONG + Z < -3.0 → `FLOW_INVALIDATION` exit
+- SHORT + Z > +3.0 → `FLOW_INVALIDATION` exit
+
+This is stricter than the existing `THESIS_TOXIC_FLOW` (Z=5.5) — it fires earlier as the "institutional panic button."
+
+**Execution order in HFTExitManager.on_tick:**
+1. Catastrophic Stop (>50% loss)
+2. Patience Lock (3s grace period)
+3. Flow Invalidation (Z ±3.0) ← **NEW, always active**
+4. Axia Thesis Invalidation (behind flag)
+5. Tactical Airbag (behind flag)
+
+### 6.3 Decision Trace Audit
+
+All guardian decisions (PASS/REJECT) are offloaded to `historian.db` via `_trace_decision()` for post-mortem analysis.
+
+---
+
+## 7. Bet Sizing
+
+**File:** `players/adaptive.py`
+
+The `AdaptivePlayer` is a "Dumb Executor" — it trusts the SetupEngine's TP/SL blindly and only handles sizing:
+
+1. **Base Size:** Kelly Criterion or fixed 1% of equity.
+2. **Regime Multiplier:** 1.25× in trends, 0.75× in ranges.
+3. **Delta-Velocity Multiplier:** From DeltaVelocity sensor.
+4. **RR Scaling:** `max(0.5, min(2.0, rr_ratio / 1.5))`
+5. **Validation:** RR < 1.0 → rejected. Distance > 10% → rejected.
+
+---
+
+## 8. File Reference Map
+
+| Component | File | Key Functions |
+|-----------|------|---------------|
+| Strategy Config | `config/strategies.py` | All thresholds, window map |
+| Sensor Config | `config/sensors.py` | ACTIVE_SENSORS registry |
+| Setup Engine | `decision/setup_engine.py` | `_evaluate_lta_structural`, 6 guardians |
+| Context Registry | `core/context_registry.py` | Structural levels, micro-state, spread |
+| Market Profile | `core/market_profile.py` | POC/VA calculation |
+| Session Sensor | `sensors/footprint/session.py` | Window detection, IB, failed auctions |
+| Cascade Sensor | `sensors/footprint/liquidation_cascade.py` | State machine detector |
+| Absorption Sensor | `sensors/footprint/absorption.py` | Absorption + zone detection |
+| Exhaustion Sensor | `sensors/footprint/exhaustion.py` | Volume exhaustion |
+| Player | `players/adaptive.py` | Bet sizing, RR validation |
+| Exit Manager | `croupier/components/hft_exit_manager.py` | Flow invalidation, thesis checks |
+| Sensor Manager | `core/sensor_manager.py` | Worker processes, OHLC injection |
+| Sensor Worker | `core/sensor_worker.py` | IPC, signal dispatch |

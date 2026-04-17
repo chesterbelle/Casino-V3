@@ -599,6 +599,7 @@ class SensorManager:
         from sensors.footprint.exhaustion import FootprintVolumeExhaustion
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
+        from sensors.footprint.liquidation_cascade import LiquidationCascadeDetector
         from sensors.footprint.session import SessionValueArea
         from sensors.footprint.volatility import VolatilitySpikeSensor
         from sensors.regime.one_timeframing import OneTimeframingSensor
@@ -619,4 +620,5 @@ class SensorManager:
             CumulativeDeltaSensorV3,
             BigOrderSensor,
             DeltaVelocitySensorV3,
+            LiquidationCascadeDetector,
         ]

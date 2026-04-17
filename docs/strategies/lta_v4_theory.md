@@ -1,158 +1,159 @@
-# Quick Scalping Strategy: Order Flow & Footprint (LTA-V4)
+# LTA V4: Reversión Estructural + Fade de Cascada
 
-**Documento de Estrategia Completa**
-*Independiente de implementación técnica*
+## Filosofía Central
 
----
+El mercado es una subasta continua. El precio busca el punto de máxima aceptación (POC) y oscila entre los extremos del Área de Valor (VAH/VAL). Cuando el precio se desplaza hacia un extremo sin volumen que lo sostenga, se genera una trampa de liquidez — un desequilibrio temporal que eventualmente se corrige mediante una reversión al centro de gravedad.
 
-## Índice
-
-1. [Filosofía Fundamental](#1-filosofía-fundamental)
-2. [Conceptos Base](#2-conceptos-base)
-3. [Setups de Trading](#3-setups-de-trading)
-4. [Gestión de Riesgo](#4-gestión-de-riesgo)
-5. [Ejecución HFT](#5-ejecución-hft)
-6. [Síntesis y Recomendaciones](#6-síntesis-y-recomendaciones)
+La LTA V4 no predice dirección. **Detecta agotamiento en los bordes y capitaliza la corrección gravitacional.**
 
 ---
 
-## 1. Filosofía Fundamental
+## 1. La Trampa de Liquidez (Liquid Trap)
 
-### 1.1 El Principio Central
+### 1.1 El Concepto
 
-**"Explotar la capitulación"** - El mercado no se mueve por la intención de los "grandes", sino por la **necesidad de liquidez** de los atrapados. La estrategia identifica el punto de "Liquid Trap": donde el flujo agresivo es neutralizado por la absorción institucional, forzando un giro violento por cierre de stops de los traders de ruptura.
+Imagina un imán (el POC) rodeado por dos paredes (VAH arriba, VAL abajo). El precio es una bola de acero que rebota entre las paredes, pero siempre tiende a regresar al imán.
 
-### 1.2 Por qué Order Flow funciona para Scalping
+Cuando la bola golpea una pared con fuerza y no la rompe, eso es una **Failed Auction** — el mercado probó un precio extremo, nadie quiso transaccionar allí, y ahora regresará al imán.
 
-| Característica | Ventaja para Scalping |
-|----------------|----------------------|
-| Filtrado de Intención | Identifica el volumen institucional real mediante el Percentil 90. |
-| Delta Estacionario | Detecta frenos de precio sin el lag de indicadores técnicos. |
-| Ineficiencia de Subasta | Explota el "negocio incompleto" en niveles de precio específicos. |
-| Micro-Value Areas | Define zonas de equilibrio dinámicas en ventanas de 5-10 minutos. |
+### 1.2 La Ventaja Estadística
 
-### 1.3 La Paradoja Bid/Ask
+La teoría de Market Profile (Dalton, 1990) demuestra que el precio pasa el **70% del tiempo dentro del Área de Valor**. Cada desviación hacia los extremos tiene una probabilidad inherente de corrección. La LTA V4 explota esta asimetría estadística.
 
-**Concepto crítico de Micro-Estructura:**
+### 1.3 El "Slow Burn" (Maduración de 15 Minutos)
 
-El footprint debe interpretarse como una colisión entre agresión y órdenes limitadas:
-
-- **Bid NO es solo vendedores** = Vendedores agresivos (market sell) + Compradores pasivos (limit buy). Si el precio se estanca, hay **Acumulación**.
-- **Ask NO es solo compradores** = Compradores agresivos (market buy) + Vendedores pasivos (limit sell). Si el precio se estanca, hay **Distribución**.
-- **La clave:** El desequilibrio real ocurre cuando la agresión masiva (Delta alto) falla en desplazar el precio (Absorción institucional).
+La reversión estructural no es instantánea. Después de que el precio toca el extremo y muestra señales de rechazo, la migración de vuelta al POC toma típicamente entre 5 y 15 minutos. Esto es clave: la estrategia requiere paciencia institucional, no scalping nervioso.
 
 ---
 
-## 2. Conceptos Base
+## 2. Los Dos Playbooks
 
-### 2.1 Price Clusters (Zonas de Fricción)
+### 2.1 Playbook Alpha: Reversión Estructural
 
-**Definición:** Niveles de precio donde se concentra un volumen masivo que detiene el desplazamiento. Actúan como soportes y resistencias dinámicas que se validan mediante la rotación de volumen y la divergencia de delta.
+**Señal:** El precio alcanza el borde del Área de Valor (VAH para shorts, VAL para longs) y un sensor de microestructura detecta agotamiento, absorción o divergencia delta.
 
-### 2.2 Stacked Imbalances (Desequilibrios Apilados)
+**Mecánica:**
+1. El precio está dentro del 0.25% de VAH o VAL.
+2. Un sensor táctico confirma el rechazo (absorción, exhaustión, delta divergence, trampa de traders, etc.).
+3. Los 6 Guardianes de Flujo validan la calidad del setup.
+4. Se entra en dirección al POC con SL fuera del borde.
 
-**Definición:** Serie de 3 o más niveles de precios consecutivos con un ratio de agresión superior a 3:1. Indica una entrada masiva de capital que desplaza el mercado con fuerza y define una zona de soporte/resistencia inmediata.
+**Target:** El POC de la ventana de liquidez activa (no el POC acumulativo global).
 
-### 2.3 Absorción y Delta Estacionario
-
-**Definición:** Incapacidad del precio para avanzar a pesar de un aumento drástico en el Cumulative Delta. Indica la presencia de una orden **Iceberg** absorbiendo todo el flujo agresivo antes de un giro inminente.
-
-### 2.4 Failed Auction (Subasta Fallida)
-
-**Definición:** Vela que cierra con volumen agresivo en su extremo (High/Low) sin atraer continuidad. Estas zonas actúan como imanes de liquidez hacia donde el precio regresará para "finalizar el negocio".
+**SL:** Buffer estructural fuera del extremo (VAH + buffer para shorts, VAL - buffer para longs).
 
 ---
 
-## 3. Setups de Trading
+### 2.2 Playbook Beta: Fade de Cascada de Liquidación
 
-### 3.1 Setup #1: Reversión por Absorción (Liquid Trap)
+**Señal:** Una cascada de liquidaciones retail (stop-chain) ha ocurrido y se ha agotado.
 
-**Tipo:** Reversión tras limpieza de liquidez (Stop Run).
+**Mecánica:**
+1. Volumen explota a 5× el promedio de 20 barras.
+2. Z-score del delta supera ±4.0 (flujo extremamente unidireccional).
+3. El precio se desplaza más de 2× ATR en la dirección de la cascada.
+4. La exhaustión se confirma: el volumen cae a menos del 50% del pico y el delta se invierte.
 
-**Condiciones:**
-1. El precio barre un máximo previo y sale del Micro-Value Area (mVA).
-2. Aparece un pico de volumen institucional que es absorbido (Delta alto, precio estático).
-3. El precio reingresa al rango previo con una divergencia negativa precio-delta.
+**Concepto:** "Surfear el Tsunami" — no intentamos predecir la ola, esperamos a que se estrelle contra la costa y luego surfeamos el reflujo.
 
-**Entrada:** Orden Market al confirmar el reingreso al nivel del cluster previo.
-**Stop Loss:** 1-2 ticks fuera del extremo del barrido de liquidez.
+**Target:** POC (el precio gravitará de vuelta al centro después de la dislocación extrema).
 
-### 3.2 Setup #2: Continuación por Stacked Imbalance
+**SL:** Igual que Playbook Alpha — fuera del borde estructural.
 
-**Tipo:** Continuación de tendencia por momentum.
+---
 
-**Condiciones:**
-1. Detección de un desequilibrio apilado (3+ niveles) a favor del movimiento.
-2. El movimiento debe estar respaldado por un aumento del volumen total de la vela.
+## 3. Los 6 Guardianes del Flujo
 
-**Entrada:** Orden Limit en el re-testeo del nivel central del desequilibrio apilado.
-**Stop Loss:** Al otro lado del nivel del imbalance apilado.
+Cada señal de entrada debe pasar por 6 gates defensivas antes de ejecutarse. Si cualquiera falla, el trade se descarta.
 
-### 3.3 Setup #3: Delta Divergence (Agotamiento)
+### Guardián 1: Alineación de Régimen
+El mercado tiene un régimen macro (tendencia alcista, bajista o neutral). Una reversión SHORT en VAH durante una tendencia alcista fuerte (OTF Bull) es estadísticamente suicida — el trend puede sobrepasarse. Este guardián bloquea reversiones contra-tendencia.
 
-**Tipo:** Reversión de micro-tendencia por agotamiento.
+- **NEUTRAL** → Siempre PASA.
+- **UP + LONG** en VAL → PASA (alineado con tendencia).
+- **UP + SHORT** en VAH → BLOQUEADO (contra-tendencia peligrosa).
+- **DOWN + SHORT** en VAH → PASA.
+- **DOWN + LONG** en VAL → BLOQUEADO.
 
-**Condiciones:**
-1. El precio marca un nuevo extremo fuera del área de valor.
-2. El Cumulative Delta diverge (se mueve en dirección opuesta al precio).
+### Guardián 2: Migración del POC
+Si el POC está migrando activamente en la dirección opuesta a nuestra entrada, el mercado está en fase de "descubrimiento" — está aceptando precios en una nueva zona. Fading un descubrimiento activo es autodestructivo.
 
-**Entrada:** Ejecución inmediata al detectar la pérdida de correlación precio-delta.
-**Win Rate estimado:** 70-75% en activos de alta liquidez.
+- Bloqueado si la migración excede el 0.5% en contra.
+
+### Guardián 3: Integridad del Área de Valor
+Un VA limpio y concentrado (perfil en forma de campana) indica que el POC es un imán poderoso. Un VA expandido o con doble pico indica incertidumbre — el POC no tiene fuerza gravitacional.
+
+- El umbral es dinámico según la ventana de liquidez:
+  - **Asian (00-08 UTC):** 0.06 (volumen bajo, perfiles naturalmente dispersos)
+  - **London (08-16 UTC):** 0.10 (mayor liquidez, perfiles más limpios)
+  - **Overlap (13-16 UTC):** 0.12 (pico de liquidez, perfiles más definidos)
+  - **NY (16-21 UTC):** 0.10
+  - **Quiet (21-00 UTC):** 0.05 (muy baja liquidez)
+
+### Guardián 4: Confirmación de Subasta Fallida
+La vela actual debe mostrar una "mecha de rechazo" — el precio probó más allá del borde pero cerró dentro. Esto confirma que los participantes rechazaron activamente el precio extremo.
+
+- La mecha de rechazo debe ser al menos el 5% del cuerpo de la vela.
+
+### Guardián 5: Divergencia Delta
+El flujo de órdenes (delta acumulativo) debe estar neutral o a favor de nuestra dirección. Si el delta está agresivamente contra nosotros, el rechazo no es genuino — hay presión real detrás del movimiento.
+
+### Guardián 6: Sanidad del Spread
+El spread bid/ask debe estar dentro de rangos normales. Si el spread es mayor al doble de su promedio de 5 minutos, estamos en un micro-momento de iliquidez donde el slippage se comería la ventaja.
 
 ---
 
 ## 4. Gestión de Riesgo
 
-### 4.1 Ubicación del Stop Loss
-El SL es estructural: debe colocarse 1 tick detrás del cluster de volumen o del extremo donde la tesis de absorción quedaría invalidada. No se recomiendan stops fijos basados en pips.
+### 4.1 TP/SL Estructural
+- **TP:** POC de la ventana de liquidez activa.
+- **SL:** Fuera del borde estructural con buffer calibrado.
+- **RR mínimo:** 1.0 (rechazado si es menor).
 
-### 4.2 Objetivos de Salida (Take Profit)
-- **Target 1:** El POC (Point of Control) del área de valor actual (Reversión a la media).
-- **Target 2:** El extremo opuesto del Micro-Value Area (VBP).
+### 4.2 Invalidación por Flujo (Botón de Pánico Institucional)
+Si durante un trade abierto el Z-score del delta cae por debajo de -3.0 (para longs) o sube por encima de +3.0 (para shorts), la narrativa de la entrada murió. La posición se cierra inmediatamente sin esperar al SL.
 
-### 4.3 Regla de Invalidación Prematura
-Si el flujo de órdenes muestra un imbalance masivo en contra de la posición antes de llegar al SL, la posición debe cerrarse manualmente por cambio en la narrativa de flujo.
+Esto es el equivalente a que un trader institucional diga: "La tesis está muerta, salgo ahora."
 
----
+### 4.3 Stagnation Exit
+Si el precio no se resuelve dentro de un timeout adaptativo (ajustado por volatilidad), la posición se cierra por "narrativa estancada."
 
-## 5. Ejecución HFT
-
-### 5.1 Parámetros de Calidad
-- **Latencia de Señal:** Ejecución requerida en < 500ms para capturar la ineficiencia.
-- **Filtro de Tamaño (Big Orders):** Ignorar trades que no pertenezcan al percentil 90 del volumen histórico cercano.
-- **Filtro de Spread:** Desactivación si el spread Bid/Ask supera el promedio móvil de 5 minutos.
+### 4.4 Catastrophic Stop
+Última línea de defensa: si la posición pierde más del 50% de su valor, se cierra inmediatamente independientemente de cualquier otro criterio.
 
 ---
 
-## 6. Síntesis y Recomendaciones
+## 5. Operación por Ventanas de Liquidez
 
-1. **La Divergencia es la Brújula** - La falta de correlación entre Delta y Precio es la señal más potente del sistema.
-2. **El Valor manda** - Los mejores trades ocurren cuando el precio intenta salir del Value Area y falla (Fake Out institucional).
-3. **Paciencia sobre Frecuencia** - El éxito radica en identificar cuándo la liquidez minorista ha sido atrapada para operar a favor del "Big Size".
+La estrategia opera 24/7 pero adapta su comportamiento según la ventana de liquidez activa:
 
----
+| Ventana | Horario UTC | Volatilidad | Adaptación |
+|---------|------------|-------------|------------|
+| Asian | 00:00 - 08:00 | Baja | VA Integrity relajada (0.06) |
+| London | 08:00 - 16:00 | Media-Alta | VA Integrity estricta (0.10) |
+| Overlap | 13:00 - 16:00 | Muy Alta | VA Integrity máxima (0.12) |
+| NY | 16:00 - 21:00 | Alta | VA Integrity estricta (0.10) |
+| Quiet | 21:00 - 00:00 | Muy Baja | VA Integrity mínima (0.05) |
 
-## Apéndice A: Glosario
-
-| Término | Definición |
-|---------|------------|
-| Footprint | Gráfico que muestra volumen bid/ask por nivel de precio |
-| Delta | Diferencia neta entre compras y ventas agresivas (Market Orders) |
-| mVA | Micro-Value Area (Rango del 70% del volumen en 5-10 min) |
-| POC | Point of Control - precio con mayor volumen ejecutado |
-| Absorption | Volumen agresivo frenado por órdenes limitadas (Icebergs) |
-| Failed Auction | Vela que no cierra correctamente en su extremo (negocio incompleto) |
+El Initial Balance (IB) se calcula en los primeros 10 minutos de cada ventana (5 minutos en Overlap).
 
 ---
 
-## Apéndice B: Referencias
+## 6. Señales Tácticas Compatibles
 
-**Metodologías Consultadas:**
-- "Order Flow: Trading Setups" - Johannes Forthmann
-- "The Strategies of Contentment" - Juan Colón (Darwinex)
-- "Order Flow Trading" - GFF Brokers
-- "Markets in Profile" - James Dalton
+La estrategia acepta múltiples tipos de señales de microestructura como confluencia para la entrada:
+
+1. **Absorción** — Alto volumen en un nivel sin movimiento de precio.
+2. **Rejection** — Rechazo visible en footprint (mecha larga con volumen).
+3. **Delta Divergence** — Precio hace nuevo extremo pero delta no confirma.
+4. **Trapped Traders** — Participantes atrapados en el lado equivocado.
+5. **Exhaustión** — Volumen se seca en el extremo (nadie más quiere participar).
+6. **Stacked Imbalance** — Desequilibrios apilados que confirman dirección.
+7. **POC Shift** — POC migra confirmando la dirección del trade.
+8. **Liquidation Cascade** — Cascada de liquidaciones retail que se agota.
 
 ---
 
-*Documento creado para la evaluación independiente de la estrategia LTA-V4. Independiente de implementación técnica específica.*
+## 7. Resumen Ejecutivo
+
+> La LTA V4 es una estrategia de reversión al centro de gravedad del mercado, activada por señales de microestructura en los extremos del Área de Valor, protegida por 6 capas defensivas, y complementada por un detector de cascadas de liquidación. Es una estrategia de paciencia institucional, no de predicción.

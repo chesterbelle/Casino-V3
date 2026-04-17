@@ -90,7 +90,17 @@ class HFTExitManager:
             if elapsed < self.patience_lock_grace_period:
                 continue
 
-            # --- 3. AXIA PROFESSIONAL EXIT (Thesis Invalidation) ---
+            # --- 3. FLOW INVALIDATION (Institutional Panic Button) ---
+            # Phase B2: If massive order flow reverses against the position (Z ±3.0),
+            # close immediately regardless of SL proximity. This is the theory's
+            # "Regla de Invalidación Prematura" — always active, not behind a flag.
+            flow_reason = self._check_flow_invalidation(position, event)
+            if flow_reason:
+                self._pending_terminations.add(position.trade_id)
+                asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=flow_reason))
+                continue
+
+            # --- 4. AXIA PROFESSIONAL EXIT (Thesis Invalidation) ---
             if getattr(config, "AXIA_INVALIDATION_ENABLED", False):
                 invalidation_reason = self._check_thesis_invalidation(position, event)
                 if invalidation_reason:
@@ -100,7 +110,7 @@ class HFTExitManager:
                     )
                     continue
 
-            # --- 4. TACTICAL SILENCE (Order Flow Airbag) ---
+            # --- 5. TACTICAL SILENCE (Order Flow Airbag) ---
             if getattr(config, "HFT_AIRBAG_ENABLED", False):
                 # Close if flow becomes toxic or structural walls collapse
                 airbag_reason = self._check_tactical_airbag(position, event)
@@ -108,6 +118,36 @@ class HFTExitManager:
                     self._pending_terminations.add(position.trade_id)
                     asyncio.create_task(self.croupier.close_position(position.trade_id, exit_reason=airbag_reason))
                     continue
+
+    def _check_flow_invalidation(self, position, event: TickEvent) -> Optional[str]:
+        """
+        Phase B2: Institutional Panic Button (Flow Invalidation).
+        If the real-time Z-score shows massive order flow against the position
+        (|Z| > 3.0), the entry thesis is narratively dead regardless of price.
+        This is always active — it's the theory's 'Regla de Invalidación Prematura'.
+        """
+        if not self.croupier.context_registry:
+            return None
+
+        cvd, skew, z = self.croupier.context_registry.get_micro_state(position.symbol)
+
+        FLOW_INVALIDATION_Z = 3.0
+
+        if position.side == "LONG" and z < -FLOW_INVALIDATION_Z:
+            self.logger.warning(
+                f"🚨 [FLOW_INVALIDATION] {position.symbol} LONG closed: "
+                f"Massive selling (Z={z:.1f} < -{FLOW_INVALIDATION_Z})"
+            )
+            return "FLOW_INVALIDATION"
+
+        if position.side == "SHORT" and z > FLOW_INVALIDATION_Z:
+            self.logger.warning(
+                f"🚨 [FLOW_INVALIDATION] {position.symbol} SHORT closed: "
+                f"Massive buying (Z={z:.1f} > +{FLOW_INVALIDATION_Z})"
+            )
+            return "FLOW_INVALIDATION"
+
+        return None
 
     def _check_catastrophe(self, position, event: TickEvent) -> bool:
         """Determines if the position is in a terminal death-spiral (>50% loss)."""

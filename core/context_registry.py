@@ -43,6 +43,15 @@ class ContextRegistry:
         self.ib_levels: Dict[str, dict] = {}  # symbol -> {high, low}  Phase 700: IB levels for proximity gate
         self.active_trades: Dict[str, bool] = defaultdict(bool)  # symbol -> in_trade (Phase 974)
 
+        # Phase A2: Session-aware structural levels (overwritten by SessionValueArea events)
+        self._session_structural: Dict[str, dict] = {}  # symbol -> {poc, vah, val}
+
+        # Phase B1: Current liquidity window per symbol (for dynamic VA thresholds)
+        self.current_window: Dict[str, str] = {}  # symbol -> window_name
+
+        # Phase B3: Spread tracking for spread sanity gate
+        self.spread_state: Dict[str, dict] = {}  # symbol -> {current, avg_5m, history}
+
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
         self.attr_long_window = 100
@@ -81,11 +90,28 @@ class ContextRegistry:
             self.btc_delta += delta
 
     def get_structural(self, symbol: str) -> Tuple[float, float, float]:
-        """Returns (POC, VAH, VAL) for the symbol."""
+        """Returns (POC, VAH, VAL) for the symbol.
+        Phase A2: Prefers session-aware levels when available,
+        falling back to the tick-accumulated global profile.
+        """
+        # Prefer session-aware levels (updated by SessionValueArea events)
+        session = self._session_structural.get(symbol)
+        if session and session.get("poc", 0) > 0:
+            return session["poc"], session["vah"], session["val"]
+
+        # Fallback to global tick-accumulated profile
         profile = self.profiles.get(symbol)
         if not profile:
             return 0.0, 0.0, 0.0
         return profile.calculate_value_area()
+
+    def update_structural_from_session(self, symbol: str, poc: float, vah: float, val: float):
+        """Phase A2: Update structural levels from SessionValueArea sensor.
+        This ensures the SetupEngine guardians use the same per-window
+        levels as the session sensor, avoiding stale cumulative averages.
+        """
+        if poc > 0 and vah > 0 and val > 0:
+            self._session_structural[symbol] = {"poc": poc, "vah": vah, "val": val}
 
     def set_ib(self, symbol: str, ib_high: float, ib_low: float):
         """Phase 700: Store IB boundaries for level proximity checks."""
@@ -166,6 +192,24 @@ class ContextRegistry:
             "z_score": z_score,
             "last_update": time.time(),
         }
+
+    def get_micro_state(self, symbol: str) -> Tuple[float, float, float]:
+        """Returns (cvd, skewness, z_score) for the symbol."""
+        state = self.micro_state.get(symbol)
+        if not state:
+            return 0.0, 0.5, 0.0
+        return state.get("cvd", 0.0), state.get("skewness", 0.5), state.get("z_score", 0.0)
+
+    def update_spread(self, symbol: str, spread: float):
+        """Phase B3: Track spread for spread sanity gate."""
+        if symbol not in self.spread_state:
+            self.spread_state[symbol] = {"current": 0.0, "avg_5m": 0.0, "history": deque(maxlen=300)}
+
+        state = self.spread_state[symbol]
+        state["current"] = spread
+        state["history"].append(spread)
+        if len(state["history"]) > 0:
+            state["avg_5m"] = sum(state["history"]) / len(state["history"])
 
     def get_flow_inertia(self, symbol: str, side: str, profit_pct: float = 0.0) -> float:
         """

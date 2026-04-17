@@ -161,9 +161,10 @@ class SetupEngineV4:
         target the POC (Point of Control) as the primary magnet.
 
         Conditions:
-        1. Price is near VAH or VAL (dist < 0.20%).
-        2. Footprint confluence (Absorption, Rejection, or Delta Flip).
+        1. Price is near VAH or VAL (dist < 0.25%).
+        2. Footprint confluence (Absorption, Rejection, Delta Flip, or Cascade Fade).
         3. Target is the current POC.
+        4. All 6 Order Flow Guardians must PASS.
         """
         if not self.context_registry:
             return None
@@ -185,6 +186,7 @@ class SetupEngineV4:
             "TacticalPoCShift",
             "TacticalImbalance",
             "TacticalStackedImbalance",
+            "TacticalLiquidationCascade",
         )
         for e in events:
             md = e.metadata or {}
@@ -195,6 +197,20 @@ class SetupEngineV4:
 
         if not reversal_signal:
             return None
+
+        # Phase A1: OHLC Backfill — tick-based sensors (Absorption, etc.) emit
+        # only 'price' but no candle OHLC.  The Failed Auction gate requires
+        # high/low/open/close to verify wick rejection.  We search the 5-second
+        # signal memory for the most recent candle-based event that carries OHLC
+        # and merge those values into the reversal signal.
+        for ohlc_key in ("high", "low", "open", "close"):
+            if not reversal_signal.get(ohlc_key):
+                # Search memory backwards for a signal that has this key
+                for _, _, mem_event in reversed(self.memory[symbol]):
+                    mem_md = mem_event.metadata or {}
+                    if mem_md.get(ohlc_key) and mem_md[ohlc_key] > 0:
+                        reversal_signal[ohlc_key] = mem_md[ohlc_key]
+                        break
 
         price = reversal_signal.get("close") or reversal_signal.get("price") or 0.0
         side = reversal_signal.get("direction")
@@ -215,21 +231,29 @@ class SetupEngineV4:
         if not (is_at_vah or is_at_val):
             return None
 
-        # Phase 1150: Order Flow Guardians (AMT/Axia Validation)
-        # 3.1. POC Migration Gate
+        # Phase 2000: Order Flow Guardians (6 Gates — AMT/Axia Validation)
+        # Guardian 1: Regime Alignment (prevents fading strong trends)
+        if not self._check_regime_alignment(symbol, side):
+            return None
+
+        # Guardian 2: POC Migration Gate
         if not self._check_poc_migration(symbol, side):
             return None
 
-        # 3.2. VA Integrity Gate
+        # Guardian 3: VA Integrity Gate (dynamic by liquidity window)
         if not self._check_va_integrity(symbol):
             return None
 
-        # 3.3. Failed Auction Confirmation (Candle wick rejection)
+        # Guardian 4: Failed Auction Confirmation (Candle wick rejection)
         if not self._check_failed_auction(symbol, side, reversal_signal):
             return None
 
-        # 3.4. Delta Divergence Confirmation
+        # Guardian 5: Delta Divergence Confirmation
         if not self._check_delta_divergence(symbol, side):
+            return None
+
+        # Guardian 6: Spread Sanity (prevents entries during illiquid micro-moments)
+        if not self._check_spread_sanity(symbol):
             return None
 
         # 4. Directional Logic:
@@ -297,6 +321,18 @@ class SetupEngineV4:
             ib_l = event.metadata.get("ib_low")
             if ib_h and ib_l and self.context_registry:
                 self.context_registry.set_ib(event.symbol, ib_h, ib_l)
+
+            # Phase A2: Sync session-aware structural levels to ContextRegistry
+            s_poc = event.metadata.get("poc")
+            s_vah = event.metadata.get("vah")
+            s_val = event.metadata.get("val")
+            if s_poc and s_vah and s_val and self.context_registry:
+                self.context_registry.update_structural_from_session(event.symbol, s_poc, s_vah, s_val)
+
+            # Phase B1: Track current liquidity window for dynamic VA thresholds
+            window_name = event.metadata.get("liquidity_window")
+            if window_name and self.context_registry:
+                self.context_registry.current_window[event.symbol] = window_name
 
         if event.side not in ["TACTICAL", "LONG", "SHORT", "NEUTRAL"]:
             return
@@ -454,6 +490,9 @@ class SetupEngineV4:
         if self.context_registry:
             otf = self.context_registry.get_regime(sym)
             self.context_registry.set_micro_state(sym, event.cvd, skewness, z)
+            # Phase B3: Feed spread data to ContextRegistry for spread sanity gate
+            if hasattr(event, "spread") and event.spread > 0:
+                self.context_registry.update_spread(sym, event.spread)
 
         # Phase 900: Microstructure is now CONTEXT ONLY — no signal generation.
         # Toxic_OrderFlow removed. Micro state stored for _check_micro_gate().
@@ -582,9 +621,43 @@ class SetupEngineV4:
         }
         historian.record_decision_trace(trace_data)
 
+    def _check_regime_alignment(self, symbol: str, side: str) -> bool:
+        """
+        Phase 2000: Regime Alignment Gate (Guardian 1).
+        Prevents fading strong trends.  A reversion SHORT at VAH is rejected
+        if the One-Timeframing regime is BULL_OTF (strong uptrend), and vice versa.
+        """
+        if self.fast_track:
+            return True
+
+        if not self.context_registry:
+            return True
+
+        regime = self.context_registry.get_regime(symbol)
+        otf = self.context_registry.otf.get(symbol, "NEUTRAL")
+        metrics = {"regime": regime, "otf": otf, "side": side}
+
+        # NEUTRAL regime → always PASS
+        if regime == "NEUTRAL" or otf == "NEUTRAL":
+            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Neutral regime", metrics, 0.0, side)
+            return True
+
+        # Trend-aligned reversion is safe (e.g., LONG at VAL during uptrend)
+        if side == "LONG" and regime == "UP":
+            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned LONG", metrics, 0.0, side)
+            return True
+        if side == "SHORT" and regime == "DOWN":
+            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned SHORT", metrics, 0.0, side)
+            return True
+
+        # Counter-trend reversion is dangerous (e.g., SHORT at VAH during BULL_OTF)
+        logger.info(f"🛡️ [REGIME_ALIGNMENT] {symbol} {side} blocked: Counter-trend (Regime: {regime}, OTF: {otf})")
+        self._trace_decision(symbol, "REJECT", "REGIME_ALIGNMENT", "Counter-trend reversion", metrics, 0.0, side)
+        return False
+
     def _check_poc_migration(self, symbol: str, side: str) -> bool:
         """
-        Phase 1150: POC Migration Gate.
+        Phase 1150: POC Migration Gate (Guardian 2).
         Rejection (Good) vs Discovery/Acceptance (Bad).
         If POC is migrating in the direction of the trend, the trend is healthy.
         Fading it is dangerous.
@@ -615,8 +688,9 @@ class SetupEngineV4:
 
     def _check_va_integrity(self, symbol: str) -> bool:
         """
-        Phase 1150: VA Integrity Gate (Axia style).
+        Phase 2000: VA Integrity Gate (Axia style, Guardian 3).
         Ensure the POC is concentrated and the VA is tight (not expanded/gapped).
+        Threshold adapts dynamically based on the current liquidity window.
         """
         if self.fast_track:
             return True
@@ -625,11 +699,17 @@ class SetupEngineV4:
             return True
 
         integrity = self.context_registry.get_va_integrity(symbol)
-        metrics = {"integrity": integrity, "min_threshold": strat_config.LTA_VA_INTEGRITY_MIN}
 
-        if integrity < strat_config.LTA_VA_INTEGRITY_MIN:
+        # Phase B1: Dynamic threshold by liquidity window
+        current_window = getattr(self.context_registry, "current_window", {}).get(symbol, "")
+        va_thresholds = getattr(strat_config, "LTA_VA_INTEGRITY_BY_WINDOW", {})
+        threshold = va_thresholds.get(current_window, strat_config.LTA_VA_INTEGRITY_MIN)
+
+        metrics = {"integrity": integrity, "min_threshold": threshold, "window": current_window}
+
+        if integrity < threshold:
             logger.info(
-                f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} < {strat_config.LTA_VA_INTEGRITY_MIN}"
+                f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} < {threshold} ({current_window})"
             )
             self._trace_decision(symbol, "REJECT", "VA_INTEGRITY", "Low VA density", metrics, 0.0, "")
             return False
@@ -731,4 +811,32 @@ class SetupEngineV4:
                 return False
 
         self._trace_decision(symbol, "PASS", "DELTA_DIVERGENCE", "Orderflow supportive/neutral", metrics, 0.0, side)
+        return True
+
+    def _check_spread_sanity(self, symbol: str) -> bool:
+        """
+        Phase 2000: Spread Sanity Gate (Guardian 6).
+        Prevents entries during illiquid micro-moments where the spread
+        is abnormally wide, which would eat the edge via slippage.
+        """
+        if self.fast_track:
+            return True
+
+        if not self.context_registry:
+            return True
+
+        spread_data = getattr(self.context_registry, "spread_state", {}).get(symbol)
+        if not spread_data:
+            return True  # No spread data yet, allow (conservative start)
+
+        current = spread_data.get("current", 0.0)
+        avg_5m = spread_data.get("avg_5m", 0.0)
+        metrics = {"current_spread": current, "avg_5m": avg_5m}
+
+        if avg_5m > 0 and current > avg_5m * 2.0:
+            logger.info(f"🛡️ [SPREAD_SANITY] {symbol} rejected: Spread {current:.6f} > 2x avg {avg_5m:.6f}")
+            self._trace_decision(symbol, "REJECT", "SPREAD_SANITY", "Wide spread", metrics, 0.0, "")
+            return False
+
+        self._trace_decision(symbol, "PASS", "SPREAD_SANITY", "Normal spread", metrics, 0.0, "")
         return True

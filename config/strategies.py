@@ -10,12 +10,23 @@ LTA_TICK_PROXY = 0.0005  # 0.05% as a proxy for a single price tick
 
 # Order Flow Guardians (AMT/Axia Thresholds)
 LTA_POC_MIGRATION_THRESHOLD = 0.0050  # 0.5% max migration in opposite direction (Battle-Ready)
-LTA_VA_INTEGRITY_MIN = 0.08  # Min Integrity Score for magnetic POC (Refined Battle-Ready)
+LTA_VA_INTEGRITY_MIN = 0.08  # Min Integrity Score — global fallback (Refined Battle-Ready)
 LTA_FAILED_AUCTION_BODY_MIN = 0.05  # Rejection wick must be 5% of body (Battle-Ready)
 LTA_CVD_NEUTRAL_THRESHOLD = 0.0  # CVD neutrality for divergence check
 
+# Phase B1: Dynamic VA Integrity thresholds by liquidity window
+# Crypto profiles are inherently thinner during low-liquidity windows (Asian, Quiet)
+# and tighter during peak hours (Overlap). This adapts the threshold accordingly.
+LTA_VA_INTEGRITY_BY_WINDOW = {
+    "asian": 0.06,
+    "london": 0.10,
+    "overlap": 0.12,
+    "ny": 0.10,
+    "quiet": 0.05,
+}
+
 # Registry of active playbooks for SetupEngine
-ACTIVE_STRATEGIES = ["LTA_STRUCTURAL"]
+ACTIVE_STRATEGIES = ["LTA_STRUCTURAL", "LTA_CASCADE"]
 
 
 def get_sensor_type(sensor_name: str) -> str:
@@ -35,6 +46,7 @@ def get_sensor_type(sensor_name: str) -> str:
         "CumulativeDelta": "Tactical",
         "BigOrder": "Tactical",
         "DeltaVelocity": "Tactical",
+        "LiquidationCascade": "Tactical",
         "Heartbeat": "Health",
     }
     # Check for prefix matches to be robust against naming variations

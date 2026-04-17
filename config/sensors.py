@@ -28,6 +28,7 @@ ACTIVE_SENSORS = {
     "SessionValueArea": True,
     "FootprintDeltaVelocity": True,
     "MicroStructureContext": True,
+    "LiquidationCascade": True,
     "VolatilitySpike": False,
 }
 
@@ -52,6 +53,7 @@ SENSOR_TIMEFRAMES = {
     "SessionValueArea": ["1m"],
     "FootprintDeltaVelocity": ["1m"],
     "MicroStructureContext": ["1m"],
+    "LiquidationCascade": ["1m"],
     "VolatilitySpike": ["1m"],
 }
 
@@ -102,6 +104,9 @@ SENSOR_PARAMS = {
     },
     "MicroStructureContext": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor, no TP/SL needed
+    },
+    "LiquidationCascade": {
+        "1m": {"tp_pct": 0.80, "sl_pct": 0.40, "min_score_long": 0.85},
     },
     # "VolatilitySpike": {
     #     "1m": {"tp_pct": 0.50, "sl_pct": 0.30},
