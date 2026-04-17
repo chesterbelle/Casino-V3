@@ -317,3 +317,8 @@ if __name__ == "__main__":
         pass
     except Exception as e:
         logger.error(f"💥 Backtest failed: {e}", exc_info=True)
+    finally:
+        # Phase 2000: Force-exit to kill any zombie multiprocessing feeder threads.
+        # multiprocessing.Queue uses background threads that can deadlock on pipe writes
+        # if workers are terminated with unread data. os._exit bypasses all cleanup.
+        os._exit(0)

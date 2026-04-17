@@ -102,10 +102,11 @@ class SensorManager:
         self._last_tick_dispatch = {}
         self._last_ob_dispatch = {}
         self._tick_count = 0
+        self._stopped = False
         self._batch_flush_task = asyncio.create_task(self._flush_micro_events_loop())
 
         # Start Async Listener
-        asyncio.create_task(self._listen_for_signals())
+        self._signal_listener_task = asyncio.create_task(self._listen_for_signals())
 
         # Subscribe to Events (Phase 410: The Ingestion Pivot)
         self.engine.subscribe(EventType.CANDLE, self.on_candle)
@@ -409,7 +410,7 @@ class SensorManager:
 
     async def _flush_micro_events_loop(self):
         """Background task to flush buffered micro events as a batch."""
-        while True:
+        while not self._stopped:
             try:
                 await asyncio.sleep(0.1)  # Flush every 100ms
                 await self._flush_micro_buffer()
@@ -422,7 +423,7 @@ class SensorManager:
         """Async loop to consume signals from workers."""
         logger.info("👂 Listening for signals from workers...")
 
-        while True:
+        while not self._stopped:
             try:
                 # Non-blocking polling of the output queue
                 processed = 0
@@ -568,18 +569,49 @@ class SensorManager:
         await self.engine.dispatch(event)
 
     def stop(self):
-        """Shutdown workers."""
+        """Shutdown workers and cancel async tasks. Drains queues to prevent pipe deadlock."""
         logger.info("🛑 Stopping Sensor Workers...")
-        if hasattr(self, "_batch_flush_task"):
-            self._batch_flush_task.cancel()
+        self._stopped = True
 
+        # 1. Cancel async tasks (they'll see _stopped=True on next iteration)
+        for task_name in ("_batch_flush_task", "_signal_listener_task"):
+            task = getattr(self, task_name, None)
+            if task and not task.done():
+                task.cancel()
+
+        # 2. Send STOP to all workers
         for q in self.input_queues:
-            q.put("STOP")
+            try:
+                q.put_nowait("STOP")
+            except Exception:
+                pass
 
+        # 3. Drain the output queue to prevent feeder thread deadlock
+        # (workers may have written data that nobody reads after shutdown)
+        try:
+            while not self.output_queue.empty():
+                self.output_queue.get_nowait()
+        except Exception:
+            pass
+
+        # 4. Join/terminate workers
         for w in self.workers:
             w.join(timeout=1.0)
             if w.is_alive():
                 w.terminate()
+
+        # 5. Close queues to release pipe file descriptors
+        try:
+            self.output_queue.close()
+            self.output_queue.join_thread()
+        except Exception:
+            pass
+        for q in self.input_queues:
+            try:
+                q.close()
+                q.join_thread()
+            except Exception:
+                pass
 
     def _get_all_sensor_classes(self):
         """Helper to return all sensor classes (moved from original _load_sensors)."""
