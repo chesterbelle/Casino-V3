@@ -1,22 +1,31 @@
-# Cross-Section Edge Audit — 10 Coins × 24h (Generalizability Test)
+# Generalized Edge Audit — 10 Coins × 24h (Cross-Instrument Validation)
 
 // turbo-all
 
 ## Overview
-This protocol tests whether the LTA V4 Structural Reversion edge **generalizes across instruments**.
-A reversion strategy based on Auction Market Theory should work on ANY liquid instrument, not just 3 coins.
-If the edge only exists on a subset, it's likely overfitting, not a real market microstructure property.
+Tests whether the LTA V4 Structural Reversion edge **generalizes across instruments**.
+A reversion strategy based on Auction Market Theory should work on ANY liquid instrument.
+If the edge only exists on a subset, it's likely overfitting, not a real market property.
 
-**Statistical Goal**: n ≥ 300 signals total (cross-instrument), SE on WR ≤ ±2.8%
-**Per-Coin Minimum**: n ≥ 10 signals (flags coins with insufficient data)
+**Prerequisites**: 24h datasets must already exist in `tests/validation/cross_section/`.
+Download them manually before running this protocol.
 
-### Coin Selection (10 Pairs — Diverse Liquidity & Volatility)
-| Tier | Coins | Rationale |
-|------|-------|-----------|
-| **Mega-cap** | BTC, ETH | Highest liquidity, tightest spreads |
-| **Large-cap** | SOL, BNB, XRP | High volume, different volatility profiles |
-| **Mid-cap** | AVAX, LINK, DOGE | Medium liquidity, wider spreads |
-| **Small-cap** | LTC, SUI | Lower liquidity, tests strategy robustness |
+**Expected files** (one per coin):
+```
+tests/validation/cross_section/BTC_USDT_USDT_24h.csv
+tests/validation/cross_section/ETH_USDT_USDT_24h.csv
+tests/validation/cross_section/SOL_USDT_USDT_24h.csv
+tests/validation/cross_section/BNB_USDT_USDT_24h.csv
+tests/validation/cross_section/XRP_USDT_USDT_24h.csv
+tests/validation/cross_section/AVAX_USDT_USDT_24h.csv
+tests/validation/cross_section/LINK_USDT_USDT_24h.csv
+tests/validation/cross_section/DOGE_USDT_USDT_24h.csv
+tests/validation/cross_section/LTC_USDT_USDT_24h.csv
+tests/validation/cross_section/SUI_USDT_USDT_24h.csv
+```
+
+**Statistical Goal**: n ≥ 300 signals total, SE on WR ≤ ±2.8%
+**Per-Coin Minimum**: n ≥ 10 signals (flag if less)
 
 ---
 
@@ -26,44 +35,40 @@ If the edge only exists on a subset, it's likely overfitting, not a real market 
 ```
 **Must output**: `✨ Sistema limpio.`
 
-## Step 1: Download 24h Datasets (if not already cached)
-Use the most recent 24h window ending ~6h ago (to ensure data completeness).
-Calculate timestamps dynamically.
-
+## Step 1: Verify Datasets Exist
 ```bash
-END_TS=$(($(date +%s) - 21600))
-START_TS=$((END_TS - 86400))
-echo "Window: $START_TS → $END_TS ($(date -d @$START_TS) → $(date -d @$END_TS))"
-
-COINS=("BTC/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
-
+echo "=== Dataset Verification ==="
+COINS=("BTC_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+MISSING=0
 for COIN in "${COINS[@]}"; do
-  SAFE_NAME=$(echo $COIN | tr '/:' '_')
-  OUT="tests/validation/cross_section/${SAFE_NAME}_24h.csv"
-  if [ -f "$OUT" ]; then
-    echo "⏭️ $COIN already cached"
+  FILE="tests/validation/cross_section/${COIN}_24h.csv"
+  if [ -f "$FILE" ]; then
+    ROWS=$(wc -l < "$FILE")
+    echo "✅ $COIN: $ROWS rows"
   else
-    echo "📥 Downloading $COIN..."
-    .venv/bin/python tests/validation/parity_data_fetcher.py \
-      --symbol "$COIN" --start $START_TS --end $END_TS --out "$OUT"
+    echo "❌ MISSING: $FILE"
+    MISSING=$((MISSING + 1))
   fi
 done
+if [ $MISSING -gt 0 ]; then
+  echo "⛔ $MISSING datasets missing. Download them before running this protocol."
+fi
 ```
+**⛔ STOP if any datasets are missing.** Inform the user which files need to be downloaded.
 
 ## Step 2: Run Backtests (All 10 Coins)
 ```bash
-.venv/bin/python reset_data.py > /dev/null 2>&1
+SYMBOLS=("BTC/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
+NAMES=("BTC_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
 
-COINS=("BTC/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
-
-for COIN in "${COINS[@]}"; do
-  SAFE_NAME=$(echo $COIN | tr '/:' '_')
-  DATA="tests/validation/cross_section/${SAFE_NAME}_24h.csv"
-  echo "▶ $COIN..."
+for i in "${!SYMBOLS[@]}"; do
+  SYM="${SYMBOLS[$i]}"
+  DATA="tests/validation/cross_section/${NAMES[$i]}_24h.csv"
+  echo "▶ $SYM..."
   .venv/bin/python backtest.py \
-    --data "$DATA" --symbol "$COIN" \
+    --data "$DATA" --symbol "$SYM" \
     --depth-db data/historian.db --audit \
-    > /dev/null 2>&1 && echo "✅ $COIN" || echo "❌ $COIN"
+    > /dev/null 2>&1 && echo "✅ $SYM" || echo "❌ $SYM"
 done
 echo "🏁 ALL 10 BACKTESTS COMPLETE"
 ```
@@ -79,7 +84,6 @@ p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]
 print(f'Total Signals: {s}, Price Samples: {p}')
 print()
 
-# Per-coin breakdown
 rows = conn.execute('SELECT symbol, COUNT(*) FROM signals GROUP BY symbol ORDER BY COUNT(*) DESC').fetchall()
 print('Per-Coin Breakdown:')
 for sym, cnt in rows:
@@ -150,7 +154,7 @@ After Step 5, the agent **MUST STOP** and present:
 1. **Aggregate table** (all 10 coins combined): n, WR%, MFE/MAE, Expectancy
 2. **Per-coin breakdown table** with individual Verdicts
 3. **Generalizability Score**: How many coins CERTIFIED / WATCH / FAILED
-4. **Specific observations** per coin (e.g., "BTC has tight spreads producing higher WR", "DOGE has wider spreads killing edge")
+4. **Specific observations** per coin
 
 ### Certification Matrix
 
