@@ -12,7 +12,7 @@ Download them manually before running this protocol.
 
 **Expected files** (one per coin):
 ```
-tests/validation/cross_section/BTC_USDT_USDT_24h.csv
+tests/validation/cross_section/ADA_USDT_USDT_24h.csv
 tests/validation/cross_section/ETH_USDT_USDT_24h.csv
 tests/validation/cross_section/SOL_USDT_USDT_24h.csv
 tests/validation/cross_section/BNB_USDT_USDT_24h.csv
@@ -38,7 +38,7 @@ tests/validation/cross_section/SUI_USDT_USDT_24h.csv
 ## Step 1: Verify Datasets Exist
 ```bash
 echo "=== Dataset Verification ==="
-COINS=("BTC_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
 MISSING=0
 for COIN in "${COINS[@]}"; do
   FILE="tests/validation/cross_section/${COIN}_24h.csv"
@@ -58,8 +58,8 @@ fi
 
 ## Step 2: Run Backtests (All 10 Coins)
 ```bash
-SYMBOLS=("BTC/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
-NAMES=("BTC_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+SYMBOLS=("ADA/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
+NAMES=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
 
 for i in "${!SYMBOLS[@]}"; do
   SYM="${SYMBOLS[$i]}"

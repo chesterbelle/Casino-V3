@@ -24,6 +24,12 @@ async def fetch_agg_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict
             }
 
             async with session.get(base_url, params=params) as resp:
+                if resp.status == 429:
+                    retry_after = int(resp.headers.get("Retry-After", 60))
+                    print(f"⚠️ Rate limited (429). Sleeping for {retry_after}s...")
+                    await asyncio.sleep(retry_after)
+                    continue
+
                 if resp.status != 200:
                     print(f"Error fetching: {resp.status} - {await resp.text()}")
                     break
@@ -38,8 +44,10 @@ async def fetch_agg_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict
 
                 print(f"Fetched {len(trades)} trades... (Last TS: {current_start})")
 
-                # Always sleep a bit to avoid 429 Rate Limit (High safety margin)
-                await asyncio.sleep(0.5)
+                # Adaptive sleep to balance speed vs rate limits
+                # Weight 20 @ 1200/min → ~60 requests/min → 1.0s sleep.
+                # We use 1.05s as a safety buffer.
+                await asyncio.sleep(1.05)
 
                 if len(data) < 1000:
                     # End of range reached for this chunk but check if there's more time

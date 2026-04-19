@@ -16,7 +16,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
+# core.events removed as unused in this file
 from core.market_profile import MarketProfile
+from core.tick_registry import tick_registry
 from sensors.base import SensorV3
 
 logger = logging.getLogger(__name__)
@@ -81,13 +83,14 @@ WINDOW_TYPE_THRESHOLDS = {
 class WindowState:
     """Tracks state for a single liquidity window."""
 
-    def __init__(self, window_name: str, config: dict, tick_size: float):
+    def __init__(self, window_name: str, config: dict, symbol: str):
         self.window_name = window_name
         self.config = config
-        self.tick_size = tick_size
+        self.symbol = symbol
+        self.tick_size = tick_registry.get(symbol)
 
         # Market Profile for this window
-        self.market_profile = MarketProfile(tick_size=tick_size)
+        self.market_profile = MarketProfile(tick_size=self.tick_size)
 
         # Initial Balance
         self.ib_duration_minutes = config["ib_duration_minutes"]
@@ -181,15 +184,13 @@ class SessionValueArea(SensorV3):
     - MTF alignment data
     """
 
-    def __init__(self, tick_size: float = 0.5):
+    def __init__(self):
         super().__init__()
-        self.tick_size = tick_size
         self.symbol = "Unknown"
 
         # Window states (one per liquidity window)
+        # Deferred initialization until symbol is known in calculate()
         self.window_states: Dict[str, WindowState] = {}
-        for window_name, config in LIQUIDITY_WINDOWS.items():
-            self.window_states[window_name] = WindowState(window_name, config, tick_size)
 
         # Current active window
         self.current_window: Optional[str] = None
@@ -298,6 +299,11 @@ class SessionValueArea(SensorV3):
             return None
 
         self.symbol = candle.get("symbol", "Unknown")
+
+        # Phase 2000: Initialize WindowStates with absolute exact tick_size the first time a candle arrives
+        if not self.window_states:
+            for window_name, config in LIQUIDITY_WINDOWS.items():
+                self.window_states[window_name] = WindowState(window_name, config, self.symbol)
 
         # Determine current liquidity window from UTC time
         # Use candle timestamp if available, else current time

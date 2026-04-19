@@ -393,9 +393,7 @@ async def main():
 
     # 5. Initialize Candle Maker (Tick → Candle)
     # Fixed 1m (60s) heartbeat for multi-timeframe aggregator compatibility
-    candle_maker = CandleMaker(
-        engine, timeframe_seconds=60, tick_size=args.tick_size if hasattr(args, "tick_size") else 0.01
-    )
+    candle_maker = CandleMaker(engine, timeframe_seconds=60)
 
     # 6. Initialize Sensor Manager (Candle → Signal)
     sensor_manager = SensorManager(engine)
@@ -404,7 +402,7 @@ async def main():
     from core.context_registry import ContextRegistry
 
     # Use tick_size from args if available, else default
-    context_registry = ContextRegistry(tick_size=args.tick_size if hasattr(args, "tick_size") else 0.1)
+    context_registry = ContextRegistry()
 
     # 8. Initialize Setup Engine (Tactical Event Setup Engine -> Decision)
     setup_engine = SetupEngineV4(

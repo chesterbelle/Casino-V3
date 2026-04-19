@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 from typing import Dict, List
 
 from .events import EventType, FootprintCandleEvent, TickEvent
+from .tick_registry import tick_registry
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +86,9 @@ class CandleMaker:
     Multi-Symbol Safe: Maintains separate candle state per symbol.
     """
 
-    def __init__(self, engine, timeframe_seconds=60, tick_size=0.01, is_backtest=False):
+    def __init__(self, engine, timeframe_seconds=60, is_backtest=False):
         self.engine = engine
         self.timeframe = timeframe_seconds
-        self.tick_size = tick_size
         self.is_backtest = is_backtest
         # Multi-symbol safe: Dict[symbol, candle_data]
         self.current_candles: Dict[str, dict] = {}
@@ -147,8 +147,9 @@ class CandleMaker:
             current_candle["volume"] += tick.volume
 
         # Update Footprint Profile
-        # Phase 1200: Binning raw price to precise tick size for 100% Simulation Parity
-        price_level = round(tick.price / self.tick_size) * self.tick_size
+        # Phase 2000: Exact Exchange Tick Size for 100% Order Book Fidelity
+        sym_tick_size = tick_registry.get(symbol)
+        price_level = round(tick.price / sym_tick_size) * sym_tick_size
         price_level = round(price_level, 8)  # Prevent floating point artifacts
 
         if price_level not in current_candle["profile"]:

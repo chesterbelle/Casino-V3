@@ -14,6 +14,7 @@ from collections import deque
 from typing import Optional
 
 from core.market_profile import MarketProfile
+from core.tick_registry import tick_registry
 from sensors.base import SensorV3
 from sensors.footprint.matrix import LiveFootprintMatrix
 
@@ -34,7 +35,6 @@ class FootprintAbsorptionV3(SensorV3):
         min_volume_ratio: float = 3.0,  # Fix #3: Increased from 2.0 to 3.0 for higher quality signals
         pullback_ticks: int = 5,
         window_seconds: float = 30.0,
-        tick_size: float = 0.1,
         level_proximity_ticks: int = 4,
         zone_balance_threshold: float = 0.3,  # Max bid/ask imbalance for zone (30%)
         min_zone_levels: int = 3,  # Minimum levels to form absorption zone
@@ -46,7 +46,7 @@ class FootprintAbsorptionV3(SensorV3):
         self.zone_balance_threshold = zone_balance_threshold
         self.min_zone_levels = min_zone_levels
         self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
-        self.market_profile = MarketProfile(tick_size=tick_size)
+        self.market_profile = None  # Instantiated dynamically via tick_registry
 
         # DOM Limit Order Caching
         self.last_best_bid_qty = 0.0
@@ -70,6 +70,12 @@ class FootprintAbsorptionV3(SensorV3):
 
         price = float(tick_data.get("price", 0))
         vol = float(tick_data.get("qty", 0))
+        symbol = tick_data.get("symbol", "Unknown")
+
+        if not self.market_profile:
+            sym_tick = tick_registry.get(symbol)
+            self.market_profile = MarketProfile(tick_size=sym_tick)
+
         self.market_profile.add_trade(price, vol)
         self.price_history.append(price)
 

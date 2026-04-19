@@ -207,6 +207,7 @@ class SensorManager:
         # Standardize candle data for serialization
         candle_data = {
             "timestamp": event.timestamp,
+            "symbol": event.symbol,
             "open": event.open,
             "high": event.high,
             "low": event.low,

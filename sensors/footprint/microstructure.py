@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 
 from core.events import Event, EventType, FootprintCandleEvent, TickEvent
+from core.tick_registry import tick_registry
 from sensors.base_sensor import BaseSensor
 
 
@@ -48,11 +49,11 @@ class MicroStructureContext(BaseSensor):
         old_bias = self.micro_bias
 
         # We add a tiny buffer (1 tick) to avoid flip-flopping exactly ON the POC
-        tick_size = 0.01  # Assuming standard crypto tick size for LTC/USDT
+        sym_tick_size = tick_registry.get(self.symbol)
 
-        if price >= (poc + tick_size):
+        if price >= (poc + sym_tick_size):
             self.micro_bias = "BULLISH"
-        elif price <= (poc - tick_size):
+        elif price <= (poc - sym_tick_size):
             self.micro_bias = "BEARISH"
         else:
             self.micro_bias = "NEUTRAL"

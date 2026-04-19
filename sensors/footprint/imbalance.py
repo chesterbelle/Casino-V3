@@ -2,6 +2,7 @@ import time
 from typing import Optional
 
 from core.market_profile import MarketProfile
+from core.tick_registry import tick_registry
 from sensors.base import SensorV3
 from sensors.footprint.matrix import LiveFootprintMatrix
 from sensors.quant.volatility_regime import RollingZScore
@@ -25,7 +26,6 @@ class FootprintImbalanceV3(SensorV3):
         imbalance_ratio: float = 4.0,  # Fix #3: Increased from 3.0 to 4.0 for higher quality signals
         min_volume: float = 1.0,
         window_seconds: float = 30.0,
-        tick_size: float = 0.1,
         level_proximity_ticks: int = 4,
     ):
         super().__init__()
@@ -33,7 +33,7 @@ class FootprintImbalanceV3(SensorV3):
         self.min_volume = min_volume
         self.level_proximity_ticks = level_proximity_ticks
         self.matrix = LiveFootprintMatrix(window_seconds=window_seconds)
-        self.market_profile = MarketProfile(tick_size=tick_size)
+        self.market_profile = None  # Exact tick instantiated on first tick based on tick_registry
 
         # Phase 2: Volatility Regime Z-Scores
         self.buy_ratio_zscore = RollingZScore(window_size=200)
@@ -55,6 +55,12 @@ class FootprintImbalanceV3(SensorV3):
 
         price = float(tick_data.get("price", 0))
         vol = float(tick_data.get("qty", 0))
+        symbol = tick_data.get("symbol", "Unknown")
+
+        if not self.market_profile:
+            sym_tick = tick_registry.get(symbol)
+            self.market_profile = MarketProfile(tick_size=sym_tick)
+
         self.market_profile.add_trade(price, vol)
 
         # 2. Check for signal cooldown

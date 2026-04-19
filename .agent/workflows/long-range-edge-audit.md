@@ -13,7 +13,7 @@ A 7-day window captures trending days, ranging days, volatile sessions, and quie
 
 **Expected files** (one per coin):
 ```
-tests/validation/long_range/BTC_USDT_USDT_7d.csv
+tests/validation/long_range/ADA_USDT_USDT_7d.csv
 tests/validation/long_range/ETH_USDT_USDT_7d.csv
 tests/validation/long_range/SOL_USDT_USDT_7d.csv
 tests/validation/long_range/BNB_USDT_USDT_7d.csv
@@ -38,7 +38,7 @@ tests/validation/long_range/SUI_USDT_USDT_7d.csv
 ## Step 1: Verify Datasets Exist
 ```bash
 echo "=== Dataset Verification (7-Day) ==="
-COINS=("BTC_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
 MISSING=0
 for COIN in "${COINS[@]}"; do
   FILE="tests/validation/long_range/${COIN}_7d.csv"
@@ -61,8 +61,8 @@ fi
 Each 7-day backtest takes ~5-10 min per coin.
 
 ```bash
-SYMBOLS=("BTC/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
-NAMES=("BTC_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+SYMBOLS=("ADA/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
+NAMES=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
 
 for i in "${!SYMBOLS[@]}"; do
   SYM="${SYMBOLS[$i]}"

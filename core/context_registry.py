@@ -3,7 +3,8 @@ import time
 from collections import defaultdict, deque
 from typing import Dict, Optional, Tuple
 
-from core.market_profile import MarketProfile
+from .market_profile import MarketProfile
+from .tick_registry import tick_registry
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,11 @@ class ContextRegistry:
             cls._instance = super(ContextRegistry, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, tick_size: float = 0.1):
+    def __init__(self):
         if hasattr(self, "_initialized"):
             return
         self._initialized = True
 
-        self.tick_size = tick_size
         self.profiles: Dict[str, MarketProfile] = {}
         self.regimes: Dict[str, str] = {}  # symbol -> regime (TREND, RANGE, etc.)
         self.otf: Dict[str, str] = {}  # symbol -> OTF (BULL_OTF, BEAR_OTF, NEUTRAL)
@@ -69,7 +69,8 @@ class ContextRegistry:
         """Update structural and pulse layers synchronously."""
         now = timestamp or time.time()
         if symbol not in self.profiles:
-            self.profiles[symbol] = MarketProfile(tick_size=self.tick_size)
+            sym_tick_size = tick_registry.get(symbol)
+            self.profiles[symbol] = MarketProfile(tick_size=sym_tick_size)
             self.tick_stats[symbol] = {"speed": 0.0, "last_ts": now, "count": 0}
 
         # 1. Update Market Profile

@@ -126,8 +126,8 @@ async def run_backtest():
 
     await croupier.start()
 
-    # 5. Setup Logic Layer
-    context_registry = ContextRegistry(tick_size=0.01)  # Phase 800: Use 0.01 for LTC precision # noqa: E402
+    # Zero-Lag Structural Context Layer (Global Singleton)
+    context_registry = ContextRegistry()  # noqa: E402
     sensor_mgr = SensorManager(engine)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry, fast_track=args.fast_track)
     player = AdaptivePlayer(  # noqa: E402
@@ -139,7 +139,7 @@ async def run_backtest():
     )
 
     # 5.1 Candle Maker (Crucial for Regime Sensors)
-    CandleMaker(engine, tick_size=0.01, is_backtest=True)
+    CandleMaker(engine, is_backtest=True)
 
     om = OrderManager(engine, croupier, player, setup_engine.tracker)
     await om.start()

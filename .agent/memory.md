@@ -4,6 +4,8 @@
 > 1. **Leer este archivo completo al inicio de cada sesión**, antes de escribir código, ejecutar comandos o hacer suposiciones.
 > 2. **Actualizar este archivo al final de cada sesión** con: decisiones tomadas, bugs encontrados, estado actual, gotchas nuevos, y cualquier cambio de arquitectura relevante.
 > 3. Si el usuario no te lo recuerda, hazlo de todos modos. Es tu responsabilidad, no la suya.
+> 4. **REGLA DE ORO DE GIT (NO MERGE):** Hay 3 BOTS DIFERENTES e incompatibles viviendo en distintas ramas de este repositorio. **NUNCA hagas merge ni rebase entre ramas.** Siempre que se haga un `push`, DEBE hacerse directa y exclusivamente dentro de la rama en cuestión (ej. `git push`) para evitar mezclar y destruir las arquitecturas de los bots.
+> 5. **REGLA DE PUSH (SOLO LOCAL):** NUNCA ejecutes `git push` a menos que el usuario lo ordene expresamente. Limítate a hacer `git commit` en local para que el usuario mantenga el control manual de lo que sube al repositorio remoto.
 
 ## Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
