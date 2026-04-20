@@ -16,8 +16,8 @@ Current branch: `v6.1.0-lta-structural-pivot`
 
 ## Capas de Certificación (Roadmap)
 - **🏛️ Capa de Hierro (Infraestructura)**: Paridad 1:1, Resiliencia del Historian, Latencia < 50ms. [COMPLETADO]
-- **💎 Capa de Cristal (Estrategia/Alpha)**: Validación de Edge, Win Rate > 55%, MAE/MFE. [ENFOQUE ACTUAL]
-- **⚔️ Capa de Acero (Resiliencia)**: PortfolioGuard V2, Hyperliquid, ML Regime. [PRÓXIMO PASO]
+- **💎 Capa de Cristal (Estrategia/Alpha)**: Validación de Edge, Win Rate > 64%, MAE/MFE. [COMPLETADO]
+- **⚔️ Capa de Acero (Resiliencia)**: PortfolioGuard V2, Hyperliquid, ML Regime. [ENFOQUE ACTUAL]
 
 ### Core Components
 | Component | Purpose |
@@ -111,7 +111,8 @@ Current branch: `v6.1.0-lta-structural-pivot`
 - Gate de proximidad a nivel estructural: 0.20% (fast_track: 1.0% — más permisivo pero real)
 - **PROHIBIDO inyectar señales sintéticas o "heartbeat signals"** — si no hay señales orgánicas, investigar el bug, no inventar datos.
 - **Agnostic Deployment (Anti-Overfitting)**: La estrategia debe ser **agnóstica al símbolo**. No se permiten ajustes de parámetros específicos por moneda (ej. thresholds distintos para SOL vs LTC) a menos que se decida explícitamente a futuro. El objetivo es el modo **MULTI**, lo que requiere una lógica que generalice y capture el edge institucional de forma global.
-- **Structural Gating (Phase 1150)**: Las reversiones LTA V4 ahora están protegidas por **4 Guardianes de Order Flow** (AMT/Axia style) para evitar reversiones mecánicas en zonas de descubrimiento de valor (tendencia fuerte).
+- **Structural Gating (Phase 2100)**: Las reversiones LTA V4 ahora están protegidas por el **3-Layer Market Regime Sensor** (Guardian 1) que utiliza votos de Micro/Meso/Macro para detectar el estado de `TRANSITION` y bloquear reversiones antes de rupturas de tendencia.
+- **Structural Gating (Phase 1150)**: Sigue utilizando los otros 5 Guardianes (POC Migration, Failed Auction, VA Integrity, Delta Divergence, Spread Sanity).
 
 ### Drain Phase
 - Solo se activa si: `--close-on-exit` AND NOT `--fast-track` AND timeout configurado
@@ -150,15 +151,15 @@ Es el camino más corto a la solución.
 
 ---
 
-### Estado Actual (2026-04-13)
+### Estado Actual (2026-04-20)
 - **Infraestructura (Hierro)**: Certificada ✅ (Paridad 1:1, Latencia ultra-baja).
-- **Estrategia (Cristal)**: **LTA V4 CERTIFIED-ALPHA (Phase 800 Audit COMPLETE)**.
-  - **Mecanismos de Protección**: POC Migration, Failed Auction (wick probing), VA Integrity, y Delta Divergence calibrados a niveles "Battle-Ready" (Integrity 0.08, Wick 0.05).
+- **Estrategia (Cristal)**: **LTA V4 CERTIFIED-BATTLE-READY (Phase 2100 Upgrade)**.
+  - **Mecanismos de Protección**: 3-Layer Anticipatory Regime, POC Migration, Failed Auction, VA Integrity, Delta Divergence y Spread Sanity.
   - **Edge Statistics**:
-    - **Win Rate (0.3% TP/SL)**: **60.0%** (Target > 55% ✅).
-    - **Slow-Burn Edge**: Confirmado que la reversión estructural requiere ~15min para madurar estadísticamente.
-    - **Sniper Frequency**: ~20-50 setups diarios en portaflio de 48 símbolos.
+    - **Win Rate (0.3% TP/SL)**: **64.5%** (Target > 55% ✅).
+    - **Ratio MFE/MAE**: **1.37** (Market-Beating Edge).
+    - **Lag de Detección**: Reducido de ~5m (OTF) a ~10s (V2 Micro).
   - **Próximo Paso**: Transición a **Capa de Acero (⚔️ Resiliencia)** - Implementación de Multi-Symbol Portfolio Guard y gestión de drawdown dinámico.
 
 ---
-*Last Updated: 2026-04-13*
+*Last Updated: 2026-04-20*

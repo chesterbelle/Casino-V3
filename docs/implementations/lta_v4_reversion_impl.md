@@ -14,6 +14,7 @@ Tick/Candle Events
         ▼
 ┌──────────────────┐
 │  SensorWorker(s)  │  Parallel processes (Actor Model)
+│  ├─ MarketRegime  │  Phase 2100: 3-Layer Anticipatory
 │  ├─ Absorption    │
 │  ├─ Exhaustion    │
 │  ├─ Cascade       │  LiquidationCascadeDetector
@@ -153,16 +154,24 @@ LTA_PROXIMITY_THRESHOLD = 0.0025  # 0.25% from VAH/VAL
 
 ## 4. The 6 Guardian Gates
 
-### 4.1 Guardian 1: Regime Alignment (`_check_regime_alignment`)
+### 4.1 Guardian 1: Anticipatory Regime Alignment (`_check_regime_alignment`)
 
-**Purpose:** Prevents counter-trend reversions (e.g., shorting VAH during BULL_OTF).
+**Purpose**: Prevents reversions during market breakouts/trends using a 3-layer voting system that reacts in seconds (Micro) rather than minutes (OTF).
 
-**Logic:**
-- NEUTRAL → PASS
-- Trend-aligned → PASS (LONG during UP, SHORT during DOWN)
-- Counter-trend → REJECT
+**Implementation (Phase 2100)**:
+The `MarketRegimeSensor` (V2) evaluates three simultaneous layers:
+1. **Micro (0-10s)**: Tick-level delta velocity (Z-score).
+2. **Meso (1-5m)**: Value Area expansion and IB breaks.
+3. **Macro (15m+)**: POC migration velocity across multiple candles.
 
-**Data Source:** `ContextRegistry.get_regime(symbol)` + `ContextRegistry.otf[symbol]`
+**Regime Logic**:
+- **`BALANCE`** → **PASS**: VA is stable, POC is fixed. Reversion is optimal.
+- **`TRANSITION`** → **REJECT**: Micro/Meso agree on a direction but Macro hasn't confirmed. **Market is leaving balance.** Block all reversions immediately.
+- **`TREND_UP`** → **PASS if LONG**: Only allow trend-aligned reversions (e.g., buying at VAL). Reject shorts at VAH.
+- **`TREND_DOWN`** → **PASS if SHORT**: Only allow trend-aligned reversions (e.g., selling at VAH). Reject longs at VAL.
+
+**Data Source**: `ContextRegistry._regime_v2[symbol]` (Full data object).
+**Backward Compatibility**: If V2 data is missing, falls back to legacy `OneTimeframing` logic.
 
 ---
 
@@ -355,13 +364,12 @@ The `AdaptivePlayer` is a "Dumb Executor" — it trusts the SetupEngine's TP/SL 
 
 ## 9. File Reference Map
 
-| Component | File | Key Functions |
-|-----------|------|---------------|
 | Strategy Config | `config/strategies.py` | All thresholds, window map |
 | Sensor Config | `config/sensors.py` | ACTIVE_SENSORS registry |
 | Setup Engine | `decision/setup_engine.py` | `_evaluate_lta_structural`, 6 guardians, structural sync |
 | Context Registry | `core/context_registry.py` | Session structural levels, VA integrity, micro-state, spread |
 | Market Profile | `core/market_profile.py` | POC/VA calculation, `calculate_va_integrity()` |
+| Regime Sensor | `sensors/regime/market_regime.py` | Phase 2100: 3-Layer Market Regime |
 | Session Sensor | `sensors/footprint/session.py` | Window detection, IB, failed auctions, VA integrity emission |
 | Cascade Sensor | `sensors/footprint/liquidation_cascade.py` | State machine detector |
 | Absorption Sensor | `sensors/footprint/absorption.py` | Absorption + zone detection |
