@@ -52,6 +52,9 @@ class ContextRegistry:
         # Phase B3: Spread tracking for spread sanity gate
         self.spread_state: Dict[str, dict] = {}  # symbol -> {current, avg_5m, history}
 
+        # Phase 2100: V2 Regime data from MarketRegimeSensor (3-layer anticipatory)
+        self._regime_v2: Dict[str, dict] = {}  # symbol -> full V2 regime dict
+
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
         self.attr_long_window = 100
@@ -201,6 +204,10 @@ class ContextRegistry:
 
     def set_otf(self, symbol: str, otf: str):
         self.otf[symbol] = otf
+
+    def set_regime_v2(self, symbol: str, regime_data: dict):
+        """Phase 2100: Store full V2 regime data from MarketRegimeSensor."""
+        self._regime_v2[symbol] = regime_data
 
     def set_micro_state(self, symbol: str, cvd: float, skewness: float, z_score: float):
         """Update real-time microstructure state."""

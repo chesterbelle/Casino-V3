@@ -302,11 +302,55 @@ class SetupEngineV4:
         """Processes incoming tactical and regime events."""
         # Phase 1500: Sync Regime Filters with ContextRegistry
         md = event.metadata or {}
+
+        # Phase 2100: New MarketRegime_V2 (3-layer anticipatory sensor)
+        # Takes priority over legacy OTF. Maps to ContextRegistry using the
+        # new regime vocabulary (BALANCE / TRANSITION / TREND_UP / TREND_DOWN).
+        if md.get("type") == "MarketRegime_V2":
+            regime_v2 = md.get("regime", "BALANCE")
+            direction = md.get("direction", "NEUTRAL")
+            confidence = md.get("confidence", 0.0)
+            reversion_allowed = md.get("reversion_allowed", True)
+
+            # Map to legacy regime format for backward compatibility
+            # BALANCE     → NEUTRAL (reversion allowed)
+            # TRANSITION  → TRANSITION (reversion blocked — new state)
+            # TREND_UP    → UP
+            # TREND_DOWN  → DOWN
+            legacy_regime_map = {
+                "BALANCE": "NEUTRAL",
+                "TRANSITION": "TRANSITION",
+                "TREND_UP": "UP",
+                "TREND_DOWN": "DOWN",
+            }
+            mapped = legacy_regime_map.get(regime_v2, "NEUTRAL")
+
+            logger.info(
+                f"🌐 [REGIME_V2] {event.symbol}: {regime_v2} → {mapped} "
+                f"(dir={direction}, conf={confidence:.2f}, reversion={'✅' if reversion_allowed else '🚫'})"
+            )
+            if self.context_registry:
+                self.context_registry.set_regime(event.symbol, mapped)
+                # Store full V2 regime data for Guardian 1 to use
+                self.context_registry.set_regime_v2(
+                    event.symbol,
+                    {
+                        "regime": regime_v2,
+                        "direction": direction,
+                        "confidence": confidence,
+                        "reversion_allowed": reversion_allowed,
+                        "layers": md.get("layers", {}),
+                    },
+                )
+            return
+
+        # Phase 1500 (Legacy): OTF sensor backward compatibility
+        # Only used if MarketRegime sensor is not active
         if md.get("type") == "MarketRegime_OTF":
             regime = md.get("regime", "NEUTRAL")
             mapping = {"BULL_OTF": "UP", "BEAR_OTF": "DOWN", "NEUTRAL": "NEUTRAL"}
             mapped = mapping.get(regime, "NEUTRAL")
-            logger.info(f"🌐 [REGIME] {event.symbol} updated to {mapped} (OTF: {regime})")
+            logger.info(f"🌐 [REGIME_OTF] {event.symbol} updated to {mapped} (OTF: {regime})")
             if self.context_registry:
                 self.context_registry.set_regime(event.symbol, mapped)
                 self.context_registry.set_otf(event.symbol, regime)
@@ -639,9 +683,21 @@ class SetupEngineV4:
 
     def _check_regime_alignment(self, symbol: str, side: str) -> bool:
         """
-        Phase 2000: Regime Alignment Gate (Guardian 1).
-        Prevents fading strong trends.  A reversion SHORT at VAH is rejected
-        if the One-Timeframing regime is BULL_OTF (strong uptrend), and vice versa.
+        Phase 2100: Regime Alignment Gate (Guardian 1) — Anticipatory Version.
+
+        Uses the new 3-layer MarketRegimeSensor (V2) when available.
+        Falls back to legacy OTF logic if V2 data is not present.
+
+        New regime states:
+            BALANCE    → Reversion always allowed (this is our playground)
+            TRANSITION → Reversion BLOCKED regardless of direction
+                         (market is leaving balance — highest danger zone)
+            TREND_UP   → Only LONG reversion allowed (at VAL, trend-aligned)
+            TREND_DOWN → Only SHORT reversion allowed (at VAH, trend-aligned)
+
+        The critical improvement over OTF:
+            TRANSITION blocks reversions BEFORE the trend is confirmed.
+            OTF only blocked AFTER N consecutive bars — too late.
         """
         if self.fast_track:
             return True
@@ -649,26 +705,109 @@ class SetupEngineV4:
         if not self.context_registry:
             return True
 
+        # --- Phase 2100: Try V2 regime first ---
+        regime_v2_data = getattr(self.context_registry, "_regime_v2", {}).get(symbol)
+        if regime_v2_data:
+            regime_v2 = regime_v2_data.get("regime", "BALANCE")
+            direction = regime_v2_data.get("direction", "NEUTRAL")
+            confidence = regime_v2_data.get("confidence", 0.0)
+            layers = regime_v2_data.get("layers", {})
+
+            metrics = {
+                "regime_v2": regime_v2,
+                "direction": direction,
+                "confidence": confidence,
+                "side": side,
+                "layers": {k: v.get("vote") for k, v in layers.items()},
+            }
+
+            # BALANCE → always allow reversion (our edge lives here)
+            if regime_v2 == "BALANCE":
+                self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT_V2", "Balance regime", metrics, 0.0, side)
+                return True
+
+            # TRANSITION → ALWAYS block, regardless of direction
+            # This is the key improvement: we block BEFORE the trend is confirmed
+            if regime_v2 == "TRANSITION":
+                logger.info(
+                    f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TRANSITION state "
+                    f"(conf={confidence:.2f}, dir={direction}) — market leaving balance"
+                )
+                self._trace_decision(
+                    symbol,
+                    "REJECT",
+                    "REGIME_ALIGNMENT_V2",
+                    f"TRANSITION state (dir={direction}, conf={confidence:.2f})",
+                    metrics,
+                    0.0,
+                    side,
+                )
+                return False
+
+            # TREND_UP → only allow LONG (trend-aligned reversion at VAL)
+            if regime_v2 == "TREND_UP":
+                if side == "LONG":
+                    self._trace_decision(
+                        symbol, "PASS", "REGIME_ALIGNMENT_V2", "Trend-aligned LONG in TREND_UP", metrics, 0.0, side
+                    )
+                    return True
+                logger.info(
+                    f"🛡️ [REGIME_V2] {symbol} SHORT BLOCKED: TREND_UP active "
+                    f"(conf={confidence:.2f}) — counter-trend reversion"
+                )
+                self._trace_decision(
+                    symbol,
+                    "REJECT",
+                    "REGIME_ALIGNMENT_V2",
+                    f"Counter-trend SHORT in TREND_UP (conf={confidence:.2f})",
+                    metrics,
+                    0.0,
+                    side,
+                )
+                return False
+
+            # TREND_DOWN → only allow SHORT (trend-aligned reversion at VAH)
+            if regime_v2 == "TREND_DOWN":
+                if side == "SHORT":
+                    self._trace_decision(
+                        symbol, "PASS", "REGIME_ALIGNMENT_V2", "Trend-aligned SHORT in TREND_DOWN", metrics, 0.0, side
+                    )
+                    return True
+                logger.info(
+                    f"🛡️ [REGIME_V2] {symbol} LONG BLOCKED: TREND_DOWN active "
+                    f"(conf={confidence:.2f}) — counter-trend reversion"
+                )
+                self._trace_decision(
+                    symbol,
+                    "REJECT",
+                    "REGIME_ALIGNMENT_V2",
+                    f"Counter-trend LONG in TREND_DOWN (conf={confidence:.2f})",
+                    metrics,
+                    0.0,
+                    side,
+                )
+                return False
+
+        # --- Legacy fallback: OTF-based regime (Phase 2000) ---
         regime = self.context_registry.get_regime(symbol)
         otf = self.context_registry.otf.get(symbol, "NEUTRAL")
-        metrics = {"regime": regime, "otf": otf, "side": side}
+        metrics = {"regime": regime, "otf": otf, "side": side, "source": "legacy_otf"}
 
-        # NEUTRAL regime → always PASS
         if regime == "NEUTRAL" or otf == "NEUTRAL":
-            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Neutral regime", metrics, 0.0, side)
+            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Neutral regime (legacy)", metrics, 0.0, side)
             return True
 
-        # Trend-aligned reversion is safe (e.g., LONG at VAL during uptrend)
         if side == "LONG" and regime == "UP":
-            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned LONG", metrics, 0.0, side)
+            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned LONG (legacy)", metrics, 0.0, side)
             return True
         if side == "SHORT" and regime == "DOWN":
-            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned SHORT", metrics, 0.0, side)
+            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned SHORT (legacy)", metrics, 0.0, side)
             return True
 
-        # Counter-trend reversion is dangerous (e.g., SHORT at VAH during BULL_OTF)
-        logger.info(f"🛡️ [REGIME_ALIGNMENT] {symbol} {side} blocked: Counter-trend (Regime: {regime}, OTF: {otf})")
-        self._trace_decision(symbol, "REJECT", "REGIME_ALIGNMENT", "Counter-trend reversion", metrics, 0.0, side)
+        logger.info(f"🛡️ [REGIME_OTF] {symbol} {side} blocked: Counter-trend (Regime: {regime}, OTF: {otf})")
+        self._trace_decision(
+            symbol, "REJECT", "REGIME_ALIGNMENT", "Counter-trend reversion (legacy)", metrics, 0.0, side
+        )
         return False
 
     def _check_poc_migration(self, symbol: str, side: str) -> bool:

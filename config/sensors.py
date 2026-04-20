@@ -23,7 +23,10 @@ ACTIVE_SENSORS = {
     "FootprintVolumeExhaustion": True,
     "FootprintDeltaPoCShift": True,
     "CumulativeDelta": True,
-    "OneTimeframing": True,
+    # Phase 2100: MarketRegime replaces OneTimeframing with 3-layer anticipatory detection.
+    # OneTimeframing is kept as fallback (disabled by default when MarketRegime is active).
+    "MarketRegime": True,
+    "OneTimeframing": False,  # Legacy — superseded by MarketRegime
     "BigOrderSensor": True,
     "SessionValueArea": True,
     "FootprintDeltaVelocity": True,
@@ -48,7 +51,8 @@ SENSOR_TIMEFRAMES = {
     "FootprintVolumeExhaustion": ["1m"],
     "FootprintDeltaPoCShift": ["1m"],
     "CumulativeDelta": ["1m"],
-    "OneTimeframing": ["1m"],
+    "MarketRegime": ["1m"],  # Phase 2100: 3-layer anticipatory regime sensor
+    "OneTimeframing": ["1m"],  # Legacy fallback
     "BigOrderSensor": ["1m"],
     "SessionValueArea": ["1m"],
     "FootprintDeltaVelocity": ["1m"],
@@ -101,6 +105,9 @@ SENSOR_PARAMS = {
     },
     "OneTimeframing": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor, no TP/SL needed
+    },
+    "MarketRegime": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Phase 2100: Context sensor, no TP/SL needed
     },
     "MicroStructureContext": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor, no TP/SL needed

@@ -635,10 +635,14 @@ class SensorManager:
         from sensors.footprint.liquidation_cascade import LiquidationCascadeDetector
         from sensors.footprint.session import SessionValueArea
         from sensors.footprint.volatility import VolatilitySpikeSensor
-        from sensors.regime.one_timeframing import OneTimeframingSensor
+        from sensors.regime.market_regime import MarketRegimeSensor  # Phase 2100
+        from sensors.regime.one_timeframing import (
+            OneTimeframingSensor,  # Legacy fallback
+        )
 
         return [
-            OneTimeframingSensor,
+            MarketRegimeSensor,  # Phase 2100: 3-layer anticipatory regime (replaces OTF)
+            OneTimeframingSensor,  # Legacy fallback (disabled in config by default)
             SessionValueArea,
             DebugHeartbeatV3,
             FootprintImbalanceV3,
