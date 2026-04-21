@@ -112,7 +112,7 @@ Current branch: `v6.1.0-lta-structural-pivot`
 - **PROHIBIDO inyectar señales sintéticas o "heartbeat signals"** — si no hay señales orgánicas, investigar el bug, no inventar datos.
 - **Agnostic Deployment (Anti-Overfitting)**: La estrategia debe ser **agnóstica al símbolo**. No se permiten ajustes de parámetros específicos por moneda (ej. thresholds distintos para SOL vs LTC) a menos que se decida explícitamente a futuro. El objetivo es el modo **MULTI**, lo que requiere una lógica que generalice y capture el edge institucional de forma global.
 - **Structural Gating (Phase 2100)**: Las reversiones LTA V4 ahora están protegidas por el **3-Layer Market Regime Sensor** (Guardian 1) que utiliza votos de Micro/Meso/Macro para detectar el estado de `TRANSITION` y bloquear reversiones antes de rupturas de tendencia.
-- **Structural Gating (Phase 1150)**: Sigue utilizando los otros 5 Guardianes (POC Migration, Failed Auction, VA Integrity, Delta Divergence, Spread Sanity).
+- **Structural Gating (Phase 2200)**: Los 5 guardianes restantes fueron reestructurados en LTA V5. G3 (VA Integrity) convertido a soft gate, G4 (Failed Auction) lookback extendido a 10 velas, G5 (Delta Divergence) threshold relajado a z < -2.5. Resultado: +70% más señales manteniendo el mismo win rate.
 
 ### Drain Phase
 - Solo se activa si: `--close-on-exit` AND NOT `--fast-track` AND timeout configurado
@@ -151,15 +151,43 @@ Es el camino más corto a la solución.
 
 ---
 
-### Estado Actual (2026-04-20)
+### Estado Actual (2026-04-21)
 - **Infraestructura (Hierro)**: Certificada ✅ (Paridad 1:1, Latencia ultra-baja).
-- **Estrategia (Cristal)**: **LTA V4 CERTIFIED-BATTLE-READY (Phase 2100 Upgrade)**.
-  - **Mecanismos de Protección**: 3-Layer Anticipatory Regime, POC Migration, Failed Auction, VA Integrity, Delta Divergence y Spread Sanity.
-  - **Edge Statistics**:
-    - **Win Rate (0.3% TP/SL)**: **64.5%** (Target > 55% ✅).
-    - **Ratio MFE/MAE**: **1.37** (Market-Beating Edge).
-    - **Lag de Detección**: Reducido de ~5m (OTF) a ~10s (V2 Micro).
-  - **Próximo Paso**: Transición a **Capa de Acero (⚔️ Resiliencia)** - Implementación de Multi-Symbol Portfolio Guard y gestión de drawdown dinámico.
+- **Estrategia (Cristal)**: **LTA V5 CERTIFIED (Phase 2200 — Guardian Restructuring)**.
+
+#### LTA V5 — Cambios vs V4 (branch: `feature/lta-v5-sensor-consolidation`)
+
+**Sensores Tácticos:**
+- ❌ `TacticalRejection` eliminado — redundante con TacticalAbsorption (correlación >0.85)
+- ❌ `TacticalStackedImbalance` eliminado — contradictorio (predice continuación en playbook de reversión)
+- ❌ `TacticalImbalance` eliminado — menos específico que TacticalTrappedTraders
+- ✅ `TacticalSinglePrintReversion` nuevo — Market Profile: single print rejection (zonas de bajo volumen)
+- ✅ `TacticalVolumeClimaxReversion` nuevo — Wyckoff: volumen climax sin extensión de precio
+
+**Guardianes Reestructurados (Phase 2200):**
+- **G3 VA Integrity**: Convertido de hard gate a soft gate. Threshold reducido al 50% del original. Solo rechaza en casos críticos. Antes rechazaba el 80% de señales (1,594/1,986).
+- **G4 Failed Auction**: Lookback extendido de 3 a 10 velas. Wick body check eliminado (redundante con sensores tácticos).
+- **G5 Delta Divergence**: Threshold relajado de z < -1.5 a z < -2.5. Solo bloquea flujo extremo sostenido.
+
+**Edge Statistics LTA V5 (72h, 3 activos: LTC/SOL/ETH):**
+- **Señales**: 75 (vs 44 en V4, +70%)
+- **Win Rate (0.3% TP/SL)**: **68.9%** (vs 64.5% en V4)
+- **Ratio MFE/MAE**: **1.61** (vs 1.37 en V4)
+- **Expectancy**: **+0.1133** (vs +0.0871 en V4)
+- **Status**: CERTIFIED ✅
+
+**Archivos modificados en LTA V5:**
+- `decision/setup_engine.py` — Whitelist V5 + Guardianes Phase 2200
+- `config/strategies.py` — LTA_FAILED_AUCTION_LOOKBACK=10
+- `config/sensors.py` — Nuevos sensores registrados
+- `core/sensor_manager.py` — Imports de nuevos sensores
+- `sensors/footprint/advanced.py` — Rejection y StackedImbalance deshabilitados
+- `sensors/footprint/imbalance.py` — Imbalance deshabilitado
+- `sensors/footprint/single_print_reversion.py` — Nuevo sensor
+- `sensors/footprint/volume_climax_reversion.py` — Nuevo sensor
+- `sensors/footprint/deprecated_v4/` — Backups de sensores eliminados
+
+**Próximo paso**: Integrar LTA V5 a `v6.1.0-lta-structural-pivot` via cherry-pick manual de archivos (NO merge). Ejecutar edge audit protocol en esa rama para certificar.
 
 ---
-*Last Updated: 2026-04-20*
+*Last Updated: 2026-04-21*

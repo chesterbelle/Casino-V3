@@ -33,6 +33,10 @@ ACTIVE_SENSORS = {
     "MicroStructureContext": True,
     "LiquidationCascade": True,
     "VolatilitySpike": False,
+    # === LTA V5: NEW SENSORS (Phase 3: Redesigned with correct concepts) ===
+    "TacticalPoorExtreme": False,  # DEPRECATED: Concept was incorrect
+    "TacticalSinglePrintReversion": True,  # CERTIFIED: Passed audit
+    "TacticalVolumeClimaxReversion": True,  # AUDIT MODE: Testing now
 }
 
 # =====================================================
@@ -59,6 +63,10 @@ SENSOR_TIMEFRAMES = {
     "MicroStructureContext": ["1m"],
     "LiquidationCascade": ["1m"],
     "VolatilitySpike": ["1m"],
+    # LTA V5: New sensors
+    "TacticalPoorExtreme": ["1m"],  # Deprecated
+    "TacticalSinglePrintReversion": ["1m"],  # Redesigned
+    "TacticalVolumeClimaxReversion": ["1m"],
 }
 
 # =====================================================
@@ -114,6 +122,16 @@ SENSOR_PARAMS = {
     },
     "LiquidationCascade": {
         "1m": {"tp_pct": 0.80, "sl_pct": 0.40, "min_score_long": 0.85},
+    },
+    # LTA V5: New sensors (conservative params until audit)
+    "TacticalPoorExtreme": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Deprecated
+    },
+    "TacticalSinglePrintReversion": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Tactical signal, no direct TP/SL
+    },
+    "TacticalVolumeClimaxReversion": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Tactical signal, no direct TP/SL
     },
     # "VolatilitySpike": {
     #     "1m": {"tp_pct": 0.50, "sl_pct": 0.30},

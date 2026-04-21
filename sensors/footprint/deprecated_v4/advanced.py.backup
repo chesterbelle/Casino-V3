@@ -31,11 +31,6 @@ class FootprintPOCRejection(SensorV3):
         self.history = deque(maxlen=5)
 
     def calculate(self, context: Dict[str, Any]) -> Optional[Dict]:
-        # LTA V5: Sensor DISABLED - TacticalRejection eliminated as redundant with TacticalAbsorption
-        # Both detect the same microstructural phenomenon (level defense) but Absorption is more robust
-        return None
-
-        # ORIGINAL CODE PRESERVED FOR ROLLBACK:
         candle = context.get(self.timeframe)
         if not candle:
             return None
@@ -207,11 +202,6 @@ class FootprintStackedImbalance(SensorV3):
         self.min_zscore_anomaly = 2.2  # Phase 600: Calibrated for better edge (was 3.0)
 
     def calculate(self, context: Dict[str, Any]) -> Optional[Dict]:
-        # LTA V5: Sensor DISABLED - TacticalStackedImbalance eliminated as contradictory
-        # StackedImbalance predicts CONTINUATION but LTA playbook is REVERSION - logical conflict
-        return None
-
-        # ORIGINAL CODE PRESERVED FOR ROLLBACK:
         candle = context.get(self.timeframe)
         if not candle:
             return None

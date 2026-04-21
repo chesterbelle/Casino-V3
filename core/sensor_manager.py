@@ -633,8 +633,17 @@ class SensorManager:
         from sensors.footprint.flow_shift import FootprintDeltaPoCShift
         from sensors.footprint.imbalance import FootprintImbalanceV3
         from sensors.footprint.liquidation_cascade import LiquidationCascadeDetector
+
+        # LTA V5: New sensors
+        from sensors.footprint.poor_extreme import TacticalPoorExtreme  # Deprecated
         from sensors.footprint.session import SessionValueArea
+        from sensors.footprint.single_print_reversion import (
+            TacticalSinglePrintReversion,
+        )
         from sensors.footprint.volatility import VolatilitySpikeSensor
+        from sensors.footprint.volume_climax_reversion import (
+            TacticalVolumeClimaxReversion,
+        )
         from sensors.regime.market_regime import MarketRegimeSensor  # Phase 2100
         from sensors.regime.one_timeframing import (
             OneTimeframingSensor,  # Legacy fallback
@@ -658,4 +667,8 @@ class SensorManager:
             BigOrderSensor,
             DeltaVelocitySensorV3,
             LiquidationCascadeDetector,
+            # LTA V5: New sensors
+            TacticalPoorExtreme,  # Deprecated
+            TacticalSinglePrintReversion,  # Redesigned with correct Market Profile logic
+            TacticalVolumeClimaxReversion,
         ]

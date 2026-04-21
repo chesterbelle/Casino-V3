@@ -183,17 +183,20 @@ class SetupEngineV4:
         # 2. Find the most recent reversal signal in 5s memory
         reversal_signal = None
         # Phase 800: Expanded Whitelist for LTA V4 Confluence
+        # Phase 2100: LTA V5 Sensor Consolidation - Eliminated redundant sensors
         TACTICAL_WHITELIST = (
-            "TacticalAbsorption",
-            "TacticalRejection",
-            "TacticalDivergence",
-            "TacticalTrappedTraders",
-            "TacticalExhaustion",
-            # "TacticalPoCShift" — Removed Phase 2000: POC shift is a trend-continuation
-            # signal, fundamentally incompatible with reversion. Axia: "POC acceptance = don't fade."
-            "TacticalImbalance",
-            "TacticalStackedImbalance",
-            "TacticalLiquidationCascade",
+            "TacticalAbsorption",  # Núcleo: defensa del borde VA
+            "TacticalDivergence",  # Confirmador: agotamiento de momentum
+            "TacticalTrappedTraders",  # Confirmador: participantes atrapados
+            "TacticalExhaustion",  # Confirmador: volumen extremo sin follow-through
+            "TacticalLiquidationCascade",  # Playbook Beta: fade de dislocación extrema
+            # LTA V5: NEW SENSORS (Phase 3)
+            "TacticalSinglePrintReversion",  # Market Profile: single print rejection
+            "TacticalVolumeClimaxReversion",  # Wyckoff: volume climax without extension
+            # ELIMINATED in LTA V5:
+            # "TacticalRejection" → Redundante con TacticalAbsorption (correlación >0.85)
+            # "TacticalStackedImbalance" → Contradictorio (predice continuación en playbook de reversión)
+            # "TacticalImbalance" → Menos específico que TacticalTrappedTraders
         )
         for e in events:
             md = e.metadata or {}
@@ -843,9 +846,16 @@ class SetupEngineV4:
 
     def _check_va_integrity(self, symbol: str) -> bool:
         """
-        Phase 2000: VA Integrity Gate (Axia style, Guardian 3).
-        Ensure the POC is concentrated and the VA is tight (not expanded/gapped).
-        Threshold adapts dynamically based on the current liquidity window.
+        Phase 2200: VA Integrity Gate (Restructured — Soft Gate).
+
+        CHANGE from Phase 2000:
+        Previously this was a hard gate that rejected ~80% of signals (1,594/1,986).
+        In crypto 24/7, the VA is naturally more dispersed than equity futures,
+        especially during Asian and quiet sessions.
+
+        New logic: Only reject if VA integrity is CRITICALLY low (< 50% of threshold)
+        AND the VA is actively expanding (market leaving balance).
+        Otherwise, allow the trade — the Regime Guardian already handles balance detection.
         """
         if self.fast_track:
             return True
@@ -860,24 +870,41 @@ class SetupEngineV4:
         va_thresholds = getattr(strat_config, "LTA_VA_INTEGRITY_BY_WINDOW", {})
         threshold = va_thresholds.get(current_window, strat_config.LTA_VA_INTEGRITY_MIN)
 
-        metrics = {"integrity": integrity, "min_threshold": threshold, "window": current_window}
+        # Phase 2200: Soft gate — only reject at critically low integrity (50% of threshold)
+        # Rationale: Regime Guardian (G1) already ensures we're in BALANCE.
+        # If we're in BALANCE, the VA doesn't need to be perfectly dense.
+        critical_threshold = threshold * 0.50
 
-        if integrity < threshold:
+        metrics = {
+            "integrity": integrity,
+            "threshold": threshold,
+            "critical_threshold": critical_threshold,
+            "window": current_window,
+        }
+
+        if integrity < critical_threshold:
             logger.info(
-                f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} < {threshold} ({current_window})"
+                f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} critically low "
+                f"< {critical_threshold:.4f} ({current_window})"
             )
-            self._trace_decision(symbol, "REJECT", "VA_INTEGRITY", "Low VA density", metrics, 0.0, "")
+            self._trace_decision(symbol, "REJECT", "VA_INTEGRITY", "Critically low VA density", metrics, 0.0, "")
             return False
 
-        self._trace_decision(symbol, "PASS", "VA_INTEGRITY", "High VA density", metrics, 0.0, "")
+        self._trace_decision(symbol, "PASS", "VA_INTEGRITY", "Acceptable VA density", metrics, 0.0, "")
         return True
 
     def _check_failed_auction(self, symbol: str, side: str, reversal_signal: dict) -> bool:
         """
-        Phase 2000: Failed Auction Confirmation with lookback.
-        The price must have attempted to break the edge (wick) in the current OR
-        recent candles and closed back inside. This aligns with Axia Futures methodology
-        where the probe and the tactical signal may be separated by 1-3 minutes.
+        Phase 2200: Failed Auction Confirmation (Restructured).
+
+        CHANGES from Phase 2000:
+        1. Lookback extended from 3 to 10 candles — probe can happen well before signal
+        2. Wick body check REMOVED — redundant with tactical sensors (Absorption,
+           TrappedTraders already detected the wick). Checking it again here creates
+           a double-filter that rejects valid setups.
+
+        Core logic preserved: price must have probed the VA edge (touched VAH/VAL)
+        in the recent lookback window. This confirms the Failed Auction structure.
         """
         if self.fast_track:
             return True
@@ -886,15 +913,13 @@ class SetupEngineV4:
         price = reversal_signal.get("close", 0.0)
         high = reversal_signal.get("high", 0.0)
         low = reversal_signal.get("low", 0.0)
-        open_p = reversal_signal.get("open", 0.0)
 
-        # Phase 2000: Use max(high) and min(low) across recent candles
-        # This captures probes that happened 1-3 candles before the tactical signal
+        # Phase 2200: Extended lookback — use max(high) and min(low) across recent candles
+        # Extended from 3 to 10 candles to capture probes that happened further back
         recent = self.recent_extremes.get(symbol)
         if recent and len(recent) > 0:
             lookback_high = max(c["high"] for c in recent)
             lookback_low = min(c["low"] for c in recent)
-            # Use the wider of current signal vs lookback
             high = max(high, lookback_high) if high > 0 else lookback_high
             low = min(low, lookback_low) if low > 0 else lookback_low
 
@@ -902,7 +927,6 @@ class SetupEngineV4:
             "price": price,
             "high": high,
             "low": low,
-            "open": open_p,
             "val": val,
             "vah": vah,
             "lookback_candles": len(recent) if recent else 0,
@@ -914,18 +938,6 @@ class SetupEngineV4:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} > {val:.4f})")
                 self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe below edge", metrics, price, side)
                 return False
-            # Check rejection body relative to wick
-            wick = min(open_p, price) - low
-            body = abs(price - open_p)
-            metrics["wick"] = wick
-            metrics["body"] = body
-
-            if wick < body * strat_config.LTA_FAILED_AUCTION_BODY_MIN:
-                logger.info(
-                    f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: Weak rejection wick ({wick:.4f} vs body {body:.4f})"
-                )
-                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "Weak rejection body", metrics, price, side)
-                return False
 
         if side == "SHORT":
             # Must have probed above VAH (current or recent candles)
@@ -933,26 +945,19 @@ class SetupEngineV4:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} < {vah:.4f})")
                 self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe above edge", metrics, price, side)
                 return False
-            wick = high - max(open_p, price)
-            body = abs(price - open_p)
-            metrics["wick"] = wick
-            metrics["body"] = body
 
-            if wick < body * strat_config.LTA_FAILED_AUCTION_BODY_MIN:
-                logger.info(
-                    f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: Weak rejection wick ({wick:.4f} vs body {body:.4f})"
-                )
-                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "Weak rejection body", metrics, price, side)
-                return False
-
-        self._trace_decision(symbol, "PASS", "FAILED_AUCTION", "Valid wick rejection", metrics, price, side)
+        self._trace_decision(symbol, "PASS", "FAILED_AUCTION", "Valid probe at edge", metrics, price, side)
         return True
 
     def _check_delta_divergence(self, symbol: str, side: str) -> bool:
         """
-        Phase 1150: Delta Divergence Confirmation.
-        For LONG at VAL: CVD should be positive or neutral (exhaustion of selling).
-        For SHORT at VAH: CVD should be negative or neutral (exhaustion of buying).
+        Phase 2200: Delta Divergence Confirmation (Restructured).
+
+        CHANGE from Phase 1150:
+        Threshold relaxed from z < -1.5 to z < -2.5.
+        Rationale: In legitimate reversions, flow can be at -1.8 to -2.0 just
+        before turning. The old threshold was blocking valid exhaustion setups.
+        Only truly extreme, sustained flow (z < -2.5) should block a LONG.
         """
         if self.fast_track:
             return True
@@ -965,21 +970,21 @@ class SetupEngineV4:
             return True
 
         z_score = state.get("z_score", 0.0)
-        metrics = {"z_score": z_score, "threshold": 1.5}
+        metrics = {"z_score": z_score, "threshold": 2.5}
 
         if side == "LONG":
-            # Reject if selling flow is still aggressively strong (z < -1.5)
-            if z_score < -1.5:
-                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} LONG blocked: Heavy selling flow (Z: {z_score:.2f})")
+            # Reject only if selling flow is extremely strong (z < -2.5)
+            if z_score < -2.5:
+                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} LONG blocked: Extreme selling flow (Z: {z_score:.2f})")
                 self._trace_decision(
                     symbol, "REJECT", "DELTA_DIVERGENCE", "Orderflow pressure too high", metrics, 0.0, side
                 )
                 return False
 
         if side == "SHORT":
-            # Reject if buying flow is still aggressively strong (z > 1.5)
-            if z_score > 1.5:
-                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} SHORT blocked: Heavy buying flow (Z: {z_score:.2f})")
+            # Reject only if buying flow is extremely strong (z > 2.5)
+            if z_score > 2.5:
+                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} SHORT blocked: Extreme buying flow (Z: {z_score:.2f})")
                 self._trace_decision(
                     symbol, "REJECT", "DELTA_DIVERGENCE", "Orderflow pressure too high", metrics, 0.0, side
                 )

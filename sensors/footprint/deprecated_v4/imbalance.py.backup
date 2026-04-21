@@ -50,11 +50,6 @@ class FootprintImbalanceV3(SensorV3):
 
     def on_tick(self, tick_data: dict) -> Optional[dict]:
         """React to every new tick."""
-        # LTA V5: Sensor DISABLED - Eliminated as redundant with TacticalTrappedTraders
-        # TacticalImbalance is less specific than TrappedTraders pattern
-        return None
-
-        # ORIGINAL CODE PRESERVED FOR ROLLBACK:
         # 1. Update the memory matrix and global profile
         self.matrix.on_tick(tick_data)
 
