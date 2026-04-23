@@ -190,4 +190,36 @@ Es el camino más corto a la solución.
 **Próximo paso**: Integrar LTA V5 a `v6.1.0-lta-structural-pivot` via cherry-pick manual de archivos (NO merge). Ejecutar edge audit protocol en esa rama para certificar.
 
 ---
-*Last Updated: 2026-04-21*
+
+### Long-Range Edge Audit Protocol (2026-04-22)
+
+**Protocolo**: `.agent/workflows/long-range-edge-audit.md`
+**Propósito**: Certificar el edge en múltiples condiciones de mercado (Range/Bear/Bull)
+
+**Diseño**: LTC/USDT × 3 condiciones × 3 días = 9 backtests
+- **Por qué LTC**: Más range-bound que SOL/ETH. SOL genera ~15 señales/día (insuficiente). LTC genera ~50/día.
+- **Por qué no SOL**: Demasiado trending/momentum. Ratio 0.86 en 3 condiciones SOL vs 1.10 en LTC.
+
+**Datasets disponibles** (en `tests/validation/`):
+- Range (Aug 14-16, 2024): ltc_range_2024-08-14.csv, ltc_range_24h.csv, ltc_range_2024-08-16.csv
+- Bear  (Sep 05-07, 2024): ltc_bear_2024-09-05.csv, ltc_bear_24h.csv, ltc_bear_2024-09-07.csv
+- Bull  (Oct 13-15, 2024): ltc_bull_2024-10-13.csv, ltc_bull_24h.csv, ltc_bull_2024-10-15.csv
+
+**Resultados LTA V5 (Long-Range 2024)**:
+- Total: 151 señales, Ratio 1.10, WR 50.0% → WATCH
+- Range: n=64, WR 51.4%, Ratio 1.07 → WATCH
+- Bear:  n=33, WR 52.4%, Ratio 1.06 → WATCH
+- Bull:  n=54, WR 41.7%, Ratio 1.06 → FAILED
+
+**Comparación vs Edge Audit Normal (abril 2025)**:
+- Normal: Ratio 1.62, WR 69.4% → CERTIFIED
+- Long-Range 2024: Ratio 1.10, WR 50.0% → WATCH
+- Interpretación: Edge real pero más débil en 2024. LTA V5 mejoras validadas en condiciones recientes.
+
+**Herramientas nuevas**:
+- `utils/data/slice_audit_dataset.py` — corta días específicos de datasets mensuales
+- `utils/analysis/per_condition_audit.py` — análisis vectorizado per-condición (evita timeout)
+- `utils/data/download_trades.py` — descarga aggTrades mensuales desde Binance Vision
+
+---
+*Last Updated: 2026-04-22*
