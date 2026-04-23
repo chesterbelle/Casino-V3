@@ -219,7 +219,39 @@ Es el camino más corto a la solución.
 **Herramientas nuevas**:
 - `utils/data/slice_audit_dataset.py` — corta días específicos de datasets mensuales
 - `utils/analysis/per_condition_audit.py` — análisis vectorizado per-condición (evita timeout)
-- `utils/data/download_trades.py` — descarga aggTrades mensuales desde Binance Vision
+- ~~`utils/data/download_trades.py`~~ — ELIMINADO. Usar solo `parity_data_fetcher.py`
+
+---
+
+### Long-Range Edge Audit V2 — Parity Fetcher Datasets (2026-04-22)
+
+**Protocolo actualizado**: 4 condiciones con datasets del parity fetcher (formato idéntico al audit normal)
+
+**Datasets disponibles** (en `tests/validation/`):
+- Range:      `ltc_24h_audit.csv`       — 2026-04-12 ($53.50, lateral)
+- Bear Normal:`ltc_bear_normal_24h.csv` — 2026-04-11 ($55.07→$53.50, -2.8%)
+- Bear Crash: `ltc_bear_24h_v2.csv`     — 2026-04-02 ($84→$52, -38% crash)
+- Bull:       `ltc_bull_24h_v2.csv`     — 2026-04-07 ($70→$78, +11%)
+
+**Resultados LTA V5 (4 condiciones, parity fetcher)**:
+
+| Condición | n | WR% | Ratio | Veredicto |
+|-----------|---|-----|-------|-----------|
+| RANGE (2026-04-12) | 37 | 57.1% | 1.46 | ✅ CERTIFIED |
+| BEAR NORMAL (2026-04-11) | 14 | 100.0% | 4.85 | LOW_N (prometedor) |
+| BEAR CRASH (2026-04-02) | 10 | 0.0% | 0.21 | ❌ FAILED (evento de cola) |
+| BULL (2026-04-07) | 10 | 60.0% | 0.63 | LOW_N |
+
+**Conclusiones clave**:
+1. Edge confirmado en BALANCE (Ratio 1.46, WR 57.1%)
+2. BEAR NORMAL funciona excepcionalmente (guardians filtran solo señales alineadas)
+3. BEAR CRASH rompe la estrategia — evento de cola, no caso de uso normal
+4. BULL tiene MAE > MFE — mercado sigue subiendo, reversiones fallan
+5. Guardians funcionando: más rechazos `Trend-aligned`/`Counter-trend` en BULL/BEAR
+
+**Datasets de 2024 (Binance Vision — formato diferente, menos confiable)**:
+- Archivos en `tests/validation/ltc_range_*.csv`, `ltc_bear_*.csv`, `ltc_bull_*.csv`
+- Ratio ~1.06-1.10 en 2024 vs 1.46 en 2026 — diferencia atribuida al formato de datos
 
 ---
 *Last Updated: 2026-04-22*
