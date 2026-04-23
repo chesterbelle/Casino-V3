@@ -1,32 +1,38 @@
-# Long-Range Edge Audit — 10 Coins × 7 Days (Temporal Stability Test)
+---
+description: Protocolo para certificar el Edge en múltiples condiciones de mercado (Range, Bear, Bull)
+---
+# Long-Range Edge Audit — LTC × 3 Market Conditions × 3 Days
 
 // turbo-all
 
 ## Overview
-Tests whether the LTA V4 edge **persists across different market conditions over time**.
-A 7-day window captures trending days, ranging days, volatile sessions, and quiet periods.
+Tests whether the LTA edge **persists across different market regimes** using LTC/USDT
+in three distinct conditions over 3 days each.
 
-**Prerequisites**:
-1. Run `/generalized-edge-audit` first. Only include coins that scored CERTIFIED or WATCH.
-2. 7-day datasets must already exist in `tests/validation/long_range/`.
-   Download them manually before running this protocol.
+**Why LTC?**
+LTC is naturally more range-bound than SOL/ETH, making it the ideal asset for a
+POC reversion strategy. SOL is too trending/momentum-driven and generates too few
+signals per day (~15) for statistically meaningful results.
 
-**Expected files** (one per coin):
-```
-tests/validation/long_range/ADA_USDT_USDT_7d.csv
-tests/validation/long_range/ETH_USDT_USDT_7d.csv
-tests/validation/long_range/SOL_USDT_USDT_7d.csv
-tests/validation/long_range/BNB_USDT_USDT_7d.csv
-tests/validation/long_range/XRP_USDT_USDT_7d.csv
-tests/validation/long_range/AVAX_USDT_USDT_7d.csv
-tests/validation/long_range/LINK_USDT_USDT_7d.csv
-tests/validation/long_range/DOGE_USDT_USDT_7d.csv
-tests/validation/long_range/LTC_USDT_USDT_7d.csv
-tests/validation/long_range/SUI_USDT_USDT_7d.csv
-```
+**Market Conditions & Datasets:**
 
-**Statistical Goal**: n ≥ 1000 signals total, SE on WR ≤ ±1.5%
-**Per-Coin Minimum**: n ≥ 50 signals
+| Condition | Dates | Price Range | Files |
+|-----------|-------|-------------|-------|
+| **RANGE** | Aug 14-16, 2024 | $62.52 - $66.75 | ltc_range_2024-08-14.csv, ltc_range_24h.csv, ltc_range_2024-08-16.csv |
+| **BEAR**  | Sep 05-07, 2024 | $61.15 - $68.50 | ltc_bear_2024-09-05.csv, ltc_bear_24h.csv, ltc_bear_2024-09-07.csv |
+| **BULL**  | Oct 13-15, 2024 | $64.06 - $72.00 | ltc_bull_2024-10-13.csv, ltc_bull_24h.csv, ltc_bull_2024-10-15.csv |
+
+**Statistical Goal**: n ≥ 150 signals total, n ≥ 50 per condition
+**Certification Criteria**:
+- Range:  MFE/MAE > 1.2 AND WR > 55% → CERTIFIED (primary edge zone)
+- Bear:   MFE/MAE > 1.0 AND WR > 50% → WATCH (guardians should reduce signal count)
+- Bull:   MFE/MAE > 1.0 AND WR > 50% → WATCH (guardians should reduce signal count)
+
+**Baseline Results (LTA V5, April 2025)**:
+- Edge Audit Normal: Ratio 1.62, WR 69.4%, 80 signals
+- Long-Range 2024: Ratio 1.10, WR 50.0%, 151 signals
+- Interpretation: Edge is real but weaker in 2024 conditions. LTA V5 improvements
+  are validated against recent market conditions.
 
 ---
 
@@ -34,47 +40,88 @@ tests/validation/long_range/SUI_USDT_USDT_7d.csv
 ```bash
 .venv/bin/python reset_data.py
 ```
+**Must output**: `✨ Sistema limpio.`
+
+---
 
 ## Step 1: Verify Datasets Exist
 ```bash
-echo "=== Dataset Verification (7-Day) ==="
-COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
-MISSING=0
-for COIN in "${COINS[@]}"; do
-  FILE="tests/validation/long_range/${COIN}_7d.csv"
-  if [ -f "$FILE" ]; then
-    ROWS=$(wc -l < "$FILE")
-    SIZE=$(du -h "$FILE" | cut -f1)
-    echo "✅ $COIN: $ROWS rows ($SIZE)"
+for f in \
+  tests/validation/ltc_range_2024-08-14.csv \
+  tests/validation/ltc_range_24h.csv \
+  tests/validation/ltc_range_2024-08-16.csv \
+  tests/validation/ltc_bear_2024-09-05.csv \
+  tests/validation/ltc_bear_24h.csv \
+  tests/validation/ltc_bear_2024-09-07.csv \
+  tests/validation/ltc_bull_2024-10-13.csv \
+  tests/validation/ltc_bull_24h.csv \
+  tests/validation/ltc_bull_2024-10-15.csv; do
+  if [ -f "$f" ]; then
+    echo "✅ $(basename $f): $(wc -l < $f) rows"
   else
-    echo "❌ MISSING: $FILE"
-    MISSING=$((MISSING + 1))
+    echo "❌ MISSING: $f"
   fi
 done
-if [ $MISSING -gt 0 ]; then
-  echo "⛔ $MISSING datasets missing. Download them before running this protocol."
-fi
 ```
-**⛔ STOP if any datasets are missing.**
-
-## Step 2: Run Backtests (All Coins, Sequential)
-Each 7-day backtest takes ~5-10 min per coin.
-
+**⛔ STOP if any dataset is missing.** Re-generate with:
 ```bash
-SYMBOLS=("ADA/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
-NAMES=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+# Download monthly data first if needed:
+# .venv/bin/python utils/data/download_trades.py --symbol LTCUSDT --year 2024 --month 08
+# .venv/bin/python utils/data/download_trades.py --symbol LTCUSDT --year 2024 --month 09
+# .venv/bin/python utils/data/download_trades.py --symbol LTCUSDT --year 2024 --month 10
 
-for i in "${!SYMBOLS[@]}"; do
-  SYM="${SYMBOLS[$i]}"
-  DATA="tests/validation/long_range/${NAMES[$i]}_7d.csv"
-  echo "▶ $SYM (7d)..."
-  .venv/bin/python backtest.py \
-    --data "$DATA" --symbol "$SYM" \
-    --depth-db data/historian.db --audit \
-    > /dev/null 2>&1 && echo "✅ $SYM" || echo "❌ $SYM"
+# Then slice:
+for date in 2024-08-14 2024-08-15 2024-08-16; do
+  .venv/bin/python utils/data/slice_audit_dataset.py \
+    --input data/raw/LTCUSDT_trades_2024_08.csv \
+    --date $date --out tests/validation/ltc_range_${date}.csv
 done
-echo "🏁 ALL 7-DAY BACKTESTS COMPLETE"
+# (rename ltc_range_2024-08-15.csv → ltc_range_24h.csv)
+
+for date in 2024-09-05 2024-09-06 2024-09-07; do
+  .venv/bin/python utils/data/slice_audit_dataset.py \
+    --input data/raw/LTCUSDT_trades_2024_09.csv \
+    --date $date --out tests/validation/ltc_bear_${date}.csv
+done
+# (rename ltc_bear_2024-09-06.csv → ltc_bear_24h.csv)
+
+for date in 2024-10-13 2024-10-14 2024-10-15; do
+  .venv/bin/python utils/data/slice_audit_dataset.py \
+    --input data/raw/LTCUSDT_trades_2024_10.csv \
+    --date $date --out tests/validation/ltc_bull_${date}.csv
+done
+# (rename ltc_bull_2024-10-14.csv → ltc_bull_24h.csv)
 ```
+
+---
+
+## Step 2: Run Backtests (9 total — 3 conditions × 3 days)
+
+### 2A: RANGE (Aug 14-16)
+```bash
+for f in tests/validation/ltc_range_2024-08-14.csv tests/validation/ltc_range_24h.csv tests/validation/ltc_range_2024-08-16.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
+```
+
+### 2B: BEAR (Sep 05-07)
+```bash
+for f in tests/validation/ltc_bear_2024-09-05.csv tests/validation/ltc_bear_24h.csv tests/validation/ltc_bear_2024-09-07.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
+```
+
+### 2C: BULL (Oct 13-15)
+```bash
+for f in tests/validation/ltc_bull_2024-10-13.csv tests/validation/ltc_bull_24h.csv tests/validation/ltc_bull_2024-10-15.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
+```
+
+---
 
 ## Step 3: Verify Data Collection
 ```bash
@@ -83,137 +130,61 @@ import sqlite3
 conn = sqlite3.connect('data/historian.db')
 s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]
 p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]
-
-print(f'Total Signals: {s}, Price Samples: {p}')
-print()
-
-rows = conn.execute('SELECT symbol, COUNT(*) FROM signals GROUP BY symbol ORDER BY COUNT(*) DESC').fetchall()
-print('Per-Coin Breakdown (7d):')
-for sym, cnt in rows:
-    flag = '⚠️' if cnt < 50 else '✅'
-    print(f'  {flag} {sym:20s}: {cnt} signals')
+d = conn.execute('SELECT COUNT(*) FROM decision_traces').fetchone()[0] if conn.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='decision_traces' ''').fetchone()[0] == 1 else 0
+print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
 "
 ```
-**Minimum**: Total Signals ≥ 1000. Per-coin ≥ 50.
+**Minimum**: Signals ≥ 150. If fewer, mark as INSUFFICIENT DATA.
 
-## Step 4: Edge Audit (Aggregate)
+---
+
+## Step 4: Statistical Extraction (MFE/MAE Aggregate)
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --window 900
 ```
 
-## Step 5: Temporal Stability Analysis
-Check if the edge is consistent day-by-day (no single-day spikes driving the average).
+---
 
+## Step 5: Per-Condition Breakdown
 ```bash
-.venv/bin/python -c "
-import sqlite3, statistics
-from datetime import datetime, timezone
-conn = sqlite3.connect('data/historian.db')
-signals = conn.execute('SELECT timestamp, symbol, side, price FROM signals ORDER BY timestamp').fetchall()
-
-day_data = {}
-for ts, sym, side, price in signals:
-    day = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d')
-    ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+900)).fetchall()
-    if not ps: continue
-
-    hit_tp = hit_sl = False
-    for (p,) in ps:
-        m = (p - price)/price*100
-        if side == 'SHORT': m = -m
-        if m >= 0.3: hit_tp = True; break
-        if m <= -0.3: hit_sl = True; break
-
-    if day not in day_data:
-        day_data[day] = {'wins': 0, 'losses': 0, 'timeouts': 0, 'n': 0}
-    day_data[day]['n'] += 1
-    if hit_tp: day_data[day]['wins'] += 1
-    elif hit_sl: day_data[day]['losses'] += 1
-    else: day_data[day]['timeouts'] += 1
-
-print('DAY-BY-DAY EDGE STABILITY (0.3%/0.3%)')
-print(f'{\"Day\":12s} {\"n\":>4}  {\"W\":>3}  {\"L\":>3}  {\"T\":>3}  {\"WR%\":>6}  {\"Status\":>8}')
-print('-' * 50)
-
-daily_wrs = []
-for day in sorted(day_data.keys()):
-    d = day_data[day]
-    resolved = d['wins'] + d['losses']
-    wr = d['wins'] / resolved * 100 if resolved > 0 else 0
-    daily_wrs.append(wr)
-    status = '✅' if wr > 55 else ('⚠️' if wr > 45 else '❌')
-    print(f'{day:12s} {d[\"n\"]:>4}  {d[\"wins\"]:>3}  {d[\"losses\"]:>3}  {d[\"timeouts\"]:>3}  {wr:>5.1f}%  {status:>8}')
-
-if len(daily_wrs) > 1:
-    print(f'\nDaily WR — Mean: {statistics.mean(daily_wrs):.1f}%, StdDev: {statistics.stdev(daily_wrs):.1f}%, Min: {min(daily_wrs):.1f}%, Max: {max(daily_wrs):.1f}%')
-    consistency = sum(1 for w in daily_wrs if w > 50) / len(daily_wrs) * 100
-    print(f'Profitable Days: {consistency:.0f}%')
-"
+.venv/bin/python utils/analysis/per_condition_audit.py
 ```
-
-## Step 6: Per-Coin Quality
-```bash
-.venv/bin/python -c "
-import sqlite3, statistics
-conn = sqlite3.connect('data/historian.db')
-signals = conn.execute('SELECT timestamp, symbol, side, price FROM signals ORDER BY timestamp').fetchall()
-
-print('PER-COIN EDGE BREAKDOWN — 7 DAY (0.3%/0.3%)')
-print(f'{\"Coin\":20s} {\"n\":>4}  {\"WR%\":>6}  {\"MFE%\":>7}  {\"MAE%\":>7}  {\"Ratio\":>6}  {\"Verdict\":>10}')
-print('-' * 75)
-
-coin_data = {}
-for ts, sym, side, price in signals:
-    ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+900)).fetchall()
-    if not ps: continue
-    max_f = max_a = 0.0
-    hit_tp = hit_sl = False
-    for (p,) in ps:
-        m = (p - price)/price*100
-        if side == 'SHORT': m = -m
-        if m > max_f: max_f = m
-        if m < 0 and abs(m) > max_a: max_a = abs(m)
-        if not hit_tp and m >= 0.3: hit_tp = True
-        if not hit_sl and m <= -0.3: hit_sl = True
-    if sym not in coin_data:
-        coin_data[sym] = {'mfe': [], 'mae': [], 'wins': 0, 'losses': 0}
-    coin_data[sym]['mfe'].append(max_f)
-    coin_data[sym]['mae'].append(max_a)
-    if hit_tp and not hit_sl: coin_data[sym]['wins'] += 1
-    elif hit_sl: coin_data[sym]['losses'] += 1
-
-for sym in sorted(coin_data.keys()):
-    d = coin_data[sym]
-    n = len(d['mfe'])
-    mfe = statistics.mean(d['mfe'])
-    mae = statistics.mean(d['mae'])
-    ratio = mfe / (mae + 1e-9)
-    resolved = d['wins'] + d['losses']
-    wr = d['wins'] / resolved * 100 if resolved > 0 else 0
-    verdict = 'CERTIFIED' if ratio > 1.2 and wr > 55 else ('WATCH' if ratio > 1.0 else 'FAILED')
-    if n < 50: verdict = 'LOW_N'
-    print(f'{sym:20s} {n:>4}  {wr:>5.1f}%  {mfe:>6.3f}%  {mae:>6.3f}%  {ratio:>6.2f}  {verdict:>10}')
-"
-```
+Note: `per_condition_audit.py` uses these timestamp ranges:
+- RANGE (Aug 14-16): 1723593600 - 1723852800
+- BEAR  (Sep 05-07): 1725494400 - 1725753600
+- BULL  (Oct 13-15): 1728777600 - 1729036800
 
 ---
 
-## ⛔ MANDATORY STOP — Present Results
+## ⛔ MANDATORY STOP — Present Results and Certification Status
 
-After Step 6, the agent **MUST STOP** and present:
+After Step 5, the agent **MUST STOP COMPLETELY** and present:
 
-1. **Aggregate metrics**: n, WR%, MFE/MAE, Expectancy (all coins)
-2. **Per-coin table** with Verdicts (compare vs generalized-edge-audit)
-3. **Temporal stability**: Day-by-day WR, consistency %, losing days
-4. **Generalized vs Long-Range comparison**: Did the edge hold over 7 days?
+1. **Aggregate metrics** (Step 4): n total, WR%, MFE/MAE ratio, Expectancy
+2. **Per-condition table** (Step 5): Range / Bear / Bull breakdown with Verdicts
+3. **Guardian effectiveness**: Compare signal counts across conditions
+   - Range should have the MOST signals (balance = our edge zone)
+   - Bear/Bull should have FEWER signals (guardians blocking counter-trend reversions)
+4. **Comparison vs Edge Audit Normal** (baseline: Ratio 1.62, WR 69.4%)
+5. **STOP and wait** for user input
 
 ### Certification Matrix
 
-| Result | Condition | Interpretation |
-|--------|-----------|----------------|
-| **ROBUST** | WR > 55% AND ≥ 5/7 days profitable AND ≥ 7/10 coins WATCH+ | Production ready |
-| **FRAGILE** | WR > 55% BUT < 5/7 days profitable | Regime-dependent |
-| **DEGRADED** | WR dropped > 5% vs generalized-edge-audit | Overfitting to short windows |
-| **FAILED** | WR < 50% or negative expectancy | No real edge |
+| Condition | Criteria | Status | Interpretation |
+|-----------|----------|--------|----------------|
+| **Range** | Ratio > 1.2 AND WR > 55% | **CERTIFIED** | Primary edge confirmed |
+| **Range** | Ratio > 1.0 AND WR > 50% | **WATCH** | Edge exists but weak |
+| **Range** | Ratio < 1.0 | **FAILED** | No edge — strategy broken |
+| **Bear/Bull** | Signal count < Range AND WR > 50% | **GUARDIAN OK** | Guardians filtering correctly |
+| **Bear/Bull** | Signal count ≈ Range | **GUARDIAN WEAK** | Guardians not blocking enough |
+| **Bear/Bull** | WR < 45% | **GUARDIAN FAIL** | Guardians letting bad trades through |
+
+### Overall System Verdict
+
+| Result | Condition | Action |
+|--------|-----------|--------|
+| **ROBUST** | Range CERTIFIED + Bear/Bull GUARDIAN OK | Production ready |
+| **FRAGILE** | Range CERTIFIED + Bear/Bull GUARDIAN WEAK | Tighten regime thresholds |
+| **BROKEN** | Range FAILED | Rework entry logic |
 
 **Do NOT proceed without user approval.**
