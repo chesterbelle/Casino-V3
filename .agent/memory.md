@@ -254,4 +254,29 @@ Es el camino más corto a la solución.
 - Ratio ~1.06-1.10 en 2024 vs 1.46 en 2026 — diferencia atribuida al formato de datos
 
 ---
-*Last Updated: 2026-04-22*
+
+### Guardian Efficacy Analysis (Phase 2300, 2026-04-23)
+
+**Herramientas**: `utils/analysis/guardian_efficacy_audit.py`, `utils/analysis/regime_guardian_debug.py`
+
+**Hallazgos principales**:
+
+1. **Failed Auction Guardian ELIMINADO** — Concepto opera en timeframe de sesión (horas), no en velas de 1m. Causaba discriminación invertida (-29%). `SessionValueArea` ya maneja el concepto correctamente.
+
+2. **Phase 2300: Price Circuit Breaker** — Añadido al `MarketRegimeSensor` para detectar crashes sin depender de Z-scores adaptativos. Con persistencia: se mantiene activo hasta que el precio recupera >0.5%.
+
+3. **Phase 2300: PortfolioGuard Shadow Mode** — En `--audit`, el PortfolioGuard ya no activa drain mode. Solo loguea los cambios de estado.
+
+4. **Discrimination scores actuales** (5 guardians):
+   - REGIME_ALIGNMENT_V2: +0.5% ⚠️ WEAK
+   - POC_MIGRATION: -3.9% ❌ INVERTED
+   - VA_INTEGRITY: -3.1% ❌ INVERTED
+   - DELTA_DIVERGENCE: +5.9% ✅ GOOD
+   - SPREAD_SANITY: N/A
+
+**Pendiente de análisis manual**: POC_MIGRATION y VA_INTEGRITY muestran discriminación invertida. Requiere investigación antes de próximas modificaciones.
+
+**Documentación**: `docs/implementations/lta_v5_reversion_impl.md`
+
+---
+*Last Updated: 2026-04-23*

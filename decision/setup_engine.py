@@ -254,9 +254,11 @@ class SetupEngineV4:
         if not self._check_va_integrity(symbol):
             return None
 
-        # Guardian 4: Failed Auction Confirmation (Candle wick rejection)
-        if not self._check_failed_auction(symbol, side, reversal_signal):
-            return None
+        # Guardian 4: REMOVED in Phase 2300 — Failed Auction
+        # Concept operates at session timeframe (hours), not 1m candles.
+        # SessionValueArea already handles this correctly at session level.
+        # Tactical sensors (Absorption, TrappedTraders) already confirm rejection.
+        # Keeping it caused inverted discrimination (-29% in trending conditions).
 
         # Guardian 5: Delta Divergence Confirmation
         if not self._check_delta_divergence(symbol, side):
@@ -895,16 +897,19 @@ class SetupEngineV4:
 
     def _check_failed_auction(self, symbol: str, side: str, reversal_signal: dict) -> bool:
         """
-        Phase 2200: Failed Auction Confirmation (Restructured).
+        Phase 2300: Failed Auction Confirmation (Redesigned).
 
-        CHANGES from Phase 2000:
-        1. Lookback extended from 3 to 10 candles — probe can happen well before signal
-        2. Wick body check REMOVED — redundant with tactical sensors (Absorption,
-           TrappedTraders already detected the wick). Checking it again here creates
-           a double-filter that rejects valid setups.
+        REDESIGN from Phase 2200:
+        The original check only verified that price PROBED the edge.
+        Problem: In a crash, price always probes the edge (it blows through it).
+        This caused the guardian to be INVERTED — rejecting more in RANGE than in CRASH.
 
-        Core logic preserved: price must have probed the VA edge (touched VAH/VAL)
-        in the recent lookback window. This confirms the Failed Auction structure.
+        New logic: Price must have probed the edge AND closed back inside the VA.
+        This is the true definition of a "Failed Auction" — the market attempted
+        to break out but was rejected and returned to value.
+
+        A probe that doesn't close back inside = continuation (not a failed auction).
+        A probe that closes back inside = rejection (valid failed auction).
         """
         if self.fast_track:
             return True
@@ -914,8 +919,7 @@ class SetupEngineV4:
         high = reversal_signal.get("high", 0.0)
         low = reversal_signal.get("low", 0.0)
 
-        # Phase 2200: Extended lookback — use max(high) and min(low) across recent candles
-        # Extended from 3 to 10 candles to capture probes that happened further back
+        # Phase 2300: Extended lookback — use max(high) and min(low) across recent candles
         recent = self.recent_extremes.get(symbol)
         if recent and len(recent) > 0:
             lookback_high = max(c["high"] for c in recent)
@@ -933,20 +937,44 @@ class SetupEngineV4:
         }
 
         if side == "LONG":
-            # Must have probed below VAL (current or recent candles)
+            # Must have probed below VAL
             if low > val:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} > {val:.4f})")
                 self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe below edge", metrics, price, side)
                 return False
 
+            # Phase 2300: Must have CLOSED back above VAL (failed auction confirmation)
+            # If price closed below VAL, it's a continuation (breakdown), not a rejection
+            if price > 0 and price < val:
+                logger.info(
+                    f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: "
+                    f"Price closed below VAL ({price:.4f} < {val:.4f}) — continuation, not rejection"
+                )
+                self._trace_decision(
+                    symbol, "REJECT", "FAILED_AUCTION", "Close below edge — continuation", metrics, price, side
+                )
+                return False
+
         if side == "SHORT":
-            # Must have probed above VAH (current or recent candles)
+            # Must have probed above VAH
             if high < vah:
                 logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} < {vah:.4f})")
                 self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe above edge", metrics, price, side)
                 return False
 
-        self._trace_decision(symbol, "PASS", "FAILED_AUCTION", "Valid probe at edge", metrics, price, side)
+            # Phase 2300: Must have CLOSED back below VAH (failed auction confirmation)
+            # If price closed above VAH, it's a continuation (breakout), not a rejection
+            if price > 0 and price > vah:
+                logger.info(
+                    f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: "
+                    f"Price closed above VAH ({price:.4f} > {vah:.4f}) — continuation, not rejection"
+                )
+                self._trace_decision(
+                    symbol, "REJECT", "FAILED_AUCTION", "Close above edge — continuation", metrics, price, side
+                )
+                return False
+
+        self._trace_decision(symbol, "PASS", "FAILED_AUCTION", "Valid probe with close inside VA", metrics, price, side)
         return True
 
     def _check_delta_divergence(self, symbol: str, side: str) -> bool:
