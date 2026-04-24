@@ -80,6 +80,109 @@ TRANSITION_CONFIDENCE_MIN = 0.40  # Min confidence to declare TRANSITION
 TREND_CONFIDENCE_MIN = 0.65  # Min confidence to declare TREND
 BALANCE_MAX_CONFIDENCE = 0.35  # Max directional confidence to stay in BALANCE
 
+# ---------------------------------------------------------------------------
+# Phase 2300: Price Circuit Breaker — absolute price movement detector
+# Bypasses Z-score normalization for extreme moves (crashes, rallies)
+# ---------------------------------------------------------------------------
+CIRCUIT_BREAKER_LOOKBACK = 10  # Candles to measure price displacement
+CIRCUIT_BREAKER_TREND_PCT = 0.02  # 2% move in 10 candles = TREND (no Z-score needed)
+CIRCUIT_BREAKER_CRASH_PCT = 0.04  # 4% move in 10 candles = TREND_DOWN (crash override)
+
+
+class _PriceCircuitBreaker:
+    """
+    Phase 2300: Absolute Price Movement Detector.
+
+    Problem with Z-score based regime detection:
+    - Z-scores normalize against recent history
+    - In a crash, the crash itself becomes the "normal" baseline
+    - Result: sensor declares BALANCE during a 38% crash
+
+    Solution: Measure raw price displacement over N candles.
+    No normalization. No Z-scores. Pure price action.
+
+    If price moved >2% in 10 candles → TREND (direction from sign)
+    If price moved >4% in 10 candles → TREND with high confidence (crash/rally)
+
+    This acts as a circuit breaker that overrides the microstructure layers
+    when the market is in an extreme directional move.
+    """
+
+    def __init__(self):
+        self.price_history: deque = deque(maxlen=CIRCUIT_BREAKER_LOOKBACK + 2)
+
+    def on_candle(self, close: float, ts: float):
+        if close > 0:
+            self.price_history.append((ts, close))
+
+    def evaluate(self) -> dict:
+        """
+        Returns circuit breaker verdict.
+
+        Returns:
+            {
+                "triggered": bool,
+                "direction": "UP" | "DOWN" | "NEUTRAL",
+                "confidence": float,
+                "displacement_pct": float,
+                "reason": str
+            }
+        """
+        if len(self.price_history) < CIRCUIT_BREAKER_LOOKBACK:
+            return {
+                "triggered": False,
+                "direction": "NEUTRAL",
+                "confidence": 0.0,
+                "displacement_pct": 0.0,
+                "reason": "insufficient_data",
+            }
+
+        oldest_price = self.price_history[0][1]
+        current_price = self.price_history[-1][1]
+
+        if oldest_price <= 0:
+            return {
+                "triggered": False,
+                "direction": "NEUTRAL",
+                "confidence": 0.0,
+                "displacement_pct": 0.0,
+                "reason": "invalid_price",
+            }
+
+        displacement = (current_price - oldest_price) / oldest_price  # signed
+        abs_displacement = abs(displacement)
+        direction = "UP" if displacement > 0 else "DOWN"
+
+        # Crash/rally override: >4% in 10 candles
+        if abs_displacement >= CIRCUIT_BREAKER_CRASH_PCT:
+            confidence = min(1.0, abs_displacement / (CIRCUIT_BREAKER_CRASH_PCT * 2))
+            return {
+                "triggered": True,
+                "direction": direction,
+                "confidence": round(confidence, 3),
+                "displacement_pct": round(displacement * 100, 3),
+                "reason": "crash_rally_override",
+            }
+
+        # Normal trend: >2% in 10 candles
+        if abs_displacement >= CIRCUIT_BREAKER_TREND_PCT:
+            confidence = min(0.8, abs_displacement / (CIRCUIT_BREAKER_TREND_PCT * 3))
+            return {
+                "triggered": True,
+                "direction": direction,
+                "confidence": round(confidence, 3),
+                "displacement_pct": round(displacement * 100, 3),
+                "reason": "trend_override",
+            }
+
+        return {
+            "triggered": False,
+            "direction": "NEUTRAL",
+            "confidence": 0.0,
+            "displacement_pct": round(displacement * 100, 3),
+            "reason": "within_balance_range",
+        }
+
 
 class _MicroLayer:
     """
@@ -434,6 +537,7 @@ class MarketRegimeSensor(SensorV3):
         self._micro: Dict[str, _MicroLayer] = {}
         self._meso: Dict[str, _MesoLayer] = {}
         self._macro: Dict[str, _MacroLayer] = {}
+        self._circuit: Dict[str, _PriceCircuitBreaker] = {}  # Phase 2300
 
         # Volume rolling average for IB break detection
         self._vol_history: Dict[str, deque] = {}
@@ -456,6 +560,7 @@ class MarketRegimeSensor(SensorV3):
             self._micro[symbol] = _MicroLayer()
             self._meso[symbol] = _MesoLayer()
             self._macro[symbol] = _MacroLayer()
+            self._circuit[symbol] = _PriceCircuitBreaker()  # Phase 2300
             self._candle_vol_history[symbol] = deque(maxlen=20)
         return self._micro[symbol], self._meso[symbol], self._macro[symbol]
 
@@ -514,16 +619,47 @@ class MarketRegimeSensor(SensorV3):
         meso.on_candle(poc, vah, val, ib_high, ib_low, close, volume, avg_volume, ts)
         macro.on_candle(poc, ts)
 
+        # Phase 2300: Feed circuit breaker with raw price
+        circuit = self._circuit[symbol]
+        circuit.on_candle(close, ts)
+        circuit_result = circuit.evaluate()
+
         # Evaluate all layers
         micro_result = micro.evaluate()
         meso_result = meso.evaluate(ts)
         macro_result = macro.evaluate()
 
-        # Synthesize regime
-        regime, direction, confidence = self._synthesize(micro_result, meso_result, macro_result)
+        # Phase 2300: Circuit breaker takes priority over microstructure layers
+        # If price moved >2% in 10 candles, override the Z-score based detection
+        if circuit_result["triggered"]:
+            cb_direction = circuit_result["direction"]
+            cb_confidence = circuit_result["confidence"]
+            cb_reason = circuit_result["reason"]
 
-        # Determine if reversion is allowed
-        reversion_allowed = regime == "BALANCE"
+            if cb_reason == "crash_rally_override":
+                # Extreme move: declare TREND immediately, bypass all layers
+                regime = "TREND_UP" if cb_direction == "UP" else "TREND_DOWN"
+                direction = cb_direction
+                confidence = cb_confidence
+                logger.warning(
+                    f"🚨 [CIRCUIT_BREAKER] {symbol}: {cb_reason} → {regime} "
+                    f"(displacement={circuit_result['displacement_pct']:.2f}%, conf={cb_confidence:.2f})"
+                )
+            else:
+                # Normal trend: declare TREND but allow microstructure to confirm
+                regime = "TREND_UP" if cb_direction == "UP" else "TREND_DOWN"
+                direction = cb_direction
+                confidence = cb_confidence
+                logger.info(
+                    f"⚡ [CIRCUIT_BREAKER] {symbol}: {cb_reason} → {regime} "
+                    f"(displacement={circuit_result['displacement_pct']:.2f}%, conf={cb_confidence:.2f})"
+                )
+
+            reversion_allowed = False
+        else:
+            # Normal path: use microstructure layers
+            regime, direction, confidence = self._synthesize(micro_result, meso_result, macro_result)
+            reversion_allowed = regime == "BALANCE"
 
         # Build output
         output = {
@@ -537,6 +673,7 @@ class MarketRegimeSensor(SensorV3):
                 "meso": meso_result,
                 "macro": macro_result,
             },
+            "circuit_breaker": circuit_result,  # Phase 2300
             "va_expansion_rate": meso_result.get("expansion_rate", 0.0),
             "poc_velocity": macro_result.get("velocity_per_candle", 0.0),
             "flow_momentum": micro_result.get("dv_z", 0.0),

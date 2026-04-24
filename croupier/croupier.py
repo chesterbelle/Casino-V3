@@ -207,6 +207,20 @@ class Croupier(TimeIterator):
 
     def _on_guard_state_change(self, old_state: GuardState, new_state: GuardState, reason: str):
         """Handle graduated response from PortfolioGuard."""
+        # Phase 2300: In AUDIT MODE, PortfolioGuard runs in Shadow Mode.
+        # It logs state changes but does NOT activate drain mode or kill switch.
+        # Rationale: Audit mode requires zero-interference — the guard must not
+        # stop the simulation from studying signals in adverse conditions.
+        import config.trading as trading_config
+
+        if getattr(trading_config, "AUDIT_MODE", False):
+            logger_fn = self.logger.warning if new_state >= GuardState.CRITICAL else self.logger.info
+            logger_fn(
+                f"🔍 [AUDIT SHADOW] PortfolioGuard would transition {old_state.name} → {new_state.name}: {reason}"
+                f" (suppressed — audit mode)"
+            )
+            return
+
         if new_state == GuardState.CAUTION:
             self.logger.warning(f"🛡️ PORTFOLIO GUARD → CAUTION: {reason}. " "New entries blocked.")
         elif new_state == GuardState.CRITICAL:
