@@ -243,15 +243,18 @@ class SetupEngineV4:
 
         # Phase 2000: Order Flow Guardians (6 Gates — AMT/Axia Validation)
         # Guardian 1: Regime Alignment (prevents fading strong trends)
-        if not self._check_regime_alignment(symbol, side):
+        regime_mult = self._check_regime_alignment(symbol, side, reversal_signal)
+        if regime_mult <= 0:
             return None
 
         # Guardian 2: POC Migration Gate
-        if not self._check_poc_migration(symbol, side):
+        poc_mult = self._check_poc_migration(symbol, side)
+        if poc_mult <= 0:
             return None
 
         # Guardian 3: VA Integrity Gate (dynamic by liquidity window)
-        if not self._check_va_integrity(symbol):
+        va_mult = self._check_va_integrity(symbol)
+        if va_mult <= 0:
             return None
 
         # Guardian 4: REMOVED in Phase 2300 — Failed Auction
@@ -286,7 +289,10 @@ class SetupEngineV4:
         else:
             sl_price = vah * (1 + sl_buffer)
 
-        # 6. Metadata Enrichment
+        # 6. Calculate Aggregated Sizing Multiplier (Phase 2350)
+        final_sizing_multiplier = regime_mult * poc_mult * va_mult
+
+        # 7. Metadata Enrichment
         trigger_meta = {
             "trigger": f"LTA_{reversal_signal.get('tactical_type')}",
             "setup_type": "reversion",
@@ -298,6 +304,7 @@ class SetupEngineV4:
             "val": val,
             "level_ref": "VAH" if is_at_vah else "VAL",
             "z_score": reversal_signal.get("z_score"),
+            "sizing_multiplier": final_sizing_multiplier,
         }
         trigger_meta = self._enrich_metadata(trigger_meta, symbol)
 
@@ -686,29 +693,18 @@ class SetupEngineV4:
         }
         historian.record_decision_trace(trace_data)
 
-    def _check_regime_alignment(self, symbol: str, side: str) -> bool:
+    def _check_regime_alignment(self, symbol: str, side: str, reversal_signal: dict) -> float:
         """
         Phase 2100: Regime Alignment Gate (Guardian 1) — Anticipatory Version.
+        Phase 2350: Transition Recovery — Allow entries in TRANSITION if flow is extreme.
 
-        Uses the new 3-layer MarketRegimeSensor (V2) when available.
-        Falls back to legacy OTF logic if V2 data is not present.
-
-        New regime states:
-            BALANCE    → Reversion always allowed (this is our playground)
-            TRANSITION → Reversion BLOCKED regardless of direction
-                         (market is leaving balance — highest danger zone)
-            TREND_UP   → Only LONG reversion allowed (at VAL, trend-aligned)
-            TREND_DOWN → Only SHORT reversion allowed (at VAH, trend-aligned)
-
-        The critical improvement over OTF:
-            TRANSITION blocks reversions BEFORE the trend is confirmed.
-            OTF only blocked AFTER N consecutive bars — too late.
+        Returns a sizing multiplier (0.0 to 1.0).
         """
         if self.fast_track:
-            return True
+            return 1.0
 
         if not self.context_registry:
-            return True
+            return 1.0
 
         # --- Phase 2100: Try V2 regime first ---
         regime_v2_data = getattr(self.context_registry, "_regime_v2", {}).get(symbol)
@@ -726,14 +722,65 @@ class SetupEngineV4:
                 "layers": {k: v.get("vote") for k, v in layers.items()},
             }
 
+            # 1. Consensus Override: If Micro & Meso are both NEUTRAL, we prioritize local balance
+            # even if Macro thinks we are trending. This captures "local range" reversions.
+            micro_vote = (
+                layers.get("micro", {}).get("vote", "NEUTRAL")
+                if isinstance(layers.get("micro"), dict)
+                else layers.get("micro", "NEUTRAL")
+            )
+            meso_vote = (
+                layers.get("meso", {}).get("vote", "NEUTRAL")
+                if isinstance(layers.get("meso"), dict)
+                else layers.get("meso", "NEUTRAL")
+            )
+
+            if micro_vote == "NEUTRAL" and meso_vote == "NEUTRAL":
+                # Local balance confirmed - allow reversal with soft-sizing if confidence is low
+                local_mult = 1.0 if confidence < 0.6 else strat_config.LTA_SOFT_GATE_REDUCTION
+                self._trace_decision(
+                    symbol,
+                    "PASS",
+                    "REGIME_ALIGNMENT_V2",
+                    f"Local consensus (Micro/Meso Neutral) overrides Macro {regime_v2}",
+                    metrics,
+                    0.0,
+                    side,
+                )
+                return local_mult
+
+            # 2. Confidence Filter: If confidence is very low, don't block counter-trend
+            if confidence < 0.5:
+                self._trace_decision(
+                    symbol,
+                    "PASS",
+                    "REGIME_ALIGNMENT_V2",
+                    f"Low confidence ({confidence:.2f}) - counter-trend allowed",
+                    metrics,
+                    0.0,
+                    side,
+                )
+                return strat_config.LTA_SOFT_GATE_REDUCTION
+
             # BALANCE → always allow reversion (our edge lives here)
             if regime_v2 == "BALANCE":
                 self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT_V2", "Balance regime", metrics, 0.0, side)
-                return True
+                return 1.0
 
-            # TRANSITION → ALWAYS block, regardless of direction
-            # This is the key improvement: we block BEFORE the trend is confirmed
+            # TRANSITION → Recovery Logic
             if regime_v2 == "TRANSITION":
+                # Phase 2350: Recovery via extreme micro-flow
+                z_score = abs(reversal_signal.get("z_score", 0.0))
+                if z_score >= strat_config.LTA_TRANSITION_Z_THRESHOLD:
+                    logger.info(
+                        f"🛡️ [REGIME_V2] {symbol} {side} RECOVERED in TRANSITION: "
+                        f"Extreme Z-Score {z_score:.2f} >= {strat_config.LTA_TRANSITION_Z_THRESHOLD}"
+                    )
+                    self._trace_decision(
+                        symbol, "PASS", "REGIME_ALIGNMENT_V2", "Transition Recovery (Extreme Flow)", metrics, 0.0, side
+                    )
+                    return strat_config.LTA_SOFT_GATE_REDUCTION
+
                 logger.info(
                     f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TRANSITION state "
                     f"(conf={confidence:.2f}, dir={direction}) — market leaving balance"
@@ -747,7 +794,7 @@ class SetupEngineV4:
                     0.0,
                     side,
                 )
-                return False
+                return 0.0
 
             # TREND_UP → only allow LONG (trend-aligned reversion at VAL)
             if regime_v2 == "TREND_UP":
@@ -755,7 +802,7 @@ class SetupEngineV4:
                     self._trace_decision(
                         symbol, "PASS", "REGIME_ALIGNMENT_V2", "Trend-aligned LONG in TREND_UP", metrics, 0.0, side
                     )
-                    return True
+                    return 1.0
                 logger.info(
                     f"🛡️ [REGIME_V2] {symbol} SHORT BLOCKED: TREND_UP active "
                     f"(conf={confidence:.2f}) — counter-trend reversion"
@@ -769,7 +816,7 @@ class SetupEngineV4:
                     0.0,
                     side,
                 )
-                return False
+                return 0.0
 
             # TREND_DOWN → only allow SHORT (trend-aligned reversion at VAH)
             if regime_v2 == "TREND_DOWN":
@@ -777,7 +824,7 @@ class SetupEngineV4:
                     self._trace_decision(
                         symbol, "PASS", "REGIME_ALIGNMENT_V2", "Trend-aligned SHORT in TREND_DOWN", metrics, 0.0, side
                     )
-                    return True
+                    return 1.0
                 logger.info(
                     f"🛡️ [REGIME_V2] {symbol} LONG BLOCKED: TREND_DOWN active "
                     f"(conf={confidence:.2f}) — counter-trend reversion"
@@ -791,7 +838,7 @@ class SetupEngineV4:
                     0.0,
                     side,
                 )
-                return False
+                return 0.0
 
         # --- Legacy fallback: OTF-based regime (Phase 2000) ---
         regime = self.context_registry.get_regime(symbol)
@@ -800,70 +847,83 @@ class SetupEngineV4:
 
         if regime == "NEUTRAL" or otf == "NEUTRAL":
             self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Neutral regime (legacy)", metrics, 0.0, side)
-            return True
+            return 1.0
 
         if side == "LONG" and regime == "UP":
             self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned LONG (legacy)", metrics, 0.0, side)
-            return True
+            return 1.0
         if side == "SHORT" and regime == "DOWN":
             self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned SHORT (legacy)", metrics, 0.0, side)
-            return True
+            return 1.0
 
         logger.info(f"🛡️ [REGIME_OTF] {symbol} {side} blocked: Counter-trend (Regime: {regime}, OTF: {otf})")
         self._trace_decision(
             symbol, "REJECT", "REGIME_ALIGNMENT", "Counter-trend reversion (legacy)", metrics, 0.0, side
         )
-        return False
+        return 0.0
 
-    def _check_poc_migration(self, symbol: str, side: str) -> bool:
+    def _check_poc_migration(self, symbol: str, side: str) -> float:
         """
         Phase 1150: POC Migration Gate (Guardian 2).
-        Rejection (Good) vs Discovery/Acceptance (Bad).
-        If POC is migrating in the direction of the trend, the trend is healthy.
-        Fading it is dangerous.
+        Phase 2350: Conversion to Soft Gate.
+
+        Returns a sizing multiplier (0.0 to 1.0).
         """
         if self.fast_track:
-            return True
+            return 1.0
 
         if not self.context_registry:
-            return True
+            return 1.0
 
         migration = self.context_registry.get_poc_migration(symbol, lookback_ticks=300)
-        metrics = {"migration": migration, "threshold": strat_config.LTA_POC_MIGRATION_THRESHOLD}
+        threshold = strat_config.LTA_POC_MIGRATION_THRESHOLD
+        metrics = {"migration": migration, "threshold": threshold}
 
         # If we want to LONG (at VAL), POC should NOT be migrating DOWN.
-        if side == "LONG" and migration < -strat_config.LTA_POC_MIGRATION_THRESHOLD:
-            logger.info(f"🛡️ [POC_MIGRATION] {symbol} LONG blocked: POC migrated {migration:.4%} (discovery)")
-            self._trace_decision(symbol, "REJECT", "POC_MIGRATION", "Migration against side", metrics, 0.0, side)
-            return False
+        if side == "LONG" and migration < -threshold:
+            # Phase 2350: Check for hard block (1.5x threshold)
+            if migration < -(threshold * 1.5):
+                logger.info(f"🛡️ [POC_MIGRATION] {symbol} LONG blocked: POC migrated {migration:.4%} (hard discovery)")
+                self._trace_decision(
+                    symbol, "REJECT", "POC_MIGRATION", "Hard migration against side", metrics, 0.0, side
+                )
+                return 0.0
+
+            # Soft gate
+            logger.info(f"🛡️ [POC_MIGRATION] {symbol} LONG soft-gate: POC migrated {migration:.4%} (soft discovery)")
+            self._trace_decision(symbol, "PASS", "POC_MIGRATION", "Soft migration against side", metrics, 0.0, side)
+            return strat_config.LTA_SOFT_GATE_REDUCTION
 
         # If we want to SHORT (at VAH), POC should NOT be migrating UP.
-        if side == "SHORT" and migration > strat_config.LTA_POC_MIGRATION_THRESHOLD:
-            logger.info(f"🛡️ [POC_MIGRATION] {symbol} SHORT blocked: POC migrated {migration:.4%} (discovery)")
-            self._trace_decision(symbol, "REJECT", "POC_MIGRATION", "Migration against side", metrics, 0.0, side)
-            return False
+        if side == "SHORT" and migration > threshold:
+            # Phase 2350: Check for hard block (1.5x threshold)
+            if migration > (threshold * 1.5):
+                logger.info(f"🛡️ [POC_MIGRATION] {symbol} SHORT blocked: POC migrated {migration:.4%} (hard discovery)")
+                self._trace_decision(
+                    symbol, "REJECT", "POC_MIGRATION", "Hard migration against side", metrics, 0.0, side
+                )
+                return 0.0
+
+            # Soft gate
+            logger.info(f"🛡️ [POC_MIGRATION] {symbol} SHORT soft-gate: POC migrated {migration:.4%} (soft discovery)")
+            self._trace_decision(symbol, "PASS", "POC_MIGRATION", "Soft migration against side", metrics, 0.0, side)
+            return strat_config.LTA_SOFT_GATE_REDUCTION
 
         self._trace_decision(symbol, "PASS", "POC_MIGRATION", "Healthy migration", metrics, 0.0, side)
-        return True
+        return 1.0
 
-    def _check_va_integrity(self, symbol: str) -> bool:
+    def _check_va_integrity(self, symbol: str) -> float:
         """
         Phase 2200: VA Integrity Gate (Restructured — Soft Gate).
+        Phase 2350: Multi-tier Soft Gate.
 
-        CHANGE from Phase 2000:
-        Previously this was a hard gate that rejected ~80% of signals (1,594/1,986).
-        In crypto 24/7, the VA is naturally more dispersed than equity futures,
-        especially during Asian and quiet sessions.
-
-        New logic: Only reject if VA integrity is CRITICALLY low (< 50% of threshold)
-        AND the VA is actively expanding (market leaving balance).
-        Otherwise, allow the trade — the Regime Guardian already handles balance detection.
+        Returns a sizing multiplier (0.0 to 1.0).
         """
         if self.fast_track:
-            return True
+            return 1.0
 
         if not self.context_registry:
-            return True
+            return 1.0
 
         integrity = self.context_registry.get_va_integrity(symbol)
 
@@ -872,9 +932,7 @@ class SetupEngineV4:
         va_thresholds = getattr(strat_config, "LTA_VA_INTEGRITY_BY_WINDOW", {})
         threshold = va_thresholds.get(current_window, strat_config.LTA_VA_INTEGRITY_MIN)
 
-        # Phase 2200: Soft gate — only reject at critically low integrity (50% of threshold)
-        # Rationale: Regime Guardian (G1) already ensures we're in BALANCE.
-        # If we're in BALANCE, the VA doesn't need to be perfectly dense.
+        # Phase 2350: Soft gate logic
         critical_threshold = threshold * 0.50
 
         metrics = {
@@ -884,16 +942,22 @@ class SetupEngineV4:
             "window": current_window,
         }
 
+        # Hard Reject
         if integrity < critical_threshold:
             logger.info(
                 f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} critically low "
                 f"< {critical_threshold:.4f} ({current_window})"
             )
             self._trace_decision(symbol, "REJECT", "VA_INTEGRITY", "Critically low VA density", metrics, 0.0, "")
-            return False
+            return 0.0
+
+        # Soft Gate
+        if integrity < threshold:
+            self._trace_decision(symbol, "PASS", "VA_INTEGRITY", "Soft VA density (sizing reduced)", metrics, 0.0, "")
+            return strat_config.LTA_SOFT_GATE_REDUCTION
 
         self._trace_decision(symbol, "PASS", "VA_INTEGRITY", "Acceptable VA density", metrics, 0.0, "")
-        return True
+        return 1.0
 
     def _check_failed_auction(self, symbol: str, side: str, reversal_signal: dict) -> bool:
         """

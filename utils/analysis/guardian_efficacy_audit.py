@@ -21,10 +21,9 @@ SL_PCT = 0.3
 
 # Timestamp ranges per condition
 CONDITIONS = {
-    "RANGE       (2026-04-12)": (1744416000, 1744502400),
-    "BEAR NORMAL (2026-04-11)": (1744329600, 1744416000),
-    "BEAR CRASH  (2026-04-02)": (1743552000, 1743638400),
-    "BULL        (2026-04-07)": (1743984000, 1744070400),
+    "RANGE (Aug 2024)": (1723593600, 1723852800),
+    "BEAR  (Sep 2024)": (1725494400, 1725753600),
+    "BULL  (Oct 2024)": (1728777600, 1729036800),
 }
 
 # Guardians we care about
@@ -174,7 +173,7 @@ def main():
     print("  (How much MORE does each guardian reject in trending vs range?)")
     print("=" * 80)
 
-    range_cond = "RANGE       (2026-04-12)"
+    range_cond = "RANGE (Aug 2024)"
     trending_conds = [c for c in CONDITIONS if c != range_cond]
 
     print(f"{'Guardian':25s}  {'RANGE%':>8}  {'BEAR_N%':>8}  {'BEAR_C%':>8}  {'BULL%':>8}  {'Discrimination':>15}")
