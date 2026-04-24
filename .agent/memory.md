@@ -151,30 +151,31 @@ Es el camino más corto a la solución.
 
 ---
 
-### Estado Actual (2026-04-21)
-- **Infraestructura (Hierro)**: Certificada ✅ (Paridad 1:1, Latencia ultra-baja).
-- **Estrategia (Cristal)**: **LTA V5 CERTIFIED (Phase 2200 — Guardian Restructuring)**.
+### Estado Actual (2026-04-24)
+- **Infraestructura (Hierro)**: Certificada ✅
+- **Estrategia (Cristal)**: **LTA V6 CERTIFIED (Phase 2350 — Alpha Recovery)**.
+- **Edge Verified**: WR 60.5% (Range), 65.2% (Bear), Ratio 1.46.
 
-#### LTA V5 — Cambios vs V4 (branch: `feature/lta-v5-sensor-consolidation`)
+#### LTA V6 — Phase 2350: Recovery of Alpha & Resolution of Analysis Paralysis
 
-**Sensores Tácticos:**
-- ❌ `TacticalRejection` eliminado — redundante con TacticalAbsorption (correlación >0.85)
-- ❌ `TacticalStackedImbalance` eliminado — contradictorio (predice continuación en playbook de reversión)
-- ❌ `TacticalImbalance` eliminado — menos específico que TacticalTrappedTraders
-- ✅ `TacticalSinglePrintReversion` nuevo — Market Profile: single print rejection (zonas de bajo volumen)
-- ✅ `TacticalVolumeClimaxReversion` nuevo — Wyckoff: volumen climax sin extensión de precio
+**Cambios Clave:**
+1. **Regime Consensus Override (G1)**: Las capas Micro/Meso Neutral ahora mandan sobre la Macro. Se permite operar en `TRANSITION` si el Z-Score > 2.2.
+2. **Arquitectura de Soft-Sizing**: G2 (POC Migration) y G3 (VA Integrity) ahora usan multiplicadores de 0.5x en zonas "amarillas" en lugar de bloqueos duros.
+3. **Retorno a Parámetros Certificados**:
+   - Proximity: 0.20% (ajustado de 0.25%).
+   - POC Migration: 0.50% (ajustado de 0.80%).
+   - VA Integrity Min: 0.08.
+4. **Eliminación de G4**: El guardián de Failed Auction basado en velas OHLC fue removido por causar discriminación invertida.
 
-**Guardianes Reestructurados (Phase 2200):**
-- **G3 VA Integrity**: Convertido de hard gate a soft gate. Threshold reducido al 50% del original. Solo rechaza en casos críticos. Antes rechazaba el 80% de señales (1,594/1,986).
-- **G4 Failed Auction**: Lookback extendido de 3 a 10 velas. Wick body check eliminado (redundante con sensores tácticos).
-- **G5 Delta Divergence**: Threshold relajado de z < -1.5 a z < -2.5. Solo bloquea flujo extremo sostenido.
+**Resultados Audit (LTC 2024 Long-Range):**
+- **RANGE**: WR 60.5%, Ratio 1.31 (Alpha recuperado).
+- **BEAR**: WR 65.2%, Ratio 1.46 (Excelente captura de clímax).
+- **Missed Wins**: Reducción drástica del 87% de rechazos falsos en régimen.
 
-**Edge Statistics LTA V5 (72h, 3 activos: LTC/SOL/ETH):**
-- **Señales**: 75 (vs 44 en V4, +70%)
-- **Win Rate (0.3% TP/SL)**: **68.9%** (vs 64.5% en V4)
-- **Ratio MFE/MAE**: **1.61** (vs 1.37 en V4)
-- **Expectancy**: **+0.1133** (vs +0.0871 en V4)
-- **Status**: CERTIFIED ✅
+**Archivos modificados:**
+- `decision/setup_engine.py` — Lógica de Consensus Override + Soft Gates.
+- `config/strategies.py` — Restauración de umbrales LTA V5 Certified.
+- `docs/implementations/lta_v6_reversion_impl.md` — Nueva documentación técnica.
 
 **Archivos modificados en LTA V5:**
 - `decision/setup_engine.py` — Whitelist V5 + Guardianes Phase 2200
