@@ -28,11 +28,11 @@ Each layer must pass before proceeding to the next.
 ```
 **Must pass**: Liquidity pull and Delta inversion burst detection must target exits properly.
 
-## Layer 0.3: Setup Data Integrity (Phase 975)
+## Layer 0.3: Setup Data Integrity (Phase 975 + Absorption V1)
 ```bash
 .venv/bin/python utils/validators/setup_data_validator.py
 ```
-**Must pass**: All setup playbooks (DeltaDivergence, TrappedTraders, FadeExtreme, TrendContinuation) must produce valid `tp_price` and `sl_price` in metadata. No setup should return with missing or zero TP/SL values.
+**Must pass**: All setup playbooks (DeltaDivergence, TrappedTraders, FadeExtreme, TrendContinuation, **AbsorptionScalpingV1**) must produce valid `tp_price` and `sl_price` in metadata. No setup should return with missing or zero TP/SL values.
 
 ## Layer 1: Preflight (Single-Symbol Lifecycle)
 ```bash

@@ -686,7 +686,19 @@ ACTIVE_SENSORS = {
 
 ### Next Steps (Phase 6-7)
 
-**Phase 6: Backtesting & Validation** (3-5 días)
+**Phase 6: Validation Updates** ✅ COMPLETADO
+- ✅ Updated `setup_data_validator.py` to include Absorption V1 test cases
+- ✅ Added `create_absorption_v1_signal()` function
+- ✅ Added `test_absorption_v1_setup()` async function
+- ✅ Mocked FootprintRegistry to provide volume profile data
+- ✅ Fixed SetupEngine bugs:
+  - Fixed `setup_name` → `setup_type` parameter in AggregatedSignalEvent
+  - Added all required fields to AggregatedSignalEvent (candle_timestamp, selected_sensor, sensor_score, confidence, total_signals)
+  - Added `setup_type` to trigger_metadata
+- ✅ All validations passing (LTA + Absorption V1)
+- ✅ All Absorption tests passing (30/32, 2 skipped as expected)
+
+**Phase 7: Backtesting & Edge Validation** (3-5 días)
 - Long-Range Audit con datos 2024
 - Validar edge con MFE/MAE analysis
 - Comparar vs LTA V6 (baseline)
@@ -695,7 +707,7 @@ ACTIVE_SENSORS = {
   - Win Rate target: > 55%
   - MFE/MAE Ratio > 1.2
 
-**Phase 7: Optimization** (2-3 días)
+**Phase 8: Optimization** (2-3 días)
 - Calibrar thresholds basado en backtest results
 - Ajustar TP/SL ranges basado en MFE/MAE
 - Fine-tuning de filtros (z_score, concentration, noise)
@@ -723,3 +735,4 @@ ACTIVE_SENSORS = {
 - `6765d10` - Update memory.md
 - `b2dcad1` - Phase 4: OrderManager TP recalculation (< 50ms)
 - `2c84843` - Phase 5: ExitEngine counter-absorption detection
+- `d31c939` - Phase 6: Update setup_data_validator for Absorption V1 + fix SetupEngine bugs
