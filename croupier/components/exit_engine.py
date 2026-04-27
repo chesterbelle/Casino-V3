@@ -380,6 +380,12 @@ class ExitEngine:
             if position.side == "SHORT" and current_price > position.entry_price * 1.0025:
                 return "THESIS_ABSORPTION_FAILED"
 
+        # Phase 5: Absorption V1 - Counter-Absorption Detection
+        if "Absorption" in setup or setup == "AbsorptionScalpingV1":
+            counter_reason = self._check_counter_absorption(position, current_price)
+            if counter_reason:
+                return counter_reason
+
         return None
 
     def _check_stagnation(self, position: OpenPosition, current_price: float, elapsed: float) -> Optional[str]:
@@ -431,6 +437,80 @@ class ExitEngine:
             return "WALL_COLLAPSE_ASK"
 
         return None
+
+    def _check_counter_absorption(self, position: OpenPosition, current_price: float) -> Optional[str]:
+        """
+        Phase 5: Counter-Absorption Detection for Absorption V1.
+
+        Detects when absorption appears in the opposite direction,
+        invalidating the original thesis.
+
+        For LONG (from SELL_EXHAUSTION):
+          - Counter-absorption = BUY_EXHAUSTION detected
+          - Indicates bulls are now exhausted, bears taking control
+
+        For SHORT (from BUY_EXHAUSTION):
+          - Counter-absorption = SELL_EXHAUSTION detected
+          - Indicates bears are now exhausted, bulls taking control
+        """
+        try:
+            from core.footprint_registry import footprint_registry
+            from sensors.absorption.absorption_detector import AbsorptionDetector
+
+            # Get fresh footprint data
+            footprint = footprint_registry.get_footprint(position.symbol)
+            if not footprint or len(footprint.levels) < 10:
+                return None  # Insufficient data
+
+            # Create detector instance for analysis
+            detector = AbsorptionDetector()
+
+            # Find extreme deltas (potential counter-absorption)
+            candidates = detector._find_extreme_deltas(footprint, current_price)
+
+            if not candidates:
+                return None
+
+            # Check each candidate for counter-absorption
+            for level, delta, ask_vol, bid_vol in candidates:
+                # Calculate quality metrics
+                z_score = detector._calculate_z_score(position.symbol, delta, current_price)
+                concentration = detector._calculate_concentration(footprint, level, current_price)
+                noise = detector._calculate_noise(ask_vol, bid_vol, delta)
+
+                # Check if it passes quality filters
+                if abs(z_score) < detector.z_score_min:
+                    continue
+                if concentration < detector.concentration_min:
+                    continue
+                if noise > detector.noise_max:
+                    continue
+
+                # Determine direction
+                direction = "SELL_EXHAUSTION" if delta < 0 else "BUY_EXHAUSTION"
+
+                # Check for counter-absorption
+                if position.side == "LONG" and direction == "BUY_EXHAUSTION":
+                    # LONG position, but now seeing BUY exhaustion (counter-absorption)
+                    self.logger.warning(
+                        f"🔄 [COUNTER-ABSORPTION] LONG invalidated: BUY_EXHAUSTION detected "
+                        f"(level={level:.2f}, delta={delta:.1f}, z={z_score:.1f})"
+                    )
+                    return "COUNTER_ABSORPTION_BUY"
+
+                if position.side == "SHORT" and direction == "SELL_EXHAUSTION":
+                    # SHORT position, but now seeing SELL exhaustion (counter-absorption)
+                    self.logger.warning(
+                        f"🔄 [COUNTER-ABSORPTION] SHORT invalidated: SELL_EXHAUSTION detected "
+                        f"(level={level:.2f}, delta={delta:.1f}, z={z_score:.1f})"
+                    )
+                    return "COUNTER_ABSORPTION_SELL"
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"❌ [COUNTER-ABSORPTION] Detection failed: {e}", exc_info=True)
+            return None
 
     # =========================================================
     # LAYER 3: VALENTINO (Scale-Out)
