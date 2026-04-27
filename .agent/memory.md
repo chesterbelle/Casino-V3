@@ -59,6 +59,10 @@ Current branch: `v6.2.0-limit-sniper`
 - **NUNCA en producción.**
 - Bypasea gates de infraestructura para forzar la saturación del Event Loop en ventanas cortas (15/30m).
 - **LTA V4 Location Bypass (Phase 990):** Miente temporalmente al `SetupEngine` simulando que  se tocó el VAH/VAL para forzar la creación de OCOs, purgar el ExitManager y testear el Portfolio Guard durante el protocolo `/fast-track-parity`.
+- **Absorption V1 Bypass (Phase 6):** Bypasea las 3 confirmaciones del AbsorptionSetupEngine:
+  - CVD flattening check (permite CVD slope > 5.0)
+  - Price holding check (permite precio > 0.05% del nivel)
+  - TP calculation (usa TP mock a 0.20% fijo en lugar de buscar LVN)
 - **NUNCA bypasea reglas de calidad defensiva:**
   - Math Inversion check (execution.py)
   - PortfolioGuard / Min Notional Limits
@@ -726,6 +730,8 @@ ACTIVE_SENSORS = {
 4. **Sensor disabled by default:** AbsorptionDetector está desactivado en config para evitar señales en producción hasta completar validación.
 
 5. **Counter-absorption detection:** Ejecuta en cada tick para posiciones Absorption V1. Latencia adicional mínima (< 1ms) ya que reutiliza AbsorptionDetector logic.
+
+6. **Fast-track bypass:** En modo `--fast-track`, AbsorptionSetupEngine bypasea las 3 confirmaciones (CVD flattening, price holding, TP calculation) para permitir testing de infraestructura. TP se mockea a 0.20% fijo.
 
 ### Commits
 

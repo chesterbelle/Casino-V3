@@ -47,7 +47,7 @@ class SetupEngineV4:
         # Phase 2.3: Absorption V1 - Initialize AbsorptionSetupEngine
         from decision.absorption_setup_engine import AbsorptionSetupEngine
 
-        self.absorption_engine = AbsorptionSetupEngine()
+        self.absorption_engine = AbsorptionSetupEngine(fast_track=fast_track)
 
         # Memory of tactical events per symbol. (timestamp, event_data)
         # Keeps up to 500 events to cover the 5-second window

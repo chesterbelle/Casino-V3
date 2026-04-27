@@ -28,8 +28,9 @@ class AbsorptionSetupEngine:
     3. Minimum distance to TP (at least 0.10% edge)
     """
 
-    def __init__(self):
+    def __init__(self, fast_track: bool = False):
         self.name = "AbsorptionSetupEngine"
+        self.fast_track = fast_track
 
         # Configuration (from config/absorption.py later)
         self.min_tp_distance_pct = 0.10  # Minimum TP distance (0.10%)
@@ -38,7 +39,7 @@ class AbsorptionSetupEngine:
         self.cvd_slope_threshold = 5.0  # CVD slope threshold for flattening confirmation (relaxed for Phase 2.3)
         self.price_hold_window = 5.0  # Seconds to check if price holds near level
 
-        logger.info(f"✅ {self.name} initialized")
+        logger.info(f"✅ {self.name} initialized{' (FAST-TRACK MODE)' if fast_track else ''}")
 
     def process_signal(self, signal: dict, current_price: float, timestamp: float) -> Optional[dict]:
         """
@@ -122,6 +123,9 @@ class AbsorptionSetupEngine:
         Returns:
             True if CVD is flattening
         """
+        if self.fast_track:
+            return True  # Bypass for infrastructure validation
+
         cvd_slope = footprint_registry.get_cvd_slope(symbol, window_seconds=5)
 
         # CVD flattening = slope near zero (absorption is stopping the move)
@@ -134,6 +138,9 @@ class AbsorptionSetupEngine:
         Returns:
             True if price is holding
         """
+        if self.fast_track:
+            return True  # Bypass for infrastructure validation
+
         # For now, simplified: price within 0.05% of level
         # TODO: Track price history over price_hold_window for more accurate check
         distance_pct = abs(current_price - level) / level * 100
@@ -151,6 +158,13 @@ class AbsorptionSetupEngine:
         Returns:
             TP price or None
         """
+        if self.fast_track:
+            # Mock TP at fixed distance (0.20%) for infrastructure validation
+            if direction == "SELL_EXHAUSTION":
+                return current_price * 1.002  # +0.20% for LONG
+            else:
+                return current_price * 0.998  # -0.20% for SHORT
+
         # Get volume profile in search range
         if direction == "SELL_EXHAUSTION":
             # LONG: Search above current price
