@@ -244,6 +244,7 @@ class SensorManager:
         """
         Phase 410: Broadcast new trades (ticks) to workers.
         Phase 1: Track CVD and emit Microstructure.
+        Phase 2.2: Update FootprintRegistry for Absorption V1.
         Throttled to prevent IPC explosion.
         """
         self._last_market_time = event.timestamp
@@ -253,6 +254,17 @@ class SensorManager:
         now = event.timestamp
         sym = event.symbol
         self.last_price[sym] = event.price
+
+        # Phase 2.2: Update FootprintRegistry (Absorption V1)
+        from core.footprint_registry import footprint_registry
+        from core.tick_registry import tick_registry
+
+        # Auto-register symbol if not registered
+        if sym not in footprint_registry.footprints:
+            tick_size = tick_registry.get(sym)
+            footprint_registry.register_symbol(sym, tick_size)
+
+        footprint_registry.on_trade(sym, event.price, event.volume, event.side, now)
 
         # Phase 1: CVD Tracking (Incremental Add only - pruning moved to throttled micro_dispatch)
         delta = 0.0
@@ -618,6 +630,8 @@ class SensorManager:
         """Helper to return all sensor classes (moved from original _load_sensors)."""
         # ... Import block ...
         # Import only Footprint and Core sensors for Phase 400
+        # Absorption V1: New sensors (Phase 2.2)
+        from sensors.absorption.absorption_detector import AbsorptionDetector
         from sensors.debug_heartbeat import DebugHeartbeatV3
         from sensors.footprint.absorption import FootprintAbsorptionV3
         from sensors.footprint.advanced import (
@@ -671,4 +685,6 @@ class SensorManager:
             TacticalPoorExtreme,  # Deprecated
             TacticalSinglePrintReversion,  # Redesigned with correct Market Profile logic
             TacticalVolumeClimaxReversion,
+            # Absorption V1: New sensors
+            AbsorptionDetector,  # Phase 2.2: Real-time absorption detection
         ]

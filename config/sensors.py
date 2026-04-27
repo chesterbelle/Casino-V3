@@ -37,6 +37,8 @@ ACTIVE_SENSORS = {
     "TacticalPoorExtreme": False,  # DEPRECATED: Concept was incorrect
     "TacticalSinglePrintReversion": True,  # CERTIFIED: Passed audit
     "TacticalVolumeClimaxReversion": True,  # AUDIT MODE: Testing now
+    # === ABSORPTION V1: NEW SENSORS (Phase 2.2) ===
+    "AbsorptionDetector": False,  # Phase 2.2: Real-time absorption detection (TESTING)
 }
 
 # =====================================================
@@ -67,6 +69,8 @@ SENSOR_TIMEFRAMES = {
     "TacticalPoorExtreme": ["1m"],  # Deprecated
     "TacticalSinglePrintReversion": ["1m"],  # Redesigned
     "TacticalVolumeClimaxReversion": ["1m"],
+    # Absorption V1: New sensors
+    "AbsorptionDetector": ["1m"],  # Phase 2.2: Real-time absorption detection
 }
 
 # =====================================================
@@ -132,6 +136,10 @@ SENSOR_PARAMS = {
     },
     "TacticalVolumeClimaxReversion": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Tactical signal, no direct TP/SL
+    },
+    # Absorption V1: New sensors (Phase 2.2)
+    "AbsorptionDetector": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Tactical signal, TP/SL calculated dynamically in SetupEngine
     },
     # "VolatilitySpike": {
     #     "1m": {"tp_pct": 0.50, "sl_pct": 0.30},

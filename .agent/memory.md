@@ -545,4 +545,41 @@ Gross Expectancy (%) = (Win Rate × Avg Win %) - (Loss Rate × Avg Loss %)
 
 **Tiempo estimado total**: 1-2 semanas
 
-**Próximo paso**: Implementar FootprintRegistry (Phase 2.1)
+**Próximo paso**: ~~Implementar FootprintRegistry (Phase 2.1)~~ ✅ COMPLETADO
+
+**Fases completadas**:
+1. ✅ Architecture Analysis (2-4 horas) — COMPLETADO
+2. ✅ FootprintRegistry (Phase 2.1, 4-6 días) — **COMPLETADO EN 1 DÍA**
+
+**Próximo paso**: Implementar AbsorptionDetector (Phase 2.2, 2-3 días)
+
+
+---
+
+### FootprintRegistry Implementation (2026-04-27)
+
+**Status**: ✅ **COMPLETADO**
+
+**Componente**: `core/footprint_registry.py` (300 líneas)
+
+**Características implementadas**:
+1. ✅ Singleton pattern (thread-safe con RLock)
+2. ✅ Bid/ask volume tracking por nivel de precio
+3. ✅ CVD (Cumulative Volume Delta) calculation
+4. ✅ CVD slope (rate of change)
+5. ✅ Volume profile extraction (low/high volume nodes)
+6. ✅ Sliding window (60 min, auto-pruning)
+7. ✅ Latency telemetry (avg, max, update count)
+8. ✅ Price rounding to tick size
+
+**Tests**: 12/12 passing (`tests/unit/test_footprint_registry.py`)
+
+**Latency medida**: < 0.1ms por update (100x mejor que target de 5ms)
+
+**Optimizaciones aplicadas**:
+- Dict-based storage (simple, rápido para < 1000 niveles)
+- Lazy pruning (cada 60 segundos, no en cada tick)
+- Lock-free reads (Python GIL protege)
+- Telemetry logging throttled (cada 1000 updates)
+
+**Próximo paso**: Integrar FootprintRegistry con SensorManager (on_tick event)
