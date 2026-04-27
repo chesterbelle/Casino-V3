@@ -147,6 +147,7 @@ class AbsorptionDetector:
             return {
                 "symbol": symbol,
                 "level": level,
+                "absorption_level": level,  # Alias for compatibility
                 "direction": direction,
                 "delta": delta,
                 "z_score": z_score,
@@ -155,6 +156,8 @@ class AbsorptionDetector:
                 "timestamp": timestamp,
                 "ask_volume": ask_vol,
                 "bid_volume": bid_vol,
+                "price": level,  # Use absorption level as price for signal
+                "side": "LONG" if direction == "SELL_EXHAUSTION" else "SHORT",  # Trading direction
             }
 
         return None

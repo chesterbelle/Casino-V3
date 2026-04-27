@@ -44,6 +44,11 @@ class SetupEngineV4:
         self.tracker = DummyTracker()  # For OrderManager compatibility
         self.fast_track = fast_track
 
+        # Phase 2.3: Absorption V1 - Initialize AbsorptionSetupEngine
+        from decision.absorption_setup_engine import AbsorptionSetupEngine
+
+        self.absorption_engine = AbsorptionSetupEngine()
+
         # Memory of tactical events per symbol. (timestamp, event_data)
         # Keeps up to 500 events to cover the 5-second window
         self.memory: Dict[str, deque] = defaultdict(lambda: deque(maxlen=500))
@@ -328,6 +333,11 @@ class SetupEngineV4:
 
         # 1. Store in memory for confluence evaluation
         self.memory[symbol].append((now, event.timestamp, event))
+
+        # Phase 2.3: Absorption V1 - Process absorption signals
+        if event.sensor_id == "AbsorptionDetector":
+            await self._process_absorption_signal(event)
+            return
 
         # 2. EVALUATE PRE-FLIGHT (Limit Sniper Phase 1)
         # DISABLED: PreFlight generated extra signals that eroded edge (3.4x more trades, worse quality).
@@ -1218,3 +1228,74 @@ class SetupEngineV4:
 
         self._trace_decision(symbol, "PASS", "SPREAD_SANITY", "Normal spread", metrics, 0.0, "")
         return True
+
+    async def _process_absorption_signal(self, event: SignalEvent):
+        """
+        Phase 2.3: Process absorption signals from AbsorptionDetector.
+
+        Converts absorption signals into executable setups using AbsorptionSetupEngine.
+        """
+        symbol = event.symbol
+        metadata = event.metadata or {}
+
+        # Extract absorption signal data
+        absorption_signal = {
+            "symbol": symbol,
+            "level": metadata.get("absorption_level", metadata.get("level", 0.0)),
+            "direction": metadata.get("direction", ""),
+            "delta": metadata.get("delta", 0.0),
+            "z_score": metadata.get("z_score", 0.0),
+            "concentration": metadata.get("concentration", 0.0),
+            "noise": metadata.get("noise", 0.0),
+            "timestamp": event.timestamp,
+        }
+
+        # Get current price
+        current_price = metadata.get("price", 0.0)
+        if current_price <= 0:
+            logger.warning(f"⚠️ [ABSORPTION] No price in signal metadata for {symbol}")
+            return
+
+        # Process signal with AbsorptionSetupEngine
+        setup = self.absorption_engine.process_signal(absorption_signal, current_price, event.timestamp)
+
+        if not setup:
+            logger.debug(f"❌ [ABSORPTION] Setup rejected for {symbol}")
+            return
+
+        # Convert setup to AggregatedSignalEvent for Croupier
+        trigger_metadata = {
+            "strategy": "AbsorptionScalpingV1",
+            "absorption_level": setup["absorption_level"],
+            "delta": setup["delta"],
+            "z_score": setup["z_score"],
+            "concentration": setup["concentration"],
+            "noise": setup["noise"],
+            "tp_price": setup["tp_price"],
+            "sl_price": setup["sl_price"],
+            "entry_price": setup["entry_price"],
+            "price": setup["entry_price"],
+            "sensor_id": "AbsorptionDetector",
+            "timestamp": setup["timestamp"],
+        }
+
+        # Enrich with structural levels if available
+        trigger_metadata = self._enrich_metadata(trigger_metadata, symbol)
+
+        # Create aggregated signal event
+        agg_event = AggregatedSignalEvent(
+            type=EventType.AGGREGATED_SIGNAL,
+            timestamp=event.timestamp,
+            symbol=symbol,
+            side=setup["side"],
+            setup_name=f"Absorption_{setup['side']}",
+            metadata=trigger_metadata,
+        )
+
+        logger.info(
+            f"🎯 [ABSORPTION] Setup fired: {symbol} {setup['side']} @ {setup['entry_price']:.2f} "
+            f"(TP={setup['tp_price']:.2f}, SL={setup['sl_price']:.2f})"
+        )
+
+        # Dispatch to Croupier
+        await self.engine.dispatch(agg_event)
