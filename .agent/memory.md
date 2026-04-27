@@ -695,29 +695,36 @@ ACTIVE_SENSORS = {
 - ✅ Added `create_absorption_v1_signal()` function
 - ✅ Added `test_absorption_v1_setup()` async function
 - ✅ Mocked FootprintRegistry to provide volume profile data
-- ✅ Fixed SetupEngine bugs:
-  - Fixed `setup_name` → `setup_type` parameter in AggregatedSignalEvent
-  - Added all required fields to AggregatedSignalEvent (candle_timestamp, selected_sensor, sensor_score, confidence, total_signals)
-  - Added `setup_type` to trigger_metadata
+- ✅ Fixed SetupEngine bugs (setup_name → setup_type, missing AggregatedSignalEvent fields)
 - ✅ All validations passing (LTA + Absorption V1)
 - ✅ All Absorption tests passing (30/32, 2 skipped as expected)
+- ✅ Flags review completed (all compatible with Absorption V1)
+- ✅ Fast-track bypass implemented in AbsorptionSetupEngine
 
-**Phase 7: Backtesting & Edge Validation** (3-5 días)
-- Long-Range Audit con datos 2024
-- Validar edge con MFE/MAE analysis
-- Comparar vs LTA V6 (baseline)
-- Métricas clave:
-  - Gross Expectancy > 0.12% (3× fees)
-  - Win Rate target: > 55%
-  - MFE/MAE Ratio > 1.2
+**Phase 7: Edge Validation & Optimization** (5-7 días) 🎯 PRÓXIMO
+- **Plan completo:** `.agent/ABSORPTION_V1_EDGE_VALIDATION_PLAN.md`
+- **Objetivo:** Gross Expectancy > 0.12% (viable con Limit Sniper)
+- **Fases:**
+  1. Baseline Validation (Día 1) - Establecer baseline sin optimizaciones
+  2. Diagnóstico Profundo (Día 1-2) - Identificar causas raíz
+  3. Ronda 1 de Ajustes (Día 2-3) - Top 3 ajustes (TP/SL, filters, thresholds)
+  4. Long-Range Validation (Día 3-4) - 9 días (RANGE/BEAR/BULL)
+  5. Ronda 2 de Ajustes (Día 4-5) - Ajustes avanzados (regime-aware, dynamic TP)
+  6. Optimization & Fine-Tuning (Día 5-6) - Grid search de parámetros
+  7. Final Validation (Día 6-7) - Certificación completa
+  8. Production Readiness (Día 7) - Deployment prep
+- **Criterios de certificación:**
+  - Gross Expectancy > 0.12% ✅
+  - Win Rate > 55% ✅
+  - MFE/MAE Ratio > 1.2 ✅
+  - Señales > 150 (9 días) ✅
 
-**Phase 8: Optimization** (2-3 días)
-- Calibrar thresholds basado en backtest results
-- Ajustar TP/SL ranges basado en MFE/MAE
-- Fine-tuning de filtros (z_score, concentration, noise)
-- Considerar numpy arrays si latency > 5ms (actualmente < 0.1ms)
+**Phase 8: Production Deployment** (1 día)
+- Activar Absorption V1 en producción
+- Monitoreo inicial (24-48 horas)
+- Ajustes post-deployment si necesario
 
-**Tiempo estimado total restante:** 5-8 días
+**Tiempo estimado total restante:** 6-8 días
 
 ### Known Issues & Gotchas
 
