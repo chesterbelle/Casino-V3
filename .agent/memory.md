@@ -590,7 +590,7 @@ Gross Expectancy (%) = (Win Rate × Avg Win %) - (Loss Rate × Avg Loss %)
 ## Absorption Scalping V1 - Implementation Status
 
 **Branch:** `v7.0.0-absorption-scalping`
-**Status:** Phase 3 COMPLETE (Integration with SetupEngine)
+**Status:** Phase 5 COMPLETE (ExitEngine Integration)
 **Tests:** 30/32 passing (93.75% success rate)
 
 ### Architecture Overview
@@ -599,9 +599,11 @@ Absorption V1 es una estrategia HFT que detecta agotamiento institucional (absor
 
 **Flujo de ejecución:**
 1. **Tick** → FootprintRegistry (actualiza bid/ask volume por nivel)
-2. **Tick** → AbsorptionDetector (analiza footprint, detecta absorption)
+2. **Tick** → AbsorptionDetector (analiza footprint, emite señal si detecta absorption)
 3. **Signal** → AbsorptionSetupEngine (confirma giro, calcula TP/SL dinámico)
 4. **Setup** → Croupier (ejecuta orden con Limit Sniper)
+5. **Tick** → OrderManager (recalcula TP con Footprint fresco < 50ms)
+6. **Tick** → ExitEngine (monitorea counter-absorption para exits anticipados)
 
 ### Components Implemented
 
@@ -647,6 +649,27 @@ Absorption V1 es una estrategia HFT que detecta agotamiento institucional (absor
   - Método `_process_absorption_signal()` que convierte setups en AggregatedSignalEvent
   - Dispatch automático al Croupier
 
+#### 5. OrderManager TP Recalculation (Phase 4) ✅
+- **Ubicación:** `core/execution.py`
+- **Features:**
+  - Detecta señales de AbsorptionScalpingV1 en `on_decision()`
+  - Recalcula TP usando Footprint fresco justo antes de ejecución
+  - Latencia target: < 50ms
+  - Validación de TP distance (0.10% - 0.50%)
+  - Telemetry T1a para tracking
+  - Logging de cambios en TP (% change + latency)
+
+#### 6. ExitEngine Counter-Absorption (Phase 5) ✅
+- **Ubicación:** `croupier/components/exit_engine.py`
+- **Integration:** Layer 4 (THESIS INVALIDATION)
+- **Features:**
+  - Detecta counter-absorption en dirección opuesta
+  - LONG + BUY_EXHAUSTION → Exit (bulls exhausted, bears taking control)
+  - SHORT + SELL_EXHAUSTION → Exit (bears exhausted, bulls taking control)
+  - Usa mismos filtros de calidad que AbsorptionDetector
+  - Exit reasons: `COUNTER_ABSORPTION_BUY` / `COUNTER_ABSORPTION_SELL`
+  - Graceful error handling (no crash si detection falla)
+
 ### Configuration
 
 **Sensor activation:**
@@ -661,25 +684,24 @@ ACTIVE_SENSORS = {
 1. Cambiar `"AbsorptionDetector": True` en `config/sensors.py`
 2. Ejecutar con símbolo registrado en tick_registry (BTC, ETH, LTC, etc.)
 
-### Next Steps (Phase 4+)
+### Next Steps (Phase 6-7)
 
-**Phase 4: OrderManager Integration**
-- Recalcular TP just before execution (< 50ms) usando Footprint fresco
-- Telemetry: T1a (TP recalc timestamp)
-
-**Phase 5: ExitEngine Integration**
-- Detectar counter-absorption (giro contrario)
-- Exit anticipado si aparece absorption en dirección opuesta
-
-**Phase 6: Backtesting & Validation**
+**Phase 6: Backtesting & Validation** (3-5 días)
 - Long-Range Audit con datos 2024
 - Validar edge con MFE/MAE analysis
 - Comparar vs LTA V6 (baseline)
+- Métricas clave:
+  - Gross Expectancy > 0.12% (3× fees)
+  - Win Rate target: > 55%
+  - MFE/MAE Ratio > 1.2
 
-**Phase 7: Optimization**
-- Calibrar thresholds (z_score, concentration, noise)
+**Phase 7: Optimization** (2-3 días)
+- Calibrar thresholds basado en backtest results
 - Ajustar TP/SL ranges basado en MFE/MAE
+- Fine-tuning de filtros (z_score, concentration, noise)
 - Considerar numpy arrays si latency > 5ms (actualmente < 0.1ms)
+
+**Tiempo estimado total restante:** 5-8 días
 
 ### Known Issues & Gotchas
 
@@ -691,8 +713,13 @@ ACTIVE_SENSORS = {
 
 4. **Sensor disabled by default:** AbsorptionDetector está desactivado en config para evitar señales en producción hasta completar validación.
 
+5. **Counter-absorption detection:** Ejecuta en cada tick para posiciones Absorption V1. Latencia adicional mínima (< 1ms) ya que reutiliza AbsorptionDetector logic.
+
 ### Commits
 
 - `cddce37` - Phase 2.1: FootprintRegistry implementation (12/12 tests)
 - `0c99033` - Phase 2.2-2.3: AbsorptionDetector + AbsorptionSetupEngine (8/10 tests)
 - `8a0f219` - Phase 3: Integration with SetupEngine (30/32 tests)
+- `6765d10` - Update memory.md
+- `b2dcad1` - Phase 4: OrderManager TP recalculation (< 50ms)
+- `2c84843` - Phase 5: ExitEngine counter-absorption detection
