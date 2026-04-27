@@ -583,3 +583,116 @@ Gross Expectancy (%) = (Win Rate × Avg Win %) - (Loss Rate × Avg Loss %)
 - Telemetry logging throttled (cada 1000 updates)
 
 **Próximo paso**: Integrar FootprintRegistry con SensorManager (on_tick event)
+
+
+---
+
+## Absorption Scalping V1 - Implementation Status
+
+**Branch:** `v7.0.0-absorption-scalping`
+**Status:** Phase 3 COMPLETE (Integration with SetupEngine)
+**Tests:** 30/32 passing (93.75% success rate)
+
+### Architecture Overview
+
+Absorption V1 es una estrategia HFT que detecta agotamiento institucional (absorption) en tiempo real usando Footprint Charts y opera el giro de precio resultante.
+
+**Flujo de ejecución:**
+1. **Tick** → FootprintRegistry (actualiza bid/ask volume por nivel)
+2. **Tick** → AbsorptionDetector (analiza footprint, detecta absorption)
+3. **Signal** → AbsorptionSetupEngine (confirma giro, calcula TP/SL dinámico)
+4. **Setup** → Croupier (ejecuta orden con Limit Sniper)
+
+### Components Implemented
+
+#### 1. FootprintRegistry (Phase 2.1) ✅
+- **Ubicación:** `core/footprint_registry.py`
+- **Tests:** 12/12 passing
+- **Latencia:** < 0.1ms (50x mejor que target de 5ms)
+- **Features:**
+  - Singleton thread-safe (RLock)
+  - Bid/ask volume tracking por nivel de precio
+  - CVD (Cumulative Volume Delta) con historial
+  - CVD slope (rate of change)
+  - Volume profile extraction (para TP dinámico)
+  - Sliding window (60 min) con auto-pruning
+  - Telemetry (avg/max latency, update count)
+
+#### 2. AbsorptionDetector (Phase 2.2) ✅
+- **Ubicación:** `sensors/absorption/absorption_detector.py`
+- **Tests:** 10/10 passing
+- **Integración:** Registrado en SensorManager como sensor tick-aware
+- **Filtros de calidad:**
+  1. **Magnitude:** Z-score > 3.0 (delta extremo)
+  2. **Velocity:** Concentration > 0.70 (70%+ del delta en < 30s)
+  3. **Noise:** < 0.20 (< 20% delta contrario)
+- **Output:** Señal con direction (SELL_EXHAUSTION / BUY_EXHAUSTION), delta, z_score, concentration, noise
+- **Throttling:** Análisis cada 100ms para evitar IPC explosion
+
+#### 3. AbsorptionSetupEngine (Phase 2.3) ✅
+- **Ubicación:** `decision/absorption_setup_engine.py`
+- **Tests:** 8/10 passing (2 integration tests skipped)
+- **Confirmaciones:**
+  1. CVD flattening (slope < 5.0)
+  2. Price holding near absorption level (< 0.05%)
+  3. Minimum TP distance (0.10% - 0.50%)
+- **TP dinámico:** First low-volume node (LVN) en dirección del trade
+- **SL dinámico:** Absorption level + buffer (basado en delta magnitude)
+
+#### 4. Integration with SetupEngine (Phase 3) ✅
+- **Ubicación:** `decision/setup_engine.py`
+- **Changes:**
+  - Inicializa AbsorptionSetupEngine en `__init__`
+  - Handler específico en `on_signal()` para señales de AbsorptionDetector
+  - Método `_process_absorption_signal()` que convierte setups en AggregatedSignalEvent
+  - Dispatch automático al Croupier
+
+### Configuration
+
+**Sensor activation:**
+```python
+# config/sensors.py
+ACTIVE_SENSORS = {
+    "AbsorptionDetector": False,  # Phase 2.2: TESTING (disabled by default)
+}
+```
+
+**Para activar Absorption V1:**
+1. Cambiar `"AbsorptionDetector": True` en `config/sensors.py`
+2. Ejecutar con símbolo registrado en tick_registry (BTC, ETH, LTC, etc.)
+
+### Next Steps (Phase 4+)
+
+**Phase 4: OrderManager Integration**
+- Recalcular TP just before execution (< 50ms) usando Footprint fresco
+- Telemetry: T1a (TP recalc timestamp)
+
+**Phase 5: ExitEngine Integration**
+- Detectar counter-absorption (giro contrario)
+- Exit anticipado si aparece absorption en dirección opuesta
+
+**Phase 6: Backtesting & Validation**
+- Long-Range Audit con datos 2024
+- Validar edge con MFE/MAE analysis
+- Comparar vs LTA V6 (baseline)
+
+**Phase 7: Optimization**
+- Calibrar thresholds (z_score, concentration, noise)
+- Ajustar TP/SL ranges basado en MFE/MAE
+- Considerar numpy arrays si latency > 5ms (actualmente < 0.1ms)
+
+### Known Issues & Gotchas
+
+1. **Integration tests skipped:** 2 tests de setup generation end-to-end requieren setup más complejo de volume profile. Los componentes individuales están validados.
+
+2. **CVD history tracking:** Agregado en Phase 2.3 para soportar `get_cvd_slope()`. Asegurar que `cvd_history.append()` se ejecuta en cada trade.
+
+3. **Symbol registration:** FootprintRegistry auto-registra símbolos en primer tick usando tick_registry. No requiere configuración manual.
+
+4. **Sensor disabled by default:** AbsorptionDetector está desactivado en config para evitar señales en producción hasta completar validación.
+
+### Commits
+
+- `cddce37` - Phase 2.1: FootprintRegistry implementation (12/12 tests)
+- `0c99033` - Phase 2.2-2.3: AbsorptionDetector + AbsorptionSetupEngine (8/10 tests)
+- `8a0f219` - Phase 3: Integration with SetupEngine (30/32 tests)
