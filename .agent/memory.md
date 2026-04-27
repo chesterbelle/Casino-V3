@@ -742,3 +742,23 @@ ACTIVE_SENSORS = {
 - `b2dcad1` - Phase 4: OrderManager TP recalculation (< 50ms)
 - `2c84843` - Phase 5: ExitEngine counter-absorption detection
 - `d31c939` - Phase 6: Update setup_data_validator for Absorption V1 + fix SetupEngine bugs
+- `59cab5d` - Phase 6: Add fast-track bypass to AbsorptionSetupEngine for infrastructure validation
+
+---
+
+## Flags Review (2026-04-27)
+
+**Status:** ✅ TODOS LOS FLAGS COMPATIBLES CON ABSORPTION V1
+
+### Flags Corregidos
+- ✅ `--fast-track`: Agregado bypass en AbsorptionSetupEngine (CVD flattening, price holding, TP calculation)
+
+### Flags Compatibles (sin cambios)
+- ✅ `--audit`: Zero-Interference Audit Mode (agnóstico a estrategia)
+- ✅ `--close-on-exit`: Emergency sweep + Drain Phase (opera a nivel Croupier)
+- ✅ `--timeout`: Limitar duración de sesión
+- ✅ `--mode`: demo/live/backtest
+- ✅ `--symbol`: Seleccionar símbolo (FootprintRegistry auto-registra)
+- ✅ `--bet-size`: Tamaño de posición
+
+**Documentación:** `.agent/FLAGS_REVIEW_ABSORPTION_V1.md`
