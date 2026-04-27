@@ -25,43 +25,66 @@ Validar y optimizar Absorption Scalping V1 hasta lograr **Gross Expectancy > 0.1
 ## Fase 1: Baseline Validation (Día 1)
 
 ### Objetivo
-Establecer baseline de Absorption V1 sin optimizaciones.
+Establecer baseline de Absorption V1 sin optimizaciones usando el protocolo oficial Edge Audit (Phase 900).
 
-### Protocolo: Edge Audit (Single Day)
+### Protocolo: Edge Audit (Phase 900)
 
 **Dataset:** `tests/validation/ltc_24h_audit.csv` (2026-04-12, RANGE)
 
-**Comando:**
+#### Step 0: Nuclear Reset (Clean Slate)
 ```bash
-# 1. Activar Absorption V1 en config
+.venv/bin/python reset_data.py
+```
+**Must output:** `✨ Sistema limpio.`
+
+#### Step 1: Run Zero-Interference Backtest
+```bash
+# Activar Absorption V1 en config ANTES de ejecutar
 # config/sensors.py: ACTIVE_SENSORS["AbsorptionDetector"] = True
 
-# 2. Ejecutar backtest con audit mode
 .venv/bin/python backtest.py \
-  --dataset tests/validation/ltc_24h_audit.csv \
+  --data tests/validation/ltc_24h_audit.csv \
+  --symbol LTC/USDT:USDT \
+  --depth-db data/historian.db \
   --audit \
-  --bet-size 0.01 \
-  > .absorption_v1_baseline.txt 2>&1
-
-# 3. Analizar edge
-.venv/bin/python utils/setup_edge_auditor.py data/historian.db \
-  > .absorption_v1_edge_baseline.txt 2>&1
+  2>&1 | tee logs/edge_audit_absorption_baseline_$(date +%Y%m%d_%H%M%S).log
 ```
+
+#### Step 2: Verify Data Collection
+```bash
+.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian.db'); s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]; p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]; d = conn.execute('SELECT COUNT(*) FROM decision_traces').fetchone()[0] if conn.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='decision_traces' ''').fetchone()[0] == 1 else 0; print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')"
+```
+**Must output:** Signals >= 20 (mínimo para Absorption V1)
+
+#### Step 3: Statistical Extraction (MFE/MAE)
+```bash
+.venv/bin/python utils/setup_edge_auditor.py --window 900
+```
+
+**⛔ MANDATORY STOP** - Revisar output y capturar:
+- **[1B] Gross Expectancy** - Métrica primaria
+- **[2] Theoretical Win-Rate Matrix** - Net (Taker) y Net (Maker)
+- **[3] Per-Setup Breakdown** - Absorption_LONG y Absorption_SHORT
+- **[5] Overall Edge Summary** - Viabilidad agregada
 
 **Métricas a capturar:**
 - Gross Expectancy (%)
 - Win Rate (%)
 - MFE/MAE Ratio
-- Número de señales
-- Timeouts (%)
-- Rejection reasons (CVD flattening, price holding, TP distance)
+- Número de señales (Absorption_LONG + Absorption_SHORT)
+- Net (Maker) - Viabilidad con Limit Sniper
+- Rejection reasons (si disponible en logs)
 
-**Criterios de éxito:**
-- ✅ Gross Expectancy > 0.00% (positivo)
-- ✅ Señales > 20 (suficiente sample size)
-- ✅ Win Rate > 45%
+**Criterios de éxito (Certification Matrix):**
+- ✅ **CERTIFIED:** Expectancy > 0.36% AND WR > 55%
+- ⚠️ **WATCH:** Expectancy > 0.12% AND WR > 50% (viable con Limit Sniper)
+- ❌ **FAILED:** Expectancy < 0.12% (no viable)
+- ⚠️ **INSUFFICIENT DATA:** n < 20 (necesita más datos)
 
-**Si falla:** Proceder a Fase 2 (Diagnóstico)
+**Si CERTIFIED:** Proceder a Fase 4 (Long-Range Validation)
+**Si WATCH:** Proceder a Fase 2 (Diagnóstico) → Fase 3 (Ajustes leves)
+**Si FAILED:** Proceder a Fase 2 (Diagnóstico) → Fase 3 (Ajustes agresivos)
+**Si INSUFFICIENT DATA:** Ejecutar en dataset más largo o relajar filtros
 
 ---
 
@@ -190,18 +213,26 @@ self.max_noise = 0.15  # Más estricto
 
 **Para cada ajuste:**
 ```bash
-# 1. Implementar cambio
-# 2. Ejecutar backtest
+# 1. Implementar cambio en código
+
+# 2. Nuclear Reset
+.venv/bin/python reset_data.py
+
+# 3. Ejecutar backtest con audit mode (protocolo Phase 900)
 .venv/bin/python backtest.py \
-  --dataset tests/validation/ltc_24h_audit.csv \
+  --data tests/validation/ltc_24h_audit.csv \
+  --symbol LTC/USDT:USDT \
+  --depth-db data/historian.db \
   --audit \
-  > .absorption_v1_round1_adjustX.txt 2>&1
+  2>&1 | tee logs/edge_audit_absorption_round1_adjustX_$(date +%Y%m%d_%H%M%S).log
 
-# 3. Analizar edge
-.venv/bin/python utils/setup_edge_auditor.py data/historian.db \
-  > .absorption_v1_edge_round1_adjustX.txt 2>&1
+# 4. Verify Data Collection
+.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian.db'); s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]; print(f'Signals: {s}')"
 
-# 4. Comparar vs baseline
+# 5. Statistical Extraction
+.venv/bin/python utils/setup_edge_auditor.py --window 900
+
+# 6. Comparar vs baseline
 # - Gross Expectancy: ¿mejoró?
 # - Win Rate: ¿mejoró?
 # - Señales: ¿se mantiene sample size?
@@ -220,16 +251,27 @@ self.max_noise = 0.15  # Más estricto
 ## Fase 4: Long-Range Validation (Día 3-4)
 
 ### Objetivo
-Validar ajustes en múltiples condiciones de mercado.
+Validar ajustes en múltiples condiciones de mercado usando el protocolo Long-Range Edge Audit oficial.
 
-### Protocolo: Long-Range Edge Audit
+### Protocolo: Long-Range Edge Audit (LTC × 3 Conditions × 3 Days)
 
 **Datasets:** 9 días (RANGE/BEAR/BULL × 3 días cada uno)
 
-**Comando:**
+| Condition | Dates | Files |
+|-----------|-------|-------|
+| **RANGE** | Aug 14-16, 2024 | ltc_range_2024-08-14.csv, ltc_range_24h.csv, ltc_range_2024-08-16.csv |
+| **BEAR**  | Sep 05-07, 2024 | ltc_bear_2024-09-05.csv, ltc_bear_24h.csv, ltc_bear_2024-09-07.csv |
+| **BULL**  | Oct 13-15, 2024 | ltc_bull_2024-10-13.csv, ltc_bull_24h.csv, ltc_bull_2024-10-15.csv |
+
+#### Step 0: Nuclear Reset
 ```bash
-# Ejecutar audit en 9 datasets
-for dataset in \
+.venv/bin/python reset_data.py
+```
+**Must output:** `✨ Sistema limpio.`
+
+#### Step 1: Verify Datasets Exist
+```bash
+for f in \
   tests/validation/ltc_range_2024-08-14.csv \
   tests/validation/ltc_range_24h.csv \
   tests/validation/ltc_range_2024-08-16.csv \
@@ -238,32 +280,95 @@ for dataset in \
   tests/validation/ltc_bear_2024-09-07.csv \
   tests/validation/ltc_bull_2024-10-13.csv \
   tests/validation/ltc_bull_24h.csv \
-  tests/validation/ltc_bull_2024-10-15.csv
-do
-  echo "Testing $dataset..."
-  .venv/bin/python backtest.py --dataset $dataset --audit
+  tests/validation/ltc_bull_2024-10-15.csv; do
+  if [ -f "$f" ]; then
+    echo "✅ $(basename $f): $(wc -l < $f) rows"
+  else
+    echo "❌ MISSING: $f"
+  fi
 done
+```
+**⛔ STOP if any dataset is missing.**
 
-# Análisis agregado
-.venv/bin/python utils/analysis/per_condition_audit.py \
-  --db data/historian.db \
-  --strategy AbsorptionScalpingV1 \
-  > .absorption_v1_long_range_round1.txt 2>&1
+#### Step 2: Run Backtests (9 total)
+
+**2A: RANGE (Aug 14-16)**
+```bash
+for f in tests/validation/ltc_range_2024-08-14.csv tests/validation/ltc_range_24h.csv tests/validation/ltc_range_2024-08-16.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
 ```
 
-**Métricas a capturar:**
-- Gross Expectancy por condición (RANGE/BEAR/BULL)
-- Win Rate por condición
-- Señales por condición
-- Overall Gross Expectancy
+**2B: BEAR (Sep 05-07)**
+```bash
+for f in tests/validation/ltc_bear_2024-09-05.csv tests/validation/ltc_bear_24h.csv tests/validation/ltc_bear_2024-09-07.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
+```
 
-**Criterios de éxito:**
-- ✅ Overall Gross Expectancy > 0.12% (viable)
-- ✅ RANGE Gross Expectancy > 0.15% (mejor condición)
-- ✅ BEAR/BULL Gross Expectancy > 0.00% (no negativo)
-- ✅ Overall Win Rate > 55%
+**2C: BULL (Oct 13-15)**
+```bash
+for f in tests/validation/ltc_bull_2024-10-13.csv tests/validation/ltc_bull_24h.csv tests/validation/ltc_bull_2024-10-15.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
+```
 
-**Si falla:** Proceder a Fase 5 (Ronda 2 de Ajustes)
+#### Step 3: Verify Data Collection
+```bash
+.venv/bin/python -c "
+import sqlite3
+conn = sqlite3.connect('data/historian.db')
+s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]
+p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]
+d = conn.execute('SELECT COUNT(*) FROM decision_traces').fetchone()[0] if conn.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='decision_traces' ''').fetchone()[0] == 1 else 0
+print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
+"
+```
+**Minimum:** Signals ≥ 150 (para Absorption V1)
+
+#### Step 4: Statistical Extraction (MFE/MAE Aggregate)
+```bash
+.venv/bin/python utils/setup_edge_auditor.py --window 900
+```
+
+#### Step 5: Per-Condition Breakdown
+```bash
+.venv/bin/python utils/analysis/per_condition_audit.py
+```
+
+**⛔ MANDATORY STOP** - Revisar output:
+
+**De Step 4 (Overall):**
+- **[5] Overall Edge Summary** - Gross Expectancy agregado, Net (Taker/Maker), Recommendations
+
+**De Step 5 (Per-Condition):**
+- **RANGE:** Expectancy%, WR%, Signal count, Verdict
+- **BEAR:** Expectancy%, WR%, Signal count, Verdict
+- **BULL:** Expectancy%, WR%, Signal count, Verdict
+
+**Criterios de certificación (Certification Matrix - Phase 800B):**
+
+**RANGE (Primary Edge Zone):**
+- ✅ **CERTIFIED:** Expectancy > 0.36% AND WR > 55%
+- ⚠️ **WATCH:** Expectancy > 0.12% AND WR > 50% (requiere Limit Sniper)
+- ❌ **FAILED:** Expectancy < 0.12%
+
+**BEAR/BULL (Guardian Effectiveness):**
+- ✅ **GUARDIAN OK:** Signal count < RANGE AND Expectancy > 0.12%
+- ⚠️ **GUARDIAN WEAK:** Signal count ≈ RANGE (no filtra suficiente)
+- ❌ **GUARDIAN FAIL:** Expectancy < 0% (deja pasar malos trades)
+
+**Overall System Verdict:**
+- ✅ **ROBUST:** RANGE Expectancy > 0.36% + BEAR/BULL GUARDIAN OK → Production ready
+- ⚠️ **FRAGILE:** RANGE Expectancy > 0.12% + BEAR/BULL GUARDIAN WEAK → Limit Sniper + ajustar filtros
+- ❌ **BROKEN:** RANGE Expectancy < 0.12% → Rework entry logic
+
+**Si ROBUST:** Proceder a Fase 6 (Optimization)
+**Si FRAGILE:** Proceder a Fase 5 (Ronda 2 - ajustes finos)
+**Si BROKEN:** Proceder a Fase 5 (Ronda 2 - ajustes agresivos) o ABORT
 
 ---
 
@@ -355,47 +460,111 @@ Fine-tuning de parámetros para maximizar edge.
 ## Fase 7: Final Validation (Día 6-7)
 
 ### Objetivo
-Validación final con parámetros optimizados.
+Validación final con parámetros optimizados usando el protocolo Long-Range Edge Audit completo.
 
-### Protocolo: Full Validation Suite
+### Protocolo: Long-Range Edge Audit (Full)
 
-**1. Long-Range Edge Audit (9 días)**
+#### Step 0: Nuclear Reset
 ```bash
-# Ejecutar con parámetros optimizados
-.venv/bin/python utils/analysis/per_condition_audit.py \
-  --db data/historian.db \
-  --strategy AbsorptionScalpingV1 \
-  > .absorption_v1_final_validation.txt 2>&1
+.venv/bin/python reset_data.py
 ```
 
-**2. Generalized Edge Audit (múltiples símbolos)**
+#### Step 1: Verify Datasets Exist
 ```bash
-# Validar en SOL, ETH, BTC (si hay datos)
-for symbol in SOL ETH BTC; do
-  .venv/bin/python backtest.py \
-    --dataset tests/validation/${symbol,,}_24h_audit.csv \
-    --audit
+for f in \
+  tests/validation/ltc_range_2024-08-14.csv \
+  tests/validation/ltc_range_24h.csv \
+  tests/validation/ltc_range_2024-08-16.csv \
+  tests/validation/ltc_bear_2024-09-05.csv \
+  tests/validation/ltc_bear_24h.csv \
+  tests/validation/ltc_bear_2024-09-07.csv \
+  tests/validation/ltc_bull_2024-10-13.csv \
+  tests/validation/ltc_bull_24h.csv \
+  tests/validation/ltc_bull_2024-10-15.csv; do
+  if [ -f "$f" ]; then
+    echo "✅ $(basename $f): $(wc -l < $f) rows"
+  else
+    echo "❌ MISSING: $f"
+  fi
 done
 ```
 
-**3. Stress Test (chaos conditions)**
+#### Step 2: Run Backtests (9 total con parámetros optimizados)
+
+**2A: RANGE (Aug 14-16)**
 ```bash
-# Validar en crash/pump extremos
-.venv/bin/python backtest.py \
-  --dataset tests/validation/ltc_bear_24h_v2.csv \
-  --audit
+for f in tests/validation/ltc_range_2024-08-14.csv tests/validation/ltc_range_24h.csv tests/validation/ltc_range_2024-08-16.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
 ```
 
-**Criterios de certificación:**
-- ✅ Overall Gross Expectancy > 0.12% (CERTIFIED)
-- ✅ RANGE Gross Expectancy > 0.15%
-- ✅ BEAR/BULL Gross Expectancy > 0.00%
+**2B: BEAR (Sep 05-07)**
+```bash
+for f in tests/validation/ltc_bear_2024-09-05.csv tests/validation/ltc_bear_24h.csv tests/validation/ltc_bear_2024-09-07.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
+```
+
+**2C: BULL (Oct 13-15)**
+```bash
+for f in tests/validation/ltc_bull_2024-10-13.csv tests/validation/ltc_bull_24h.csv tests/validation/ltc_bull_2024-10-15.csv; do
+  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
+    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
+done
+```
+
+#### Step 3: Verify Data Collection
+```bash
+.venv/bin/python -c "
+import sqlite3
+conn = sqlite3.connect('data/historian.db')
+s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]
+p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]
+d = conn.execute('SELECT COUNT(*) FROM decision_traces').fetchone()[0] if conn.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='decision_traces' ''').fetchone()[0] == 1 else 0
+print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
+"
+```
+**Minimum:** Signals ≥ 150
+
+#### Step 4: Statistical Extraction (MFE/MAE Aggregate)
+```bash
+.venv/bin/python utils/setup_edge_auditor.py --window 900
+```
+
+#### Step 5: Per-Condition Breakdown
+```bash
+.venv/bin/python utils/analysis/per_condition_audit.py
+```
+
+**⛔ MANDATORY STOP** - Revisar output final:
+
+**Criterios de certificación FINAL:**
+
+**RANGE (Primary Edge Zone):**
+- ✅ **CERTIFIED:** Expectancy > 0.36% AND WR > 55%
+- ⚠️ **WATCH:** Expectancy > 0.12% AND WR > 50%
+- ❌ **FAILED:** Expectancy < 0.12%
+
+**BEAR/BULL (Guardian Effectiveness):**
+- ✅ **GUARDIAN OK:** Signal count < RANGE AND Expectancy > 0.12%
+- ⚠️ **GUARDIAN WEAK:** Signal count ≈ RANGE
+- ❌ **GUARDIAN FAIL:** Expectancy < 0%
+
+**Overall System Verdict:**
+- ✅ **ROBUST:** RANGE CERTIFIED + BEAR/BULL GUARDIAN OK → **PRODUCTION READY**
+- ⚠️ **FRAGILE:** RANGE WATCH + BEAR/BULL GUARDIAN WEAK → **LIMIT SNIPER ONLY**
+- ❌ **BROKEN:** RANGE FAILED → **ABORT**
+
+**Métricas adicionales:**
 - ✅ Overall Win Rate > 55%
 - ✅ MFE/MAE Ratio > 1.2
-- ✅ Señales > 150 (9 días)
+- ✅ Total Signals > 150
 
-**Si pasa:** Proceder a Phase 8 (Production Deployment)
-**Si falla:** Volver a Fase 5 (Ronda 3 de Ajustes)
+**Si ROBUST:** Proceder a Phase 8 (Production Deployment) ✅
+**Si FRAGILE:** Activar Limit Sniper, monitoreo intensivo ⚠️
+**Si BROKEN:** Volver a Fase 5 (Ronda 3) o ABORT ❌
 
 ---
 
