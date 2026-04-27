@@ -58,11 +58,25 @@
 
 ---
 
-## Phase 2: Footprint Infrastructure (3-5 días)
+## Phase 2: Footprint Infrastructure (4-6 días)
 
 ### 2.1 FootprintRegistry (Nuevo)
 
 **Propósito**: Mantener Footprint Chart en tiempo real desde el stream de trades.
+
+**🎯 OPTIMIZACIÓN CRÍTICA: Singleton Compartido**
+
+FootprintRegistry será un **singleton en main process**, compartido por:
+1. AbsorptionDetector (sensor en workers) — Read-only
+2. AbsorptionSetupEngine (main process) — Read-only
+3. ExitEngine (main process) — Read-only
+4. OrderManager (main process) — Read-only
+
+**Ventaja**: Footprint calculado UNA VEZ, compartido por todos (evita cálculo duplicado)
+
+**Thread-safety**:
+- Writes: Protegidos con `threading.RLock()`
+- Reads: Lock-free (Python GIL protege dict reads)
 
 **⚠️ CRÍTICO: HFT Latency Telemetry**
 
@@ -89,6 +103,8 @@ Absorption añade componentes ANTES de T1 (AdaptivePlayer). Necesitamos timestam
 **Total T0 → T2**: < 1.2 segundos (vs < 100ms en LTA V6)
 
 **Estructura de datos**:
+
+**Opción A: Dict (Simple, inicial)**:
 ```python
 {
     "BTC/USDT:USDT": {
@@ -108,6 +124,24 @@ Absorption añade componentes ANTES de T1 (AdaptivePlayer). Necesitamos timestam
     }
 }
 ```
+
+**Opción B: Numpy Arrays (Optimizado, si latencia > 5ms)**:
+```python
+{
+    "BTC/USDT:USDT": {
+        "price_levels": np.array([65432.0, 65432.5, 65433.0, ...]),  # Sorted
+        "ask_volumes": np.array([12.5, 8.3, ...]),
+        "bid_volumes": np.array([10.2, 7.1, ...]),
+        "deltas": np.array([2.3, 1.2, ...]),  # Precomputed
+        "cvd": 145.7,
+        "tick_size": 0.5
+    }
+}
+```
+
+**Decisión**: Empezar con **Opción A** (dict), migrar a **Opción B** (numpy) si latency > 5ms
+
+**Razón**: Dict es más simple de implementar y debuggear. Numpy es optimización prematura hasta que midamos latencia real.
 
 **Métodos clave**:
 - `on_trade(symbol, price, qty, side, timestamp)` — Actualiza Footprint con cada tick
@@ -129,6 +163,15 @@ Absorption añade componentes ANTES de T1 (AdaptivePlayer). Necesitamos timestam
 ### 2.2 AbsorptionDetector (Nuevo Sensor)
 
 **Propósito**: Detectar absorción en tiempo real.
+
+**🎯 OPTIMIZACIÓN: Sensor en Workers (Paralelización)**
+
+AbsorptionDetector será un **sensor estándar** ejecutado en workers (como sensores LTA actuales):
+- Distribuido entre workers via SensorManager
+- Paralelización automática (múltiples símbolos)
+- Lee FootprintRegistry (read-only, sin IPC overhead significativo)
+
+**Ventaja**: Aprovecha workers existentes, paralelización gratis
 
 **Criterios de detección**:
 
