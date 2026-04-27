@@ -1,13 +1,13 @@
 """
-Croupier V4 - Institutional Execution Engine (Phase 1100)
+Croupier V4 - Institutional Execution Engine (Phase 1200)
 ========================================================
 
 The Croupier is the central orchestrator of the trading floor. It manages
 the lifecycle of all positions, from signal dispatch to final settlement.
 
 Philosophical Evolution:
-- Phase 1100: Transition to 'Professional Patience' (Axia-Style).
-- Implements setup-aware exit management via HFTExitManager.
+- Phase 1200: Unified ExitEngine (5-Layer Stack).
+- Combines winner protection + thesis invalidation + Valentino scale-out.
 - Enforces structural integrity of Footprint setups (Invalidation).
 - Manages real-time reactor state and drift auditing.
 """
@@ -31,8 +31,7 @@ from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
 from .components.drift_auditor import DriftAuditor
-from .components.exit_manager import ExitManager
-from .components.hft_exit_manager import HFTExitManager
+from .components.exit_engine import ExitEngine
 from .components.oco_manager import OCOManager
 from .components.order_executor import OrderExecutor
 from .components.reconciliation_service import ReconciliationService
@@ -87,9 +86,7 @@ class Croupier(TimeIterator):
             exchange_adapter, self.position_tracker, self.oco_manager, croupier=self
         )
 
-        self.exit_manager = (
-            HFTExitManager(self) if getattr(trading_config, "HFT_EXIT_MODE", False) else ExitManager(self)
-        )
+        self.exit_manager = ExitEngine(self)
 
         # Initialize ContextRegistry for execute_order
         self.context_registry = None  # Set externally by main.py
@@ -862,6 +859,13 @@ class Croupier(TimeIterator):
 
             fill_price = float(result.get("average", 0) or result.get("price", 0))
 
+            # Phase 1200: Extract exit fee from close result for accurate accounting
+            exit_fee_info = result.get("fee", {})
+            if isinstance(exit_fee_info, dict):
+                exit_fee = float(exit_fee_info.get("cost", 0) or 0)
+            else:
+                exit_fee = float(exit_fee_info or 0)
+
             # FIX: Prevent 0.0 fill price from destroying PnL
             if fill_price <= 0:
                 self.logger.warning(
@@ -893,17 +897,24 @@ class Croupier(TimeIterator):
             else:
                 pnl = 0.0
 
-            # PHASE 35: DEFERRED FORENSIC ENRICHMENT (No-Lag)
-            # We record immediately with 0 fee, then enrich in background to avoid blocking execution.
+            # Phase 1200: Pass actual fees to confirm_close for accurate accounting
+            # Previously fee=0.0 was passed and _deferred_fee_enrichment overwrote with only exit_fee
+            total_fee = position.entry_fee + exit_fee
 
-            asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
+            # Phase 1200: Skip deferred enrichment in backtest — fees are already accurate
+            # In backtest, _deferred_fee_enrichment overwrites correct total_fee with only exit_fee
+            is_backtest = (
+                hasattr(self.adapter, "connector") and getattr(self.adapter.connector, "mode", "live") == "testing"
+            )
+            if not is_backtest:
+                asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
 
             await self.position_tracker.confirm_close(
                 trade_id=trade_id,
                 exit_price=fill_price,
                 exit_reason=exit_reason,
                 pnl=pnl,
-                fee=0.0,  # Initially 0, will be updated by background task
+                fee=total_fee,  # Phase 1200: entry_fee + exit_fee (was 0.0)
             )
 
             # Update ContextRegistry (Phase 974 Sniper Patience Lock)
@@ -992,6 +1003,87 @@ class Croupier(TimeIterator):
         except Exception as e:
             self.logger.error(f"❌ Failed to modify SL: {e}")
             raise e
+
+    async def scale_out_position(self, trade_id: str, fraction: float = 0.5) -> Dict[str, Any]:
+        """
+        Valentino Scale-out: Partially close a position and move SL to breakeven.
+
+        Phase 1200 (ExitEngine Layer 3):
+        1. Close `fraction` of the position at market
+        2. Move remaining SL to breakeven
+        3. Update position amount/notional in memory
+
+        Args:
+            trade_id: Position ID
+            fraction: Fraction of the position to close (default 50%)
+        """
+        position = self.position_tracker.get_position(trade_id)
+        if not position or position.status != "ACTIVE":
+            return {"status": "skipped", "reason": "position_not_active"}
+
+        if position.scaled_out:
+            return {"status": "skipped", "reason": "already_scaled_out"}
+
+        self.logger.info(f"⚖️ [VALENTINO] Scaling out {fraction:.0%} of {trade_id} ({position.symbol})")
+
+        # 1. Calculate amount to close
+        amount_to_close = position.amount * fraction
+
+        # Ensure we don't round down to 0 (precision check)
+        if hasattr(self.adapter, "amount_to_precision"):
+            try:
+                amount_to_close = float(self.adapter.amount_to_precision(position.symbol, amount_to_close))
+            except Exception:
+                pass
+
+        if amount_to_close <= 0:
+            self.logger.warning(f"⚠️ Scale-out amount too small for {position.symbol}")
+            return {"status": "error", "message": "amount_too_small"}
+
+        try:
+            # Mark as scaled_out immediately to prevent double-firing
+            position.scaled_out = True
+
+            # 2. Execute Partial Market Close (reduceOnly)
+            close_result = await self.order_executor.force_close_position(
+                symbol=position.symbol,
+                side=position.side,
+                amount=amount_to_close,
+                exit_reason="SCALE_OUT_VALENTINO",
+            )
+            self.logger.info(f"⚖️ [VALENTINO] Partial close result: {close_result.get('status', 'unknown')}")
+
+            # 3. Update position in memory FIRST (so modify_bracket picks up new amount)
+            remaining_amount = position.amount - amount_to_close
+            new_sl_price = position.entry_price
+
+            position.amount = remaining_amount
+            if position.entry_price > 0:
+                position.notional = position.amount * position.entry_price
+
+            # Also update the order dict so modify_bracket picks up the reduced amount
+            if position.order and "amount" in position.order:
+                position.order["amount"] = remaining_amount
+
+            self.logger.info(
+                f"🛡️ [VALENTINO] Moving SL to Breakeven (@{new_sl_price}) " f"for remaining {remaining_amount}"
+            )
+
+            # Modify bracket: new SL at entry price (amount is read from position)
+            await self.oco_manager.modify_bracket(
+                trade_id=trade_id,
+                symbol=position.symbol,
+                new_sl_price=new_sl_price,
+                timeout=trading_config.GRACEFUL_SL_TIMEOUT,
+            )
+
+            return {"status": "success", "closed_amount": amount_to_close, "remaining_amount": remaining_amount}
+
+        except Exception as e:
+            self.logger.error(f"❌ Valentino Scale-out Failed for {trade_id}: {e}")
+            # Reset flag on failure so we can try again
+            position.scaled_out = False
+            return {"status": "error", "message": str(e)}
 
     def trigger_reconciliation_task(self, symbol: str):
         """Spawns a debounced reconciliation task."""
@@ -1471,11 +1563,20 @@ class Croupier(TimeIterator):
             # Since we record with trade_id (bot level), matching exact order ID is safer
             # Local positions often store exit order IDs.
             # For simplicity in this background task, we take the most recent fee if it hasn't been enriched yet.
-            real_fee = float((trades[0].get("fee") or {}).get("cost", 0) or 0)
+            exit_fee = float((trades[0].get("fee") or {}).get("cost", 0) or 0)
 
-            if real_fee > 0:
-                self.logger.info(f"💰 Background Enrichment: Updating trade {trade_id} with exit_fee={real_fee:.4f}")
-                historian.update_trade_fee(trade_id, real_fee)
+            if exit_fee > 0:
+                # Phase 1200: Include entry_fee to get TOTAL fee (entry + exit)
+                # Previously this overwrote the total with just exit_fee, underreporting fees.
+                position = self.position_tracker.get_position(trade_id)
+                entry_fee = position.entry_fee if position else 0.0
+                total_fee = entry_fee + exit_fee
+
+                self.logger.info(
+                    f"💰 Background Enrichment: Updating trade {trade_id} "
+                    f"with entry_fee={entry_fee:.4f} + exit_fee={exit_fee:.4f} = {total_fee:.4f}"
+                )
+                historian.update_trade_fee(trade_id, total_fee)
 
         except Exception as e:
             self.logger.warning(f"⚠️ Background enrichment failed for {trade_id}: {e}")

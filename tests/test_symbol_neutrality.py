@@ -104,7 +104,7 @@ class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
 
     async def test_exit_manager_matching(self):
         """Verify ExitManager matches ATOMUSDT position with ATOM/USDT:USDT candle."""
-        from croupier.components.exit_manager import ExitManager
+        from croupier.components.exit_engine import ExitEngine
 
         croupier = MagicMock()
         croupier.get_open_positions.return_value = [
@@ -125,7 +125,7 @@ class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
             )
         ]
 
-        exit_mgr = ExitManager(croupier)
+        exit_mgr = ExitEngine(croupier)
 
         # Mock candle with RAW symbol
         # CandleEvent(type, timestamp, symbol, timeframe, open, high, low, close, volume)

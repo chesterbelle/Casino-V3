@@ -12,6 +12,7 @@ from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional, Tuple
 
 import config.strategies as strat_config
+import config.trading as trading_config
 from core.events import (
     AggregatedSignalEvent,
     EventType,
@@ -314,6 +315,27 @@ class SetupEngineV4:
         """Processes incoming tactical and regime events."""
         # Phase 1500: Sync Regime Filters with ContextRegistry
         md = event.metadata or {}
+        symbol = event.symbol
+        now = time.time()
+
+        # 1. Store in memory for confluence evaluation
+        self.memory[symbol].append((now, event.timestamp, event))
+
+        # 2. EVALUATE PRE-FLIGHT (Limit Sniper Phase 1)
+        # DISABLED: PreFlight generated extra signals that eroded edge (3.4x more trades, worse quality).
+        # Limit Sniper now only changes order TYPE (market→limit) on existing LTA signals,
+        # not generates new signals. See _execute_main_order in oco_manager.py.
+        # t_type = md.get("tactical_type")
+        # if t_type and t_type != "PreFlightProximity":
+        #     await self._evaluate_pre_flight(symbol, event)
+
+        # 3. Prune old events periodically
+        if now - self._last_signal_prune_ts > self._prune_interval:
+            self._last_signal_prune_ts = now
+            for s in list(self.memory.keys()):
+                cutoff = now - 5.0
+                while self.memory[s] and self.memory[s][0][0] < cutoff:
+                    self.memory[s].popleft()
 
         # Phase 2100: New MarketRegime_V2 (3-layer anticipatory sensor)
         # Takes priority over legacy OTF. Maps to ContextRegistry using the
@@ -505,7 +527,7 @@ class SetupEngineV4:
         # Lazy Pruning (Phase 500) - Using Market Time
         if now - self._last_micro_prune_ts > self._prune_interval:
             self._last_micro_prune_ts = now
-            for s in list(self.micro_memory.keys()):
+            for s in list(self.memory.keys()):
                 cutoff = now - 5.0
                 while self.memory[s] and self.memory[s][0][0] < cutoff:
                     self.memory[s].popleft()
@@ -692,6 +714,88 @@ class SetupEngineV4:
             "side": side,
         }
         historian.record_decision_trace(trace_data)
+
+    async def _evaluate_pre_flight(self, symbol: str, event: SignalEvent):
+        """
+        Phase 2360: Limit Sniper Pre-Flight Mode.
+        Detects structural proximity and pre-positions LIMIT orders.
+        """
+        # Master switch check
+        if not getattr(trading_config, "LIMIT_SNIPER_ENABLED", False):
+            return
+
+        if self.fast_track or not self.context_registry:
+            return
+
+        now_wall = time.time()
+        # 1. Get structural anchors and current price
+        poc, vah, val = self.context_registry.get_structural(symbol)
+        if not (poc > 0 and vah > 0 and val > 0):
+            return
+
+        md = event.metadata or {}
+        price = md.get("price") or md.get("close") or 0.0
+        if price <= 0:
+            return
+
+        # 2. Proximity Gate (0.20% by default)
+        is_at_vah = abs(price - vah) / price < strat_config.LTA_PROXIMITY_THRESHOLD
+        is_at_val = abs(price - val) / price < strat_config.LTA_PROXIMITY_THRESHOLD
+
+        if not (is_at_vah or is_at_val):
+            return
+
+        # 3. Determine potential side and targets
+        side = "SHORT" if is_at_vah else "LONG"
+
+        # 4. Guardian Quick-Check (Regime must be Balance/Neutral)
+        # We don't want to pre-position in a hard trend
+        regime_mult = self._check_regime_alignment(symbol, side, md)
+        if regime_mult <= 0:
+            return
+
+        # 5. Apply Front-Running Offset (Phase 2361)
+        offset = getattr(trading_config, "LIMIT_SNIPER_OFFSET_PCT", 0.0)
+        if side == "SHORT":
+            # Short limit slightly BELOW the level
+            entry_price = vah * (1 - offset)
+        else:
+            # Long limit slightly ABOVE the level
+            entry_price = val * (1 + offset)
+
+        # 6. Emit PRE_FLIGHT event for OrderManager
+        # This tells the OrderManager to place a LIMIT order
+        pre_flight_metadata = {
+            "symbol": symbol,
+            "side": side,
+            "entry_price": entry_price,
+            "tp_price": poc,
+            "sl_price": vah * (1 + 0.0015) if is_at_vah else val * (1 - 0.0015),  # Standard structural buffer
+            "type": "limit_sniper",
+            "is_pre_flight": True,
+            "tactical_type": "PreFlightProximity",
+        }
+
+        # We use a custom event type for Pre-Flight (OrderManager will subscribe to this)
+        # Note: We use AGGREGATED_SIGNAL so it reaches OrderManager/Player flow
+        out_evt = AggregatedSignalEvent(
+            type=EventType.AGGREGATED_SIGNAL,
+            timestamp=event.timestamp,
+            symbol=symbol,
+            candle_timestamp=event.timestamp,
+            selected_sensor="SetupEngine_PreFlight",
+            sensor_score=1.0,
+            side=side,
+            confidence=1.0,
+            total_signals=1,
+            metadata=pre_flight_metadata,
+            t0_timestamp=now_wall,
+            t1_decision_ts=event.timestamp,
+            setup_type="reversion",
+            price=price,
+        )
+        await self.engine.dispatch(out_evt)
+        logger.debug(f"🎯 [PRE-FLIGHT] {symbol} {side} proximity detected. Pre-positioning LIMIT.")
 
     def _check_regime_alignment(self, symbol: str, side: str, reversal_signal: dict) -> float:
         """

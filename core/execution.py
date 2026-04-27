@@ -6,6 +6,7 @@ Handles DecisionEvents from Paroli and executes orders via Croupier.
 import asyncio
 import logging
 import time
+from collections import defaultdict
 
 import config.trading
 from core.events import EventType, TradeClosedEvent
@@ -30,6 +31,10 @@ class OrderManager:
         self.active = False
         self.pending_trades = {}  # trade_id -> (decision, sensor_id)
         self.processed_decisions = set()  # Track processed decision IDs to prevent duplicates
+
+        # Phase 2360: Limit Sniper State
+        self.pre_flight_orders = {}  # symbol -> {order_id, entry_price, side, timestamp}
+        self.last_pre_flight_ts = defaultdict(float)
 
         # Subscribe to DECISION events (from AdaptivePlayer)
         self.engine.subscribe(EventType.DECISION, self.on_decision)
@@ -74,6 +79,21 @@ class OrderManager:
 
         if side == "SKIP":
             return
+
+        # Phase 2360: Limit Sniper Dispatch
+        # DISABLED: PreFlight signal generation removed in Phase 1200 redesign.
+        # Limit Sniper now only changes order TYPE (market→limit) on existing LTA signals.
+        # See _execute_main_order in oco_manager.py for the new implementation.
+        # is_pre_flight = getattr(event, "metadata", {}).get("is_pre_flight", False)
+        # if is_pre_flight:
+        #     await self._handle_pre_flight(event)
+        #     return
+
+        # Phase 2360: Sniper Confirmation Check
+        # DISABLED: No longer needed — we don't pre-position orders anymore.
+        # pre_order = self.pre_flight_orders.get(symbol)
+        # if pre_order and pre_order["side"] == side:
+        #     ...
 
         logger.info(
             f"📩 Decision Received (V4): {symbol} {side} "
@@ -236,6 +256,23 @@ class OrderManager:
 
         trade_id = f"V3_{int(time.time()*1000)}"
 
+        # Phase 1200: Limit Sniper — extract structural level price for limit entry
+        # When LIMIT_SNIPER_ENABLED, we place limit orders at the structural level (VAL/VAH)
+        # instead of market orders. This gives maker fee rate (0.02% vs 0.05%).
+        limit_price = None
+        if getattr(config.trading, "LIMIT_SNIPER_ENABLED", False):
+            # DecisionEvent carries structural data in trigger_level and initial_narrative
+            limit_price = getattr(event, "trigger_level", None)
+            # Fallback: derive from val/vah in initial_narrative
+            if not limit_price or limit_price <= 0:
+                narrative = getattr(event, "initial_narrative", None) or {}
+                val = narrative.get("val")
+                vah = narrative.get("vah")
+                if side == "LONG" and val and val > 0:
+                    limit_price = val
+                elif side == "SHORT" and vah and vah > 0:
+                    limit_price = vah
+
         order_payload = {
             "trade_id": trade_id,
             "symbol": symbol,
@@ -254,6 +291,7 @@ class OrderManager:
             "estimated_price": current_price,  # Phase 240: avoid redundant price fetch in OCO
             "atr_1m": getattr(event, "atr_1m", 0.0),
             "shadow_sl_activation": getattr(event, "shadow_sl_activation", 0.0025),  # Phase 800
+            "limit_price": limit_price,  # Phase 1200: Limit Sniper structural level
         }
 
         # Phase 650: Explicitly propagate setup_type and latency telemetry for adapters
@@ -308,6 +346,91 @@ class OrderManager:
                 exchange=self.croupier.exchange_adapter.connector.__class__.__name__.replace("NativeConnector", ""),
                 reason=str(e)[:50],
             )
+
+    async def _handle_pre_flight(self, event):
+        """Phase 2360: Pre-position a LIMIT POST-ONLY order."""
+        symbol = event.symbol
+        side = event.side
+        metadata = event.metadata
+        entry_price = metadata.get("entry_price")
+
+        # 1. Cooldown for Pre-Flight (10s) to avoid order book spam
+        now = time.time()
+        if now - self.last_pre_flight_ts[symbol] < 10.0:
+            return
+
+        # 2. Check if we already have a pre-order for this symbol
+        if symbol in self.pre_flight_orders:
+            return
+
+        logger.warning(f"🏹 [PRE-FLIGHT_SNIPER] Pre-positioning LIMIT {side} for {symbol} @ {entry_price:.4f}")
+
+        # 3. Sizing (Standard 1.0 multiplier for pre-flight, will be adjusted on fill/confirm)
+        current_equity = self.croupier.get_equity()
+        sizing_mode = getattr(config.trading, "POSITION_SIZING_MODE", "FIXED_NOTIONAL")
+
+        _, amount = self.croupier.order_executor.calculate_sizing(
+            symbol=symbol,
+            bet_size=0.01,  # Default base bet
+            current_equity=current_equity,
+            current_price=entry_price,
+            sl_pct=config.trading.DEFAULT_SL_PCT,
+            sizing_mode=sizing_mode,
+        )
+
+        if amount <= 0:
+            return
+
+        # 4. Prepare Payload for POST-ONLY LIMIT
+        trade_id = f"SNIPER_{int(time.time()*1000)}"
+        order_payload = {
+            "trade_id": trade_id,
+            "symbol": symbol,
+            "side": side,
+            "type": "limit",
+            "amount": amount,
+            "price": entry_price,
+            "post_only": True,  # CRITICAL: Ensure we are MAKER
+            "tp_price": metadata.get("tp_price"),
+            "sl_price": metadata.get("sl_price"),
+            "is_pre_flight": True,
+        }
+
+        # 5. Execute
+        self.last_pre_flight_ts[symbol] = now
+        try:
+            result = await self.croupier.execute_order(order_payload)
+            if result.get("status") in ["filled", "optimistic_sent", "open"]:
+                order_id = result.get("id") or trade_id
+                self.pre_flight_orders[symbol] = {
+                    "trade_id": trade_id,
+                    "order_id": order_id,
+                    "side": side,
+                    "timestamp": now,
+                    "confirmed": False,
+                }
+                # Schedule micro-cancellation if not confirmed in 500ms
+                asyncio.create_task(self._micro_cancel_if_unconfirmed(symbol, trade_id))
+        except Exception as e:
+            logger.error(f"❌ Pre-flight execution failed: {e}")
+
+    async def _micro_cancel_if_unconfirmed(self, symbol: str, trade_id: str):
+        """Phase 2360: The Micro-Canceller. Tirar del cable si la señal no llega."""
+        # Get wait window from config
+        wait_sec = getattr(config.trading, "LIMIT_SNIPER_CONFIRM_WINDOW_SEC", 0.5)
+        await asyncio.sleep(wait_sec)
+
+        pre_order = self.pre_flight_orders.get(symbol)
+        if pre_order and pre_order["trade_id"] == trade_id:
+            if not pre_order.get("confirmed", False):
+                logger.info(f"🔌 [MICRO-CANCEL] Signal did not arrive for {symbol} sniper. Pulling the plug.")
+                try:
+                    await self.croupier.close_position(trade_id)  # This will cancel the limit order
+                except Exception:
+                    pass
+
+            # Cleanup
+            self.pre_flight_orders.pop(symbol, None)
 
     def handle_trade_outcome(self, trade_id: str, won: bool, pnl: float = 0.0):
         """

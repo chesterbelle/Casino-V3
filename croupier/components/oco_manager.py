@@ -15,6 +15,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+import config.trading
 from core.error_handling import RetryConfig, get_error_handler
 from core.observability.watchdog import watchdog
 from core.portfolio.position_tracker import OrderState, PositionTracker
@@ -820,7 +821,7 @@ class OCOManager:
             return results
 
     async def _execute_main_order(self, order: Dict[str, Any], client_order_id: str = None) -> Dict[str, Any]:
-        """Execute main market order."""
+        """Execute main order (market or limit depending on LIMIT_SNIPER_ENABLED)."""
         # Phase 650: Ensure setup_type is in params for VirtualExchange/Historian
         params = order.get("params", {}).copy()
         if client_order_id:
@@ -832,16 +833,58 @@ class OCOManager:
         elif "setup_type" in order.get("params", {}):
             params["setup_type"] = order["params"]["setup_type"]
 
-        # Convert from trading order to exchange order format
-        exchange_order = {
-            "symbol": order["symbol"],
-            "type": "market",
-            "side": "BUY" if order["side"] == "LONG" else "SELL",
-            "amount": order.get("amount", 0),  # Provided by OrderManager (Phase 42)
-            "params": params,
-        }
+        # Phase 1200: Limit Sniper Redesign — maker entries on same signals
+        # When LIMIT_SNIPER_ENABLED, use limit orders at the structural level price
+        # instead of market orders. This reduces fee friction (0.05%→0.02% per side)
+        # WITHOUT generating additional PreFlight signals.
+        use_limit = getattr(config.trading, "LIMIT_SNIPER_ENABLED", False)
+        limit_price = order.get("limit_price")  # Set by OrderManager from structural level
 
-        return await self.executor.execute_market_order(exchange_order, timeout=30.0)
+        if use_limit and limit_price and limit_price > 0:
+            # Apply offset for front-running (same logic as old PreFlight)
+            offset = getattr(config.trading, "LIMIT_SNIPER_OFFSET_PCT", 0.0)
+            side = order["side"]
+            if side == "LONG":
+                # Long limit slightly ABOVE the level (front-run)
+                limit_price_adj = limit_price * (1 + offset)
+            else:
+                # Short limit slightly BELOW the level
+                limit_price_adj = limit_price * (1 - offset)
+
+            # Apply tick precision
+            limit_price_adj = float(self.adapter.price_to_precision(order["symbol"], limit_price_adj))
+
+            exchange_order = {
+                "symbol": order["symbol"],
+                "type": "limit",
+                "side": "BUY" if side == "LONG" else "SELL",
+                "amount": order.get("amount", 0),
+                "price": limit_price_adj,
+                "post_only": True,  # Ensure maker fill
+                "params": params,
+            }
+            self.logger.info(
+                f"🏹 [LIMIT_SNIPER] Placing LIMIT {side} @ {limit_price_adj:.4f} "
+                f"(level={limit_price:.4f}, offset={offset:.4f})"
+            )
+            return await self.executor.execute_limit_order(
+                symbol=order["symbol"],
+                side="BUY" if side == "LONG" else "SELL",
+                amount=order.get("amount", 0),
+                price=limit_price_adj,
+                params=params,
+            )
+        else:
+            # Default: market order
+            exchange_order = {
+                "symbol": order["symbol"],
+                "type": "market",
+                "side": "BUY" if order["side"] == "LONG" else "SELL",
+                "amount": order.get("amount", 0),  # Provided by OrderManager (Phase 42)
+                "params": params,
+            }
+
+            return await self.executor.execute_market_order(exchange_order, timeout=30.0)
 
     async def _wait_for_fill(
         self, order_id: str, symbol: str, timeout: float = 30.0, future: asyncio.Future = None

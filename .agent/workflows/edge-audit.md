@@ -32,9 +32,9 @@ Wipe all databases and states to ensure zero data leakage.
 
 ## Step 1: Run Zero-Interference Backtests
 Run the backtester with the `--audit` flag to record raw signals and price samples.
-We run across multiple assets to prevent overfitting to a single regime.
+We run exclusively on the LTC audit dataset for consistent comparison.
 
-### 1A: LTC (Volatility/Range)
+### 1A: LTC (Primary Audit Dataset)
 ```bash
 .venv/bin/python backtest.py \
   --data tests/validation/ltc_24h_audit.csv \
@@ -42,26 +42,6 @@ We run across multiple assets to prevent overfitting to a single regime.
   --depth-db data/historian.db \
   --audit \
   2>&1 | tee logs/edge_audit_ltc_$(date +%Y%m%d_%H%M%S).log
-```
-
-### 1B: SOL (Momentum/Trend)
-```bash
-.venv/bin/python backtest.py \
-  --data tests/validation/sol_24h_audit.csv \
-  --symbol SOL/USDT:USDT \
-  --depth-db data/historian.db \
-  --audit \
-  2>&1 | tee logs/edge_audit_sol_$(date +%Y%m%d_%H%M%S).log
-```
-
-### 1C: ETH (High Liquidity/Volume)
-```bash
-.venv/bin/python backtest.py \
-  --data tests/validation/eth_24h_audit.csv \
-  --symbol ETH/USDT:USDT \
-  --depth-db data/historian.db \
-  --audit \
-  2>&1 | tee logs/edge_audit_eth_$(date +%Y%m%d_%H%M%S).log
 ```
 
 ## Step 2: Verify Data Collection

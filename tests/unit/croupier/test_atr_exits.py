@@ -3,17 +3,17 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from core.portfolio.position_tracker import OpenPosition
-from croupier.components.exit_manager import ExitManager
+from croupier.components.exit_engine import ExitEngine
 
 
 class TestATRExits(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.croupier = MagicMock()
         self.logger = logging.getLogger("TestATR")
-        self.exit_manager = ExitManager(self.croupier)
+        self.exit_manager = ExitEngine(self.croupier)
 
         # Mock config
-        self.patcher = patch("croupier.components.exit_manager.config")
+        self.patcher = patch("croupier.components.exit_engine.config")
         self.mock_config = self.patcher.start()
         self.mock_config.BREAKEVEN_ENABLED = True
         self.mock_config.TRAILING_STOP_ENABLED = True

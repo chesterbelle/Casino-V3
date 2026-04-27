@@ -90,7 +90,7 @@ DEFAULT_MARGIN_TYPE = "ISOLATED"  # Aislado protege el resto del balance de liqu
 # --- Trailing Stop ---
 # Dynamic SL that follows price when it moves in favor.
 # Best for Capturing Trends but can be stopped out by noise in Scalping.
-TRAILING_STOP_ENABLED = False  # Deactivated for 'Pure Sniper' (Let trades breathe)
+TRAILING_STOP_ENABLED = False  # Deactivated: trailing kills reversion edge (pullbacks trigger it)
 # En Footprint scalping, una vez alcanzado el 0.20% (66% del TP esperado),
 # iniciamos el trailing a una distancia de 0.08% para asegurar ganancias pero dar más aire.
 TRAILING_STOP_ACTIVATION_PCT = (
@@ -111,7 +111,7 @@ EXPANSION_TP_RR = 6.0  # Ambitious 6:1 target for the expansion phase
 
 # --- Breakeven ---
 # Move SL to entry price to secure risk-free trade once a target is reached.
-BREAKEVEN_ENABLED = False  # Deactivated for 'Pure Sniper' (Structural Anchors only)
+BREAKEVEN_ENABLED = False  # Deactivated: breakeven kills reversion edge (pullbacks trigger it)
 BREAKEVEN_ACTIVATION_PCT = 0.0025  # Loosened from 0.15% to 0.25%
 
 # --- Signal Reversal ---
@@ -263,33 +263,55 @@ ENABLE_DECISION_TRACE = False
 AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
 
 # =====================================================
-# 🚀 HFT EXIT MANAGER (Phase 1100 - Axia-Style Patience)
+# 🏹 LIMIT SNIPER (V6-Limit)
 # =====================================================
 
-# Master switch: Enable HFT "Dumb" Exit Manager instead of complex ExitManager (v1).
-# Phase 1100: Transitioning from 'Dumb' to 'Axia-Style Professional Invalidation'.
-HFT_EXIT_MODE = True
+# Master switch: Enable Limit Sniper mode (Maker entries)
+# When False, the bot uses traditional Market (Taker) orders.
+LIMIT_SNIPER_ENABLED = True  # Phase 1200: Maker entries on LTA signals (no PreFlight)
 
-# Mode Toggle: If True, uses setup-specific structural invalidation (Patience).
-AXIA_INVALIDATION_ENABLED = True
+# Front-Running Offset: Distance (in % decimal) to place the LIMIT order ahead of the level.
+# E.g., 0.0004 = 0.04% ahead. This significantly improves fill rate in fast reversals.
+LIMIT_SNIPER_OFFSET_PCT = 0.0004
+
+# Micro-Canceller Window: Time (in seconds) to wait for tactical confirmation
+# before pulling the LIMIT order from the book.
+LIMIT_SNIPER_CONFIRM_WINDOW_SEC = 0.50
+
+# Sniper-Fill Reality (Backtest only): If True, VirtualExchange requires
+# price to strictly CROSS the level (price > limit + 1 tick) to fill.
+LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
+
+# =====================================================
+# 🎯 UNIFIED EXIT ENGINE (Phase 1200 - 5-Layer Stack)
+# =====================================================
+
+# Per-Layer Toggles (all default True — every layer adds unique value)
+EXIT_LAYER_CATASTROPHIC = True  # Layer 5: Liquidation prevention (>50% drawdown)
+EXIT_LAYER_THESIS_INVALIDATION = False  # Layer 4: OFF — erodes PF (0.634→0.540)
+EXIT_LAYER_VALENTINO = True  # Layer 3: Re-testing with SL=0.30%
+EXIT_LAYER_SHADOW_PROTECTION = False  # Layer 2: DISABLED for bracket-only baseline test
+EXIT_LAYER_SESSION_DRAIN = True  # Layer 1: Progressive session shutdown
 
 # Grace Period: Minimum seconds a trade must 'breathe' before any tactical exit allowed.
 PATIENCE_LOCK_GRACE_PERIOD = 15.0
 
-# ÚNICA protección en HFT mode: Liquidation prevention.
-# Solo interviene si el precio cae más de X% (catastrófico).
+# Catastrophic Stop (Layer 5)
 CATASTROPHIC_STOP_PCT = 0.50  # 50% drawdown = true emergency only
 
-# HFT Airbag (Phase 1210 - Tactical Silence):
-# Closes position if order flow becomes toxic (extreme Z-Score).
-HFT_AIRBAG_ENABLED = True
-HFT_TOXIC_FLOW_THRESHOLD = 5.5  # Phase 650.1: Professional Patience Tuning
+# Thesis Invalidation (Layer 4) — Flow thresholds
+HFT_TOXIC_FLOW_THRESHOLD = 5.5  # Emergency tier: Z > 5.5
 HFT_WALL_COLLAPSE_THRESHOLD = 0.15  # Skewness < 0.15 means our wall vanished
 
-# Legacy ExitManager features (ignored when HFT_EXIT_MODE = True):
-SHADOW_SL_ENABLED = False
-SHADOW_BREAKEVEN_ENABLED = False
-SHADOW_TRAILING_ENABLED = False
-TACTICAL_AIRBAG_ENABLED = False
-TIME_BASED_EXIT_ENABLED = False
-SIGNAL_REVERSAL_ENABLED = False
+# Thesis Invalidation (Layer 4) — Stagnation
+STAGNATION_BASE_TIMEOUT = 900.0  # 15min base (Edge-aligned: matches audit window)
+STAGNATION_PROFIT_EXEMPT = True  # Never stagnate profitable trades
+
+# Valentino (Layer 3)
+VALENTINO_TRIGGER_PCT = 0.70  # 70% of TP distance triggers scale-out
+VALENTINO_SCALE_FRACTION = 0.50  # Close 50% of position on trigger
+
+# Legacy compatibility (kept for any external references, but ignored by ExitEngine)
+HFT_EXIT_MODE = True  # No longer switches managers — ExitEngine is always active
+AXIA_INVALIDATION_ENABLED = True  # Merged into EXIT_LAYER_THESIS_INVALIDATION
+HFT_AIRBAG_ENABLED = True  # Merged into EXIT_LAYER_THESIS_INVALIDATION

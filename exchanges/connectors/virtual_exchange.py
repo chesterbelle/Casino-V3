@@ -13,6 +13,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
+import config.trading
 from exchanges.connectors.connector_base import BaseConnector
 
 
@@ -253,16 +254,33 @@ class VirtualExchangeConnector(BaseConnector):
         # 2. Check Limit Orders
         elif order_type == "limit":
             limit_price = price
+            # Sniper-Fill Mode: Requiere que el precio ATRAVIESE el nivel para el fill
+            # Esto evita el 'Ghost Filling' (fills irreales en backtest)
+            # Solo se activa si LIMIT_SNIPER_BACKTEST_STRICT_FILL es True
+            strict_fill = getattr(config.trading, "LIMIT_SNIPER_BACKTEST_STRICT_FILL", False)
+
             if side == "BUY":
-                # Buy limit: fill if Low <= limit_price
-                if low <= limit_price:
-                    triggered = True
-                    execution_price = limit_price  # Limit guarantees price or better
+                if strict_fill:
+                    # Cruza por debajo del límite - 1 tick
+                    if low < limit_price:
+                        triggered = True
+                        execution_price = limit_price
+                else:
+                    # Tradicional: toca el nivel
+                    if low <= limit_price:
+                        triggered = True
+                        execution_price = limit_price
             else:  # SELL
-                # Sell limit: fill if High >= limit_price
-                if high >= limit_price:
-                    triggered = True
-                    execution_price = limit_price
+                if strict_fill:
+                    # Cruza por encima del límite + 1 tick
+                    if high > limit_price:
+                        triggered = True
+                        execution_price = limit_price
+                else:
+                    # Tradicional: toca el nivel
+                    if high >= limit_price:
+                        triggered = True
+                        execution_price = limit_price
 
         if triggered:
             await self._execute_order_fill(order, execution_price)
@@ -369,6 +387,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "timestamp": self._current_timestamp,
                 "leverage": leverage,
                 "margin_used": margin_required,
+                "entry_fee": fee,  # Phase 1200: Track entry fee for total fee reporting
                 "setup_type": order.get("setup_type") or order.get("params", {}).get("setup_type", "unknown"),
                 "t0_signal_ts": order.get("t0_signal_ts"),
                 "t1_decision_ts": order.get("t1_decision_ts"),
@@ -486,6 +505,9 @@ class VirtualExchangeConnector(BaseConnector):
         # Add entry details for closing trades
         if order.get("realized_pnl") is not None:
             trade_record["entry_price"] = position["entry_price"]
+            # Phase 1200: Include entry_fee in total fee for accurate reporting
+            entry_fee = position.get("entry_fee", 0.0)
+            trade_record["fee"] = fee + entry_fee  # Total fee = entry + exit
             trade_record["entry_time"] = position["timestamp"]
             trade_record["position_side"] = position["side"]
             trade_record["setup_type"] = position.get("setup_type", trade_record["setup_type"])
@@ -596,6 +618,10 @@ class VirtualExchangeConnector(BaseConnector):
             closing_fee = amount * close_price * self.fee_rate
             net_pnl = gross_pnl - closing_fee
 
+            # Phase 1200: Total fee = entry + exit for accurate reporting
+            entry_fee = pos.get("entry_fee", 0.0)
+            total_fee = entry_fee + closing_fee
+
             # Return margin + PnL to balance
             margin_released = pos.get("margin_used", 0)
             self._balance += margin_released + net_pnl
@@ -609,7 +635,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "side": "SELL" if side == "LONG" else "BUY",
                 "amount": amount,
                 "price": close_price,
-                "fee": closing_fee,
+                "fee": total_fee,  # Phase 1200: Total fee (entry + exit)
                 "timestamp": self._current_timestamp,
                 "pnl": gross_pnl,  # Store GROSS PnL so historian doesn't subtract fees twice
                 "gemini_trade_id": None,
@@ -758,6 +784,44 @@ class VirtualExchangeConnector(BaseConnector):
         if order_type == "market" and not is_conditional:
             await self._execute_order_fill(order, self._current_price)
             return order
+
+        # Phase 1200: Limit Sniper — Immediate fill if price already at level
+        # When a limit order is placed at a structural level (VAL/VAH) and the
+        # current price is already at that level, fill immediately like a market order.
+        # This mirrors real exchange behavior where a limit buy at or above the current
+        # ask is filled immediately (post_only would reject, but in backtest we allow it).
+        if order_type == "limit" and price and self._current_price > 0:
+            strict_fill = getattr(config.trading, "LIMIT_SNIPER_BACKTEST_STRICT_FILL", False)
+            can_fill = False
+            if side == "BUY":
+                # Buy limit: fill if current price <= limit price (we're at or below our buy level)
+                if not strict_fill and self._current_price <= price:
+                    can_fill = True
+                elif strict_fill and self._current_price < price:
+                    can_fill = True
+            else:  # SELL
+                # Sell limit: fill if current price >= limit price (we're at or above our sell level)
+                if not strict_fill and self._current_price >= price:
+                    can_fill = True
+                elif strict_fill and self._current_price > price:
+                    can_fill = True
+
+            if can_fill:
+                # Phase 1200: Fill at the BETTER price for the trader.
+                # Real exchange: limit buy above market fills at market (best ask),
+                # limit sell below market fills at market (best bid).
+                # This prevents overpaying on immediate limit fills.
+                if side == "BUY":
+                    fill_price = min(price, self._current_price)
+                else:  # SELL
+                    fill_price = max(price, self._current_price)
+
+                self.logger.info(
+                    f"🏹 [LIMIT_SNIPER_FILL] Immediate fill for {side} LIMIT @ {fill_price:.4f} "
+                    f"(limit={price:.4f}, current={self._current_price:.4f})"
+                )
+                await self._execute_order_fill(order, fill_price)
+                return order
 
         # For conditional orders, check if they are ALREADY triggered at creation time
         if is_conditional and order.get("stopPrice"):

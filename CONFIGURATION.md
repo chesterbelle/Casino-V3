@@ -353,6 +353,40 @@ AUDIT_SAMPLING_FREQ=1.0      # Sample price every 1.0s
 
 ---
 
+## Limit Sniper (V6-Limit) 🏹
+
+The Limit Sniper mode allows for **Maker** entries instead of Market (Taker) entries, significantly reducing commission costs.
+
+### Mode Selection
+
+Edit in `config/trading.py`:
+
+```python
+# Master switch for Limit Sniper
+LIMIT_SNIPER_ENABLED = True  # True for Maker (LIMIT), False for Taker (MARKET)
+
+# Front-Running Offset (0.0004 = 0.04% ahead of level)
+LIMIT_SNIPER_OFFSET_PCT = 0.0004
+
+# Tactical Confirmation Window (seconds)
+LIMIT_SNIPER_CONFIRM_WINDOW_SEC = 0.50
+
+# Strict Backtest Fill (True = price must CROSS order to fill)
+LIMIT_SNIPER_BACKTEST_STRICT_FILL = True
+```
+
+### Strategic Comparison
+
+| Feature | Sniper (Maker) | Aggressive (Taker) |
+|---|---|---|
+| **Entry Type** | LIMIT (Post-Only) | MARKET |
+| **Fees** | ~0.02% (or Rebate) | ~0.04% |
+| **Fill Guarantee** | No (requires price cross) | Yes (immediate) |
+| **Slippage** | None | Possible |
+| **Latency** | 500ms confirmation window | Instant |
+
+---
+
 ## Validation
 
 Before running, validate your configuration:

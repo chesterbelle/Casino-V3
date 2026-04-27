@@ -33,7 +33,7 @@ Current branch: `v6.1.0-lta-structural-pivot`
 | `PortfolioGuard` | Risk monitor (drawdown, loss streaks, sizing violations) |
 | `ContextRegistry` | Zero-lag mirror of market structure (POC/VAH/VAL) |
 | `SensorManager` | Multiprocess sensor workers → SignalEvents |
-| `HFTExitManager` | Axia-style professional exit management |
+| `ExitEngine` | Unified 5-layer exit management (Phase 1200) |
 
 ### Key Files & Documentation
 - `ROADMAP.md` — Certification Layers (Iron, Glass, Steel)

@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from core.events import EventType, MicrostructureEvent
-from croupier.components.exit_manager import ExitManager
+from croupier.components.exit_engine import ExitEngine
 
 
 class MockPositionTracker:
@@ -70,10 +70,10 @@ async def run_validator():
     pos_short = MockPosition("BTCUSDT", "SHORT", id="short_1")
 
     mock_croupier = MockCroupier([pos_long, pos_short])
-    exit_manager = ExitManager(mock_croupier)
+    exit_manager = ExitEngine(mock_croupier)
 
     # Disable logging to keep output clean
-    logging.getLogger("ExitManager").setLevel(logging.CRITICAL)
+    logging.getLogger("ExitEngine").setLevel(logging.CRITICAL)
 
     # ---------------------------------------------------------
     # Scenario 1: Liquidity Pull on LONG (Bid Wall Collapse)
@@ -81,7 +81,7 @@ async def run_validator():
     # ---------------------------------------------------------
     event_pull_long = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=10.0,
+        timestamp=100.0,
         symbol="BTCUSDT",
         cvd=10.0,  # Normal CVD
         skewness=0.14,  # Danger! Bid wall pulled (< 0.15).
@@ -95,13 +95,14 @@ async def run_validator():
         fail("Logic Error: Failed to trigger Micro-Exit for LONG on Bid Wall Collapse (Skewness < 0.15)")
     else:
         reason = mock_croupier.exit_reasons[mock_croupier.closed_positions.index("long_1")]
-        if reason != "WALL_COLLAPSE_BID_LEAK":
+        if reason != "WALL_COLLAPSE_BID":
             fail(f"Logic Error: Wrong exit reason {reason}")
         ok("Liquidity Pull (LONG) detected securely")
 
     # Clear state
     mock_croupier.closed_positions.clear()
     mock_croupier.exit_reasons.clear()
+    exit_manager._pending_terminations.clear()
 
     # ---------------------------------------------------------
     # Scenario 2: Liquidity Pull on SHORT (Ask Wall Collapse)
@@ -109,7 +110,7 @@ async def run_validator():
     # ---------------------------------------------------------
     event_pull_short = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=10.0,
+        timestamp=100.0,
         symbol="BTCUSDT",
         cvd=-10.0,
         skewness=0.86,  # Danger! Ask wall pulled (> 0.85).
@@ -126,13 +127,14 @@ async def run_validator():
 
     mock_croupier.closed_positions.clear()
     mock_croupier.exit_reasons.clear()
+    exit_manager._pending_terminations.clear()
 
     # ---------------------------------------------------------
     # Scenario 3: Delta Inversion Burst (Against LONG)
     # ---------------------------------------------------------
     event_burst_long = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=10.0,
+        timestamp=100.0,
         symbol="BTCUSDT",
         cvd=-1.5,
         skewness=0.5,
@@ -147,19 +149,20 @@ async def run_validator():
         fail("Logic Error: Failed to trigger Micro-Exit for LONG on Negative Z-Score Burst")
     else:
         reason = mock_croupier.exit_reasons[mock_croupier.closed_positions.index("long_1")]
-        if not reason.startswith("TOXIC_FLOW_BURST_SHORT"):
+        if not reason.startswith("FLOW_INVALIDATION") and not reason.startswith("FLOW_EMERGENCY"):
             fail(f"Logic Error: Wrong exit reason {reason}")
         ok("Delta Inversion Burst (against LONG) detected securely")
 
     mock_croupier.closed_positions.clear()
     mock_croupier.exit_reasons.clear()
+    exit_manager._pending_terminations.clear()
 
     # ---------------------------------------------------------
     # Scenario 4: Safe Order Flow (No Exit)
     # ---------------------------------------------------------
     event_safe = MicrostructureEvent(
         type=EventType.MICROSTRUCTURE,
-        timestamp=10.0,
+        timestamp=100.0,
         symbol="BTCUSDT",
         cvd=0.5,
         skewness=0.5,

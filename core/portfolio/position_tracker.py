@@ -163,6 +163,10 @@ class OpenPosition:
 
     shadow_sl_activation: float = 0.0025  # Phase 800: Shark Breath activation threshold
 
+    # Phase 1200: Valentino Scale-Out (ExitEngine Layer 3)
+    scaled_out: bool = False  # Already scaled out 50%?
+    scale_out_trigger: Optional[float] = None  # Price at which Valentino triggers (70% of TP)
+
     # Phase 102: Lifecycle attribution for reporting
     lifecycle_phase: str = "ACTIVE"
 
