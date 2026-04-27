@@ -520,3 +520,29 @@ Gross Expectancy (%) = (Win Rate × Avg Win %) - (Loss Rate × Avg Loss %)
 
 ---
 *Last Updated: 2026-04-27*
+
+
+---
+
+### Absorption Scalping V1 — Implementation Started (2026-04-27)
+
+**Status**: 🚧 **PLANNING**
+
+**Branch**: `v7.0.0-absorption-scalping` (created from `v6.2.0-limit-sniper`)
+
+**Razón**: LTA V6 descartado. Absorption V1 tiene edge esperado +0.30-0.50% (20x mejor), 3-5x más señales/día, agnóstico a régimen.
+
+**Plan de implementación**: `.agent/ABSORPTION_V1_IMPLEMENTATION_PLAN.md`
+
+**Fases**:
+1. ⏳ Architecture Analysis (2-4 horas)
+2. ⏳ Footprint Infrastructure (3-5 días)
+3. ⏳ AbsorptionSetupEngine (2-3 días)
+4. ⏳ Exit Management (1-2 días)
+5. ⏳ Configuration & Integration (1 día)
+6. ⏳ Validation (3-5 días)
+7. ⏳ Production Deployment (1 día)
+
+**Tiempo estimado total**: 1-2 semanas
+
+**Próximo paso**: Implementar FootprintRegistry (Phase 2.1)
