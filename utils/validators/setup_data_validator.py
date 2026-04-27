@@ -87,6 +87,27 @@ def create_lta_signal(direction: str, price: float) -> SignalEvent:
     )
 
 
+def create_absorption_v1_signal(direction: str, price: float) -> SignalEvent:
+    """Create an Absorption V1 signal."""
+    metadata = {
+        "strategy": "AbsorptionScalpingV1",
+        "absorption_level": price,
+        "direction": "SELL_EXHAUSTION" if direction == "LONG" else "BUY_EXHAUSTION",
+        "delta": -10.0 if direction == "LONG" else 10.0,
+        "z_score": 3.5,
+        "concentration": 0.85,
+        "noise": 0.10,
+        "price": price,
+    }
+
+    return create_test_signal(
+        "AbsorptionDetector",
+        direction,
+        price,
+        metadata,
+    )
+
+
 def validate_setup_metadata(setup_name: str, metadata: Dict[str, Any]) -> List[str]:
     """Validate that setup metadata contains required fields."""
     errors = []
@@ -141,10 +162,119 @@ def populate_context_registry(context_registry: ContextRegistry, symbol: str, po
     logger.debug(f"Populated {symbol} with synthetic market data (Mocks applied)")
 
 
+async def test_absorption_v1_setup(setup_engine, engine, context_registry):
+    """Test Absorption V1 setup generation."""
+    logger.info("\n" + "=" * 60)
+    logger.info("Testing Absorption V1 Setup")
+    logger.info("=" * 60)
+
+    all_passed = True
+
+    # Mock FootprintRegistry to provide volume profile data
+    from unittest.mock import MagicMock, patch
+
+    from core.footprint_registry import FootprintRegistry
+
+    # Get the singleton instance
+    footprint_registry = FootprintRegistry()
+
+    # Mock get_volume_profile to return synthetic data
+    # Returns list of (price, ask_vol, bid_vol) tuples
+    # For LONG: TP should be above entry (low volume node)
+    # For SHORT: TP should be below entry (low volume node)
+    def mock_volume_profile_long(symbol, price_from, price_to):
+        # Return volume profile with low volume nodes above entry
+        # Entry at 65432.0, create LVN at 65500.0
+        return [
+            (65432.0, 100.0, 100.0),  # Entry level - high volume
+            (65440.0, 80.0, 80.0),  # Medium volume
+            (65450.0, 90.0, 90.0),  # Medium volume
+            (65460.0, 85.0, 85.0),  # Medium volume
+            (65470.0, 95.0, 95.0),  # Medium volume
+            (65480.0, 75.0, 75.0),  # Medium volume
+            (65490.0, 70.0, 70.0),  # Medium volume
+            (65500.0, 20.0, 20.0),  # LOW VOLUME NODE (LVN) - TP target
+            (65510.0, 85.0, 85.0),  # Medium volume
+            (65520.0, 90.0, 90.0),  # Medium volume
+        ]
+
+    def mock_volume_profile_short(symbol, price_from, price_to):
+        # Return volume profile with low volume nodes below entry
+        # Entry at 65432.0, create LVN at 65300.0
+        return [
+            (65300.0, 20.0, 20.0),  # LOW VOLUME NODE (LVN) - TP target
+            (65310.0, 85.0, 85.0),  # Medium volume
+            (65320.0, 90.0, 90.0),  # Medium volume
+            (65330.0, 75.0, 75.0),  # Medium volume
+            (65340.0, 95.0, 95.0),  # Medium volume
+            (65350.0, 85.0, 85.0),  # Medium volume
+            (65360.0, 90.0, 90.0),  # Medium volume
+            (65370.0, 80.0, 80.0),  # Medium volume
+            (65380.0, 85.0, 85.0),  # Medium volume
+            (65432.0, 100.0, 100.0),  # Entry level - high volume
+        ]
+
+    # Test LONG (from SELL_EXHAUSTION)
+    logger.info("\n--- Testing LONG (SELL_EXHAUSTION) ---")
+    with patch.object(footprint_registry, "get_volume_profile", side_effect=mock_volume_profile_long):
+        signal_long = create_absorption_v1_signal("LONG", 65432.0)
+        await setup_engine.on_signal(signal_long)
+
+        # Verify setup was generated
+        if engine.dispatched_events:
+            setup = engine.dispatched_events[-1]
+            errors = validate_setup_metadata("Absorption_LONG", setup.metadata)
+            if errors:
+                logger.error(f"❌ Absorption V1 LONG validation failed:")
+                for error in errors:
+                    logger.error(f"   {error}")
+                all_passed = False
+            else:
+                logger.info("✅ Absorption V1 LONG setup valid")
+                tp = setup.metadata.get("tp_price")
+                sl = setup.metadata.get("sl_price")
+                price = setup.metadata.get("price", 65432.0)
+                logger.info(f"   TP: {tp:.4f} ({abs(tp-price)/price*100:.2f}% from entry)")
+                logger.info(f"   SL: {sl:.4f} ({abs(sl-price)/price*100:.2f}% from entry)")
+        else:
+            logger.warning("⚠️ No setup generated for Absorption V1 LONG")
+            all_passed = False
+
+    # Clear events for next test
+    engine.dispatched_events.clear()
+
+    # Test SHORT (from BUY_EXHAUSTION)
+    logger.info("\n--- Testing SHORT (BUY_EXHAUSTION) ---")
+    with patch.object(footprint_registry, "get_volume_profile", side_effect=mock_volume_profile_short):
+        signal_short = create_absorption_v1_signal("SHORT", 65432.0)
+        await setup_engine.on_signal(signal_short)
+
+        if engine.dispatched_events:
+            setup = engine.dispatched_events[-1]
+            errors = validate_setup_metadata("Absorption_SHORT", setup.metadata)
+            if errors:
+                logger.error(f"❌ Absorption V1 SHORT validation failed:")
+                for error in errors:
+                    logger.error(f"   {error}")
+                all_passed = False
+            else:
+                logger.info("✅ Absorption V1 SHORT setup valid")
+                tp = setup.metadata.get("tp_price")
+                sl = setup.metadata.get("sl_price")
+                price = setup.metadata.get("price", 65432.0)
+                logger.info(f"   TP: {tp:.4f} ({abs(tp-price)/price*100:.2f}% from entry)")
+                logger.info(f"   SL: {sl:.4f} ({abs(sl-price)/price*100:.2f}% from entry)")
+        else:
+            logger.warning("⚠️ No setup generated for Absorption V1 SHORT")
+            all_passed = False
+
+    return all_passed
+
+
 async def run_validator():
     """Main validation routine."""
     logger.info("=" * 60)
-    logger.info("SETUP DATA VALIDATOR - Phase 975 (LTA Upgrade)")
+    logger.info("SETUP DATA VALIDATOR - Phase 975 + Absorption V1")
     logger.info("Validating TP/SL production from SetupEngineV4")
     logger.info("=" * 60)
 
@@ -257,7 +387,7 @@ async def run_validator():
 
     # Summary report
     logger.info(f"\n{'='*60}")
-    logger.info("VALIDATION SUMMARY")
+    logger.info("LTA VALIDATION SUMMARY")
     logger.info(f"{'='*60}")
 
     passed = sum(1 for r in results_summary if r["status"] == "PASSED")
@@ -271,7 +401,29 @@ async def run_validator():
         for r in results_summary:
             if r["status"] == "FAILED":
                 logger.error(f"   - {r['setup']} {r['direction']}: {r.get('errors', [])}")
-        logger.error(f"\n💣 VALIDATION FAILED - Fix SetupEngine before proceeding")
+        logger.error(f"\n💣 LTA VALIDATION FAILED - Fix SetupEngine before proceeding")
+        all_passed = False
+
+    # Test Absorption V1
+    logger.info(f"\n{'='*60}")
+    logger.info("ABSORPTION V1 VALIDATION")
+    logger.info(f"{'='*60}")
+
+    absorption_passed = await test_absorption_v1_setup(setup_engine, engine, context_registry)
+    if not absorption_passed:
+        logger.error("❌ Absorption V1 setup validation FAILED")
+        all_passed = False
+    else:
+        logger.info("✅ Absorption V1 setup validation PASSED")
+
+    # Final summary
+    logger.info(f"\n{'='*60}")
+    logger.info("OVERALL VALIDATION SUMMARY")
+    logger.info(f"{'='*60}")
+    if all_passed:
+        logger.info("✅ All setup validations PASSED")
+    else:
+        logger.error("❌ Some validations FAILED - review errors above")
 
     return all_passed
 

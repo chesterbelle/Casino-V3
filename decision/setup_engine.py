@@ -1266,6 +1266,7 @@ class SetupEngineV4:
         # Convert setup to AggregatedSignalEvent for Croupier
         trigger_metadata = {
             "strategy": "AbsorptionScalpingV1",
+            "setup_type": f"Absorption_{setup['side']}",
             "absorption_level": setup["absorption_level"],
             "delta": setup["delta"],
             "z_score": setup["z_score"],
@@ -1287,9 +1288,15 @@ class SetupEngineV4:
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=event.timestamp,
             symbol=symbol,
+            candle_timestamp=event.timestamp,
+            selected_sensor="AbsorptionDetector",
+            sensor_score=absorption_signal.get("z_score", 3.0),
             side=setup["side"],
-            setup_name=f"Absorption_{setup['side']}",
+            confidence=absorption_signal.get("concentration", 0.8),
+            total_signals=1,
+            setup_type=f"Absorption_{setup['side']}",
             metadata=trigger_metadata,
+            t0_timestamp=event.timestamp,
         )
 
         logger.info(
