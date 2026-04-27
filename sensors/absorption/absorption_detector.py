@@ -71,12 +71,14 @@ class AbsorptionDetector:
         Called by SensorManager workers on each tick.
 
         Args:
-            tick_data: {symbol, price, volume, side, timestamp}
+            tick_data: {price, volume, side, timestamp}
+                Note: symbol is NOT in tick_data, use self.symbol instead
 
         Returns:
             AbsorptionSignal dict or None
         """
-        symbol = tick_data["symbol"]
+        # Symbol is assigned by worker in _ensure_sensors_for_symbol
+        symbol = self.symbol
         timestamp = tick_data["timestamp"]
 
         # Throttle analysis (every 100ms)

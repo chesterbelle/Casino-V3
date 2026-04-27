@@ -38,7 +38,7 @@ ACTIVE_SENSORS = {
     "TacticalSinglePrintReversion": True,  # CERTIFIED: Passed audit
     "TacticalVolumeClimaxReversion": True,  # AUDIT MODE: Testing now
     # === ABSORPTION V1: NEW SENSORS (Phase 2.2) ===
-    "AbsorptionDetector": False,  # Phase 2.2: Real-time absorption detection (TESTING)
+    "AbsorptionDetector": True,  # Phase 2.2: Real-time absorption detection (BASELINE VALIDATION)
 }
 
 # =====================================================
