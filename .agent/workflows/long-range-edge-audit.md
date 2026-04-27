@@ -23,10 +23,11 @@ signals per day (~15) for statistically meaningful results.
 | **BULL**  | Oct 13-15, 2024 | $64.06 - $72.00 | ltc_bull_2024-10-13.csv, ltc_bull_24h.csv, ltc_bull_2024-10-15.csv |
 
 **Statistical Goal**: n ≥ 150 signals total, n ≥ 50 per condition
-**Certification Criteria**:
-- Range:  MFE/MAE > 1.2 AND WR > 55% → CERTIFIED (primary edge zone)
-- Bear:   MFE/MAE > 1.0 AND WR > 50% → WATCH (guardians should reduce signal count)
-- Bull:   MFE/MAE > 1.0 AND WR > 50% → WATCH (guardians should reduce signal count)
+**Certification Criteria (UPDATED Phase 800B)**:
+- **PRIMARY METRIC**: Gross Expectancy (%) = (WR × Avg_Win) - (LR × Avg_Loss)
+- Range:  Expectancy > 0.36% → CERTIFIED | > 0.12% → WATCH (primary edge zone)
+- Bear:   Expectancy > 0.12% AND signal_count < Range → GUARDIAN OK
+- Bull:   Expectancy > 0.12% AND signal_count < Range → GUARDIAN OK
 
 **Baseline Results (LTA V5, April 2025)**:
 - Edge Audit Normal: Ratio 1.62, WR 69.4%, 80 signals
@@ -160,31 +161,33 @@ Note: `per_condition_audit.py` uses these timestamp ranges:
 
 After Step 5, the agent **MUST STOP COMPLETELY** and present:
 
-1. **Aggregate metrics** (Step 4): n total, WR%, MFE/MAE ratio, Expectancy
-2. **Per-condition table** (Step 5): Range / Bear / Bull breakdown with Verdicts
+1. **Section [5]: Overall Edge Summary** from the auditor (Gross Expectancy, Net Taker/Maker, Recommendations)
+2. **Per-condition table** (Step 5): Range / Bear / Bull breakdown with Expectancy% and Verdicts
 3. **Guardian effectiveness**: Compare signal counts across conditions
    - Range should have the MOST signals (balance = our edge zone)
    - Bear/Bull should have FEWER signals (guardians blocking counter-trend reversions)
-4. **Comparison vs Edge Audit Normal** (baseline: Ratio 1.62, WR 69.4%)
+4. **Comparison vs Edge Audit Normal** (baseline: check current certified values)
 5. **STOP and wait** for user input
 
-### Certification Matrix
+### Certification Matrix — UPDATED Phase 800B
+
+**PRIMARY METRIC: Gross Expectancy (%)**
 
 | Condition | Criteria | Status | Interpretation |
 |-----------|----------|--------|----------------|
-| **Range** | Ratio > 1.2 AND WR > 55% | **CERTIFIED** | Primary edge confirmed |
-| **Range** | Ratio > 1.0 AND WR > 50% | **WATCH** | Edge exists but weak |
-| **Range** | Ratio < 1.0 | **FAILED** | No edge — strategy broken |
-| **Bear/Bull** | Signal count < Range AND WR > 50% | **GUARDIAN OK** | Guardians filtering correctly |
+| **Range** | Expectancy > 0.36% AND WR > 55% | **CERTIFIED** | Primary edge confirmed, viable with any order type |
+| **Range** | Expectancy > 0.12% AND WR > 50% | **WATCH** | Edge exists, requires Limit Sniper |
+| **Range** | Expectancy < 0.12% | **FAILED** | No edge — strategy broken |
+| **Bear/Bull** | Signal count < Range AND Expectancy > 0.12% | **GUARDIAN OK** | Guardians filtering correctly |
 | **Bear/Bull** | Signal count ≈ Range | **GUARDIAN WEAK** | Guardians not blocking enough |
-| **Bear/Bull** | WR < 45% | **GUARDIAN FAIL** | Guardians letting bad trades through |
+| **Bear/Bull** | Expectancy < 0% | **GUARDIAN FAIL** | Guardians letting bad trades through |
 
 ### Overall System Verdict
 
 | Result | Condition | Action |
 |--------|-----------|--------|
-| **ROBUST** | Range CERTIFIED + Bear/Bull GUARDIAN OK | Production ready |
-| **FRAGILE** | Range CERTIFIED + Bear/Bull GUARDIAN WEAK | Tighten regime thresholds |
-| **BROKEN** | Range FAILED | Rework entry logic |
+| **ROBUST** | Range Expectancy > 0.36% + Bear/Bull GUARDIAN OK | Production ready |
+| **FRAGILE** | Range Expectancy > 0.12% + Bear/Bull GUARDIAN WEAK | Enable Limit Sniper + tighten regime thresholds |
+| **BROKEN** | Range Expectancy < 0.12% | Rework entry logic |
 
 **Do NOT proceed without user approval.**

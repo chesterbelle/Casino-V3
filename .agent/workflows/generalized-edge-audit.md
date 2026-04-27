@@ -151,17 +151,25 @@ for sym in sorted(coin_data.keys()):
 
 After Step 5, the agent **MUST STOP** and present:
 
-1. **Aggregate table** (all 10 coins combined): n, WR%, MFE/MAE, Expectancy
-2. **Per-coin breakdown table** with individual Verdicts
+1. **Aggregate table** (all 10 coins combined): n, WR%, Gross Expectancy%, Net (Taker), Net (Maker)
+2. **Per-coin breakdown table** with individual Verdicts based on Expectancy
 3. **Generalizability Score**: How many coins CERTIFIED / WATCH / FAILED
-4. **Specific observations** per coin
+4. **Specific observations** per coin (e.g., "ETH has high MAE, needs tighter filters")
 
-### Certification Matrix
+### Certification Matrix — UPDATED Phase 800B
+
+**PRIMARY METRIC: Gross Expectancy (%)** per coin
 
 | Result | Condition | Interpretation |
 |--------|-----------|----------------|
-| **GENERALIZED** | ≥ 7/10 coins CERTIFIED or WATCH | Edge is real, based on market microstructure |
-| **PARTIAL** | 4-6/10 coins CERTIFIED or WATCH | Edge exists but instrument-dependent |
-| **FAILED** | ≤ 3/10 coins CERTIFIED or WATCH | Edge is likely overfitting to specific instruments |
+| **GENERALIZED** | ≥ 7/10 coins with Expectancy > 0.12% | Edge is real, based on market microstructure |
+| **PARTIAL** | 4-6/10 coins with Expectancy > 0.12% | Edge exists but instrument-dependent |
+| **FAILED** | ≤ 3/10 coins with Expectancy > 0.12% | Edge is likely overfitting to specific instruments |
+
+**Per-Coin Verdicts:**
+- **CERTIFIED**: Expectancy > 0.36% (viable with any order type)
+- **WATCH**: Expectancy 0.12%-0.36% (requires Limit Sniper)
+- **FAILED**: Expectancy < 0.12% (not viable)
+- **LOW_N**: n < 10 (insufficient data)
 
 **Do NOT proceed to further optimization without user approval.**

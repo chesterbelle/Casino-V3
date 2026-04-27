@@ -156,10 +156,66 @@ class EdgeAuditor:
             color = GREEN if ratio > 1.2 else (YELLOW if ratio > 1.0 else RED)
             print(f"{setup:<25} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}")
 
+        # NEW: Gross Expectancy Analysis (Pre-Fee Edge)
+        print(f"\n{BOLD}[1B] GROSS EXPECTANCY (Pre-Fee Edge in %){RESET}")
+        print(
+            f"{'Setup Type':<25} {'n':<6} {'WR%':<8} {'Avg Win%':<10} {'Avg Loss%':<10} {'Expectancy%':<12} {'Viable?'}"
+        )
+        print("-" * 95)
+
+        # Fee assumptions (round-trip)
+        FEE_TAKER_RT = 0.12  # 0.06% entry + 0.06% exit (taker/taker)
+        FEE_MAKER_RT = 0.08  # 0.02% entry + 0.06% exit (maker/taker with limit sniper)
+        FEE_THRESHOLD = FEE_TAKER_RT * 3  # Minimum viable edge = 3x fees
+
+        for setup, group in df.groupby("setup_type"):
+            # Calculate using 0.3%/0.3% first touch results
+            ft_col = "ft_0.3_0.3"
+            if ft_col not in group.columns:
+                continue
+
+            wins = (group[ft_col] == "WIN").sum()
+            losses = (group[ft_col] == "LOSS").sum()
+            decided = wins + losses
+
+            if decided == 0:
+                continue
+
+            wr = wins / decided
+            lr = losses / decided
+
+            # Average MFE for winners, MAE for losers
+            winners = group[group[ft_col] == "WIN"]
+            losers = group[group[ft_col] == "LOSS"]
+
+            avg_win_pct = winners["mfe"].mean() if len(winners) > 0 else 0.0
+            avg_loss_pct = losers["mae"].mean() if len(losers) > 0 else 0.0
+
+            # Gross Expectancy = (WR × Avg Win) - (LR × Avg Loss)
+            expectancy = (wr * avg_win_pct) - (lr * avg_loss_pct)
+
+            # Viability check
+            if expectancy > FEE_THRESHOLD:
+                viable = f"{GREEN}YES (>{FEE_THRESHOLD:.2f}%){RESET}"
+            elif expectancy > FEE_TAKER_RT:
+                viable = f"{YELLOW}MARGINAL (>{FEE_TAKER_RT:.2f}%){RESET}"
+            else:
+                viable = f"{RED}NO (<{FEE_TAKER_RT:.2f}%){RESET}"
+
+            print(
+                f"{setup:<25} {len(group):<6} {wr*100:>6.1f}%  {avg_win_pct:>8.3f}%  {avg_loss_pct:>9.3f}%  "
+                f"{expectancy:>+10.4f}%  {viable}"
+            )
+
         # Phase 900A: First Touch Win-Rate (Correct temporal calculation)
-        print(f"\n{BOLD}[2] FIRST TOUCH WIN-RATE (Temporal Order){RESET}")
-        print(f"{'TP/SL':<12} {'Wins':<8} {'Losses':<8} {'Timeout':<8} {'WR%':<8} {'Expectancy'}")
-        print("-" * 70)
+        print(f"\n{BOLD}[2] THEORETICAL WIN-RATE (First Touch @ Fixed TP/SL){RESET}")
+        print(
+            f"{'TP/SL':<12} {'Wins':<8} {'Losses':<8} {'Timeout':<8} {'WR%':<8} {'Expectancy%':<12} {'Net (Taker)':<12} {'Net (Maker)'}"
+        )
+        print("-" * 105)
+
+        FEE_TAKER_RT = 0.12
+        FEE_MAKER_RT = 0.08
 
         configs = [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]
         for tp, sl in configs:
@@ -171,30 +227,59 @@ class EdgeAuditor:
             timeouts = (df[col] == "TIMEOUT").sum()
             decided = wins + losses
             wr = (wins / decided * 100) if decided > 0 else 0
+
+            # Gross Expectancy (assumes you capture full TP/SL)
             ev = ((wr / 100) * tp - ((1 - wr / 100) * sl)) if decided > 0 else 0
-            color = GREEN if wr > 55 else RED
-            print(f"{tp:.1f}%/{sl:.1f}%    {wins:<8} {losses:<8} {timeouts:<8} {color}{wr:>6.1f}%{RESET}  {ev:>+.4f}")
+
+            # Net Expectancy after fees
+            net_taker = ev - FEE_TAKER_RT
+            net_maker = ev - FEE_MAKER_RT
+
+            # Color coding based on WR
+            color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
+
+            # Color for net profitability
+            net_color_taker = GREEN if net_taker > 0 else RED
+            net_color_maker = GREEN if net_maker > 0 else RED
+
+            print(
+                f"{tp:.1f}%/{sl:.1f}%    {wins:<8} {losses:<8} {timeouts:<8} {color}{wr:>6.1f}%{RESET}  "
+                f"{ev:>+10.4f}%  {net_color_taker}{net_taker:>+10.4f}%{RESET}  {net_color_maker}{net_maker:>+10.4f}%{RESET}"
+            )
 
         # Phase 900A: Per-Setup First Touch Breakdown
-        print(f"\n{BOLD}[3] PER-SETUP FIRST TOUCH (0.3%/0.3%){RESET}")
+        print(f"\n{BOLD}[3] PER-SETUP FIRST TOUCH (0.3%/0.3%) + GROSS EXPECTANCY{RESET}")
         ft_col = "ft_0.3_0.3"
         if ft_col in df.columns:
-            print(f"{'Setup Type':<25} {'n':<6} {'Wins':<6} {'WR%':<8} {'Verdict'}")
-            print("-" * 60)
+            print(f"{'Setup Type':<25} {'n':<6} {'Wins':<6} {'WR%':<8} {'Expectancy%':<12} {'Verdict'}")
+            print("-" * 85)
+
+            FEE_THRESHOLD = 0.36  # 3x taker fees
+
             for setup, group in df.groupby("setup_type"):
                 w = (group[ft_col] == "WIN").sum()
                 loss_cnt = (group[ft_col] == "LOSS").sum()
                 d = w + loss_cnt
                 wr = (w / d * 100) if d > 0 else 0
+
+                # Calculate gross expectancy using actual MFE/MAE
+                winners = group[group[ft_col] == "WIN"]
+                losers = group[group[ft_col] == "LOSS"]
+                avg_win = winners["mfe"].mean() if len(winners) > 0 else 0.0
+                avg_loss = losers["mae"].mean() if len(losers) > 0 else 0.0
+                expectancy = (wr / 100) * avg_win - ((100 - wr) / 100) * avg_loss
+
+                # Verdict based on sample size, WR, and expectancy
                 if d < 20:
                     verdict = f"{YELLOW}INSUFFICIENT{RESET}"
-                elif wr > 55:
+                elif expectancy > FEE_THRESHOLD and wr > 55:
                     verdict = f"{GREEN}CERTIFIED{RESET}"
-                elif wr > 50:
+                elif expectancy > 0.12 and wr > 50:
                     verdict = f"{YELLOW}WATCH{RESET}"
                 else:
                     verdict = f"{RED}FAILED{RESET}"
-                print(f"{setup:<25} {len(group):<6} {w:<6} {wr:>6.1f}%  {verdict}")
+
+                print(f"{setup:<25} {len(group):<6} {w:<6} {wr:>6.1f}%  {expectancy:>+10.4f}%  {verdict}")
 
         # Phase 1850: Decision Trace Audit
         if traces is not None and not traces.empty:
@@ -210,6 +295,65 @@ class EdgeAuditor:
                 gate = row["gate"]
                 # Highlight in red if it's a rejection, though reason tells us. Actually just print cleanly.
                 print(f"{gate:<25} {row['reason']:<40} {count:<6}")
+
+        # NEW: Overall Edge Summary
+        print(f"\n{BOLD}[5] OVERALL EDGE SUMMARY{RESET}")
+        print("-" * 70)
+
+        # Calculate aggregate metrics using 0.3%/0.3%
+        ft_col = "ft_0.3_0.3"
+        if ft_col in df.columns:
+            total_wins = (df[ft_col] == "WIN").sum()
+            total_losses = (df[ft_col] == "LOSS").sum()
+            total_decided = total_wins + total_losses
+
+            if total_decided > 0:
+                overall_wr = total_wins / total_decided * 100
+
+                # Calculate aggregate expectancy
+                winners = df[df[ft_col] == "WIN"]
+                losers = df[df[ft_col] == "LOSS"]
+                avg_win = winners["mfe"].mean() if len(winners) > 0 else 0.0
+                avg_loss = losers["mae"].mean() if len(losers) > 0 else 0.0
+                gross_expectancy = (overall_wr / 100) * avg_win - ((100 - overall_wr) / 100) * avg_loss
+
+                # Net expectancy after fees
+                net_taker = gross_expectancy - 0.12
+                net_maker = gross_expectancy - 0.08
+
+                print(f"Total Signals:        {len(df)}")
+                print(f"Decided (W+L):        {total_decided}")
+                print(f"Overall Win Rate:     {overall_wr:.1f}%")
+                print(f"Avg Win (MFE):        {avg_win:.3f}%")
+                print(f"Avg Loss (MAE):       {avg_loss:.3f}%")
+                print(f"")
+                print(f"{BOLD}Gross Expectancy:     {gross_expectancy:+.4f}%{RESET}")
+                print(f"Net (Taker 0.12%):    {net_taker:+.4f}% {'✅' if net_taker > 0 else '❌'}")
+                print(f"Net (Maker 0.08%):    {net_maker:+.4f}% {'✅' if net_maker > 0 else '❌'}")
+                print(f"")
+
+                # Viability assessment
+                if gross_expectancy > 0.36:
+                    print(f"{GREEN}✅ EDGE CONFIRMED: Gross expectancy > 3× taker fees (0.36%){RESET}")
+                    print(f"{GREEN}   Strategy is viable even with taker orders.{RESET}")
+                elif gross_expectancy > 0.12:
+                    print(f"{YELLOW}⚠️  MARGINAL EDGE: Gross expectancy > fees but < 3× threshold{RESET}")
+                    print(f"{YELLOW}   Requires maker orders (limit sniper) to be profitable.{RESET}")
+                else:
+                    print(f"{RED}❌ NO EDGE: Gross expectancy < taker fees (0.12%){RESET}")
+                    print(f"{RED}   Strategy is not viable. Rework entry logic or exit management.{RESET}")
+
+                print(f"")
+                print(f"{BOLD}Recommendation:{RESET}")
+                if net_maker > 0 and net_taker <= 0:
+                    print(f"  → ENABLE Limit Sniper (maker entries) to capture the edge")
+                elif net_taker > 0:
+                    print(f"  → Edge is strong enough for market orders")
+                else:
+                    print(f"  → Edge is too thin. Consider:")
+                    print(f"    • Tighter entry filters (reduce MAE)")
+                    print(f"    • Better exit timing (capture more MFE)")
+                    print(f"    • Wider TP targets if MFE supports it")
 
         print(header("AUDIT COMPLETE"))
 

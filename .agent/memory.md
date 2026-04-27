@@ -10,7 +10,7 @@
 ## Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 Strategy: LTA V4 Structural Reversion (Institutional geometric scalping targeting POC from VAH/VAL).
-Current branch: `v6.1.0-lta-structural-pivot`
+Current branch: `v6.2.0-limit-sniper`
 
 ---
 
@@ -82,7 +82,25 @@ Current branch: `v6.1.0-lta-structural-pivot`
 - **Ticker:** LTC/USDT:USDT
 - **Salida:** `logs/demo_exec.log` y `logs/bt_exec.log`
 
-### `/stress-test`, `/chaos-test`, `/validate-all`, `/edge-audit`, `/paritycheck`
+### `/edge-audit` — Certificación de Alpha (Phase 800)
+- **Propósito:** Validar el edge predictivo de los setups usando MFE/MAE y Expectancia Bruta
+- **Métricas clave:**
+  - **MFE/MAE Ratio**: > 1.2 indica ventaja estructural
+  - **Gross Expectancy (%)**: `(WR × Avg_Win) - (LR × Avg_Loss)` — Edge puro antes de fees
+  - **Net Expectancy**: Gross - Fees (0.12% taker, 0.08% maker)
+  - **Viabilidad**: Gross Expectancy > 3× fees (0.36%) = CERTIFIED
+- **Auditor mejorado (Phase 800B):**
+  - Sección [1B]: Expectancia Bruta por setup (pre-fee edge en %)
+  - Sección [2]: Win Rate + Expectancy + Net (Taker/Maker) por TP/SL
+  - Sección [3]: Per-setup con Expectancy% y veredicto basado en viabilidad
+  - Sección [5]: Resumen global con recomendaciones (Limit Sniper, filtros, exits)
+- **Interpretación correcta del Edge:**
+  - NO usar solo Profit Factor o Ratio como métrica de viabilidad
+  - La Expectancia Bruta en % es la métrica definitiva del edge
+  - Si Expectancy < 3× fees → estrategia no viable sin optimización
+  - Si Net (Maker) > 0 pero Net (Taker) < 0 → Limit Sniper obligatorio
+
+### `/stress-test`, `/chaos-test`, `/validate-all`, `/generalized-edge-audit`, `/long-range-edge-audit`, `/paritycheck`
 - Ver `.agent/workflows/` para comandos exactos
 
 ---
@@ -142,6 +160,8 @@ Es el camino más corto a la solución.
 6. **Historian 0 trades:** Si el bot ejecuta pero no registra → verificar que la posición pasó por `confirm_close` en PositionTracker.
 7. **LTA V4 Live Validation (0 Trades):** Es matemáticamente natural obtener 0 trades en ventanas de 15 minutos en red en vivo. Si se requiere estresar la red (ej. `/execution-quality-audit`), `--fast-track` ES OBLIGATORIO para bypassear temporalmente el Location Gate y forzar órdenes orgánicas falsas de testeo.
 8. **Warmup de Setup Engine:** Ya no existe el timer hardcodeado de 60m. LTA asume "Combat Ready" tan pronto el `ContextRegistry` resuelve `is_structural_ready()` procesando Historical Klines.
+9. **Fee Accounting en Backtest:** `backtest.py` usa `VirtualExchange._trades` para persistir trades al historian. Solo las closing trades tienen `pnl != None`. La entry fee se almacena en `position["entry_fee"]` del VirtualExchange y se incluye en el trade record de cierre como `fee = entry_fee + exit_fee`. Si se modifica el VirtualExchange, verificar que la fee total se mantiene correcta.
+10. **_deferred_fee_enrichment en Backtest:** Se salta en modo backtest porque sobreescribe la fee total correcta con solo la exit fee. Si se agrega un nuevo path de cierre, verificar que no se llame en backtest.
 
 ---
 
@@ -151,10 +171,12 @@ Es el camino más corto a la solución.
 
 ---
 
-### Estado Actual (2026-04-24)
+### Estado Actual (2026-04-26)
 - **Infraestructura (Hierro)**: Certificada ✅
 - **Estrategia (Cristal)**: **LTA V6 CERTIFIED (Phase 2350 — Alpha Recovery)**.
+- **Resiliencia (Acero)**: **Phase 1200 — Limit Sniper + ExitEngine + Fee Fix**.
 - **Edge Verified**: WR 60.5% (Range), 65.2% (Bear), Ratio 1.46.
+- **Root Cause identificado**: Fees consumen 130% del gross PnL. Limit Sniper reduce fees 40% (maker entry).
 
 #### LTA V6 — Phase 2350: Recovery of Alpha & Resolution of Analysis Paralysis
 
@@ -280,4 +302,221 @@ Es el camino más corto a la solución.
 **Documentación**: `docs/implementations/lta_v5_reversion_impl.md`
 
 ---
-*Last Updated: 2026-04-23*
+
+### Phase 1200: Limit Sniper Redesign + ExitEngine + Fee Fix (2026-04-26)
+
+**Branch**: `v6.2.0-limit-sniper`
+
+#### Limit Sniper Redesign
+- **Antes**: `LIMIT_SNIPER_ENABLED=True` generaba señales `PreFlightProximity` extra (3.5x más trades, peor calidad)
+- **Ahora**: Solo cambia el tipo de orden (market→limit) en señales LTA existentes. No genera nuevas señales.
+- `_evaluate_pre_flight` en `setup_engine.py` **DISABLED**
+- `_execute_main_order` en `oco_manager.py` coloca limit orders al nivel estructural (VAL/VAH) + offset
+- `on_decision` en `execution.py` extrae `limit_price` de `DecisionEvent.trigger_level` / `initial_narrative`
+- `LIMIT_SNIPER_OFFSET_PCT = 0.0004` (0.04% ahead del nivel)
+- `LIMIT_SNIPER_BACKTEST_STRICT_FILL = False` (touch-fill: señal dispara al nivel)
+
+#### ExitEngine (Unified 5-Layer Stack)
+Reemplaza `ExitManager` + `HFTExitManager` con stack unificado:
+- **Layer 5: CATASTROPHIC STOP** — Drawdown > 50%, siempre activo
+- **Layer 4: THESIS INVALIDATION** — Flow + Setup-specific + Stagnation (solo si perdiendo) + Wall Collapse
+- **Layer 3: VALENTINO** — Scale-out 50% al 70% de TP, move SL a breakeven
+- **Layer 2: SHADOW PROTECTION** — Breakeven + Trailing (DISABLED por defecto)
+- **Layer 1: SESSION DRAIN** — Salida progresiva durante shutdown
+
+**Best Config (Phase 1200)**:
+- `LTA_SL_TICK_BUFFER = 6.0` (0.30% SL)
+- `EXIT_LAYER_CATASTROPHIC = True`
+- `EXIT_LAYER_THESIS_INVALIDATION = False` (erode PF)
+- `EXIT_LAYER_VALENTINO = True` (WR 33→43%)
+- `EXIT_LAYER_SHADOW_PROTECTION = False` (breakeven/trailing matan edge)
+- `EXIT_LAYER_SESSION_DRAIN = True`
+- `BREAKEVEN_ENABLED = False`, `TRAILING_STOP_ENABLED = False`
+
+#### Bug Fixes (Pre-existing)
+1. **Fee accounting bug**: `backtest.py` solo registraba exit fee (0.06%), no total (entry+exit). La entry fee se cobraba del balance pero nunca se incluía en el trade record del historian.
+   - Fix: VirtualExchange almacena `entry_fee` en position dict; closing trade records `fee = entry_fee + exit_fee`
+   - Fix: `force_close_all_positions` también reporta total fee
+   - Fix: `close_position` pasa `total_fee` a `confirm_close` en vez de `fee=0.0`
+   - Fix: `_deferred_fee_enrichment` se salta en backtest (sobreescribía fee correcta con solo exit)
+
+2. **Fill price bug**: Limit BUY por encima del market se llenaba al limit price (overpaying). Ahora llena al `min(limit, current)` para BUY, `max(limit, current)` para SELL — comportamiento real del exchange.
+
+3. **Stagnation profit-aware**: Stagnation nunca cierra trades ganadores (era el #1 bug del HFTExitManager).
+
+#### Backtest Results (LTC 24h audit)
+
+| Metric | Baseline (Market) | Limit Sniper | Delta |
+|--------|-------------------|-------------|-------|
+| Trades | 30 | 29 | -1 |
+| WR | 30.0% | **41.4%** | **+11.4%** |
+| Gross | -1.91 | -2.09 | -0.18 |
+| Fees | 4.37 | **2.64** | **-1.73 (-40%)** |
+| Net | -6.28 | **-4.73** | **+1.55** |
+
+- Fee per trade: 0.08% (maker 0.02% + taker exit 0.06%) vs baseline 0.12%
+- **Root cause de edge erosion**: Fees consumen 130% del gross PnL. MFE=0.247%, friction=0.066/trade.
+
+#### Root Cause Analysis: FEES, not ExitEngine
+- Edge audit: MFE=0.247%, MAE=0.131%, Ratio=1.89 (GROSS, sin fees)
+- VirtualExchange fees: taker 0.05%, maker 0.02%, slippage 0.01%
+- Round-trip friction: ~0.066/trade (entry+exit taker+slippage)
+- Gross PF: 0.589, Net PF: 0.297
+- Signal MFE (0.247%) es demasiado delgado para cubrir friction (0.066/RT)
+
+#### Archivos Clave Modificados
+- `config/trading.py` — LIMIT_SNIPER_ENABLED=True, layer toggles
+- `decision/setup_engine.py` — _evaluate_pre_flight DISABLED
+- `croupier/components/oco_manager.py` — _execute_main_order con limit orders
+- `croupier/components/exit_engine.py` — NEW: Unified engine
+- `croupier/croupier.py` — fee accounting fix, scale_out_position
+- `core/execution.py` — limit_price extraction, PreFlight disabled
+- `core/portfolio/position_tracker.py` — scaled_out field, entry_fee tracking
+- `exchanges/connectors/virtual_exchange.py` — immediate fill, better price, entry_fee tracking
+
+#### Archivos Deprecated (aún en repo)
+- `croupier/components/exit_manager.py`
+- `croupier/components/hft_exit_manager.py`
+
+---
+
+### Phase 800B: Edge Auditor Improvements (2026-04-26)
+
+**Problema identificado**: Gemini señaló correctamente que la métrica principal para medir edge debe ser la **Expectancia Bruta en %**, no solo el Ratio MFE/MAE o Profit Factor.
+
+**Fórmula correcta del Edge**:
+```
+Gross Expectancy (%) = (Win Rate × Avg Win %) - (Loss Rate × Avg Loss %)
+```
+
+**Criterio de viabilidad**:
+- Gross Expectancy > 0.36% (3× taker fees) → CERTIFIED (viable con cualquier order type)
+- Gross Expectancy > 0.12% (taker fees) → WATCH (viable solo con Limit Sniper)
+- Gross Expectancy < 0.12% → FAILED (no viable, rework necesario)
+
+**Cambios implementados en `utils/setup_edge_auditor.py`**:
+1. **[1B] Gross Expectancy**: Nueva sección que calcula expectancia bruta por setup usando MFE/MAE real
+2. **[2] Net Expectancy**: Muestra Gross, Net (Taker), Net (Maker) para cada TP/SL
+3. **[3] Per-Setup mejorado**: Incluye Expectancy% y veredicto basado en viabilidad
+4. **[5] Overall Summary**: Resumen agregado con recomendaciones específicas (Limit Sniper, filtros, exits)
+
+**Protocolos actualizados**:
+- `.agent/workflows/edge-audit.md` — Certification matrix basada en Expectancy
+- `.agent/workflows/generalized-edge-audit.md` — Generalizability con Expectancy > 0.12%
+- `.agent/workflows/long-range-edge-audit.md` — Criteria actualizado con Expectancy
+
+**Documentación**:
+- `.agent/EDGE_AUDITOR_IMPROVEMENTS.md` — Explicación completa del problema y solución
+- `.agent/PHASE_800B_SUMMARY.md` — Resumen de cambios y matriz de certificación
+
+**Validación**:
+- ✅ Syntax check passed
+- ✅ Test ejecutado con ltc_24h_audit.csv (22 señales)
+- ✅ Nuevas secciones funcionando correctamente:
+  - [1B] Gross Expectancy muestra edge pre-fee y viabilidad
+  - [2] Net Expectancy muestra Taker/Maker por TP/SL
+  - [3] Per-Setup incluye Expectancy% en veredicto
+  - [5] Overall Summary con recomendaciones específicas
+- ✅ Métricas correctas: Gross Expectancy +0.0356% < 0.12% → NO VIABLE (correcto para sample pequeño)
+
+**Phase 800B: COMPLETADO Y CERTIFICADO** ✅
+
+**Long-Range Edge Audit Ejecutado (2026-04-26)**:
+- **Datasets**: 9 backtests (RANGE/BEAR/BULL × 3 días cada uno, 2024)
+- **Total Signals**: 232
+- **Resultados con Phase 800B metrics**:
+  - **Gross Expectancy**: -0.0176% ❌ (negativa)
+  - **Net (Taker)**: -0.1376% ❌
+  - **Net (Maker)**: -0.0976% ❌
+  - **Overall WR**: 49.5%
+  - **Veredicto**: ❌ **NO EDGE** en condiciones de 2024
+
+**Per-Condition Breakdown**:
+- **RANGE (Aug 2024)**: WR 53.2%, Expectancy +0.0101% → ⚠️ WATCH (marginal, < fees)
+- **BEAR (Sep 2024)**: WR 44.4%, Expectancy -0.0329% → ❌ FAILED
+- **BULL (Oct 2024)**: WR 50.0%, Expectancy 0.0000% → ❌ FAILED (neutral)
+
+**Conclusión**:
+- LTA V6 NO es viable en condiciones de 2024
+- Solo RANGE muestra edge marginal pero insuficiente para cubrir fees
+- Guardians NO filtran suficientemente en BEAR/BULL
+- Posible overfitting a condiciones de 2026 (datos recientes)
+
+**Documentación**: `.agent/LONG_RANGE_AUDIT_RESULTS_2024.md`
+
+---
+
+### Deep Strategy Analysis (2026-04-26)
+
+**Análisis completo de 232 señales (Long-Range 2024)** ejecutado con herramientas de diagnóstico.
+
+**Hallazgos Críticos**:
+1. **Targets inalcanzables**: TP 0.3% pero MFE real 0.19% (+58% gap)
+2. **VA_INTEGRITY demasiado estricto**: Rechaza 89.7% de señales (472/526 rechazos)
+3. **Mean-reversion débil en trending**: 75.6% timeouts en BULL, expectancy negativa en BEAR
+4. **Sesgo direccional**: 67.7% LONG vs 32.3% SHORT (debería ser 50/50)
+
+**Causa Raíz**:
+- Estrategia calibrada para condiciones ideales, no para realidad de 2024
+- Perfiles de volumen más dispersos de lo esperado (especialmente Asian session)
+- POC no tiene "gravedad" suficiente en trending markets
+
+**Recomendaciones (Fase 1 - Críticas)**:
+1. ✅ **Reducir TP de 0.3% a 0.15%** (alineado con MFE real)
+2. ✅ **Relajar VA_INTEGRITY**: thresholds de 0.08-0.12 a 0.04-0.08
+3. ✅ **Bloquear reversiones en TREND_UP/TREND_DOWN** (solo operar en BALANCE)
+
+**Expectativa Post-Fase 1**:
+- Gross Expectancy: -0.0176% → **+0.08%**
+- WR (RANGE): 53.2% → **60%**
+- Timeouts: 55% → **35%**
+- Viabilidad: **Marginal con Limit Sniper** (Net Maker ~0.00%)
+
+**Documentación**:
+- Análisis completo: `.agent/DEEP_STRATEGY_ANALYSIS.md`
+- Resumen ejecutivo: `.agent/EXECUTIVE_SUMMARY.md`
+- Script de análisis: `utils/analysis/deep_strategy_analysis.py`
+
+**Próximo paso**: ~~Implementar cambios de Fase 1 y re-validar con Long-Range Audit.~~ ✅ COMPLETADO
+
+---
+
+### Phase 2400 — Validation Results (2026-04-27)
+
+**Status**: ⚠️ **IMPLEMENTED BUT FAILED — Edge insuficiente**
+
+**Cambios implementados**:
+1. ✅ TP reducido a 0.15% (`setup_engine.py` línea 291)
+2. ✅ VA_INTEGRITY relajado (`config/strategies.py` — thresholds 0.03-0.08)
+3. ✅ TREND_UP/TREND_DOWN bloqueados (`setup_engine.py` líneas 914-950)
+
+**Resultados Long-Range Audit (248 señales, 9 días 2024)**:
+
+| Métrica | Before | After | Delta | Target |
+|---------|--------|-------|-------|--------|
+| Gross Expectancy | -0.0176% | **+0.0155%** | +0.0331% | ❌ < 0.12% |
+| Overall WR | 49.5% | **53.1%** | +3.6% | ⚠️ |
+| Net (Maker) | -0.0976% | **-0.0645%** | +0.0331% | ❌ Negativo |
+
+**Per-Condition**:
+- RANGE: WR 60.4%, Expectancy +0.0527% → ⚠️ WATCH (< 0.12%)
+- BEAR: WR 54.5%, Expectancy +0.0088% → ⚠️ WATCH (marginal)
+- BULL: WR 40.6%, Expectancy -0.0707% → ❌ FAILED
+
+**Problema raíz identificado**:
+- MarketRegimeSensor NO detecta TREND_UP/TREND_DOWN correctamente
+- "Local consensus override" bypasea el bloqueo de trending markets
+- BULL tiene 104 señales (42% del total) cuando debería tener ~20
+- Resultado: Opera en BULL con WR 40.6% y expectancy negativa
+
+**Conclusión**:
+- LTA V6 tiene edge +0.0155% (87% por debajo del mínimo viable 0.12%)
+- Incluso en RANGE (mejor condición): +0.0527% (56% por debajo del mínimo)
+- Problemas fundamentales que NO se resuelven con ajustes incrementales
+
+**Documentación**: `.agent/PHASE_2400_VALIDATION_RESULTS.md`
+
+**Próximo paso**: Descartar LTA V6 e implementar Absorption Scalping V1 (edge esperado +0.30-0.50%, 3-5x más señales/día, agnóstico a régimen).
+
+---
+*Last Updated: 2026-04-27*

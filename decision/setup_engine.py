@@ -281,7 +281,15 @@ class SetupEngineV4:
             return None
 
         # 5. Calculate Structural Targets (LTA Core)
-        tp_price = poc  # Magnet target
+        # Phase 2400: Reduced TP from POC (full reversion) to 0.15% partial reversion
+        # Reason: MFE data shows price moves 0.19% on average, not full distance to POC
+        # Old: tp_price = poc (full reversion)
+        # New: tp_price = entry + 0.15% (partial reversion aligned with MFE reality)
+        tp_distance_pct = 0.0015  # 0.15% - aligned with actual MFE from audit data
+        if side == "LONG":
+            tp_price = price * (1 + tp_distance_pct)
+        else:
+            tp_price = price * (1 - tp_distance_pct)
 
         # SL is structural: Buffer outside the edge
         sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
@@ -900,44 +908,38 @@ class SetupEngineV4:
                 )
                 return 0.0
 
-            # TREND_UP → only allow LONG (trend-aligned reversion at VAL)
+            # TREND_UP → Block ALL reversions (Phase 2400: Deep Analysis showed 75.6% timeouts in BULL)
+            # Old logic: Allowed LONG (trend-aligned)
+            # New logic: Block ALL (mean-reversion doesn't work in trending markets)
             if regime_v2 == "TREND_UP":
-                if side == "LONG":
-                    self._trace_decision(
-                        symbol, "PASS", "REGIME_ALIGNMENT_V2", "Trend-aligned LONG in TREND_UP", metrics, 0.0, side
-                    )
-                    return 1.0
                 logger.info(
-                    f"🛡️ [REGIME_V2] {symbol} SHORT BLOCKED: TREND_UP active "
-                    f"(conf={confidence:.2f}) — counter-trend reversion"
+                    f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TREND_UP active "
+                    f"(conf={confidence:.2f}) — mean-reversion disabled in trending markets"
                 )
                 self._trace_decision(
                     symbol,
                     "REJECT",
                     "REGIME_ALIGNMENT_V2",
-                    f"Counter-trend SHORT in TREND_UP (conf={confidence:.2f})",
+                    f"TREND_UP - mean-reversion disabled (conf={confidence:.2f})",
                     metrics,
                     0.0,
                     side,
                 )
                 return 0.0
 
-            # TREND_DOWN → only allow SHORT (trend-aligned reversion at VAH)
+            # TREND_DOWN → Block ALL reversions (Phase 2400: Deep Analysis showed negative expectancy in BEAR)
+            # Old logic: Allowed SHORT (trend-aligned)
+            # New logic: Block ALL (mean-reversion doesn't work in trending markets)
             if regime_v2 == "TREND_DOWN":
-                if side == "SHORT":
-                    self._trace_decision(
-                        symbol, "PASS", "REGIME_ALIGNMENT_V2", "Trend-aligned SHORT in TREND_DOWN", metrics, 0.0, side
-                    )
-                    return 1.0
                 logger.info(
-                    f"🛡️ [REGIME_V2] {symbol} LONG BLOCKED: TREND_DOWN active "
-                    f"(conf={confidence:.2f}) — counter-trend reversion"
+                    f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TREND_DOWN active "
+                    f"(conf={confidence:.2f}) — mean-reversion disabled in trending markets"
                 )
                 self._trace_decision(
                     symbol,
                     "REJECT",
                     "REGIME_ALIGNMENT_V2",
-                    f"Counter-trend LONG in TREND_DOWN (conf={confidence:.2f})",
+                    f"TREND_DOWN - mean-reversion disabled (conf={confidence:.2f})",
                     metrics,
                     0.0,
                     side,

@@ -297,10 +297,13 @@ class ExitEngine:
             if setup_reason:
                 return setup_reason
 
-        # --- 4c. STAGNATION (Profit-Aware) ---
-        stagnation_reason = self._check_stagnation(position, current_price, elapsed)
-        if stagnation_reason:
-            return stagnation_reason
+        # --- 4c. STAGNATION (Profit-Aware) — DISABLED as hard close ---
+        # Stagnation competes with bracket SL and erodes edge.
+        # The bracket SL handles losses better (avg -0.14% vs stagnation -0.19%).
+        # Kept as diagnostic only; can be re-enabled as soft gate (SL tightening).
+        # stagnation_reason = self._check_stagnation(position, current_price, elapsed)
+        # if stagnation_reason:
+        #     return stagnation_reason
 
         # --- 4d. WALL COLLAPSE ---
         wall_reason = self._check_wall_collapse(position)
@@ -385,13 +388,18 @@ class ExitEngine:
 
         The critical fix: profitable trades are NEVER stagnated.
         A slow winner is still a winner.
+
+        Volatility scaling: In HIGH vol, reversion needs MORE time (price swings wider
+        before reverting), so we MULTIPLY by vol_ratio instead of dividing.
         """
-        base_timeout = getattr(config, "STAGNATION_BASE_TIMEOUT", 3600.0)
+        base_timeout = getattr(config, "STAGNATION_BASE_TIMEOUT", 900.0)
         vol_ratio = 1.0
         if self.croupier.context_registry:
             vol_ratio = self.croupier.context_registry.get_volatility_ratio(position.symbol)
 
-        effective_timeout = base_timeout / vol_ratio
+        # Edge-aligned: base 900s (15min) matches edge audit window.
+        # High vol = wider swings = slightly more time, but cap at 2x.
+        effective_timeout = base_timeout * min(vol_ratio, 2.0)
 
         if elapsed > effective_timeout:
             # PROFIT-AWARE CHECK: Only stagnate if losing

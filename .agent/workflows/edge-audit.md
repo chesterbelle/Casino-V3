@@ -18,7 +18,9 @@ Present results + specific observations and **wait for explicit user approval** 
 
 **Goals (Overall)**: Total Signals Audited ≥ 50
 **Goals (Per setup_type)**:
-- **MFE / MAE Ratio**: > 1.2 (Implies structural advantage)
+- **Gross Expectancy**: > 0.36% (3× taker fees = viable with any order type)
+- **Gross Expectancy**: > 0.12% (viable with maker orders / Limit Sniper)
+- **MFE / MAE Ratio**: > 1.2 (Structural advantage indicator)
 - **Theoretical Win Rate**: > 55% at 0.3% TP / 0.3% SL
 
 ---
@@ -63,17 +65,25 @@ Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] THEORETICAL WIN-RATE**
 
 After running Step 3, the agent MUST:
 
-1. **Present a concise summary table** containing the Setup Types, Sample Size (n), MFE%, MAE%, and Ratio.
-2. **Present the Theoretical Win-Rate Matrix** (TP/SL combinations) identically to the auditor output.
-3. **Assign a Certification Status** for each setup based on the criteria below.
-4. **List highly specific observations** (e.g., "Setup X has great MFE but awful MAE, needs better entry filters", or "Gate Y blocked Z signals, which indicates...").
-5. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
+1. **Present Section [1B]: Gross Expectancy** - The PRIMARY metric for edge validation
+2. **Present Section [5]: Overall Edge Summary** - Aggregate metrics and viability assessment
+3. **Present the Theoretical Win-Rate Matrix** (Section [2]) with Net (Taker) and Net (Maker)
+4. **Assign a Certification Status** for each setup based on the criteria below
+5. **List highly specific observations** (e.g., "Setup X has Expectancy 0.15% but needs Limit Sniper", "MAE too high, tighten entry filters")
+6. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
 
-### Certification Matrix (Decision Logic)
+### Certification Matrix (Decision Logic) — UPDATED Phase 800B
+
+**PRIMARY METRIC: Gross Expectancy (%)** = (WR × Avg_Win) - (LR × Avg_Loss)
 
 | Setup Type | Condition | Status | Action Required |
 |---|---|---|---|
 | **Any** | n < 20 | **INSUFFICIENT DATA** | Needs longer backtest or looser baseline filters |
-| **Any** | Ratio > 1.2 AND WR > 55% | **CERTIFIED** | Approve for Live Trading configuration |
-| **Any** | Ratio > 1.0 AND WR < 50% | **WATCH** | Edge exists but consistency is poor. Optimize structural alignment (e.g., HTF gating). |
-| **Any** | Ratio < 1.0 | **FAILED** | Setup is statistical noise. Rework entry logic (delta, imbalance) or deactivate. |
+| **Any** | Expectancy > 0.36% AND WR > 55% | **CERTIFIED** | Viable with any order type. Approve for Live Trading. |
+| **Any** | Expectancy > 0.12% AND WR > 50% | **WATCH** | Viable ONLY with Limit Sniper (maker entries). Enable in config. |
+| **Any** | Expectancy < 0.12% | **FAILED** | Not viable after fees. Rework entry filters (reduce MAE) or exit timing (capture more MFE). |
+
+**SECONDARY METRICS** (for diagnosis):
+- **Ratio > 1.2**: Structural advantage exists (but check Expectancy for viability)
+- **MFE >> MAE**: Good signal quality, may need better exit timing
+- **MAE high**: Entry filters too loose, add structural gates
