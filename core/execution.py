@@ -254,6 +254,13 @@ class OrderManager:
             f"Price={current_price:.2f} | Amount={amount:.8f}"
         )
 
+        # Phase 4: Absorption V1 - Recalculate TP dynamically just before execution
+        strategy = getattr(event, "metadata", {}).get("strategy", "")
+        if strategy == "AbsorptionScalpingV1":
+            tp_price, sl_price = await self._recalculate_absorption_tp(
+                event, symbol, side, current_price, tp_price, sl_price
+            )
+
         trade_id = f"V3_{int(time.time()*1000)}"
 
         # Phase 1200: Limit Sniper — extract structural level price for limit entry
@@ -522,3 +529,83 @@ class OrderManager:
             elif exit_reason in ["TP", "SL", "LIQUIDATION"]:
                 logger.debug(f"⏭️ Skipping {exit_reason} detection in {mode} mode - delegating to exchange engine")
                 continue
+
+    async def _recalculate_absorption_tp(
+        self, event, symbol: str, side: str, current_price: float, original_tp: float, original_sl: float
+    ) -> tuple:
+        """
+        Phase 4: Recalculate TP for Absorption V1 using fresh Footprint data.
+
+        This ensures TP is based on the most recent volume profile (< 50ms old)
+        rather than stale data from signal generation (potentially seconds old).
+
+        Args:
+            event: DecisionEvent with absorption metadata
+            symbol: Trading symbol
+            side: LONG or SHORT
+            current_price: Current market price
+            original_tp: TP calculated at signal time
+            original_sl: SL calculated at signal time
+
+        Returns:
+            Tuple of (tp_price, sl_price) - recalculated or original if recalc fails
+        """
+        t1a_start = time.time()
+
+        try:
+            from core.footprint_registry import footprint_registry  # noqa: F401
+            from decision.absorption_setup_engine import AbsorptionSetupEngine
+
+            # Get absorption metadata
+            metadata = getattr(event, "metadata", {})
+            absorption_level = metadata.get("absorption_level", 0.0)
+            direction = metadata.get("direction", "")
+
+            if not absorption_level or not direction:
+                logger.debug("[ABSORPTION] Missing metadata for TP recalc, using original TP")
+                return original_tp, original_sl
+
+            # Create temporary engine instance for TP calculation
+            # (We could cache this in __init__ but it's lightweight)
+            engine = AbsorptionSetupEngine()
+
+            # Recalculate TP using fresh footprint
+            new_tp = engine._calculate_tp(symbol, absorption_level, direction, current_price)
+
+            if new_tp is None:
+                logger.debug("[ABSORPTION] TP recalc failed, using original TP")
+                return original_tp, original_sl
+
+            # Validate TP distance (must be within acceptable range)
+            tp_distance_pct = abs(new_tp - current_price) / current_price * 100
+
+            if tp_distance_pct < engine.min_tp_distance_pct:
+                logger.debug("[ABSORPTION] Recalc TP too close (%.2f%%), using original TP", tp_distance_pct)
+                return original_tp, original_sl
+
+            if tp_distance_pct > engine.max_tp_distance_pct:
+                logger.debug("[ABSORPTION] Recalc TP too far (%.2f%%), using original TP", tp_distance_pct)
+                return original_tp, original_sl
+
+            # Calculate latency
+            t1a_end = time.time()
+            latency_ms = (t1a_end - t1a_start) * 1000
+
+            # Log telemetry
+            if latency_ms > 50:
+                logger.warning(f"⚠️ [LATENCY] TP recalc slow: {latency_ms:.2f}ms (target < 50ms)")
+            else:
+                logger.debug(f"⚡ [LATENCY] TP recalc: {latency_ms:.2f}ms")
+
+            # Log TP adjustment
+            tp_change_pct = abs(new_tp - original_tp) / original_tp * 100
+            logger.info(
+                f"🎯 [ABSORPTION] TP recalculated: {original_tp:.2f} → {new_tp:.2f} "
+                f"({tp_change_pct:+.2f}% change, {latency_ms:.1f}ms)"
+            )
+
+            return new_tp, original_sl
+
+        except Exception as e:
+            logger.error(f"❌ [ABSORPTION] TP recalc failed: {e}", exc_info=True)
+            return original_tp, original_sl
