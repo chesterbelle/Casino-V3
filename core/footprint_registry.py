@@ -90,6 +90,7 @@ class FootprintData:
 
         # Update CVD
         self.cvd += delta
+        self.cvd_history.append((timestamp, self.cvd))
 
         # Update metadata
         self.last_update = timestamp
