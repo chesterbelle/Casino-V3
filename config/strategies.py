@@ -29,7 +29,7 @@ LTA_VA_INTEGRITY_BY_WINDOW = {
 }
 
 # Registry of active playbooks for SetupEngine
-ACTIVE_STRATEGIES = ["LTA_STRUCTURAL", "LTA_CASCADE"]
+ACTIVE_STRATEGIES = ["AbsorptionScalpingV2"]
 
 
 def get_sensor_type(sensor_name: str) -> str:

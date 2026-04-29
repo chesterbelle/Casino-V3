@@ -628,63 +628,20 @@ class SensorManager:
 
     def _get_all_sensor_classes(self):
         """Helper to return all sensor classes (moved from original _load_sensors)."""
-        # ... Import block ...
-        # Import only Footprint and Core sensors for Phase 400
-        # Absorption V1: New sensors (Phase 2.2)
-        from sensors.absorption.absorption_detector import AbsorptionDetector
+        # Context sensors (run in workers for regime/structural data)
         from sensors.debug_heartbeat import DebugHeartbeatV3
-        from sensors.footprint.absorption import FootprintAbsorptionV3
-        from sensors.footprint.advanced import (
-            FootprintDeltaDivergence,
-            FootprintPOCRejection,
-            FootprintStackedImbalance,
-            FootprintTrappedTraders,
-        )
-        from sensors.footprint.big_orders import BigOrderSensor
-        from sensors.footprint.cumulative_delta import CumulativeDeltaSensorV3
-        from sensors.footprint.delta_velocity import DeltaVelocitySensorV3
-        from sensors.footprint.exhaustion import FootprintVolumeExhaustion
-        from sensors.footprint.flow_shift import FootprintDeltaPoCShift
-        from sensors.footprint.imbalance import FootprintImbalanceV3
-        from sensors.footprint.liquidation_cascade import LiquidationCascadeDetector
-
-        # LTA V5: New sensors
-        from sensors.footprint.poor_extreme import TacticalPoorExtreme  # Deprecated
         from sensors.footprint.session import SessionValueArea
-        from sensors.footprint.single_print_reversion import (
-            TacticalSinglePrintReversion,
-        )
-        from sensors.footprint.volatility import VolatilitySpikeSensor
-        from sensors.footprint.volume_climax_reversion import (
-            TacticalVolumeClimaxReversion,
-        )
         from sensors.regime.market_regime import MarketRegimeSensor  # Phase 2100
         from sensors.regime.one_timeframing import (
             OneTimeframingSensor,  # Legacy fallback
         )
 
+        # AbsorptionDetector runs in MAIN PROCESS (SetupEngine.on_candle_absorption)
+        # Not included here — no worker IPC needed
+
         return [
-            MarketRegimeSensor,  # Phase 2100: 3-layer anticipatory regime (replaces OTF)
+            MarketRegimeSensor,  # Phase 2100: 3-layer anticipatory regime
             OneTimeframingSensor,  # Legacy fallback (disabled in config by default)
             SessionValueArea,
             DebugHeartbeatV3,
-            FootprintImbalanceV3,
-            VolatilitySpikeSensor,
-            FootprintAbsorptionV3,
-            FootprintPOCRejection,
-            FootprintDeltaDivergence,
-            FootprintStackedImbalance,
-            FootprintTrappedTraders,
-            FootprintVolumeExhaustion,
-            FootprintDeltaPoCShift,
-            CumulativeDeltaSensorV3,
-            BigOrderSensor,
-            DeltaVelocitySensorV3,
-            LiquidationCascadeDetector,
-            # LTA V5: New sensors
-            TacticalPoorExtreme,  # Deprecated
-            TacticalSinglePrintReversion,  # Redesigned with correct Market Profile logic
-            TacticalVolumeClimaxReversion,
-            # Absorption V1: New sensors
-            AbsorptionDetector,  # Phase 2.2: Real-time absorption detection
         ]

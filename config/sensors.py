@@ -1,9 +1,11 @@
 """
 ====================================================
-🎛️ CONFIGURACIÓN DE SENSORES — CASINO V3 (Phase 400 - Footprint Scalping)
+🎛️ CONFIGURACIÓN DE SENSORES — CASINO V3 (Absorption Scalping V1)
 ====================================================
 
 Configuración de detectores de Orderflow de Alta Frecuencia.
+
+Phase 7: LTA V4/V5/V6 PURGED - Absorption V1 is the sole strategy.
 """
 
 # =====================================================
@@ -11,139 +13,37 @@ Configuración de detectores de Orderflow de Alta Frecuencia.
 # =====================================================
 
 ACTIVE_SENSORS = {
-    # === DEBUG ===
-    "DebugHeartbeat": False,
-    # === FOOTPRINT SCALPING (Tick/Orderbook Reactive) ===
-    "FootprintImbalance": True,
-    "FootprintAbsorption": True,
-    "FootprintPOCRejection": True,
-    "FootprintDeltaDivergence": True,
-    "FootprintStackedImbalance": True,
-    "FootprintTrappedTraders": True,
-    "FootprintVolumeExhaustion": True,
-    "FootprintDeltaPoCShift": True,
-    "CumulativeDelta": True,
-    # Phase 2100: MarketRegime replaces OneTimeframing with 3-layer anticipatory detection.
-    # OneTimeframing is kept as fallback (disabled by default when MarketRegime is active).
-    "MarketRegime": True,
-    "OneTimeframing": False,  # Legacy — superseded by MarketRegime
-    "BigOrderSensor": True,
-    "SessionValueArea": True,
-    "FootprintDeltaVelocity": True,
-    "MicroStructureContext": True,
-    "LiquidationCascade": True,
-    "VolatilitySpike": False,
-    # === LTA V5: NEW SENSORS (Phase 3: Redesigned with correct concepts) ===
-    "TacticalPoorExtreme": False,  # DEPRECATED: Concept was incorrect
-    "TacticalSinglePrintReversion": True,  # CERTIFIED: Passed audit
-    "TacticalVolumeClimaxReversion": True,  # AUDIT MODE: Testing now
-    # === ABSORPTION V1: NEW SENSORS (Phase 2.2) ===
-    "AbsorptionDetector": True,  # Phase 2.2: Real-time absorption detection (BASELINE VALIDATION)
+    # === CONTEXT SENSORS (Required for structural levels and regime detection) ===
+    "MarketRegime": True,  # 3-layer anticipatory regime detection
+    "SessionValueArea": True,  # Structural levels (POC, VAH, VAL, IB)
+    # === ABSORPTION V1: Main-process only (not in workers) ===
+    # AbsorptionDetector runs directly in SetupEngine.on_candle_absorption
 }
 
 # =====================================================
 # ⏱️ TIMEFRAME BASE
 # =====================================================
-# En footprint scalping la matriz de memoria maneja el DOM en tiempo real,
-# pero referenciamos temporales de "1m" para alinear logs de agregación.
 
 SENSOR_TIMEFRAMES = {
-    "FootprintImbalance": ["1m"],
-    "FootprintAbsorption": ["1m"],
-    "FootprintPOCRejection": ["1m"],
-    "FootprintDeltaDivergence": ["1m"],
-    "FootprintStackedImbalance": ["1m"],
-    "FootprintTrappedTraders": ["1m"],
-    "FootprintVolumeExhaustion": ["1m"],
-    "FootprintDeltaPoCShift": ["1m"],
-    "CumulativeDelta": ["1m"],
-    "MarketRegime": ["1m"],  # Phase 2100: 3-layer anticipatory regime sensor
-    "OneTimeframing": ["1m"],  # Legacy fallback
-    "BigOrderSensor": ["1m"],
+    "MarketRegime": ["1m"],
     "SessionValueArea": ["1m"],
-    "FootprintDeltaVelocity": ["1m"],
-    "MicroStructureContext": ["1m"],
-    "LiquidationCascade": ["1m"],
-    "VolatilitySpike": ["1m"],
-    # LTA V5: New sensors
-    "TacticalPoorExtreme": ["1m"],  # Deprecated
-    "TacticalSinglePrintReversion": ["1m"],  # Redesigned
-    "TacticalVolumeClimaxReversion": ["1m"],
-    # Absorption V1: New sensors
-    "AbsorptionDetector": ["1m"],  # Phase 2.2: Real-time absorption detection
+    "AbsorptionDetector": ["1m"],
 }
 
 # =====================================================
-# ⚙️ PARÁMETROS BASE (Micro-Scalping Targets)
+# ⚙️ PARÁMETROS BASE
 # =====================================================
-# TP / SL orientados a tomar 0.1% a 0.2% del volumen institucional
 
 SENSOR_PARAMS = {
-    "FootprintImbalance": {
-        "1m": {"tp_pct": 0.50, "sl_pct": 0.30, "min_score_long": 0.85},
-    },
-    "FootprintAbsorption": {
-        "1m": {"tp_pct": 0.60, "sl_pct": 0.35, "min_score_long": 0.85},
-    },
-    "FootprintPOCRejection": {
-        "1m": {"tp_pct": 0.65, "sl_pct": 0.35, "min_score_long": 0.85},
-    },
-    "FootprintDeltaDivergence": {
-        "1m": {"tp_pct": 0.55, "sl_pct": 0.30, "min_score_long": 0.85},
-    },
-    "FootprintStackedImbalance": {
-        "1m": {"tp_pct": 0.55, "sl_pct": 0.30, "min_score_long": 0.85},
-    },
-    "FootprintTrappedTraders": {
-        "1m": {"tp_pct": 0.70, "sl_pct": 0.40, "min_score_long": 0.85},
-    },
-    "FootprintVolumeExhaustion": {
-        "1m": {"tp_pct": 0.45, "sl_pct": 0.25, "min_score_long": 0.85},
-    },
-    "FootprintDeltaPoCShift": {
-        "1m": {"tp_pct": 0.50, "sl_pct": 0.30, "min_score_long": 0.85},
-    },
-    "CumulativeDelta": {
-        "1m": {"tp_pct": 0.50, "sl_pct": 0.30, "min_score_long": 0.85},
-    },
-    "BigOrderSensor": {
-        "1m": {"tp_pct": 0.70, "sl_pct": 0.40, "min_score_long": 0.85},
+    "MarketRegime": {
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor
     },
     "SessionValueArea": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor
     },
-    "FootprintDeltaVelocity": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},
-    },
-    "OneTimeframing": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor, no TP/SL needed
-    },
-    "MarketRegime": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Phase 2100: Context sensor, no TP/SL needed
-    },
-    "MicroStructureContext": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor, no TP/SL needed
-    },
-    "LiquidationCascade": {
-        "1m": {"tp_pct": 0.80, "sl_pct": 0.40, "min_score_long": 0.85},
-    },
-    # LTA V5: New sensors (conservative params until audit)
-    "TacticalPoorExtreme": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Deprecated
-    },
-    "TacticalSinglePrintReversion": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Tactical signal, no direct TP/SL
-    },
-    "TacticalVolumeClimaxReversion": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Tactical signal, no direct TP/SL
-    },
-    # Absorption V1: New sensors (Phase 2.2)
     "AbsorptionDetector": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Tactical signal, TP/SL calculated dynamically in SetupEngine
+        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # TP/SL calculated dynamically in AbsorptionSetupEngine
     },
-    # "VolatilitySpike": {
-    #     "1m": {"tp_pct": 0.50, "sl_pct": 0.30},
-    # },
     # === DEFAULT FALLBACK ===
     "_default": {
         "1m": {"tp_pct": 0.50, "sl_pct": 0.30},

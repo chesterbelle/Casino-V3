@@ -485,6 +485,28 @@ Gross Expectancy (%) = (Win Rate × Avg Win %) - (Loss Rate × Avg Loss %)
 
 ---
 
+### Validate-All Redesign (2026-04-28)
+
+**Status**: ✅ Protocolo reescrito, 4 validadores nuevos pendientes de implementar
+
+**Cambios clave**:
+- Arquitectura de 6 capas progresivas: Layer 0 (math aislada) → Layer 1 (pairwise) → Layer 2 (subsystem) → Layer 3 (full pipeline) → Layer 4 (stress/chaos) → Layer 5 (edge validation)
+- Cada capa tiene **"Debug if fails"** que apunta al archivo exacto donde buscar el bug
+- Capas obsoletas eliminadas: `sensor_math_validator.py` (LTA), `zscore_math_validator.py` (Strategy 2.0)
+
+**4 Validadores nuevos requeridos**:
+
+| Layer | Archivo | Qué valida | Prioridad |
+|-------|---------|-----------|-----------|
+| 0.E | `utils/validators/exit_engine_validator.py` | ExitEngine 5-layer math (catastrophic, flow, counter-absorption, valentino, drain, _pending_terminations) | HIGH |
+| 0.F | `utils/validators/virtual_exchange_fee_validator.py` | Fee accounting (entry_fee + exit_fee), limit fill prices (min/max), force_close_all total_fee | HIGH |
+| 0.G | `utils/validators/oco_limit_order_validator.py` | OCOManager limit order placement, LIMIT_SNIPER_OFFSET_PCT, direction logic | MEDIUM |
+| 1.4 | `utils/validators/exit_engine_integration_validator.py` | ExitEngine→Croupier close/scale_out callbacks, audit mode shadow | HIGH |
+
+**Protocolo**: `.agent/workflows/validate-all.md`
+
+---
+
 ### Phase 2400 — Validation Results (2026-04-27)
 
 **Status**: ⚠️ **IMPLEMENTED BUT FAILED — Edge insuficiente**

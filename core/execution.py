@@ -254,9 +254,9 @@ class OrderManager:
             f"Price={current_price:.2f} | Amount={amount:.8f}"
         )
 
-        # Phase 4: Absorption V1 - Recalculate TP dynamically just before execution
+        # Phase 4: Absorption - Recalculate TP dynamically just before execution
         strategy = getattr(event, "metadata", {}).get("strategy", "")
-        if strategy == "AbsorptionScalpingV1":
+        if strategy in ("AbsorptionScalpingV1", "AbsorptionScalpingV2"):
             tp_price, sl_price = await self._recalculate_absorption_tp(
                 event, symbol, side, current_price, tp_price, sl_price
             )

@@ -44,10 +44,17 @@ class SetupEngineV4:
         self.tracker = DummyTracker()  # For OrderManager compatibility
         self.fast_track = fast_track
 
-        # Phase 2.3: Absorption V1 - Initialize AbsorptionSetupEngine
+        # Phase 2.3: Absorption V2 - Two-phase architecture (detect → confirm → enter)
+        from decision.absorption_reversal_guardian import AbsorptionReversalGuardian
         from decision.absorption_setup_engine import AbsorptionSetupEngine
+        from sensors.absorption.absorption_detector import AbsorptionDetector
 
+        self.absorption_detector = AbsorptionDetector()
+        self.absorption_guardian = AbsorptionReversalGuardian(fast_track=fast_track)
         self.absorption_engine = AbsorptionSetupEngine(fast_track=fast_track)
+
+        # Subscribe to candle events for absorption detection
+        self.engine.subscribe(EventType.CANDLE, self.on_candle_absorption)
 
         # Memory of tactical events per symbol. (timestamp, event_data)
         # Keeps up to 500 events to cover the 5-second window
@@ -334,10 +341,8 @@ class SetupEngineV4:
         # 1. Store in memory for confluence evaluation
         self.memory[symbol].append((now, event.timestamp, event))
 
-        # Phase 2.3: Absorption V1 - Process absorption signals
-        if event.sensor_id == "AbsorptionDetector":
-            await self._process_absorption_signal(event)
-            return
+        # Phase 2.3: Absorption V1 signals now come from on_candle_absorption (main process)
+        # No longer routed through worker SignalEvents
 
         # 2. EVALUATE PRE-FLIGHT (Limit Sniper Phase 1)
         # DISABLED: PreFlight generated extra signals that eroded edge (3.4x more trades, worse quality).
@@ -1229,80 +1234,111 @@ class SetupEngineV4:
         self._trace_decision(symbol, "PASS", "SPREAD_SANITY", "Normal spread", metrics, 0.0, "")
         return True
 
-    async def _process_absorption_signal(self, event: SignalEvent):
+    async def on_candle_absorption(self, event):
         """
-        Phase 2.3: Process absorption signals from AbsorptionDetector.
+        Phase 2.3 V2: Two-phase absorption detection.
 
-        Converts absorption signals into executable setups using AbsorptionSetupEngine.
+        PHASE 1 — DETECTION: AbsorptionDetector finds candidates
+        PHASE 2 — CONFIRMATION: AbsorptionReversalGuardian verifies ≥2/3 confirmations
+
+        Called directly from Engine on CANDLE events (main process).
+        No IPC, no worker queue — direct access to FootprintRegistry.
         """
-        symbol = event.symbol
-        metadata = event.metadata or {}
+        # Extract candle data
+        symbol = getattr(event, "symbol", None)
+        timestamp = getattr(event, "timestamp", 0)
+        close_price = getattr(event, "close", 0)
+        open_price = getattr(event, "open", 0)
+        high_price = getattr(event, "high", 0)
+        low_price = getattr(event, "low", 0)
 
-        # Extract absorption signal data
-        absorption_signal = {
-            "symbol": symbol,
-            "level": metadata.get("absorption_level", metadata.get("level", 0.0)),
-            "direction": metadata.get("direction", ""),
-            "delta": metadata.get("delta", 0.0),
-            "z_score": metadata.get("z_score", 0.0),
-            "concentration": metadata.get("concentration", 0.0),
-            "noise": metadata.get("noise", 0.0),
-            "timestamp": event.timestamp,
-        }
+        # Fallback: try metadata for non-standard candle events
+        if not symbol:
+            md = getattr(event, "metadata", {}) or {}
+            symbol = md.get("symbol")
+            close_price = md.get("close", close_price)
+            open_price = md.get("open", open_price)
+            high_price = md.get("high", high_price)
+            low_price = md.get("low", low_price)
 
-        # Get current price
-        current_price = metadata.get("price", 0.0)
-        if current_price <= 0:
-            logger.warning(f"⚠️ [ABSORPTION] No price in signal metadata for {symbol}")
+        if not symbol or close_price <= 0:
             return
 
-        # Process signal with AbsorptionSetupEngine
-        setup = self.absorption_engine.process_signal(absorption_signal, current_price, event.timestamp)
+        # ── PHASE 2: Check if guardian has a pending candidate for this symbol ──
+        confirmed_signal = self.absorption_guardian.on_candle(
+            symbol, timestamp, close_price, open_price, high_price, low_price
+        )
 
-        if not setup:
-            logger.debug(f"❌ [ABSORPTION] Setup rejected for {symbol}")
+        if confirmed_signal:
+            # Phase 2 CONFIRMED → process through setup engine → dispatch
+            setup = self.absorption_engine.process_confirmed_signal(confirmed_signal)
+            if not setup:
+                logger.debug(f"❌ [ABSORPTION_V2] Setup rejected for {symbol}")
+                return
+
+            # Cooldown check before dispatch (use event timestamp for backtest compatibility)
+            if timestamp - self.last_fire_ts[symbol] < self.fire_cooldown:
+                logger.debug(f"❌ [ABSORPTION_V2] Cooldown active for {symbol}")
+                return
+
+            # Build AggregatedSignalEvent
+            trigger_metadata = {
+                "strategy": "AbsorptionScalpingV2",
+                "setup_type": f"AbsorptionV2_{setup['side']}",
+                "absorption_level": setup["absorption_level"],
+                "delta": setup["delta"],
+                "z_score": setup["z_score"],
+                "concentration": setup["concentration"],
+                "noise": setup["noise"],
+                "tp_price": setup["tp_price"],
+                "sl_price": setup["sl_price"],
+                "entry_price": setup["entry_price"],
+                "price": setup["entry_price"],
+                "sensor_id": "AbsorptionDetector",
+                "timestamp": setup["timestamp"],
+                "confirmations": setup.get("confirmations", 0),
+                "is_contra_trend": setup.get("is_contra_trend", False),
+                "size_multiplier": setup.get("size_multiplier", 1.0),
+            }
+
+            trigger_metadata = self._enrich_metadata(trigger_metadata, symbol)
+
+            agg_event = AggregatedSignalEvent(
+                type=EventType.AGGREGATED_SIGNAL,
+                timestamp=timestamp,
+                symbol=symbol,
+                candle_timestamp=timestamp,
+                selected_sensor="AbsorptionDetector",
+                sensor_score=setup["z_score"],
+                side=setup["side"],
+                confidence=setup["concentration"],
+                total_signals=1,
+                setup_type=f"AbsorptionV2_{setup['side']}",
+                metadata=trigger_metadata,
+                t0_timestamp=timestamp,
+                price=close_price,
+            )
+
+            logger.info(
+                f"🎯 [ABSORPTION_V2] Setup FIRED: {symbol} {setup['side']} @ {setup['entry_price']:.2f} "
+                f"(TP={setup['tp_price']:.2f}, SL={setup['sl_price']:.2f}, "
+                f"conf={setup.get('confirmations', 0)}/3)"
+            )
+
+            # Update cooldown (use event timestamp for backtest compatibility)
+            self.last_fire_ts[symbol] = timestamp
+
+            await self.engine.dispatch(agg_event)
             return
 
-        # Convert setup to AggregatedSignalEvent for Croupier
-        trigger_metadata = {
-            "strategy": "AbsorptionScalpingV1",
-            "setup_type": f"Absorption_{setup['side']}",
-            "absorption_level": setup["absorption_level"],
-            "delta": setup["delta"],
-            "z_score": setup["z_score"],
-            "concentration": setup["concentration"],
-            "noise": setup["noise"],
-            "tp_price": setup["tp_price"],
-            "sl_price": setup["sl_price"],
-            "entry_price": setup["entry_price"],
-            "price": setup["entry_price"],
-            "sensor_id": "AbsorptionDetector",
-            "timestamp": setup["timestamp"],
-        }
-
-        # Enrich with structural levels if available
-        trigger_metadata = self._enrich_metadata(trigger_metadata, symbol)
-
-        # Create aggregated signal event
-        agg_event = AggregatedSignalEvent(
-            type=EventType.AGGREGATED_SIGNAL,
-            timestamp=event.timestamp,
-            symbol=symbol,
-            candle_timestamp=event.timestamp,
-            selected_sensor="AbsorptionDetector",
-            sensor_score=absorption_signal.get("z_score", 3.0),
-            side=setup["side"],
-            confidence=absorption_signal.get("concentration", 0.8),
-            total_signals=1,
-            setup_type=f"Absorption_{setup['side']}",
-            metadata=trigger_metadata,
-            t0_timestamp=event.timestamp,
+        # ── PHASE 1: Run absorption detector for new candidates ──
+        candidate = self.absorption_detector.on_candle(
+            symbol, timestamp, close_price, open_price, high_price, low_price
         )
-
-        logger.info(
-            f"🎯 [ABSORPTION] Setup fired: {symbol} {setup['side']} @ {setup['entry_price']:.2f} "
-            f"(TP={setup['tp_price']:.2f}, SL={setup['sl_price']:.2f})"
-        )
-
-        # Dispatch to Croupier
-        await self.engine.dispatch(agg_event)
+        if candidate:
+            # Register candidate with guardian for Phase 2 confirmation
+            self.absorption_guardian.register_candidate(candidate)
+            logger.info(
+                f"📋 [ABSORPTION_V2] Candidate detected: {symbol} {candidate['direction']} @ {close_price:.2f} "
+                f"— waiting for confirmation"
+            )
