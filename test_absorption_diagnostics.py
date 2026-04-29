@@ -63,7 +63,7 @@ for level in sorted(footprint.levels.keys(), reverse=True)[:10]:
 
 # Test _find_extreme_deltas
 print(f"\n3. Finding Extreme Deltas...")
-candidates = detector._find_extreme_deltas(footprint, timestamp)
+candidates = detector._find_extreme_deltas(footprint)
 print(f"   Candidates found: {len(candidates)}")
 for level, delta, ask_vol, bid_vol in candidates:
     print(f"      Level {level:.2f}: Delta={delta:+8.2f}, Ask={ask_vol:6.2f}, Bid={bid_vol:6.2f}")

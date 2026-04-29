@@ -87,7 +87,7 @@ def main():
         }
     )
 
-    candidates = detector._find_extreme_deltas(fp_small, ts)
+    candidates = detector._find_extreme_deltas(fp_small)
     if len(candidates) != 0:
         fail(f"Expected 0 candidates with < 10 levels, got {len(candidates)}")
     ok("< 10 levels → returns [] (insufficient data guard works)")
@@ -99,7 +99,7 @@ def main():
 
     fp_10 = build_footprint({78.40 + i * 0.01: (100.0, 50.0) for i in range(10)})
 
-    candidates_10 = detector._find_extreme_deltas(fp_10, ts)
+    candidates_10 = detector._find_extreme_deltas(fp_10)
     if len(candidates_10) < 1:
         fail(f"Expected >= 1 candidate with 10 levels, got {len(candidates_10)}")
     ok(f"10 levels → {len(candidates_10)} candidate(s) (at least 1)")
@@ -114,7 +114,7 @@ def main():
     levels_20[78.50] = (10.0, 510.0)  # delta=-500 (strong sell absorption)
 
     fp_20 = build_footprint(levels_20)
-    candidates_20 = detector._find_extreme_deltas(fp_20, ts)
+    candidates_20 = detector._find_extreme_deltas(fp_20)
 
     if len(candidates_20) == 0:
         fail("Expected at least 1 candidate from 20-level footprint")
@@ -139,7 +139,7 @@ def main():
     levels_buy[78.55] = (600.0, 10.0)  # delta=+590 (strong buy absorption)
 
     fp_buy = build_footprint(levels_buy)
-    candidates_buy = detector._find_extreme_deltas(fp_buy, ts)
+    candidates_buy = detector._find_extreme_deltas(fp_buy)
 
     if len(candidates_buy) == 0:
         fail("Expected at least 1 candidate from buy-absorption footprint")
@@ -168,7 +168,7 @@ def main():
         levels_200[78.00 + i * 0.01] = (ask, bid)
 
     fp_200 = build_footprint(levels_200)
-    candidates_200 = detector._find_extreme_deltas(fp_200, ts)
+    candidates_200 = detector._find_extreme_deltas(fp_200)
 
     if len(candidates_200) > 10:
         fail(f"Expected max 10 candidates, got {len(candidates_200)}")
@@ -191,7 +191,7 @@ def main():
         levels_zero[78.40 + i * 0.01] = (60.0, 40.0)  # delta=+20
 
     fp_zero = build_footprint(levels_zero)
-    candidates_zero = detector._find_extreme_deltas(fp_zero, ts)
+    candidates_zero = detector._find_extreme_deltas(fp_zero)
 
     # Only 10 non-zero delta levels → should find candidates
     if len(candidates_zero) == 0:
@@ -216,7 +216,7 @@ def main():
         levels_sorted[78.00 + i * 0.01] = (ask, 50.0)
 
     fp_sorted = build_footprint(levels_sorted)
-    candidates_sorted = detector._find_extreme_deltas(fp_sorted, ts)
+    candidates_sorted = detector._find_extreme_deltas(fp_sorted)
 
     if len(candidates_sorted) < 2:
         fail(
