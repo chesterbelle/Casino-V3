@@ -209,6 +209,10 @@ class ContextRegistry:
         """Phase 2100: Store full V2 regime data from MarketRegimeSensor."""
         self._regime_v2[symbol] = regime_data
 
+    def get_regime_v2(self, symbol: str) -> dict:
+        """Phase 2100: Returns full V2 regime data."""
+        return self._regime_v2.get(symbol, {"regime": "BALANCE", "reversion_allowed": True})
+
     def set_micro_state(self, symbol: str, cvd: float, skewness: float, z_score: float):
         """Update real-time microstructure state."""
         self.micro_state[symbol] = {

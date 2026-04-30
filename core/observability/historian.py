@@ -361,7 +361,7 @@ class TradeHistorian:
         """Phase 240: Graceful shutdown. Flushes queues and stops workers."""
         if self._use_mp and self._worker_process:
             self._queue.put(None)
-            self._worker_process.join(timeout=5.0)
+            self._worker_process.join(timeout=30.0)
             self._worker_process = None
             logger.info("🛑 HistorianWorker Process stopped.")
 

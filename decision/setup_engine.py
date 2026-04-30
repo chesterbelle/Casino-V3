@@ -1234,6 +1234,92 @@ class SetupEngineV4:
         self._trace_decision(symbol, "PASS", "SPREAD_SANITY", "Normal spread", metrics, 0.0, "")
         return True
 
+    def _check_regime_alignment_v2(self, symbol: str, side: str) -> bool:
+        """
+        ULTIMATE STRATEGY: Hard Gate Regime Alignment (Guardian 0).
+
+        Logic (Axia/Jigsaw Style):
+        - BALANCE: Both LONG and SHORT allowed.
+        - TREND_UP: Only LONG allowed.
+        - TREND_DOWN: Only SHORT allowed.
+        - TRANSITION: ALL BLOCKED (Danger zone).
+        """
+        if self.fast_track:
+            return True
+
+        if not self.context_registry:
+            return True
+
+        regime_data = self.context_registry.get_regime_v2(symbol)
+        regime = regime_data.get("regime", "BALANCE")
+
+        metrics = {"regime": regime, "side": side}
+
+        # 1. Hard Gate: TRANSITION is a no-trade zone
+        if regime == "TRANSITION":
+            logger.info(f"🛡️ [REGIME_GATE] {symbol} {side} blocked: Market in TRANSITION")
+            self._trace_decision(symbol, "REJECT", "REGIME_GATE", "Transition phase", metrics, 0.0, side)
+            return False
+
+        # 2. Hard Gate: Trend Alignment
+        if regime == "TREND_UP" and side == "SHORT":
+            logger.info(f"🛡️ [REGIME_GATE] {symbol} SHORT blocked: Strong TREND_UP")
+            self._trace_decision(symbol, "REJECT", "REGIME_GATE", "Counter-trend (Up)", metrics, 0.0, side)
+            return False
+
+        if regime == "TREND_DOWN" and side == "LONG":
+            logger.info(f"🛡️ [REGIME_GATE] {symbol} LONG blocked: Strong TREND_DOWN")
+            self._trace_decision(symbol, "REJECT", "REGIME_GATE", "Counter-trend (Down)", metrics, 0.0, side)
+            return False
+
+        self._trace_decision(symbol, "PASS", "REGIME_GATE", f"Aligned with {regime}", metrics, 0.0, side)
+        return True
+
+    def _check_flow_exhaustion(self, symbol: str, side: str) -> bool:
+        """
+        ULTIMATE STRATEGY: Flow Exhaustion Gate (Guardian 1).
+
+        Prevents entering a reversal while the aggressive flow is still surging.
+        Even if there is absorption, we wait for the "train" to slow down.
+
+        Logic:
+        - LONG: Block if Seller Flow Z-Score is extremely high (< -2.5)
+        - SHORT: Block if Buyer Flow Z-Score is extremely high (> 2.5)
+        """
+        if self.fast_track:
+            return True
+
+        if not self.context_registry:
+            return True
+
+        regime_data = self.context_registry.get_regime_v2(symbol)
+        flow_momentum = regime_data.get("flow_momentum", 0.0)  # Delta Velocity Z-Score
+
+        metrics = {"flow_momentum": flow_momentum, "threshold": 2.5}
+
+        if side == "LONG":
+            # If sellers are still slamming the bid with 2.5+ sigma force, don't buy yet
+            if flow_momentum < -2.5:
+                logger.info(
+                    f"🛡️ [FLOW_EXHAUSTION] {symbol} LONG blocked: Sellers still surging (Z: {flow_momentum:.2f})"
+                )
+                self._trace_decision(
+                    symbol, "REJECT", "FLOW_EXHAUSTION", "Aggressive selling surge", metrics, 0.0, side
+                )
+                return False
+
+        if side == "SHORT":
+            # If buyers are still slamming the ask with 2.5+ sigma force, don't sell yet
+            if flow_momentum > 2.5:
+                logger.info(
+                    f"🛡️ [FLOW_EXHAUSTION] {symbol} SHORT blocked: Buyers still surging (Z: {flow_momentum:.2f})"
+                )
+                self._trace_decision(symbol, "REJECT", "FLOW_EXHAUSTION", "Aggressive buying surge", metrics, 0.0, side)
+                return False
+
+        self._trace_decision(symbol, "PASS", "FLOW_EXHAUSTION", "Flow momentum stabilized", metrics, 0.0, side)
+        return True
+
     async def on_candle_absorption(self, event):
         """
         Phase 2.3 V2: Two-phase absorption detection.
@@ -1270,6 +1356,14 @@ class SetupEngineV4:
         )
 
         if confirmed_signal:
+            # ── ULTIMATE STRATEGY: Final Regime Alignment Check ──
+            if not self._check_regime_alignment_v2(symbol, confirmed_signal["side"]):
+                return
+
+            # ── ULTIMATE STRATEGY: Final Flow Exhaustion Check ──
+            if not self._check_flow_exhaustion(symbol, confirmed_signal["side"]):
+                return
+
             # Phase 2 CONFIRMED → process through setup engine → dispatch
             setup = self.absorption_engine.process_confirmed_signal(confirmed_signal)
             if not setup:
@@ -1336,9 +1430,53 @@ class SetupEngineV4:
             symbol, timestamp, close_price, open_price, high_price, low_price
         )
         if candidate:
+            # Setup side from candidate direction
+            side = "LONG" if candidate["direction"] == "SELL_EXHAUSTION" else "SHORT"
+
+            # ── ULTIMATE STRATEGY Guardian 0: Regime Alignment (HARD GATE) ──
+            if not self._check_regime_alignment_v2(symbol, side):
+                return
+
+            # ── ULTIMATE STRATEGY Guardian 1: Flow Exhaustion (Surge Filter) ──
+            if not self._check_flow_exhaustion(symbol, side):
+                return
+
+            # ── ULTIMATE STRATEGY: Structural Location Gate ──
+            if self.context_registry and self.context_registry.is_structural_ready(symbol):
+                poc, vah, val = self.context_registry.get_structural(symbol)
+                ib_high, ib_low = self.context_registry.get_ib(symbol)
+
+                # Gather all valid structural levels
+                levels = [lvl for lvl in [poc, vah, val, ib_high, ib_low] if lvl and lvl > 0]
+                metrics = {"price": close_price, "levels": levels}
+
+                if levels:
+                    # Calculate minimum distance from current price to any structural level
+                    min_dist = min(abs(close_price - lvl) / lvl for lvl in levels)
+                    metrics["min_dist"] = min_dist
+
+                    # If absorption happens in the middle of nowhere (> 0.25% from a level), it's noise
+                    if min_dist > 0.0025:
+                        logger.debug(
+                            f"❌ [ABSORPTION_V2] Candidate rejected: "
+                            f"Location Gate Failed (dist={min_dist*100:.2f}% > 0.25%)"
+                        )
+                        self._trace_decision(
+                            symbol, "REJECT", "LOCATION_GATE", "Too far from levels", metrics, close_price, side
+                        )
+                        return
+
+                    self._trace_decision(
+                        symbol, "PASS", "LOCATION_GATE", "Near structural level", metrics, close_price, side
+                    )
+            elif self.context_registry:
+                # If structural levels are not ready, we cannot validate the edge
+                self._trace_decision(symbol, "REJECT", "LOCATION_GATE", "Levels not ready", {}, close_price, side)
+                return
+
             # Register candidate with guardian for Phase 2 confirmation
             self.absorption_guardian.register_candidate(candidate)
             logger.info(
                 f"📋 [ABSORPTION_V2] Candidate detected: {symbol} {candidate['direction']} @ {close_price:.2f} "
-                f"— waiting for confirmation"
+                f"— Regime & Location Validated, waiting for Guardian"
             )

@@ -51,10 +51,10 @@ class AbsorptionDetector:
         self.name = "AbsorptionDetector"
 
         # Filter thresholds (tuned for LTC/USDT backtests)
-        self.z_score_min = 2.5  # Minimum |z-score| for magnitude
-        self.concentration_min = 0.60  # Minimum concentration for velocity
-        self.noise_max = 0.20  # Maximum noise ratio
-        self.stagnation_max_pct = 0.05  # Max price move in attack direction (0.05%)
+        self.z_score_min = 2.0  # Minimum |z-score| for magnitude
+        self.concentration_min = 0.50  # Minimum concentration for velocity
+        self.noise_max = 0.25  # Maximum noise ratio
+        self.stagnation_max_pct = 0.08  # Max price move in attack direction (0.08%)
 
         # Candle history for stagnation check
         self._prev_candles: Dict[str, dict] = {}  # symbol → {open, high, low, close, ts}
@@ -197,16 +197,16 @@ class AbsorptionDetector:
         Cross-sectional z-score: how extreme is this delta relative to
         ALL other deltas in the current footprint snapshot.
 
-        This is superior to temporal z-score because:
-        - No history accumulation needed (works from first candle)
-        - No IPC state sync issues
-        - Directly measures "is this level abnormal RIGHT NOW?"
+        V2.1 Fix: Use mean=0 to ensure perfect symmetry.
+        If we use the candle's actual mean, we penalize setups that go with the candle's trend
+        and boost setups that go against it, creating an asymmetric detection rate.
         """
         all_deltas = [data["delta"] for data in footprint.levels.values()]
         if len(all_deltas) < 5:
             return 0.0
 
-        mean = sum(all_deltas) / len(all_deltas)
+        # Assume mean = 0 to measure absolute extremeness symmetrically
+        mean = 0.0
         variance = sum((d - mean) ** 2 for d in all_deltas) / len(all_deltas)
         std_dev = math.sqrt(variance)
 
