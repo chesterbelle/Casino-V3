@@ -16,8 +16,8 @@ ACTIVE_SENSORS = {
     # === CONTEXT SENSORS (Required for structural levels and regime detection) ===
     "MarketRegime": True,  # 3-layer anticipatory regime detection
     "SessionValueArea": True,  # Structural levels (POC, VAH, VAL, IB)
-    # === ABSORPTION V1: Main-process only (not in workers) ===
-    # AbsorptionDetector runs directly in SetupEngine.on_candle_absorption
+    # === TACTICAL SENSORS (The Triggers) ===
+    "TacticalAbsorptionV2": True,  # Phase 2300: Unified LTA V7 Absorption
 }
 
 # =====================================================
@@ -27,7 +27,7 @@ ACTIVE_SENSORS = {
 SENSOR_TIMEFRAMES = {
     "MarketRegime": ["1m"],
     "SessionValueArea": ["1m"],
-    "AbsorptionDetector": ["1m"],
+    "TacticalAbsorptionV2": ["1m"],
 }
 
 # =====================================================
@@ -41,8 +41,8 @@ SENSOR_PARAMS = {
     "SessionValueArea": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor
     },
-    "AbsorptionDetector": {
-        "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # TP/SL calculated dynamically in AbsorptionSetupEngine
+    "TacticalAbsorptionV2": {
+        "1m": {"tp_pct": 0.0015, "sl_pct": 0.0010},  # LTA Default TP/SL (Structural override applies later)
     },
     # === DEFAULT FALLBACK ===
     "_default": {

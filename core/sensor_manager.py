@@ -637,6 +637,7 @@ class SensorManager:
     def _get_all_sensor_classes(self):
         """Helper to return all sensor classes (moved from original _load_sensors)."""
         # Context sensors (run in workers for regime/structural data)
+        from sensors.absorption.absorption_detector import AbsorptionDetector
         from sensors.debug_heartbeat import DebugHeartbeatV3
         from sensors.footprint.session import SessionValueArea
         from sensors.regime.market_regime import MarketRegimeSensor  # Phase 2100
@@ -644,12 +645,10 @@ class SensorManager:
             OneTimeframingSensor,  # Legacy fallback
         )
 
-        # AbsorptionDetector runs in MAIN PROCESS (SetupEngine.on_candle_absorption)
-        # Not included here — no worker IPC needed
-
         return [
             MarketRegimeSensor,  # Phase 2100: 3-layer anticipatory regime
             OneTimeframingSensor,  # Legacy fallback (disabled in config by default)
             SessionValueArea,
+            AbsorptionDetector,  # Phase 2300: Unified LTA V7 Absorption
             DebugHeartbeatV3,
         ]

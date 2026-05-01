@@ -20,6 +20,7 @@ from core.events import (
     MicrostructureEvent,
     SignalEvent,
 )
+from core.footprint_registry import footprint_registry
 
 logger = logging.getLogger("SetupEngine")
 
@@ -44,17 +45,9 @@ class SetupEngineV4:
         self.tracker = DummyTracker()  # For OrderManager compatibility
         self.fast_track = fast_track
 
-        # Phase 2.3: Absorption V2 - Two-phase architecture (detect → confirm → enter)
-        from decision.absorption_reversal_guardian import AbsorptionReversalGuardian
-        from decision.absorption_setup_engine import AbsorptionSetupEngine
-        from sensors.absorption.absorption_detector import AbsorptionDetector
-
-        self.absorption_detector = AbsorptionDetector()
-        self.absorption_guardian = AbsorptionReversalGuardian(fast_track=fast_track)
-        self.absorption_engine = AbsorptionSetupEngine(fast_track=fast_track)
-
-        # Subscribe to candle events for absorption detection
-        self.engine.subscribe(EventType.CANDLE, self.on_candle_absorption)
+        self.context_registry = context_registry
+        self.tracker = DummyTracker()  # For OrderManager compatibility
+        self.fast_track = fast_track
 
         # Memory of tactical events per symbol. (timestamp, event_data)
         # Keeps up to 500 events to cover the 5-second window
@@ -105,6 +98,43 @@ class SetupEngineV4:
             reasons.append("Structural Levels (POC/VAH/VAL)")
 
         return len(reasons) == 0, reasons
+
+    def _calculate_lvn_target(self, symbol: str, entry_price: float, side: str) -> Optional[float]:
+        """
+        LTA V7: LVN-based dynamic Take Profit.
+        Identifies the first liquidity gap (LVN) in the trade direction.
+        """
+        try:
+            # Look up to 0.60% for a target
+            range_pct = 0.0060
+            if side == "LONG":
+                p_from, p_to = entry_price, entry_price * (1 + range_pct)
+            else:
+                p_from, p_to = entry_price * (1 - range_pct), entry_price
+
+            profile = footprint_registry.get_volume_profile(symbol, p_from, p_to)
+            if len(profile) < 5:
+                return None
+
+            # LVN = volume < 50% of average in the range
+            avg_vol = sum(ask + bid for _, ask, bid in profile) / len(profile)
+            lvn_threshold = avg_vol * 0.5
+
+            lvns = [p for p, ask, bid in profile if (ask + bid) < lvn_threshold]
+            if not lvns:
+                return None
+
+            if side == "LONG":
+                # First LVN ABOVE entry
+                targets = [p for p in lvns if p > entry_price * 1.0010]
+                return min(targets) if targets else None
+            else:
+                # First LVN BELOW entry
+                targets = [p for p in lvns if p < entry_price * 0.9990]
+                return max(targets) if targets else None
+        except Exception as e:
+            logger.error(f"❌ Error calculating LVN target: {e}")
+            return None
 
     def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
         """Phase 950: Inject structural levels from ContextRegistry into trigger metadata.
@@ -205,19 +235,16 @@ class SetupEngineV4:
         # Phase 800: Expanded Whitelist for LTA V4 Confluence
         # Phase 2100: LTA V5 Sensor Consolidation - Eliminated redundant sensors
         TACTICAL_WHITELIST = (
-            "TacticalAbsorption",  # Núcleo: defensa del borde VA
+            "TacticalAbsorptionV2",  # Nuevo núcleo LTA V7: Absorción de alta precisión
+            "TacticalAbsorption",  # Legacy fallback
             "TacticalDivergence",  # Confirmador: agotamiento de momentum
             "TacticalTrappedTraders",  # Confirmador: participantes atrapados
             "TacticalExhaustion",  # Confirmador: volumen extremo sin follow-through
             "TacticalLiquidationCascade",  # Playbook Beta: fade de dislocación extrema
-            # LTA V5: NEW SENSORS (Phase 3)
             "TacticalSinglePrintReversion",  # Market Profile: single print rejection
             "TacticalVolumeClimaxReversion",  # Wyckoff: volume climax without extension
-            # ELIMINATED in LTA V5:
-            # "TacticalRejection" → Redundante con TacticalAbsorption (correlación >0.85)
-            # "TacticalStackedImbalance" → Contradictorio (predice continuación en playbook de reversión)
-            # "TacticalImbalance" → Menos específico que TacticalTrappedTraders
         )
+
         for e in events:
             md = e.metadata or {}
             t_type = md.get("tactical_type")
@@ -299,16 +326,25 @@ class SetupEngineV4:
         if is_at_val and side != "LONG":
             return None
 
-        # 5. Calculate Structural Targets (LTA Core)
-        # Phase 2400: Reduced TP from POC (full reversion) to 0.15% partial reversion
-        # Reason: MFE data shows price moves 0.19% on average, not full distance to POC
-        # Old: tp_price = poc (full reversion)
-        # New: tp_price = entry + 0.15% (partial reversion aligned with MFE reality)
-        tp_distance_pct = 0.0015  # 0.15% - aligned with actual MFE from audit data
-        if side == "LONG":
-            tp_price = price * (1 + tp_distance_pct)
+        # 5. Calculate Structural Targets (LTA V7 Dynamic Targets)
+        # Search for the first Low Volume Node (LVN) in the trade direction
+        tp_price = self._calculate_lvn_target(symbol, price, side)
+
+        if not tp_price:
+            # Fallback to structural 0.20% (Increased from 0.15% to cover fees)
+            tp_distance_pct = 0.0020
+            if side == "LONG":
+                tp_price = price * (1 + tp_distance_pct)
+            else:
+                tp_price = price * (1 - tp_distance_pct)
         else:
-            tp_price = price * (1 - tp_distance_pct)
+            # Ensure LVN TP is at least 0.20% away from entry to cover fees
+            tp_dist = abs(tp_price - price) / price
+            if tp_dist < 0.0020:
+                if side == "LONG":
+                    tp_price = price * 1.0020
+                else:
+                    tp_price = price * 0.9980
 
         # SL is structural: Buffer outside the edge
         sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
@@ -346,18 +382,8 @@ class SetupEngineV4:
         now = time.time()
 
         # 1. Store in memory for confluence evaluation
+        # 1. Store in memory for confluence evaluation
         self.memory[symbol].append((now, event.timestamp, event))
-
-        # Phase 2.3: Absorption V1 signals now come from on_candle_absorption (main process)
-        # No longer routed through worker SignalEvents
-
-        # 2. EVALUATE PRE-FLIGHT (Limit Sniper Phase 1)
-        # DISABLED: PreFlight generated extra signals that eroded edge (3.4x more trades, worse quality).
-        # Limit Sniper now only changes order TYPE (market→limit) on existing LTA signals,
-        # not generates new signals. See _execute_main_order in oco_manager.py.
-        # t_type = md.get("tactical_type")
-        # if t_type and t_type != "PreFlightProximity":
-        #     await self._evaluate_pre_flight(symbol, event)
 
         # 3. Prune old events periodically
         if now - self._last_signal_prune_ts > self._prune_interval:
@@ -1240,252 +1266,3 @@ class SetupEngineV4:
 
         self._trace_decision(symbol, "PASS", "SPREAD_SANITY", "Normal spread", metrics, 0.0, "")
         return True
-
-    def _check_regime_alignment_v2(self, symbol: str, side: str) -> bool:
-        """
-        ULTIMATE STRATEGY: Hard Gate Regime Alignment (Guardian 0).
-
-        Logic (Axia/Jigsaw Style):
-        - BALANCE: Both LONG and SHORT allowed.
-        - TREND_UP: Only LONG allowed.
-        - TREND_DOWN: Only SHORT allowed.
-        - TRANSITION: ALL BLOCKED (Danger zone).
-        """
-        if self.fast_track:
-            return True
-
-        if not self.context_registry:
-            return True
-
-        regime_data = self.context_registry.get_regime_v2(symbol)
-        regime = regime_data.get("regime", "BALANCE")
-
-        metrics = {"regime": regime, "side": side}
-
-        # 1. Hard Gate: TRANSITION is a no-trade zone
-        if regime == "TRANSITION":
-            logger.info(f"🛡️ [REGIME_GATE] {symbol} {side} blocked: Market in TRANSITION")
-            self._trace_decision(symbol, "REJECT", "REGIME_GATE", "Transition phase", metrics, 0.0, side)
-            return False
-
-        # 2. Hard Gate: Trend Alignment
-        if regime == "TREND_UP" and side == "SHORT":
-            logger.info(f"🛡️ [REGIME_GATE] {symbol} SHORT blocked: Strong TREND_UP")
-            self._trace_decision(symbol, "REJECT", "REGIME_GATE", "Counter-trend (Up)", metrics, 0.0, side)
-            return False
-
-        if regime == "TREND_DOWN" and side == "LONG":
-            logger.info(f"🛡️ [REGIME_GATE] {symbol} LONG blocked: Strong TREND_DOWN")
-            self._trace_decision(symbol, "REJECT", "REGIME_GATE", "Counter-trend (Down)", metrics, 0.0, side)
-            return False
-
-        self._trace_decision(symbol, "PASS", "REGIME_GATE", f"Aligned with {regime}", metrics, 0.0, side)
-        return True
-
-    def _check_flow_exhaustion(self, symbol: str, side: str) -> bool:
-        """
-        ULTIMATE STRATEGY: Flow Exhaustion Gate (Guardian 1).
-
-        Prevents entering a reversal while the aggressive flow is still surging.
-        Even if there is absorption, we wait for the "train" to slow down.
-
-        Logic:
-        - LONG: Block if Seller Flow Z-Score is extremely high (< -2.5)
-        - SHORT: Block if Buyer Flow Z-Score is extremely high (> 2.5)
-        """
-        if self.fast_track:
-            return True
-
-        if not self.context_registry:
-            return True
-
-        regime_data = self.context_registry.get_regime_v2(symbol)
-        flow_momentum = regime_data.get("flow_momentum", 0.0)  # Delta Velocity Z-Score
-
-        metrics = {"flow_momentum": flow_momentum, "threshold": 2.5}
-
-        if side == "LONG":
-            # If sellers are still slamming the bid with 2.5+ sigma force, don't buy yet
-            if flow_momentum < -2.5:
-                logger.info(
-                    f"🛡️ [FLOW_EXHAUSTION] {symbol} LONG blocked: Sellers still surging (Z: {flow_momentum:.2f})"
-                )
-                self._trace_decision(
-                    symbol, "REJECT", "FLOW_EXHAUSTION", "Aggressive selling surge", metrics, 0.0, side
-                )
-                return False
-
-        if side == "SHORT":
-            # If buyers are still slamming the ask with 2.5+ sigma force, don't sell yet
-            if flow_momentum > 2.5:
-                logger.info(
-                    f"🛡️ [FLOW_EXHAUSTION] {symbol} SHORT blocked: Buyers still surging (Z: {flow_momentum:.2f})"
-                )
-                self._trace_decision(symbol, "REJECT", "FLOW_EXHAUSTION", "Aggressive buying surge", metrics, 0.0, side)
-                return False
-
-        self._trace_decision(symbol, "PASS", "FLOW_EXHAUSTION", "Flow momentum stabilized", metrics, 0.0, side)
-        return True
-
-    async def on_candle_absorption(self, event):
-        """
-        Phase 2.3 V2: Two-phase absorption detection.
-
-        PHASE 1 — DETECTION: AbsorptionDetector finds candidates
-        PHASE 2 — CONFIRMATION: AbsorptionReversalGuardian verifies ≥2/3 confirmations
-
-        Called directly from Engine on CANDLE events (main process).
-        No IPC, no worker queue — direct access to FootprintRegistry.
-        """
-        # Extract candle data
-        symbol = getattr(event, "symbol", None)
-        timestamp = getattr(event, "timestamp", 0)
-        close_price = getattr(event, "close", 0)
-        open_price = getattr(event, "open", 0)
-        high_price = getattr(event, "high", 0)
-        low_price = getattr(event, "low", 0)
-
-        # Fallback: try metadata for non-standard candle events
-        if not symbol:
-            md = getattr(event, "metadata", {}) or {}
-            symbol = md.get("symbol")
-            close_price = md.get("close", close_price)
-            open_price = md.get("open", open_price)
-            high_price = md.get("high", high_price)
-            low_price = md.get("low", low_price)
-
-        if not symbol or close_price <= 0:
-            return
-
-        # ── PHASE 2: Check if guardian has a pending candidate for this symbol ──
-        confirmed_signal = self.absorption_guardian.on_candle(
-            symbol, timestamp, close_price, open_price, high_price, low_price
-        )
-
-        if confirmed_signal:
-            # ── ULTIMATE STRATEGY: Final Regime Alignment Check ──
-            if not self._check_regime_alignment_v2(symbol, confirmed_signal["side"]):
-                return
-
-            # ── ULTIMATE STRATEGY: Final Flow Exhaustion Check ──
-            if not self._check_flow_exhaustion(symbol, confirmed_signal["side"]):
-                return
-
-            # Phase 2 CONFIRMED → process through setup engine → dispatch
-            setup = self.absorption_engine.process_confirmed_signal(confirmed_signal)
-            if not setup:
-                logger.debug(f"❌ [ABSORPTION_V2] Setup rejected for {symbol}")
-                return
-
-            # Cooldown check before dispatch (use event timestamp for backtest compatibility)
-            if timestamp - self.last_fire_ts[symbol] < self.fire_cooldown:
-                logger.debug(f"❌ [ABSORPTION_V2] Cooldown active for {symbol}")
-                return
-
-            # Build AggregatedSignalEvent
-            trigger_metadata = {
-                "strategy": "AbsorptionScalpingV2",
-                "setup_type": f"AbsorptionV2_{setup['side']}",
-                "absorption_level": setup["absorption_level"],
-                "level_price": setup["absorption_level"],  # Phase 1200: For Limit Sniper
-                "delta": setup["delta"],
-                "z_score": setup["z_score"],
-                "concentration": setup["concentration"],
-                "noise": setup["noise"],
-                "tp_price": setup["tp_price"],
-                "sl_price": setup["sl_price"],
-                "entry_price": setup["entry_price"],
-                "price": setup["entry_price"],
-                "sensor_id": "AbsorptionDetector",
-                "timestamp": setup["timestamp"],
-                "confirmations": setup.get("confirmations", 0),
-                "is_contra_trend": setup.get("is_contra_trend", False),
-                "size_multiplier": setup.get("size_multiplier", 1.0),
-            }
-
-            trigger_metadata = self._enrich_metadata(trigger_metadata, symbol)
-
-            agg_event = AggregatedSignalEvent(
-                type=EventType.AGGREGATED_SIGNAL,
-                timestamp=timestamp,
-                symbol=symbol,
-                candle_timestamp=timestamp,
-                selected_sensor="AbsorptionDetector",
-                sensor_score=setup["z_score"],
-                side=setup["side"],
-                confidence=setup["concentration"],
-                total_signals=1,
-                setup_type=f"AbsorptionV2_{setup['side']}",
-                metadata=trigger_metadata,
-                t0_timestamp=timestamp,
-                price=close_price,
-            )
-
-            logger.info(
-                f"🎯 [ABSORPTION_V2] Setup FIRED: {symbol} {setup['side']} @ {setup['entry_price']:.2f} "
-                f"(TP={setup['tp_price']:.2f}, SL={setup['sl_price']:.2f}, "
-                f"conf={setup.get('confirmations', 0)}/3)"
-            )
-
-            # Update cooldown (use event timestamp for backtest compatibility)
-            self.last_fire_ts[symbol] = timestamp
-
-            await self.engine.dispatch(agg_event)
-            return
-
-        # ── PHASE 1: Run absorption detector for new candidates ──
-        candidate = self.absorption_detector.on_candle(
-            symbol, timestamp, close_price, open_price, high_price, low_price
-        )
-        if candidate:
-            # Setup side from candidate direction
-            side = "LONG" if candidate["direction"] == "SELL_EXHAUSTION" else "SHORT"
-
-            # ── ULTIMATE STRATEGY Guardian 0: Regime Alignment (HARD GATE) ──
-            if not self._check_regime_alignment_v2(symbol, side):
-                return
-
-            # ── ULTIMATE STRATEGY Guardian 1: Flow Exhaustion (Surge Filter) ──
-            if not self._check_flow_exhaustion(symbol, side):
-                return
-
-            # ── ULTIMATE STRATEGY: Structural Location Gate ──
-            if self.context_registry and self.context_registry.is_structural_ready(symbol):
-                poc, vah, val = self.context_registry.get_structural(symbol)
-                ib_high, ib_low = self.context_registry.get_ib(symbol)
-
-                # Gather all valid structural levels
-                levels = [lvl for lvl in [poc, vah, val, ib_high, ib_low] if lvl and lvl > 0]
-                metrics = {"price": close_price, "levels": levels}
-
-                if levels:
-                    # Calculate minimum distance from current price to any structural level
-                    min_dist = min(abs(close_price - lvl) / lvl for lvl in levels)
-                    metrics["min_dist"] = min_dist
-
-                    # If absorption happens in the middle of nowhere (> 0.25% from a level), it's noise
-                    # Phase 990: Fast-Track bypasses location gating
-                    if not self.fast_track and min_dist > 0.0025:
-                        logger.debug(
-                            f"❌ [ABSORPTION_V2] Candidate rejected: "
-                            f"Location Gate Failed (dist={min_dist*100:.2f}% > 0.25%)"
-                        )
-                        self._trace_decision(
-                            symbol, "REJECT", "LOCATION_GATE", "Too far from levels", metrics, close_price, side
-                        )
-                        return
-
-                    self._trace_decision(
-                        symbol, "PASS", "LOCATION_GATE", "Near structural level", metrics, close_price, side
-                    )
-            elif self.context_registry:
-                # If structural levels are not ready, we cannot validate the edge
-                self._trace_decision(symbol, "REJECT", "LOCATION_GATE", "Levels not ready", {}, close_price, side)
-                return
-
-            # Register candidate with guardian for Phase 2 confirmation
-            self.absorption_guardian.register_candidate(candidate)
-            logger.info(
-                f"📋 [ABSORPTION_V2] Candidate detected: {symbol} {candidate['direction']} @ {close_price:.2f} "
-                f"— Regime & Location Validated, waiting for Guardian"
-            )

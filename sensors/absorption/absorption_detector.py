@@ -1,292 +1,164 @@
-"""
-Absorption Detector for Absorption Scalping V2.
-
-Detects absorption CANDIDATES (Phase 1) — aggressive volume without price displacement.
-Runs in the MAIN PROCESS with direct FootprintRegistry access.
-
-V2 Architecture (Two-Phase):
-  PHASE 1 — DETECTION (this file):
-    FootprintRegistry → AbsorptionDetector.on_candle()
-       ↓
-    4 Quality Filters (Magnitude, Velocity, Noise, Price Stagnation)
-       ↓
-    Candidate dict → AbsorptionReversalGuardian (Phase 2)
-
-  PHASE 2 — CONFIRMATION (guardians/absorption_reversal_guardian.py):
-    Candidate + 3 Confirmation Sensors (DeltaReversal, PriceBreak, CVDFlip)
-       ↓
-    ≥2 of 3 confirmed → Entry signal
-
-Key V2 change: Price Stagnation is now a REQUIRED condition.
-Delta extreme where price DID move is impulse, not absorption.
-"""
-
 import logging
 import math
 from typing import Dict, List, Optional, Tuple
 
 from core.footprint_registry import footprint_registry
+from sensors.base import SensorV3
 
 logger = logging.getLogger(__name__)
 
 
-class AbsorptionDetector:
+class AbsorptionDetector(SensorV3):
     """
-    Detects absorption CANDIDATES from footprint data (Phase 1).
+    Absorption Detector V3 - High-Precision Tactical Sensor.
 
-    Absorption = Aggressive volume without price displacement.
-    Indicates exhaustion of the aggressor (buyer or seller).
-
-    Quality Filters (4 in V2):
-    1. Magnitude:   Cross-sectional z-score of delta > threshold
-    2. Velocity:    Concentration of delta at level > threshold
-    3. Noise:       Opposite-side volume ratio < threshold
-    4. Stagnation:  Price did NOT move in direction of attack (NEW in V2)
-
-    Returns a CANDIDATE dict (not an entry signal).
-    The AbsorptionReversalGuardian handles Phase 2 confirmation.
+    Detects aggressive volume without price displacement (Absorption).
+    Now runs as an asynchronous worker sensor to minimize execution latency.
     """
 
     def __init__(self):
-        self.name = "AbsorptionDetector"
+        super().__init__()
+        self._name = "TacticalAbsorptionV2"
+        self.timeframes = ["1m"]
 
-        # Filter thresholds (tuned for LTC/USDT backtests)
-        self.z_score_min = 2.0  # Minimum |z-score| for magnitude
-        self.concentration_min = 0.50  # Minimum concentration for velocity
-        self.noise_max = 0.25  # Maximum noise ratio
-        self.stagnation_max_pct = 0.08  # Max price move in attack direction (0.08%)
+        # Filter thresholds
+        self.z_score_min = 1.5
+        self.concentration_min = 0.50
+        self.noise_max = 0.25
+        self.stagnation_max_pct = 0.12
 
-        # Candle history for stagnation check
-        self._prev_candles: Dict[str, dict] = {}  # symbol → {open, high, low, close, ts}
-
-        # Throttle: only analyze once per candle (not per tick)
+        # State tracking
         self._last_candle_ts: Dict[str, float] = {}
+        self.last_candle = None
+        self.symbol = None
 
-        logger.info(f"✅ {self.name} initialized (main-process mode)")
+    @property
+    def name(self) -> str:
+        return self._name
 
-    def on_candle(
-        self,
-        symbol: str,
-        timestamp: float,
-        close_price: float,
-        open_price: float = 0,
-        high_price: float = 0,
-        low_price: float = 0,
-    ) -> Optional[dict]:
+    def calculate(self, context: Dict[str, Optional[dict]]) -> Optional[dict]:
         """
-        Analyze footprint for absorption on each candle close (Phase 1).
-
-        Called directly from SetupEngine.on_candle_absorption (main process).
-        Returns a CANDIDATE dict (not an entry signal).
-        Phase 2 confirmation is handled by AbsorptionReversalGuardian.
-
-        Args:
-            symbol: Trading symbol
-            timestamp: Candle close timestamp
-            close_price: Candle close price
-            open_price: Candle open price (for stagnation check)
-            high_price: Candle high price (for stagnation check)
-            low_price: Candle low price (for stagnation check)
-
-        Returns:
-            Candidate dict or None
+        Main calculation loop triggered by SensorManager on each candle.
         """
-        # Throttle: one analysis per candle
-        if self._last_candle_ts.get(symbol, 0) == timestamp:
+        # 1. Extract context
+        candle_1m = context.get("1m")
+        if not candle_1m:
             return None
-        self._last_candle_ts[symbol] = timestamp
 
-        # Get footprint from registry (lives in main process)
-        footprint = footprint_registry.get_footprint(symbol)
+        self.last_candle = candle_1m
+        self.symbol = candle_1m["symbol"]
+        timestamp = candle_1m["timestamp"]
+
+        # 2. Throttle check
+        if self._last_candle_ts.get(self.symbol, 0) == timestamp:
+            return None
+        self._last_candle_ts[self.symbol] = timestamp
+
+        # 3. Get footprint from registry (updated by SensorWorker in this process)
+        footprint = footprint_registry.get_footprint(self.symbol)
         if not footprint or len(footprint.levels) < 5:
             return None
 
-        # Find extreme delta levels (candidates)
+        # 4. Find candidates and filter
         candidates = self._find_extreme_deltas(footprint)
-        if not candidates:
-            return None
-
-        # Evaluate each candidate through quality filters
         for level, delta, ask_vol, bid_vol in candidates:
-            # Filter 1: Magnitude (cross-sectional z-score)
+            # Filter 1: Magnitude
             z_score = self._cross_sectional_zscore(footprint, delta)
             if abs(z_score) < self.z_score_min:
                 continue
 
-            # Filter 2: Velocity (concentration)
+            # Filter 2: Velocity
             concentration = self._concentration(footprint, level, timestamp)
             if concentration < self.concentration_min:
                 continue
 
-            # Filter 3: Noise (opposite-side volume)
+            # Filter 3: Noise
             noise = self._noise_ratio(ask_vol, bid_vol, delta)
             if noise > self.noise_max:
                 continue
 
-            # Filter 4: Price Stagnation (V2 — CRITICAL)
-            # Delta extreme where price DID move = impulse, not absorption
+            # Filter 4: Stagnation
             direction = "SELL_EXHAUSTION" if delta < 0 else "BUY_EXHAUSTION"
-            if not self._check_price_stagnation(symbol, direction, close_price, open_price, high_price, low_price):
-                logger.debug(
-                    f"❌ [ABSORPTION] Price moved in attack direction — not stagnation " f"({symbol} {direction})"
-                )
+            if not self._check_price_stagnation(direction, candle_1m):
                 continue
 
-            # All 4 filters passed → absorption CANDIDATE detected
+            # SUCCESS: Tactical Absorption V2 Detected
+            side = "LONG" if direction == "SELL_EXHAUSTION" else "SHORT"
+
             logger.info(
-                f"🔍 [ABSORPTION_CANDIDATE] {symbol} {direction} "
-                f"(z={z_score:.2f}, conc={concentration:.2f}, noise={noise:.2f}, stagnation=PASS)"
+                f"🎯 [TACTICAL_ABS] {self.symbol} {side} Detected | "
+                f"Z={z_score:.2f} | Conc={concentration:.2f} | Price={candle_1m['close']:.2f}"
             )
 
-            # Store candle for future stagnation checks
-            self._prev_candles[symbol] = {
-                "open": open_price or close_price,
-                "high": high_price or close_price,
-                "low": low_price or close_price,
-                "close": close_price,
-                "ts": timestamp,
-            }
-
+            # Return signal dict for SensorManager to emit
             return {
-                "symbol": symbol,
-                "level": level,
-                "absorption_level": level,
-                "direction": direction,
-                "delta": delta,
-                "z_score": z_score,
-                "concentration": concentration,
-                "noise": noise,
-                "timestamp": timestamp,
-                "ask_volume": ask_vol,
-                "bid_volume": bid_vol,
-                "price": close_price,
-                "side": "LONG" if direction == "SELL_EXHAUSTION" else "SHORT",
-                "phase": "candidate",  # V2: not yet confirmed
+                "side": side,
+                "score": abs(z_score) / 5.0,  # Normalized score
+                "price": candle_1m["close"],
+                "metadata": {
+                    "tactical_type": self.name,
+                    "z_score": z_score,
+                    "concentration": concentration,
+                    "noise": noise,
+                    "absorption_level": level,
+                    "direction": direction,
+                },
             }
 
         return None
 
-    # ── Candidate Selection ──────────────────────────────────────────
-
     def _find_extreme_deltas(self, footprint) -> List[Tuple[float, float, float, float]]:
-        """
-        Find price levels with extreme delta (top 10%).
-
-        Returns:
-            List of (level, delta, ask_vol, bid_vol) sorted by |delta| desc
-        """
         deltas = []
         for level, data in footprint.levels.items():
             delta = data["delta"]
             if abs(delta) > 0:
                 deltas.append((level, delta, data["ask_volume"], data["bid_volume"]))
-
         if len(deltas) < 5:
             return []
-
         deltas.sort(key=lambda x: abs(x[1]), reverse=True)
-
-        # Top 10% (at least 1, max 5)
         top_n = max(1, min(5, len(deltas) // 10))
         return deltas[:top_n]
 
-    # ── Quality Filters ──────────────────────────────────────────────
-
     def _cross_sectional_zscore(self, footprint, delta: float) -> float:
-        """
-        Cross-sectional z-score: how extreme is this delta relative to
-        ALL other deltas in the current footprint snapshot.
-
-        V2.1 Fix: Use mean=0 to ensure perfect symmetry.
-        If we use the candle's actual mean, we penalize setups that go with the candle's trend
-        and boost setups that go against it, creating an asymmetric detection rate.
-        """
         all_deltas = [data["delta"] for data in footprint.levels.values()]
         if len(all_deltas) < 5:
             return 0.0
-
-        # Assume mean = 0 to measure absolute extremeness symmetrically
         mean = 0.0
         variance = sum((d - mean) ** 2 for d in all_deltas) / len(all_deltas)
         std_dev = math.sqrt(variance)
-
-        if std_dev < 1e-9:
-            return 0.0
-
-        return (delta - mean) / std_dev
+        return (delta - mean) / std_dev if std_dev > 1e-9 else 0.0
 
     def _concentration(self, footprint, level: float, timestamp: float) -> float:
-        """
-        Concentration ratio: how much of the level's volume is recent.
-
-        High concentration = volume arrived in a burst (velocity signal).
-        """
         data = footprint.levels.get(level)
         if not data:
             return 0.0
-
         time_since_update = timestamp - data.get("last_update", timestamp)
-
         if time_since_update < 30:
             return 0.90
         elif time_since_update < 60:
             return 0.60
-        else:
-            return 0.30
+        return 0.30
 
-    def _check_price_stagnation(
-        self, symbol: str, direction: str, close_price: float, open_price: float, high_price: float, low_price: float
-    ) -> bool:
-        """
-        V2 Filter 4: Price Stagnation — price did NOT move in attack direction.
-
-        If sellers attacked (SELL_EXHAUSTION) but price didn't drop significantly,
-        that's stagnation → absorption is real.
-        If sellers attacked AND price dropped → that's impulse, NOT absorption.
-
-        Measures the displacement in the direction of the attack:
-        - SELL_EXHAUSTION: how much did price drop from open? (open - low)
-        - BUY_EXHAUSTION: how much did price rise from open? (high - open)
-
-        If displacement < stagnation_max_pct → stagnation confirmed (absorption real)
-        If displacement >= stagnation_max_pct → impulse (not absorption)
-        """
-        ref_price = open_price if open_price > 0 else close_price
+    def _check_price_stagnation(self, direction: str, candle: dict) -> bool:
+        open_p = candle.get("open", 0)
+        close_p = candle.get("close", 0)
+        high_p = candle.get("high", 0)
+        low_p = candle.get("low", 0)
+        ref_price = open_p if open_p > 0 else close_p
         if ref_price <= 0:
-            return True  # No data, don't block
-
+            return True
         if direction == "SELL_EXHAUSTION":
-            # Attack was downward. Did price actually drop?
-            if low_price <= 0:
-                return True
-            displacement_pct = (ref_price - low_price) / ref_price * 100
+            displacement_pct = (ref_price - low_p) / ref_price * 100
         else:
-            # BUY_EXHAUSTION: Attack was upward. Did price actually rise?
-            if high_price <= 0:
-                return True
-            displacement_pct = (high_price - ref_price) / ref_price * 100
-
+            displacement_pct = (high_p - ref_price) / ref_price * 100
         return displacement_pct < self.stagnation_max_pct
 
     def _noise_ratio(self, ask_vol: float, bid_vol: float, delta: float) -> float:
-        """
-        Noise ratio: opposite-side volume / total volume.
-
-        Low noise = clean absorption (one-sided aggression).
-        """
         total_vol = ask_vol + bid_vol
         if total_vol == 0:
             return 1.0
-
-        if delta < 0:
-            # SELL_EXHAUSTION: opposite = buy (ask) volume
-            return ask_vol / total_vol
-        else:
-            # BUY_EXHAUSTION: opposite = sell (bid) volume
-            return bid_vol / total_vol
+        return (ask_vol if delta < 0 else bid_vol) / total_vol
 
 
-# Sensor registration (for SensorManager — returns None, we don't use workers)
 def get_sensor_class():
-    """AbsorptionDetector runs in main process, not in workers."""
-    return None
+    return AbsorptionDetector
