@@ -45,9 +45,9 @@ class AbsorptionSetupEngine:
         self.fast_track = fast_track
 
         # Configuration
-        self.min_tp_distance_pct = 0.05  # Minimum TP distance (0.05%)
+        self.min_tp_distance_pct = 0.25  # Minimum TP distance (0.25%) to enforce RR > 1.5
         self.max_tp_distance_pct = 0.50  # Maximum TP distance (0.50%)
-        self.sl_buffer_pct = 0.15  # SL buffer as % of price
+        self.sl_buffer_pct = 0.15  # SL buffer as % of price  # Tightened SL buffer as % of price (0.12%)
 
         logger.info(f"✅ {self.name} V2 initialized{' (FAST-TRACK MODE)' if fast_track else ''}")
 

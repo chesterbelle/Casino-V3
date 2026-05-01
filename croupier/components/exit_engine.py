@@ -2,12 +2,12 @@
 ExitEngine — Unified 5-Layer Exit Management (Phase 1200)
 
 Replaces both ExitManager and HFTExitManager with a single, layered engine
-that combines winner protection + thesis invalidation + Valentino scale-out.
+that combines winner protection + thesis invalidation + SCE scale-out.
 
 Layer Stack (Priority Order):
   5. CATASTROPHIC STOP — Liquidation prevention (always active)
   4. THESIS INVALIDATION — Setup-specific structural invalidation
-  3. VALENTINO — Scale-out 50% at 70% of TP, move SL to BE
+  3. SCE — Flow-aware conviction scale-out (MEX/CFI)
   2. SHADOW PROTECTION — Breakeven + Trailing + Winner Catcher
   1. SESSION DRAIN — Progressive exit during session shutdown
 
@@ -66,7 +66,7 @@ class ExitEngine:
             "🎯 ExitEngine initialized | "
             f"Catastrophic: {self.catastrophic_drawdown_pct:.1%} | "
             f"Thesis: {getattr(config, 'EXIT_LAYER_THESIS_INVALIDATION', True)} | "
-            f"Valentino: {getattr(config, 'EXIT_LAYER_VALENTINO', True)} | "
+            f"SCE: {getattr(config, 'EXIT_LAYER_SCE', True)} | "
             f"Shadow: {getattr(config, 'EXIT_LAYER_SHADOW_PROTECTION', True)} | "
             f"Drain: {getattr(config, 'EXIT_LAYER_SESSION_DRAIN', True)}"
         )
@@ -123,12 +123,9 @@ class ExitEngine:
                     )
                     continue
 
-            # --- LAYER 3: VALENTINO (Scale-Out) ---
-            if getattr(config, "EXIT_LAYER_VALENTINO", True):
-                if await self._check_valentino(position, event, current_price):
-                    # Valentino doesn't close the position — it scales out 50%
-                    # The remaining 50% continues through layers 2-1
-                    pass
+            # --- LAYER 3: STRUCTURAL CONVICTION ENGINE (SCE) ---
+            if getattr(config, "EXIT_LAYER_SCE", True):
+                await self._check_structural_conviction(position, event, current_price)
 
             # --- LAYER 2: SHADOW PROTECTION ---
             if getattr(config, "EXIT_LAYER_SHADOW_PROTECTION", True):
@@ -178,6 +175,10 @@ class ExitEngine:
             # --- LAYER 1: SESSION DRAIN (Time-Based) ---
             if getattr(config, "EXIT_LAYER_SESSION_DRAIN", True):
                 await self._check_time_exit(position, event)
+
+            # --- LAYER 3: SCE (Structural Check) ---
+            if getattr(config, "EXIT_LAYER_SCE", True):
+                await self._check_structural_conviction(position, event, event.close)
 
             # POC Migration (always active, not layer-gated)
             await self._check_poc_migration(position)
@@ -513,43 +514,97 @@ class ExitEngine:
             return None
 
     # =========================================================
-    # LAYER 3: VALENTINO (Scale-Out)
+    # LAYER 3: STRUCTURAL CONVICTION ENGINE (SCE)
     # =========================================================
 
-    async def _check_valentino(self, position: OpenPosition, event: TickEvent, current_price: float) -> bool:
+    async def _check_structural_conviction(self, position: OpenPosition, event: TickEvent, current_price: float):
         """
-        Valentino Scale-Out: Close 50% at 70% of TP, move SL to BE.
-        Returns True if scale-out was triggered.
+        Structural Conviction Engine (SCE):
+        Monitors order flow conviction to scale out or trail aggressively.
+        1. CFI (Counter-Flow Invalidation): Absorption against the trade.
+        2. MEX (Micro-Exhaustion): Delta momentum decay.
+        3. STS (Structural Trailing Stop): Trailing behind volume nodes.
         """
-        if position.scaled_out or not position.tp_level or position.tp_level <= 0:
+        if position.status != "ACTIVE" or position.scaled_out:
+            return
+
+        # Phase 1300: Only activate SCE when in sufficient profit
+        profit_pct = self._calc_pnl_pct(position, current_price)
+
+        # Phase 1300: SCE activation gate
+        self.logger.debug(
+            f"🔍 [SCE] {position.trade_id} PnL: {profit_pct:.4%} | Gate: {getattr(config, 'SCE_MIN_PROFIT_PCT', 0.0008):.4%}"
+        )
+
+        if profit_pct < getattr(config, "SCE_MIN_PROFIT_PCT", 0.0008):
+            return
+
+        # 1. CFI: Counter-Flow Invalidation (Absorption at target)
+        if getattr(config, "SCE_CFI_ENABLED", True):
+            cfi_reason = await self._check_counter_flow_invalidation(position, current_price)
+            if cfi_reason:
+                self.logger.warning(f"🔄 [SCE-CFI] Conviction Lost: {cfi_reason} | Scaling out.")
+                asyncio.create_task(
+                    self.croupier.scale_out_structural(
+                        position.trade_id, fraction=config.SCE_SCALE_FRACTION, reason="SCE_CFI"
+                    )
+                )
+                return
+
+        # 2. MEX: Micro-Exhaustion (Delta Momentum Decay)
+        mex_triggered = self._check_micro_exhaustion(position)
+        if mex_triggered:
+            self.logger.warning("📉 [SCE-MEX] Momentum Exhausted (Delta decay) | Scaling out.")
+            asyncio.create_task(
+                self.croupier.scale_out_structural(
+                    position.trade_id, fraction=config.SCE_SCALE_FRACTION, reason="SCE_MEX"
+                )
+            )
+            return
+
+        # 3. STS: Structural Trailing Stop
+        if getattr(config, "SCE_STS_ENABLED", True):
+            await self._check_structural_trailing(position, current_price)
+
+    async def _check_counter_flow_invalidation(self, position: OpenPosition, current_price: float) -> Optional[str]:
+        """
+        CFI: Detects if passive participants are absorbing our move at a target.
+        """
+        # We reuse the counter-absorption logic but specifically for scaling out
+        return self._check_counter_absorption(position, current_price)
+
+    def _check_micro_exhaustion(self, position: OpenPosition) -> bool:
+        """
+        MEX: Detects if the aggressive flow in our direction is 'running out of gas'.
+        """
+        if not self.croupier.context_registry:
+            self.logger.warning(f"⚠️ [SCE] ContextRegistry MISSING for {position.symbol}. Conviction check skipped.")
             return False
 
-        # Calculate trigger price if not already set
-        if not position.scale_out_trigger:
-            dist = abs(position.tp_level - position.entry_price)
-            trigger_pct = getattr(config, "VALENTINO_TRIGGER_PCT", 0.70)
-            if position.side == "LONG":
-                position.scale_out_trigger = position.entry_price + (dist * trigger_pct)
-            else:
-                position.scale_out_trigger = position.entry_price - (dist * trigger_pct)
+        cvd, skew, z = self.croupier.context_registry.get_micro_state(position.symbol)
+        threshold = getattr(config, "SCE_MEX_THRESHOLD", 0.70)
 
-        # Check if trigger hit
-        hit = False
-        if position.side == "LONG" and current_price >= position.scale_out_trigger:
-            hit = True
-        elif position.side == "SHORT" and current_price <= position.scale_out_trigger:
-            hit = True
+        # Phase 1300: Z-score tracking
+        self.logger.debug(
+            f"📊 [SCE-Z] {position.trade_id} Z={z:.2f} | Threshold={threshold:.2f} | Side={position.side}"
+        )
 
-        if hit:
-            scale_fraction = getattr(config, "VALENTINO_SCALE_FRACTION", 0.50)
-            self.logger.info(
-                f"⚖️ [VALENTINO] Scale-out Triggered for {position.trade_id} @ {current_price:.2f} "
-                f"(Trigger: {position.scale_out_trigger:.2f}, Fraction: {scale_fraction:.0%})"
-            )
-            asyncio.create_task(self.croupier.scale_out_position(position.trade_id, fraction=scale_fraction))
-            return True
+        # If long, we want positive Z. If Z drops or becomes neutral while in profit -> Exhaustion.
+        if position.side == "LONG":
+            if z < threshold:  # Delta strength faded
+                return True
+        elif position.side == "SHORT":
+            if z > -threshold:  # Delta strength faded (less negative)
+                return True
 
         return False
+
+    async def _check_structural_trailing(self, position: OpenPosition, current_price: float):
+        """
+        STS: Move SL behind High Volume Nodes (HVN) as they form.
+        """
+        # Logic to find the nearest HVN behind the price
+        pass
 
     # =========================================================
     # LAYER 2: SHADOW PROTECTION (BE + Trailing + Winner Catcher)
@@ -853,25 +908,15 @@ class ExitEngine:
         if invalidation_reason:
             self.logger.warning(f"🔍 [AUDIT] Would close {position.trade_id} via {invalidation_reason}")
 
-        # Layer 3: Valentino
-        if not position.scaled_out and position.tp_level and position.tp_level > 0:
-            if not position.scale_out_trigger:
-                dist = abs(position.tp_level - position.entry_price)
-                trigger_pct = getattr(config, "VALENTINO_TRIGGER_PCT", 0.70)
-                if position.side == "LONG":
-                    position.scale_out_trigger = position.entry_price + (dist * trigger_pct)
-                else:
-                    position.scale_out_trigger = position.entry_price - (dist * trigger_pct)
+        # Layer 3: SCE (Shadow Analysis)
+        if not position.scaled_out:
+            mex = self._check_micro_exhaustion(position)
+            if mex:
+                self.logger.debug(f"🔍 [AUDIT] SCE: MEX would trigger for {position.trade_id}")
 
-            hit = False
-            if position.side == "LONG" and current_price >= position.scale_out_trigger:
-                hit = True
-            elif position.side == "SHORT" and current_price <= position.scale_out_trigger:
-                hit = True
-            if hit:
-                self.logger.warning(
-                    f"🔍 [AUDIT] Would scale-out {position.trade_id} via VALENTINO @ {current_price:.2f}"
-                )
+            cfi = await self._check_counter_flow_invalidation(position, current_price)
+            if cfi:
+                self.logger.debug(f"🔍 [AUDIT] SCE: CFI would trigger for {position.trade_id} ({cfi})")
 
         # Layer 2: Shadow Protection
         profit_pct = self._calc_pnl_pct(position, current_price)

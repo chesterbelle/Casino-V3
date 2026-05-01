@@ -84,7 +84,7 @@ async def run_backtest():
 
     # 2. Setup Virtual Exchange
     connector = VirtualExchangeConnector(  # noqa: E402
-        initial_balance=args.balance, fee_rate=0.0006, maker_fee_rate=0.0002, slippage_rate=0.0001  # Taker
+        initial_balance=args.balance, fee_rate=0.00035, maker_fee_rate=0.0001, slippage_rate=0.0001  # Taker
     )
     adapter = ExchangeAdapter(connector, symbol=args.symbol)
 

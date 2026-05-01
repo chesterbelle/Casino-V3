@@ -1,14 +1,16 @@
 ---
-description: Audit the FootprintScalper strategy's edge metrics (Win Rate, Profit Factor, MFE/MAE proxy) from the historian database.
+description: Audit the FootprintScalper strategy's execution metrics (Limit Sniper fill rates, TP/SL efficiency, slippage, and exit quality) from the historian database.
 ---
 
-# Phase 650 — Strategy Audit Protocol (Single Round)
+# Phase 650 — Execution Quality & Exit Engine Audit (Single Round)
 
 // turbo-all
 
 ## Overview
-This protocol performs a **Single Round** validation of the **FootprintScalper strategy edge**
-using the **backtester** against a historical dataset. No live/demo exchange connection required.
+This protocol performs a **Single Round** validation of the **Execution Quality and Exit Engine**
+using the **backtester** against a historical dataset.
+
+**IMPORTANT CONTEXT**: The underlying alpha/edge (the `SetupEngine`) has already been certified via the `edge-audit.md` protocol. Therefore, any deterioration in performance here is assumed to be an **execution or exit parameter issue**, NOT a signal generation issue. **DO NOT MODIFY SETUP ENGINE THRESHOLDS.**
 
 It follows a 3-step sequence: Reset DB → Run Backtest → Analyze.
 
@@ -17,9 +19,7 @@ Present results + possible fixes and **wait for explicit user approval** before 
 **No iterations, no auto-fixes, no follow-up backtests** without user instruction.
 
 **Goals (overall)**: Win Rate > 55% | Profit Factor > 1.2
-**Goals (per setup_type)**:
-- **reversion**: WR ≥ 55% | PF ≥ 1.2
-- **continuation**: WR ≥ 52% | PF ≥ 1.1
+**Focus Areas**: Limit Sniper Fill Rate, TP/SL Ratio, Trailing Stop efficiency.
 
 ---
 
@@ -35,8 +35,8 @@ Ensuring the simulation respects the 60-minute warmup period is critical for acc
 
 ```bash
 .venv/bin/python backtest.py \
-  --data tests/validation/ltc_24h_audit.csv \
-  --symbol LTC/USDT:USDT \
+  --data tests/validation/long_range/SOL_USDT_USDT_7d.csv \
+  --symbol SOL/USDT:USDT \
   --depth-db data/historian.db \
   2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
 ```
@@ -44,31 +44,20 @@ Ensuring the simulation respects the 60-minute warmup period is critical for acc
 **Expected output**: A BACKTEST V4 RESULTS SUMMARY at the end with trade count.
 **Minimum viable sample**: At least 10 trades to proceed to analysis (otherwise mark as INSUFFICIENT DATA).
 
-> If `ltc_24h_audit.csv` yields fewer than 10 trades, re-run with `eth_24h_audit.csv`:
-> ```bash
-> .venv/bin/python backtest.py --data tests/validation/eth_24h_audit.csv --symbol ETH/USDT:USDT --depth-db data/historian.db 2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
-> ```
+
 
 ## Step 2: Analyse Results
 ```bash
 .venv/bin/python utils/strategy_audit.py
 ```
 **Review all 7 sections**:
-1. **Edge Metrics** — Is WR ≥ 55% and PF ≥ 1.2?
+1. **Edge Metrics** — Is WR ≥ 55% and PF ≥ 1.2? (If failing, check Exit Engine).
 2. **Exit Breakdown** — What % are TP hits vs SL hits vs Shadow/VIRTUAL exits?
 3. **Early Exit Audit** — Are Shadow SL / VIRTUAL_CLOSE exits eating > 20% of trades?
-4. **Directional Bias** — Is LONG or SHORT significantly better? Consider direction filter.
-5. **Per-Symbol** — Which symbols are profitable? Consider disabling underperformers.
+4. **Execution Quality** — Are trades being filled via Limit Sniper? Is slippage acceptable?
+5. **Per-Symbol** — Which symbols are profitable?
 6. **Latency** — Is T0→T4 latency < 500ms avg? (May be N/A in backtest)
 7. **Verdict** — PASS or FAIL
-
-**Additional required review (setup segmentation)**:
-- Report separately for `setup_type=reversion` and `setup_type=continuation`.
-- Confirm per-setup goals are met (or mark as FAIL/INSUFFICIENT DATA).
-- Confirm confirmation-gate attribution is visible:
-  - `confirm_level=True/False` distribution
-  - `confirm_micro=True/False` distribution
-  - `level_ref` distribution (POC/VAH/VAL/IBH/IBL/None)
 
 ---
 
@@ -76,34 +65,25 @@ Ensuring the simulation respects the 60-minute warmup period is critical for acc
 
 After running Step 2, the agent MUST:
 
-1. **Present a summary table** of all 7 sections (PASS/FAIL per metric).
-2. **List specific possible fixes** for each failing metric (from the Success Criteria table below).
+1. **Present a summary table** of all sections (PASS/FAIL per metric).
+2. **List specific possible fixes** for each failing metric from the Success Criteria table below.
 3. **STOP and wait** for user approval before making any code changes or running another round.
 
 Do NOT auto-apply any fix. Do NOT run another backtest. Wait for explicit instruction.
 
 ---
 
-## Success Criteria (Phase 650 Goals)
+## Execution & Exit Success Criteria (Phase 650)
 
-**Important**: Edge metrics (WR, PF, Expectancy) are calculated from **Active Strategy trades only**.
-Virtual/drain phase exits (VIRTUAL_CLOSE, DRAIN_*) are excluded as they represent forced exits,
-not strategy performance.
+**CRITICAL RULE**: Do not alter `SetupEngine` logic (e.g., `min_cluster_density`, `delta`, `z_score`, `prox_atr_mult`). The edge is proven. Adjust only Execution (`OrderManager`, `OCOManager`) and Exit (`PositionTracker`, `config.trading`) parameters.
 
-| Metric | Goal | Action if failing |
+| Metric | Goal | Action if failing (Execution/Exit fixes only) |
 |---|---|---|
-| **Win Rate** | ≥ 55% | Tighten entry filters (`min_cluster_density`, delta thresholds) |
-| **Profit Factor** | ≥ 1.2 | Adjust TP/SL ratio; check if Shadow SL triggers too early |
-| **Early Exit Rate** | ≤ 20% | Widen Shadow SL or increase cooldown before breakeven triggers |
-| **Directional Bias** | < 15% gap LONG vs SHORT WR | Add trend filter (HTF alignment) |
-| **Latency T0→T4** | < 500ms avg | N/A in backtest mode |
-
-### Setup-Specific Success Criteria (Required)
-
-| Setup Type | Metric | Goal | Action if failing |
-|---|---|---|---|
-| **reversion** | WR / PF | WR ≥ 55% and PF ≥ 1.2 | Tighten level proximity; increase `prox_atr_mult` strictness; require `level_ref` not None |
-| **continuation** | WR / PF | WR ≥ 52% and PF ≥ 1.1 | Tighten microstructure thresholds (`count`, `cluster_density`, `size_ratio`); consider HTF alignment |
+| **Win Rate** | ≥ 55% | Check if Limit Sniper `OFFSET_PCT` is too aggressive causing missed fills on winners. |
+| **Profit Factor** | ≥ 1.2 | Adjust `DEFAULT_TP_PCT` / `DEFAULT_SL_PCT` ratio; Check if Trailing Stop triggers too early. |
+| **Early Exit Rate** | ≤ 20% | Widen Shadow SL, disable premature breakeven, or increase cooldown before breakeven triggers. |
+| **SL Hit Rate** | ≤ 40% | SL might be too tight for asset volatility. Consider widening structural SL buffer. |
+| **Directional Bias** | < 15% gap | Exit logic may be asymmetric; check for directional bugs in trailing or breakeven calculations. |
 
 **Sample size rule (Required)**:
 - If total trades < 10: mark as **INSUFFICIENT DATA** — do not report PASS or FAIL.

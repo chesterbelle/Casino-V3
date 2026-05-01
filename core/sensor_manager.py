@@ -343,6 +343,11 @@ class SensorManager:
 
         self._last_micro_dispatch[sym] = now
 
+        # Phase 1300: Zero-Lag Registry Update (Bypass event loop for backtest/HFT accuracy)
+        from core.context_registry import ContextRegistry
+
+        reg = ContextRegistry()
+
         # 1. Throttled CVD Pruning (Lazy Pruning)
         cutoff = now - 5.0
         history = self.tick_history[sym]
@@ -391,6 +396,9 @@ class SensorManager:
             z_score=z,
             price=self.last_price[sym],
         )
+
+        # Synchronous injection into Registry
+        reg.set_micro_state(sym, self.cvd_state[sym], self.ob_skewness.get(sym, 0.5), z)
 
         # BACKTEST FIDELITY: Dispatch immediately as a batch of 1 to bypass async lag
         batch_evt = MicrostructureBatchEvent(type=EventType.MICROSTRUCTURE_BATCH, timestamp=now, events=[evt])

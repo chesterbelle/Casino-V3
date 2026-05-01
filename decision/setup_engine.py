@@ -125,6 +125,13 @@ class SetupEngineV4:
             if ib_low and ib_low > 0:
                 metadata["ib_low"] = ib_low
 
+        # Phase 1200: Limit Sniper Integration - Resolve nearest level for maker entry
+        if "level_price" not in metadata and self.context_registry and metadata.get("price", 0) > 0:
+            proximity = self._check_level_proximity(symbol, metadata["price"])
+            if proximity:
+                metadata["level_price"] = proximity["level_price"]
+                metadata["level_ref"] = proximity["level_ref"]
+
         # Phase 980: Pre-Entry Breakeven Guard (Institutional Guard)
         if "tp_price" in metadata and "price" in metadata and metadata["price"] > 0:
             tp_dist = abs(metadata["tp_price"] - metadata["price"]) / metadata["price"]
@@ -1380,6 +1387,7 @@ class SetupEngineV4:
                 "strategy": "AbsorptionScalpingV2",
                 "setup_type": f"AbsorptionV2_{setup['side']}",
                 "absorption_level": setup["absorption_level"],
+                "level_price": setup["absorption_level"],  # Phase 1200: For Limit Sniper
                 "delta": setup["delta"],
                 "z_score": setup["z_score"],
                 "concentration": setup["concentration"],
@@ -1456,7 +1464,8 @@ class SetupEngineV4:
                     metrics["min_dist"] = min_dist
 
                     # If absorption happens in the middle of nowhere (> 0.25% from a level), it's noise
-                    if min_dist > 0.0025:
+                    # Phase 990: Fast-Track bypasses location gating
+                    if not self.fast_track and min_dist > 0.0025:
                         logger.debug(
                             f"❌ [ABSORPTION_V2] Candidate rejected: "
                             f"Location Gate Failed (dist={min_dist*100:.2f}% > 0.25%)"

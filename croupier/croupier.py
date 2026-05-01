@@ -1004,18 +1004,16 @@ class Croupier(TimeIterator):
             self.logger.error(f"❌ Failed to modify SL: {e}")
             raise e
 
-    async def scale_out_position(self, trade_id: str, fraction: float = 0.5) -> Dict[str, Any]:
+    async def scale_out_structural(
+        self, trade_id: str, fraction: float = 0.5, reason: str = "SCE_GENERIC"
+    ) -> Dict[str, Any]:
         """
-        Valentino Scale-out: Partially close a position and move SL to breakeven.
+        Structural Scale-out: Partially close a position based on Conviction Engine triggers.
 
-        Phase 1200 (ExitEngine Layer 3):
+        Phase 1300 (SCE Layer 3):
         1. Close `fraction` of the position at market
         2. Move remaining SL to breakeven
         3. Update position amount/notional in memory
-
-        Args:
-            trade_id: Position ID
-            fraction: Fraction of the position to close (default 50%)
         """
         position = self.position_tracker.get_position(trade_id)
         if not position or position.status != "ACTIVE":
@@ -1024,12 +1022,12 @@ class Croupier(TimeIterator):
         if position.scaled_out:
             return {"status": "skipped", "reason": "already_scaled_out"}
 
-        self.logger.info(f"⚖️ [VALENTINO] Scaling out {fraction:.0%} of {trade_id} ({position.symbol})")
+        self.logger.info(f"⚖️ [SCE] {reason}: Scaling out {fraction:.0%} of {trade_id} ({position.symbol})")
 
         # 1. Calculate amount to close
         amount_to_close = position.amount * fraction
 
-        # Ensure we don't round down to 0 (precision check)
+        # Ensure we don't round down to 0
         if hasattr(self.adapter, "amount_to_precision"):
             try:
                 amount_to_close = float(self.adapter.amount_to_precision(position.symbol, amount_to_close))
@@ -1037,23 +1035,20 @@ class Croupier(TimeIterator):
                 pass
 
         if amount_to_close <= 0:
-            self.logger.warning(f"⚠️ Scale-out amount too small for {position.symbol}")
             return {"status": "error", "message": "amount_too_small"}
 
         try:
-            # Mark as scaled_out immediately to prevent double-firing
             position.scaled_out = True
 
-            # 2. Execute Partial Market Close (reduceOnly)
-            close_result = await self.order_executor.force_close_position(
+            # 2. Execute Partial Market Close
+            await self.order_executor.force_close_position(
                 symbol=position.symbol,
                 side=position.side,
                 amount=amount_to_close,
-                exit_reason="SCALE_OUT_VALENTINO",
+                exit_reason=reason,
             )
-            self.logger.info(f"⚖️ [VALENTINO] Partial close result: {close_result.get('status', 'unknown')}")
 
-            # 3. Update position in memory FIRST (so modify_bracket picks up new amount)
+            # 3. Update memory
             remaining_amount = position.amount - amount_to_close
             new_sl_price = position.entry_price
 
@@ -1061,15 +1056,11 @@ class Croupier(TimeIterator):
             if position.entry_price > 0:
                 position.notional = position.amount * position.entry_price
 
-            # Also update the order dict so modify_bracket picks up the reduced amount
             if position.order and "amount" in position.order:
                 position.order["amount"] = remaining_amount
 
-            self.logger.info(
-                f"🛡️ [VALENTINO] Moving SL to Breakeven (@{new_sl_price}) " f"for remaining {remaining_amount}"
-            )
+            self.logger.info(f"🛡️ [SCE] Moving SL to Breakeven (@{new_sl_price}) for {trade_id}")
 
-            # Modify bracket: new SL at entry price (amount is read from position)
             await self.oco_manager.modify_bracket(
                 trade_id=trade_id,
                 symbol=position.symbol,
@@ -1080,9 +1071,9 @@ class Croupier(TimeIterator):
             return {"status": "success", "closed_amount": amount_to_close, "remaining_amount": remaining_amount}
 
         except Exception as e:
-            self.logger.error(f"❌ Valentino Scale-out Failed for {trade_id}: {e}")
-            # Reset flag on failure so we can try again
+            self.logger.error(f"❌ SCE Scale-out Failed for {trade_id}: {e}")
             position.scaled_out = False
+            return {"status": "error", "message": str(e)}
             return {"status": "error", "message": str(e)}
 
     def trigger_reconciliation_task(self, symbol: str):

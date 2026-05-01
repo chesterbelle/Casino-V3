@@ -213,9 +213,14 @@ class ContextRegistry:
         """Phase 2100: Returns full V2 regime data."""
         return self._regime_v2.get(symbol, {"regime": "BALANCE", "reversion_allowed": True})
 
+    def _norm_key(self, symbol: str) -> str:
+        """Normalize symbol to a canonical key for dict lookups."""
+        return symbol.upper().replace("/", "").split(":")[0] if symbol else ""
+
     def set_micro_state(self, symbol: str, cvd: float, skewness: float, z_score: float):
         """Update real-time microstructure state."""
-        self.micro_state[symbol] = {
+        key = self._norm_key(symbol)
+        self.micro_state[key] = {
             "cvd": cvd,
             "skewness": skewness,
             "z_score": z_score,
@@ -224,7 +229,8 @@ class ContextRegistry:
 
     def get_micro_state(self, symbol: str) -> Tuple[float, float, float]:
         """Returns (cvd, skewness, z_score) for the symbol."""
-        state = self.micro_state.get(symbol)
+        key = self._norm_key(symbol)
+        state = self.micro_state.get(key)
         if not state:
             return 0.0, 0.5, 0.0
         return state.get("cvd", 0.0), state.get("skewness", 0.5), state.get("z_score", 0.0)

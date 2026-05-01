@@ -268,7 +268,7 @@ AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
 
 # Master switch: Enable Limit Sniper mode (Maker entries)
 # When False, the bot uses traditional Market (Taker) orders.
-LIMIT_SNIPER_ENABLED = True  # Phase 1200: Maker entries on LTA signals (no PreFlight)
+LIMIT_SNIPER_ENABLED = False  # Phase 1200: Maker entries on LTA signals (no PreFlight)
 
 # Front-Running Offset: Distance (in % decimal) to place the LIMIT order ahead of the level.
 # E.g., 0.0004 = 0.04% ahead. This significantly improves fill rate in fast reversals.
@@ -289,7 +289,7 @@ LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
 # Per-Layer Toggles (all default True — every layer adds unique value)
 EXIT_LAYER_CATASTROPHIC = True  # Layer 5: Liquidation prevention (>50% drawdown)
 EXIT_LAYER_THESIS_INVALIDATION = False  # Layer 4: OFF — erodes PF (0.634→0.540)
-EXIT_LAYER_VALENTINO = True  # Layer 3: Re-testing with SL=0.30%
+EXIT_LAYER_SCE = True  # Layer 3: Structural Conviction Engine (MEX + CFI + STS)
 EXIT_LAYER_SHADOW_PROTECTION = False  # Layer 2: DISABLED for bracket-only baseline test
 EXIT_LAYER_SESSION_DRAIN = True  # Layer 1: Progressive session shutdown
 
@@ -307,9 +307,12 @@ HFT_WALL_COLLAPSE_THRESHOLD = 0.15  # Skewness < 0.15 means our wall vanished
 STAGNATION_BASE_TIMEOUT = 900.0  # 15min base (Edge-aligned: matches audit window)
 STAGNATION_PROFIT_EXEMPT = True  # Never stagnate profitable trades
 
-# Valentino (Layer 3)
-VALENTINO_TRIGGER_PCT = 0.70  # 70% of TP distance triggers scale-out
-VALENTINO_SCALE_FRACTION = 0.50  # Close 50% of position on trigger
+# --- Structural Conviction Engine (SCE - Layer 3) ---
+SCE_MEX_THRESHOLD = 0.50  # Micro-Exhaustion: Delta momentum decay < 50% (balanced)
+SCE_CFI_ENABLED = True  # Counter-Flow Invalidation (Absorption at target)
+SCE_STS_ENABLED = True  # Structural Trailing Stop (behind volume nodes)
+SCE_MIN_PROFIT_PCT = 0.0008  # Activation floor (0.08%): must exceed round-trip fees (0.06%)
+SCE_SCALE_FRACTION = 0.50  # Amount to scale out on MEX/CFI trigger
 
 # Legacy compatibility (kept for any external references, but ignored by ExitEngine)
 HFT_EXIT_MODE = True  # No longer switches managers — ExitEngine is always active
