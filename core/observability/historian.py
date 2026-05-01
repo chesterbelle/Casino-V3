@@ -36,8 +36,8 @@ def _historian_worker(db_path: str, q: mp.Queue):
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     data,
                 )
@@ -117,11 +117,12 @@ def _historian_worker(db_path: str, q: mp.Queue):
                     conn.execute(
                         """
                         INSERT INTO trades
-                        (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             tran_id,
+                            None,  # parent_trade_id
                             symbol,
                             "FLAT",
                             0.0,
@@ -206,6 +207,7 @@ class TradeHistorian:
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trade_id TEXT UNIQUE,
+                parent_trade_id TEXT,
                 symbol TEXT,
                 side TEXT,
                 entry_price REAL,
@@ -246,9 +248,14 @@ class TradeHistorian:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_depth_ts_sym ON depth_snapshots(timestamp, symbol)")
         except sqlite3.OperationalError:
             pass
-        # Schema Evolution: Add session_id if it doesn't exist
         try:
             conn.execute("ALTER TABLE trades ADD COLUMN session_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        # Schema Evolution: Add parent_trade_id if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE trades ADD COLUMN parent_trade_id TEXT")
         except sqlite3.OperationalError:
             pass  # Already exists
 
@@ -450,6 +457,7 @@ class TradeHistorian:
 
             params = (
                 trade_id,
+                trade_data.get("parent_trade_id"),
                 trade_data.get("symbol"),
                 trade_data.get("side"),
                 entry_price,
@@ -493,8 +501,8 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     params,
                 )
@@ -576,11 +584,12 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT INTO trades
-                    (trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         tran_id,
+                        None,  # parent_trade_id
                         symbol,
                         "FLAT",  # side
                         0.0,

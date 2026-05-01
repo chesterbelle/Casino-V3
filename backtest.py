@@ -128,6 +128,7 @@ async def run_backtest():
 
     # Zero-Lag Structural Context Layer (Global Singleton)
     context_registry = ContextRegistry()  # noqa: E402
+    croupier.context_registry = context_registry
     sensor_mgr = SensorManager(engine)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry, fast_track=args.fast_track)
     player = AdaptivePlayer(  # noqa: E402
@@ -159,9 +160,14 @@ async def run_backtest():
     async def on_candle_context(e):
         context_registry.on_candle(e.symbol, e.high, e.low)
 
+    async def on_micro_batch(e):
+        for event in e.events:
+            context_registry.set_micro_state(event.symbol, event.cvd, event.skewness, event.z_score)
+
     engine.subscribe(EventType.TICK, on_tick_context)
     engine.subscribe(EventType.TICK, on_tick_croupier)
     engine.subscribe(EventType.CANDLE, on_candle_context)
+    engine.subscribe(EventType.MICROSTRUCTURE_BATCH, on_micro_batch)
     engine.subscribe(EventType.ORDER_UPDATE, on_order_update_tracker)
     engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)
 
@@ -251,16 +257,15 @@ async def run_backtest():
         historian.record_trade(
             {
                 "trade_id": trade_id,
+                "parent_trade_id": ct.get("parent_trade_id"),
                 "symbol": ct.get("symbol", args.symbol),
                 "side": side,
                 "entry_price": entry_price,
                 "exit_price": exit_price,
-                "pnl": pnl,
-                "fee": fee,
+                "pnl": pnl,  # GROSS PnL (same contract as demo/live confirm_close)
+                "fee": fee,  # Total fee (entry + exit) — Historian computes net = gross - fee
                 "funding": 0.0,
                 "qty": ct.get("amount", 0),
-                "gross_pnl": ct.get("pnl", 0),
-                "net_pnl": (ct.get("pnl") or 0) - (ct.get("fee") or 0),
                 "exit_reason": exit_reason,
                 "t0_signal_ts": ct.get("t0_signal_ts"),
                 "t1_decision_ts": ct.get("t1_decision_ts"),
@@ -286,18 +291,20 @@ async def run_backtest():
         print(f"Profit Factor    : {pf:.2f}")
 
     # Ledger Integrity Check
-    ledger_pnl = sum(t["pnl"] for t in closed_trades)
-    # Entry fees are deducted from balance but NOT included in trade PnL
-    # So we need to account for them separately
-    entry_trades = [t for t in trades if t.get("pnl") is None]
-    total_entry_fees = sum(t.get("fee", 0) for t in entry_trades)
-    adjusted_pnl = ledger_pnl - total_entry_fees
+    # trade["pnl"] = GROSS PnL. trade["fee"] = total (proportional_entry + exit).
+    # VE balance: Δ = Σ(gross - exit_fee) - Σ(entry_fee)
+    # Since closing trade fee = exit_fee + proportional_entry_fee, and all
+    # entry fees are allocated to closing trades, we get:
+    # Δ = Σ(gross) - Σ(closing_fee) = Σ(gross) - Σ(exit_fee + entry_fee) ✓
+    ledger_gross = sum(t["pnl"] for t in closed_trades)
+    closing_fees = sum(t.get("fee", 0) for t in closed_trades)
+    adjusted_pnl = ledger_gross - closing_fees
     delta = abs(total_pnl - adjusted_pnl)
     integrity = "✅ PASS" if delta < 0.01 else f"❌ FAIL (Δ=${delta:.4f})"
     print(f"Ledger Integrity : {integrity}")
     print(f"  Balance Δ      : ${total_pnl:+.4f}")
-    print(f"  Trades Σ(PnL)  : ${ledger_pnl:+.4f}")
-    print(f"  Entry Fees     : ${total_entry_fees:+.4f}")
+    print(f"  Gross PnL      : ${ledger_gross:+.4f}")
+    print(f"  Total Fees     : ${closing_fees:+.4f}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
     sys.stderr.flush()

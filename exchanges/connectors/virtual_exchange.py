@@ -389,6 +389,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "margin_used": margin_required,
                 "entry_fee": fee,  # Phase 1200: Track entry fee for total fee reporting
                 "setup_type": order.get("setup_type") or order.get("params", {}).get("setup_type", "unknown"),
+                "parent_trade_id": order.get("params", {}).get("client_order_id"),  # Phase 1300: Link to original setup
                 "t0_signal_ts": order.get("t0_signal_ts"),
                 "t1_decision_ts": order.get("t1_decision_ts"),
                 "t2_submit_ts": order.get("t2_submit_ts"),
@@ -407,6 +408,8 @@ class VirtualExchangeConnector(BaseConnector):
             if is_increase:
                 # Increase position — deduct fee from balance
                 self._balance -= fee
+                # Phase 1200 Fix: Accumulate entry fee for scaling orders
+                position["entry_fee"] = position.get("entry_fee", 0.0) + fee
 
                 total_amount = position["amount"] + amount
                 # Weighted average entry price
@@ -422,10 +425,15 @@ class VirtualExchangeConnector(BaseConnector):
 
             else:
                 # Decrease/Close position — fee is embedded in PnL, NOT deducted separately
-                # ReduceOnly Guard: Cannot exceed current position size
                 if order.get("params", {}).get("reduceOnly"):
                     close_amount = min(amount, position["amount"])
                     amount = close_amount  # Cap the order execution
+                    # Phase 1251 Fix: Update order amount and fee to reflect capping
+                    order["amount"] = amount
+                    is_limit = order.get("type") == "limit"
+                    used_fee_rate = self.maker_fee_rate if is_limit else self.fee_rate
+                    order["fee"]["cost"] = amount * price * used_fee_rate
+                    fee = order["fee"]["cost"]  # update local variable too
                 else:
                     close_amount = min(amount, position["amount"])
 
@@ -447,7 +455,7 @@ class VirtualExchangeConnector(BaseConnector):
                 position["amount"] -= close_amount
                 self.logger.info(f"💰 Margin Released: ${margin_released:,.2f} | PnL: ${pnl:+.2f}")
 
-                # Store GROSS PnL in order for reporting (historian subtracts fees later)
+                # Store GROSS PnL — Historian contract: pnl=gross, fee=total, it calculates net
                 order["realized_pnl"] = gross_pnl
 
                 if position["amount"] < self.min_amount:
@@ -505,9 +513,20 @@ class VirtualExchangeConnector(BaseConnector):
         # Add entry details for closing trades
         if order.get("realized_pnl") is not None:
             trade_record["entry_price"] = position["entry_price"]
-            # Phase 1200: Include entry_fee in total fee for accurate reporting
-            entry_fee = position.get("entry_fee", 0.0)
-            trade_record["fee"] = fee + entry_fee  # Total fee = entry + exit
+            trade_record["parent_trade_id"] = position.get("parent_trade_id")
+            # Phase 1200: Proportional entry_fee for partial/full closes
+            full_entry_fee = position.get("entry_fee", 0.0)
+            # If position was fully closed (removed from _positions), allocate all remaining entry_fee
+            if position not in self._positions:
+                proportional_entry_fee = full_entry_fee  # Full close: take all
+            else:
+                # position["amount"] was already decremented, so original = close_amount + remaining
+                original_amount = close_amount + position.get("amount", 0)
+                ratio_closed = close_amount / original_amount if original_amount > 0 else 1.0
+                proportional_entry_fee = full_entry_fee * ratio_closed
+                position["entry_fee"] = full_entry_fee - proportional_entry_fee
+            trade_record["fee"] = fee + proportional_entry_fee  # Total fee = proportional_entry + exit
+            trade_record["entry_fee"] = proportional_entry_fee
             trade_record["entry_time"] = position["timestamp"]
             trade_record["position_side"] = position["side"]
             trade_record["setup_type"] = position.get("setup_type", trade_record["setup_type"])
@@ -637,7 +656,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "price": close_price,
                 "fee": total_fee,  # Phase 1200: Total fee (entry + exit)
                 "timestamp": self._current_timestamp,
-                "pnl": gross_pnl,  # Store GROSS PnL so historian doesn't subtract fees twice
+                "pnl": gross_pnl,  # Historian contract: pnl=gross, it calculates net
                 "gemini_trade_id": None,
                 "entry_price": entry_price,
                 "entry_time": pos["timestamp"],
@@ -647,6 +666,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "t0_signal_ts": pos.get("t0_signal_ts"),
                 "t1_decision_ts": pos.get("t1_decision_ts"),
                 "t2_submit_ts": pos.get("t2_submit_ts"),
+                "entry_fee": entry_fee,  # Separate for net_pnl calc
             }
             self._trades.append(trade_record)
 

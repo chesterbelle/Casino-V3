@@ -212,7 +212,7 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None, all_ti
     cur = conn.cursor()
 
     base = """
-        SELECT trade_id, symbol, side, entry_price, exit_price,
+        SELECT trade_id, parent_trade_id, symbol, side, entry_price, exit_price,
                qty, fee, gross_pnl, net_pnl, exit_reason,
                timestamp, bars_held, session_id, healed,
                t0_signal_ts, t4_fill_ts, slippage_pct,
@@ -233,9 +233,30 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None, all_ti
         base += f" LIMIT {int(last_n)}"
 
     cur.execute(base, params)
-    rows = [dict(r) for r in cur.fetchall()]
+    raw_rows = [dict(r) for r in cur.fetchall()]
     conn.close()
-    return rows
+
+    # Phase 1300: Group by parent_trade_id (Journey Logic)
+    # We iterate in reverse (chronological) so the final exit_reason overwrites earlier ones.
+    grouped = {}
+    for r in reversed(raw_rows):
+        pid = r.get("parent_trade_id") or r["trade_id"]
+        if pid not in grouped:
+            grouped[pid] = r.copy()
+            grouped[pid]["sub_trades"] = 1
+        else:
+            g = grouped[pid]
+            g["sub_trades"] += 1
+            g["gross_pnl"] += r["gross_pnl"]
+            g["net_pnl"] += r["net_pnl"]
+            g["fee"] += r["fee"]
+            g["qty"] += r["qty"]
+            # If there's an exit reason progression, keep the final one
+            if r["exit_reason"] != "VIRTUAL_CLOSE":
+                g["exit_reason"] = r["exit_reason"]
+
+    # Return grouped journeys (reversed again to keep DESC order)
+    return list(reversed(list(grouped.values())))
 
 
 def categorize_trades(trades: list) -> tuple[list, list]:
@@ -425,12 +446,14 @@ def print_report(trades, session_id=None, last_n=None):
 
     # Separate active strategy trades from drain phase trades
     active_trades, drain_trades = categorize_trades(trades)
+    total_executions = sum(t.get("sub_trades", 1) for t in trades)
 
     # ── 0. Trade Classification Summary ─────────────────────
     print(f"\n{BOLD}[0] TRADE CLASSIFICATION{RESET}")
-    print(f"  Total Trades       : {len(trades)}")
-    print(f"  Active Strategy    : {len(active_trades)} trades")
-    print(f"  Drain Phase        : {len(drain_trades)} trades (excluded from edge metrics)")
+    print(f"  Total Journeys     : {len(trades)}")
+    print(f"  Total Executions   : {total_executions}")
+    print(f"  Active Strategy    : {len(active_trades)} journeys")
+    print(f"  Drain Phase        : {len(drain_trades)} journeys (excluded from edge metrics)")
 
     if drain_trades:
         drain_pnl = sum(t["net_pnl"] for t in drain_trades)
