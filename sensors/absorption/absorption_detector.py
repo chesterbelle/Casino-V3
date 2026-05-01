@@ -23,9 +23,9 @@ class AbsorptionDetector(SensorV3):
 
         # Filter thresholds
         self.z_score_min = 1.5
-        self.concentration_min = 0.50
-        self.noise_max = 0.25
-        self.stagnation_max_pct = 0.12
+        self.concentration_min = 0.15
+        self.noise_max = 0.85
+        self.stagnation_max_pct = 0.15
 
         # State tracking
         self._last_candle_ts: Dict[str, float] = {}
@@ -56,11 +56,12 @@ class AbsorptionDetector(SensorV3):
 
         # 3. Get footprint from registry (updated by SensorWorker in this process)
         footprint = footprint_registry.get_footprint(self.symbol)
-        if not footprint or len(footprint.levels) < 5:
+        if not footprint or len(footprint.levels) < 2:
             return None
 
         # 4. Find candidates and filter
         candidates = self._find_extreme_deltas(footprint)
+
         for level, delta, ask_vol, bid_vol in candidates:
             # Filter 1: Magnitude
             z_score = self._cross_sectional_zscore(footprint, delta)
@@ -107,13 +108,33 @@ class AbsorptionDetector(SensorV3):
 
         return None
 
+    def on_tick(self, tick_data: dict) -> None:
+        """
+        Phase 2300: Real-time footprint update inside worker process.
+        This ensures the local registry is hot when calculate() is called on candle close.
+        """
+        sym = tick_data.get("symbol")
+        if not sym:
+            return
+
+        # Inject into local worker process registry
+        from core.footprint_registry import footprint_registry
+
+        footprint_registry.on_trade(
+            sym,
+            float(tick_data["price"]),
+            float(tick_data["volume"]),
+            tick_data["side"],
+            float(tick_data["timestamp"]),
+        )
+
     def _find_extreme_deltas(self, footprint) -> List[Tuple[float, float, float, float]]:
         deltas = []
         for level, data in footprint.levels.items():
             delta = data["delta"]
             if abs(delta) > 0:
                 deltas.append((level, delta, data["ask_volume"], data["bid_volume"]))
-        if len(deltas) < 5:
+        if len(deltas) < 2:
             return []
         deltas.sort(key=lambda x: abs(x[1]), reverse=True)
         top_n = max(1, min(5, len(deltas) // 10))
@@ -121,7 +142,7 @@ class AbsorptionDetector(SensorV3):
 
     def _cross_sectional_zscore(self, footprint, delta: float) -> float:
         all_deltas = [data["delta"] for data in footprint.levels.values()]
-        if len(all_deltas) < 5:
+        if len(all_deltas) < 2:
             return 0.0
         mean = 0.0
         variance = sum((d - mean) ** 2 for d in all_deltas) / len(all_deltas)

@@ -13,6 +13,22 @@ from typing import Any, Dict, List, Type
 # from sensors.sensor_base import V3SensorBase
 
 
+# Configure minimal logging for the worker
+logger = logging.getLogger("SensorWorker")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    ch = logging.StreamHandler()
+    ch.setFormatter(logging.Formatter("%(asctime)s | WORKER:%(process)d:%(name)s | %(levelname)s | %(message)s"))
+    logger.addHandler(ch)
+    # Dedicated debug file
+    import os
+
+    os.makedirs("logs", exist_ok=True)
+    fh = logging.FileHandler("logs/sensors_worker.log", mode="a")
+    fh.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+    logger.addHandler(fh)
+
+
 class SensorWorker(multiprocessing.Process):
     """
     A persistent worker process that manages a subset of sensors.
@@ -46,6 +62,7 @@ class SensorWorker(multiprocessing.Process):
         # Multi-Asset: Key by symbol -> List[Sensor]
         self.sensors: Dict[str, List[Any]] = {}
         self._running = True
+        print(f"📦 [DEBUG] SensorWorker-{self.worker_id} initialized in parent (PID: {os.getpid()})")
 
     def run(self):
         """Main loop of the worker process."""
@@ -56,6 +73,7 @@ class SensorWorker(multiprocessing.Process):
         logger = logging.getLogger(f"SensorWorker-{self.worker_id}")
 
         try:
+            print(f"🚀 [DEBUG] SensorWorker-{self.worker_id} starting (PID: {os.getpid()})")
             logger.info(f"🚀 Worker started. Ready to process {len(self.sensor_classes)} sensor types.")
 
             # Main Loop
@@ -127,6 +145,13 @@ class SensorWorker(multiprocessing.Process):
                 logger.error(f"❌ Failed to instantiate {sensor_cls} for {symbol}: {e}")
 
         self.sensors[symbol] = symbol_sensors
+
+        # Phase 2310: Hot-prime FootprintRegistry for this symbol inside the worker
+        from core.footprint_registry import footprint_registry
+        from core.tick_registry import tick_registry
+
+        tick_size = tick_registry.get(symbol, 0.01)
+        footprint_registry.register_symbol(symbol, tick_size)
 
     def _process_sensors(
         self, symbol: str, data: Dict, context: Any, logger: logging.Logger, event_type: str = "candle"

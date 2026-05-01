@@ -99,6 +99,11 @@ class SensorManager:
         self._micro_buffer = []
         self._last_market_time = 0.0  # Phase 50: Parity - Track latest market time (MarketTime over RealTime)
         self.throttle_ms = 100.0  # Throttled microstructure events
+        import sys
+
+        if "--fast-track" in sys.argv:
+            self.throttle_ms = 0.0  # Zero throttle for high-fidelity parity check
+            logger.info("🚀 SensorManager: Fast-Track detected, throttling disabled (0ms)")
         self._last_tick_dispatch = {}
         self._last_ob_dispatch = {}
         self._tick_count = 0
@@ -133,7 +138,9 @@ class SensorManager:
                 # Optimization: if strict naming convention, we could guess name.
                 # But safer to instantiate once here.
                 tmp = cls()
-                if ACTIVE_SENSORS.get(tmp.name, False):
+                is_enabled = ACTIVE_SENSORS.get(tmp.name, False)
+                logger.info(f"🔍 [SENSOR_MGR] Sensor {tmp.name}: {'ENABLED' if is_enabled else 'DISABLED'}")
+                if is_enabled:
                     enabled_classes.append(cls)
             except Exception:
                 pass
@@ -291,7 +298,13 @@ class SensorManager:
         msg = {
             "event": "tick",
             "symbol": event.symbol,
-            "data": {"price": event.price, "volume": event.volume, "side": event.side, "timestamp": event.timestamp},
+            "data": {
+                "symbol": event.symbol,
+                "price": event.price,
+                "volume": event.volume,
+                "side": event.side,
+                "timestamp": event.timestamp,
+            },
         }
 
         loop = asyncio.get_running_loop()

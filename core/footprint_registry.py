@@ -80,6 +80,9 @@ class FootprintData:
             self.levels[level]["bid_volume"] += volume
             self.total_bid_volume += volume
             delta = -volume
+        elif side == "UNKNOWN":
+            # Just a price update, no volume for footprint
+            return 0.0
         else:
             logger.warning(f"⚠️ [FOOTPRINT] Unknown side: {side}")
             delta = 0.0
