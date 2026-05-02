@@ -15,14 +15,29 @@ def check_spread_sanity(symbol: str, context_registry, fast_track: bool) -> Guar
 
     current = spread_data.get("current", 0.0)
     avg_5m = spread_data.get("avg_5m", 0.0)
-    metrics = {"current_spread": current, "avg_5m": avg_5m}
+    metrics = {"current_spread": round(current, 6), "avg_5m": round(avg_5m, 6)}
+    
+    passed = True
+    score = 1.0
 
-    if avg_5m > 0 and current > avg_5m * 2.0:
-        logger.info(f"🛡️ [SPREAD_SANITY] {symbol} rejected: Spread {current:.6f} > 2x avg {avg_5m:.6f}")
-        return GuardianResult(
-            passed=False, multiplier=0.0, reason="Wide spread", metrics=metrics, gate_name="SPREAD_SANITY"
-        )
+    if avg_5m > 0:
+        ratio = current / avg_5m
+        if ratio > 2.0:
+            passed = False
+            score = 0.0
+        elif ratio > 1.0:
+            # Linear decay from 1.0 (at ratio=1) to 0.3 (at ratio=2)
+            score = max(0.3, 1.0 - (ratio - 1.0) * 0.7)
+        else:
+            score = 1.0
 
+    reason = "Wide spread spike" if not passed else "Spread analyzed"
+    
     return GuardianResult(
-        passed=True, multiplier=1.0, reason="Normal spread", metrics=metrics, gate_name="SPREAD_SANITY"
+        passed=passed,
+        score=round(score, 3),
+        multiplier=1.0,
+        reason=reason,
+        metrics=metrics,
+        gate_name="SPREAD_SANITY",
     )

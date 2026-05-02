@@ -20,29 +20,36 @@ def check_va_integrity(symbol: str, context_registry, fast_track: bool) -> Guard
     critical_threshold = threshold * 0.50
 
     metrics = {
-        "integrity": integrity,
+        "integrity": round(integrity, 5),
         "threshold": threshold,
         "critical_threshold": critical_threshold,
         "window": current_window,
     }
+    
+    passed = True
+    score = 1.0
 
     if integrity < critical_threshold:
-        logger.info(
-            f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} critically low < {critical_threshold:.4f} ({current_window})"
-        )
-        return GuardianResult(
-            passed=False, multiplier=0.0, reason="Critically low VA density", metrics=metrics, gate_name="VA_INTEGRITY"
-        )
+        passed = False
+        score = 0.0
+    elif integrity < threshold:
+        # Linear score between 0.3 and 1.0
+        range_size = threshold - critical_threshold
+        if range_size > 0:
+            normalized = (integrity - critical_threshold) / range_size
+            score = 0.3 + (normalized * 0.7)
+        else:
+            score = 0.3
+    else:
+        score = 1.0
 
-    if integrity < threshold:
-        return GuardianResult(
-            passed=True,
-            multiplier=strat_config.LTA_SOFT_GATE_REDUCTION,
-            reason="Soft VA density (sizing reduced)",
-            metrics=metrics,
-            gate_name="VA_INTEGRITY",
-        )
-
+    reason = "Critically low VA density" if not passed else "VA density analyzed"
+    
     return GuardianResult(
-        passed=True, multiplier=1.0, reason="Acceptable VA density", metrics=metrics, gate_name="VA_INTEGRITY"
+        passed=passed,
+        score=round(score, 3),
+        multiplier=1.0, # We use score instead of hard-coded reduction
+        reason=reason,
+        metrics=metrics,
+        gate_name="VA_INTEGRITY",
     )

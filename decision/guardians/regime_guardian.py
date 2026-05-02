@@ -41,74 +41,55 @@ def check_regime_alignment(
         )
 
         if micro_vote == "NEUTRAL" and meso_vote == "NEUTRAL":
-            local_mult = 1.0 if confidence < 0.6 else strat_config.LTA_SOFT_GATE_REDUCTION
+            score = 1.0 if confidence < 0.6 else 0.7
             return GuardianResult(
                 passed=True,
-                multiplier=local_mult,
+                score=score,
                 reason=f"Local consensus (Micro/Meso Neutral) overrides Macro {regime_v2}",
-                metrics=metrics,
-                gate_name="REGIME_ALIGNMENT_V2",
-            )
-
-        if confidence < 0.5:
-            return GuardianResult(
-                passed=True,
-                multiplier=strat_config.LTA_SOFT_GATE_REDUCTION,
-                reason=f"Low confidence ({confidence:.2f}) - counter-trend allowed",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V2",
             )
 
         if regime_v2 == "BALANCE":
             return GuardianResult(
-                passed=True, multiplier=1.0, reason="Balance regime", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2"
+                passed=True, score=1.0, reason="Balance regime", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2"
             )
+
+        # Confidence based logic for Trends
+        # For REVERSION (LTA), we want to be cautious against strong trends.
+        if regime_v2 == "TREND_UP":
+            if side == "SHORT":
+                if confidence > 0.8:
+                    return GuardianResult(passed=False, score=0.0, reason="Strong TREND_UP", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+                # Score decreases as trend confidence increases
+                score = max(0.1, 1.0 - confidence)
+                return GuardianResult(passed=True, score=score, reason="Counter-trend (TREND_UP)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+            else:
+                return GuardianResult(passed=True, score=1.0, reason="Trend-aligned (UP)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+
+        if regime_v2 == "TREND_DOWN":
+            if side == "LONG":
+                if confidence > 0.8:
+                    return GuardianResult(passed=False, score=0.0, reason="Strong TREND_DOWN", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+                score = max(0.1, 1.0 - confidence)
+                return GuardianResult(passed=True, score=score, reason="Counter-trend (TREND_DOWN)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+            else:
+                return GuardianResult(passed=True, score=1.0, reason="Trend-aligned (DOWN)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
 
         if regime_v2 == "TRANSITION":
             z_score = abs(reversal_signal.get("z_score", 0.0))
             if z_score >= strat_config.LTA_TRANSITION_Z_THRESHOLD:
-                logger.info(
-                    f"🛡️ [REGIME_V2] {symbol} {side} RECOVERED in TRANSITION: Extreme Z-Score {z_score:.2f} >= {strat_config.LTA_TRANSITION_Z_THRESHOLD}"
-                )
                 return GuardianResult(
                     passed=True,
-                    multiplier=strat_config.LTA_SOFT_GATE_REDUCTION,
+                    score=0.5,
                     reason="Transition Recovery (Extreme Flow)",
                     metrics=metrics,
                     gate_name="REGIME_ALIGNMENT_V2",
                 )
-
-            logger.info(
-                f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TRANSITION state (conf={confidence:.2f}, dir={direction}) — market leaving balance"
-            )
             return GuardianResult(
                 passed=False,
-                multiplier=0.0,
+                score=0.0,
                 reason=f"TRANSITION state (dir={direction}, conf={confidence:.2f})",
-                metrics=metrics,
-                gate_name="REGIME_ALIGNMENT_V2",
-            )
-
-        if regime_v2 == "TREND_UP":
-            logger.info(
-                f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TREND_UP active (conf={confidence:.2f}) — mean-reversion disabled"
-            )
-            return GuardianResult(
-                passed=False,
-                multiplier=0.0,
-                reason=f"TREND_UP - mean-reversion disabled (conf={confidence:.2f})",
-                metrics=metrics,
-                gate_name="REGIME_ALIGNMENT_V2",
-            )
-
-        if regime_v2 == "TREND_DOWN":
-            logger.info(
-                f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TREND_DOWN active (conf={confidence:.2f}) — mean-reversion disabled"
-            )
-            return GuardianResult(
-                passed=False,
-                multiplier=0.0,
-                reason=f"TREND_DOWN - mean-reversion disabled (conf={confidence:.2f})",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V2",
             )

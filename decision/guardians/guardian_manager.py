@@ -25,68 +25,54 @@ class GuardianManager(TraceBulletMixin):
     ) -> Tuple[bool, float]:
         """
         Runs all guardians. Returns (passed, final_multiplier).
+        Phase 2 Alpha: Transition to Confidence Scoring + Attribution.
         """
-        multiplier = 1.0
+        results = []
+        
+        # 1. Execute all guardians
+        results.append(check_regime_alignment(symbol, side, reversal_signal, context_registry, fast_track))
+        results.append(check_poc_migration(symbol, side, context_registry, fast_track))
+        results.append(check_va_integrity(symbol, context_registry, fast_track))
+        results.append(check_delta_divergence(symbol, side, context_registry, fast_track))
+        results.append(check_spread_sanity(symbol, context_registry, fast_track))
 
-        # Guardian 1: Regime Alignment
-        res1 = check_regime_alignment(symbol, side, reversal_signal, context_registry, fast_track)
-        self._trace(symbol, side, reversal_signal.get("close", 0.0), res1)
+        # 2. Hard Gate Evaluation (Interpretability)
+        for res in results:
+            self._trace(symbol, side, reversal_signal.get("close", 0.0), res)
+            if not res.passed:
+                self.trace(
+                    reversal_signal,
+                    "GUARDIAN_REJECT",
+                    {"gate": res.gate_name, "reason": res.reason, "metrics": res.metrics}
+                )
+                return False, 0.0
+
+        # 3. Aggregate Scoring (Phase 2 Alpha)
+        # We calculate total_confidence as the average score of all guardians
+        total_score = sum(res.score for res in results) / len(results)
+        
+        # Sizing Multiplier is the product of individual multipliers * final confidence
+        final_multiplier = 1.0
+        for res in results:
+            final_multiplier *= res.multiplier
+            
+        # Apply confidence-based sizing (Soft Sizing)
+        # If confidence is low (e.g. 0.6), we reduce size by that factor
+        final_multiplier *= total_score
+
+        # 4. Detailed Attribution Trace (The "Crystal Layer" Observability)
+        attribution = {res.gate_name: {"score": res.score, "multiplier": res.multiplier} for res in results}
         self.trace(
             reversal_signal,
-            f"GUARDIAN_CHECK:{res1.gate_name}",
-            {"passed": res1.passed, "reason": res1.reason, "metrics": res1.metrics},
+            "GUARDIAN_BREAKDOWN",
+            {
+                "total_score": round(total_score, 3),
+                "final_multiplier": round(final_multiplier, 3),
+                "attribution": attribution
+            }
         )
-        if not res1.passed:
-            return False, 0.0
-        multiplier *= res1.multiplier
 
-        # Guardian 2: POC Migration
-        res2 = check_poc_migration(symbol, side, context_registry, fast_track)
-        self._trace(symbol, side, 0.0, res2)
-        self.trace(
-            reversal_signal,
-            f"GUARDIAN_CHECK:{res2.gate_name}",
-            {"passed": res2.passed, "reason": res2.reason, "metrics": res2.metrics},
-        )
-        if not res2.passed:
-            return False, 0.0
-        multiplier *= res2.multiplier
-
-        # Guardian 3: VA Integrity
-        res3 = check_va_integrity(symbol, context_registry, fast_track)
-        self._trace(symbol, side, 0.0, res3)
-        self.trace(
-            reversal_signal,
-            f"GUARDIAN_CHECK:{res3.gate_name}",
-            {"passed": res3.passed, "reason": res3.reason, "metrics": res3.metrics},
-        )
-        if not res3.passed:
-            return False, 0.0
-        multiplier *= res3.multiplier
-
-        # Guardian 5: Delta Divergence
-        res5 = check_delta_divergence(symbol, side, context_registry, fast_track)
-        self._trace(symbol, side, 0.0, res5)
-        self.trace(
-            reversal_signal,
-            f"GUARDIAN_CHECK:{res5.gate_name}",
-            {"passed": res5.passed, "reason": res5.reason, "metrics": res5.metrics},
-        )
-        if not res5.passed:
-            return False, 0.0
-
-        # Guardian 6: Spread Sanity
-        res6 = check_spread_sanity(symbol, context_registry, fast_track)
-        self._trace(symbol, side, 0.0, res6)
-        self.trace(
-            reversal_signal,
-            f"GUARDIAN_CHECK:{res6.gate_name}",
-            {"passed": res6.passed, "reason": res6.reason, "metrics": res6.metrics},
-        )
-        if not res6.passed:
-            return False, 0.0
-
-        return True, multiplier
+        return True, final_multiplier
 
     def _trace(self, symbol: str, side: str, price: float, res: GuardianResult):
         status = "PASS" if res.passed else "REJECT"
