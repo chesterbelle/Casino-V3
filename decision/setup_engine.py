@@ -21,7 +21,7 @@ from core.events import (
     SignalEvent,
 )
 from decision.guardians import GuardianManager
-from utils.structural_math import calculate_lvn_target, check_level_proximity
+from utils.structural_math import check_level_proximity
 
 logger = logging.getLogger("SetupEngine")
 
@@ -233,25 +233,21 @@ class SetupEngineV4:
         if is_at_val and side != "LONG":
             return None
 
-        # 5. Calculate Structural Targets (LTA V7 Dynamic Targets)
-        # Search for the first Low Volume Node (LVN) in the trade direction
-        tp_price = calculate_lvn_target(symbol, price, side)
+        # 5. Calculate Structural Targets (LTA V7 Dynamic Targets - VWAP focus)
+        # Primary Target: The Rolling VWAP (Fair Value)
+        vwap_data = self.context_registry.vwap_state.get(self.context_registry._norm_key(symbol))
+        vwap_price = vwap_data["vwap"] if vwap_data else 0.0
 
-        if not tp_price:
-            # Fallback to structural 0.20% (Increased from 0.15% to cover fees)
-            tp_distance_pct = 0.0020
+        # Target is the VWAP or the POC
+        tp_price = vwap_price if vwap_price > 0 else poc
+
+        # Safety: Ensure TP is at least 0.20% away to cover fees
+        tp_dist = abs(tp_price - price) / price
+        if tp_dist < 0.0020:
             if side == "LONG":
-                tp_price = price * (1 + tp_distance_pct)
+                tp_price = price * 1.0025
             else:
-                tp_price = price * (1 - tp_distance_pct)
-        else:
-            # Ensure LVN TP is at least 0.20% away from entry to cover fees
-            tp_dist = abs(tp_price - price) / price
-            if tp_dist < 0.0020:
-                if side == "LONG":
-                    tp_price = price * 1.0020
-                else:
-                    tp_price = price * 0.9980
+                tp_price = price * 0.9975
 
         # SL is structural: Buffer outside the edge
         sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER

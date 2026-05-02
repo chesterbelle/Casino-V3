@@ -260,12 +260,7 @@ class SensorManager:
             "context": context,  # Pass the full context to sensors
         }
 
-        # Dispatch to all queues
         if self.num_workers == 0:
-            # Phase D1: Synchronous VWAP Update (Zero-Lag)
-            from core.context_registry import ContextRegistry
-            ContextRegistry().update_vwap(event.symbol, event.close, event.volume)
-            
             await self._dispatch_local(msg)
 
         else:
@@ -286,6 +281,11 @@ class SensorManager:
         now = event.timestamp
         sym = event.symbol
         self.last_price[sym] = event.price
+
+        # Phase D1: Synchronous VWAP Update (High-Res/Zero-Lag)
+        from core.context_registry import ContextRegistry
+
+        ContextRegistry().update_vwap(sym, event.price, event.volume, event.timestamp)
 
         # Phase 2.2: Update FootprintRegistry (Absorption V1)
         from core.footprint_registry import footprint_registry
@@ -415,10 +415,9 @@ class SensorManager:
             total_vol = self.bid_depth_5[sym] + self.ask_depth_5[sym]
             if total_vol > 0:
                 self.ob_skewness[sym] = self.bid_depth_5[sym] / total_vol
-                
+
             # Phase C1: Heatmap Update (Zero-Lag)
             reg.update_liquidity(sym, event_data.bids, event_data.asks)
-
 
         # 3. Phase 1000: De-correlated Z-Score (P0)
         # Use separate 60s history to measure the "Toxic" nature of the last 5 seconds.

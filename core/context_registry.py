@@ -58,7 +58,6 @@ class ContextRegistry:
         # Phase C1: Liquidity Heatmap (Location Alpha)
         self.liquidity_walls: Dict[str, Dict[float, float]] = defaultdict(dict)  # symbol -> {price: volume}
 
-
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
         self.attr_long_window = 100
@@ -67,10 +66,9 @@ class ContextRegistry:
         self.atrs: Dict[str, Dict[str, float]] = defaultdict(lambda: {"short": 0.0, "long": 0.0})
 
         # Phase D1: Rolling VWAP & Z-Bands (Statistical Location)
-        self.vwap_window = 120  # 120 minutes
-        self.vwap_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.vwap_window))
+        self.vwap_window_secs = 120 * 60  # 120 minutes
+        self.vwap_history: Dict[str, list] = defaultdict(list)
         self.vwap_state: Dict[str, dict] = defaultdict(lambda: {"vwap": 0.0, "std": 0.0})
-
 
         # Gravity Layer (System Global)
         self.btc_delta = 0.0
@@ -319,22 +317,22 @@ class ContextRegistry:
         """
         key = self._norm_key(symbol)
         new_walls = {}
-        
+
         # We only care about the top 20 levels for each side for HFT Location Alpha
         # And only if they are significantly larger than the average depth
-        
+
         all_levels = bids[:20] + asks[:20]
         if not all_levels:
             return
-            
-        avg_vol = sum(float(l[1]) for l in all_levels) / len(all_levels)
-        
+
+        avg_vol = sum(float(level[1]) for level in all_levels) / len(all_levels)
+
         for price_str, vol_str in all_levels:
             price = float(price_str)
             vol = float(vol_str)
-            if vol > avg_vol * 1.5: # 1.5x average is a 'wall'
+            if vol > avg_vol * 1.5:  # 1.5x average is a 'wall'
                 new_walls[price] = vol
-                
+
         self.liquidity_walls[key] = new_walls
 
     def get_liquidity_score(self, symbol: str, target_price: float, side: str, tolerance_pct: float = 0.0005) -> float:
@@ -347,44 +345,59 @@ class ContextRegistry:
         key = self._norm_key(symbol)
         walls = self.liquidity_walls.get(key, {})
         if not walls:
-            return 0.5 # Neutral if no data
-            
+            return 0.5  # Neutral if no data
+
         # Find walls within tolerance
         upper = target_price * (1 + tolerance_pct)
         lower = target_price * (1 - tolerance_pct)
-        
+
         relevant_walls = [vol for price, vol in walls.items() if lower <= price <= upper]
-        
+
         if not relevant_walls:
-            return 0.2 # 'Air' - No liquidity support
-            
+            return 0.2  # 'Air' - No liquidity support
+
         # If we find walls, the score is 1.0 (Supported)
         return 1.0
 
-    def update_vwap(self, symbol: str, price: float, volume: float):
+    def update_vwap(self, symbol: str, price: float, volume: float, timestamp: float = None):
         """
-        Phase D1: Update Rolling VWAP state.
-        Called on every candle close to maintain a 120m statistical window.
+        Phase D1: Update Rolling VWAP state (High Resolution).
+        Called on every tick to maintain a 120m statistical window.
         """
+        import time
+
+        now = timestamp or time.time()
         key = self._norm_key(symbol)
-        self.vwap_history[key].append((price, volume))
-        
+
+        # Add new data point
+        self.vwap_history[key].append((now, price, volume))
+
+        # Filter old data (Window: 120m)
+        cutoff = now - self.vwap_window_secs
+        self.vwap_history[key] = [pt for pt in self.vwap_history[key] if pt[0] > cutoff]
+
         history = self.vwap_history[key]
-        if not history:
+        if len(history) < 2:
             return
-            
-        total_pv = sum(p * v for p, v in history)
-        total_v = sum(v for p, v in history)
-        
+
+        total_pv = sum(p * v for _, p, v in history)
+        total_v = sum(v for _, p, v in history)
+
         if total_v > 0:
             vwap = total_pv / total_v
-            
-            # Calculate Standard Deviation of prices relative to VWAP
+
+            # Calculate Standard Deviation (Optimized)
             import math
-            prices = [p for p, v in history]
-            variance = sum((p - vwap) ** 2 for p in prices) / len(prices)
+
+            prices = [p for _, p, v in history]
+            # We sample every 10th price if history is huge to save CPU in HFT
+            if len(prices) > 1000:
+                prices = prices[::10]
+
+            n = len(prices)
+            variance = sum((p - vwap) ** 2 for p in prices) / n
             std = math.sqrt(variance)
-            
+
             self.vwap_state[key] = {"vwap": vwap, "std": std}
 
     def get_vwap_zscore(self, symbol: str, current_price: float) -> float:
@@ -396,7 +409,5 @@ class ContextRegistry:
         state = self.vwap_state.get(key)
         if not state or state["std"] == 0:
             return 0.0
-            
+
         return (current_price - state["vwap"]) / state["std"]
-
-
