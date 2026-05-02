@@ -148,7 +148,11 @@ class ReconciliationService:
 
             # Phase 16: Active Verification (Anti-Glitch Safety Valve)
             # If local tracking shows significant activity but exchange reports ZERO, verify hard.
-            local_count = self.tracker.get_stats().get("open_positions", 0)
+            # Exclude OFF_BOARDING/CLOSING positions from local count to prevent false positive MASS DETACHMENT ALERTS
+            # during emergency sweeps where many positions are intentionally closing simultaneously.
+            local_count = len(
+                [p for p in self.tracker.open_positions if getattr(p, "status", "") not in ["OFF_BOARDING", "CLOSING"]]
+            )
             exchange_count = len(
                 [p for p in exchange_positions if float(p.get("contracts", 0) or p.get("size", 0)) != 0]
             )

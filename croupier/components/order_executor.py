@@ -224,10 +224,6 @@ class OrderExecutor:
             else:
                 raise e
 
-        # LOCAL TRACKING: Register in OrderTracker if available
-        if self.order_tracker:
-            self.order_tracker.track_local_order(result)
-
         # Phase 238: Native Performance Restoration (Deep Clean)
         # Removed blocking polling loop entirely. If order is 'open', the Auditor
         # or OCOManager retry logic handles it reactively.
@@ -793,7 +789,7 @@ class OrderExecutor:
                 # Sequential Processing
                 for sym, state in symbol_map.items():
                     if watchdog:
-                        watchdog.heartbeat()
+                        watchdog.heartbeat("emergency_sweep", f"Processing {sym}")
 
                     try:
                         # Step A: Cancel all orders
@@ -802,7 +798,7 @@ class OrderExecutor:
                             report["orders_cancelled"] += len(state["orders"])
                             await asyncio.sleep(0.1)
 
-                        # Step B: Close positions
+                        # Step B: Close positions on exchange
                         if close_positions and state["positions"]:
                             for pos in state["positions"]:
                                 size = abs(float(pos.get("contracts", 0) or pos.get("size", 0) or 0))
@@ -818,7 +814,6 @@ class OrderExecutor:
                                     )
                                     self.logger.info(f"✅ Closed remainder: {sym} {size}")
                                     report["positions_closed"] += 1
-                                    await asyncio.sleep(0.2)
                     except Exception as e:
                         self.logger.error(f"❌ Error sweeping {sym}: {e}")
                         report["errors"].append(f"{sym}: {str(e)}")
@@ -832,6 +827,20 @@ class OrderExecutor:
             report["errors"].append(str(e))
         finally:
             self.error_handler.set_shutdown_mode(False)
+
+        # Step C: Always wipe from tracker to maintain consistency (Unconditional Wipe)
+        if close_positions and position_tracker:
+            symbols_to_wipe = symbols or [p.symbol for p in position_tracker.open_positions]
+            for sym in set(symbols_to_wipe):
+                local_positions = position_tracker.get_positions_by_symbol(sym)
+                for local_pos in local_positions:
+                    self.logger.info(f"🧹 Sweeping tracker position {local_pos.trade_id} (Unconditional Wipe)")
+                    # We use await here, but wait, we are not in an async loop if this is a standard list.
+                    # Yes we are in async def.
+                    await position_tracker.remove_position(local_pos.trade_id)
+
+        if watchdog:
+            watchdog.unregister("emergency_sweep")
 
         return report
 
