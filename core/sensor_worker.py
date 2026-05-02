@@ -150,7 +150,7 @@ class SensorWorker(multiprocessing.Process):
         from core.footprint_registry import footprint_registry
         from core.tick_registry import tick_registry
 
-        tick_size = tick_registry.get(symbol, 0.01)
+        tick_size = tick_registry.get(symbol)
         footprint_registry.register_symbol(symbol, tick_size)
 
     def _process_sensors(

@@ -171,10 +171,11 @@ class OpenPosition:
     lifecycle_phase: str = "ACTIVE"
 
     # State Machine Status
-    # OPENING: In process of creating TP/SL orders (Audit should wait)
-    # ACTIVE: Fully established with TP/SL (Audit should enforce)
+    # PENDING: In process of creating TP/SL orders (Audit should wait)
+    # OPEN: Fully established with TP/SL (Audit should enforce)
     # CLOSING: In process of closing (Audit should wait)
-    status: str = "ACTIVE"
+    # SETTLED: Position is closed and PnL recorded
+    status: str = "OPEN"
 
     def on_order_update(self, event: Dict[str, Any]) -> Optional[str]:
         """
@@ -416,7 +417,7 @@ class PositionTracker:
             List of positions in ACTIVE, OPENING, or MODIFYING status.
         """
         candidates = self.get_positions_by_symbol(symbol) if symbol else self.open_positions
-        return [pos for pos in candidates if getattr(pos, "status", "ACTIVE") in ["ACTIVE", "OPENING", "MODIFYING"]]
+        return [pos for pos in candidates if getattr(pos, "status", "OPEN") in ["OPEN", "PENDING", "MODIFYING"]]
 
     def has_valid_bracket(self, trade_id: str, exchange_order_ids: set, exchange_client_ids: set = None) -> tuple:
         """
@@ -696,10 +697,10 @@ class PositionTracker:
             logger.info(f"🛑 SL FILLED detected for {position.trade_id} via unified routing")
             await self._handle_sl_filled(position, event)
         elif match_type == "MAIN_FILLED":
-            # Phase 50: In-Flight Promotion (OPENING -> ACTIVE)
-            if position.status == "OPENING":
-                position.status = "ACTIVE"
-                logger.info(f"✅ Promoted In-Flight Position {position.trade_id} to ACTIVE")
+            # Phase 50: In-Flight Promotion (PENDING -> OPEN)
+            if position.status == "PENDING":
+                position.status = "OPEN"
+                logger.info(f"✅ Promoted In-Flight Position {position.trade_id} to OPEN")
 
                 # If we were tracking by client ID, update to exchange ID
                 if exchange_id and exchange_id not in ("0", "", "None") and position.trade_id != str(exchange_id):
@@ -1671,7 +1672,7 @@ class PositionTracker:
             liquidation_level=None,
             order=order_params,
             main_order_id=client_order_id,
-            status="OPENING",
+            status="PENDING",
             t0_signal_ts=order_params.get("t0_signal_ts"),  # Phase 85: Signal Latency
             t1_decision_ts=order_params.get("t1_decision_ts"),  # Phase 10: Decision Latency
             t2_submit_ts=time.time(),  # Phase 1350: Restore HFT Wire Submission Telemetry

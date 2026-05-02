@@ -525,7 +525,7 @@ class ExitEngine:
         2. MEX (Micro-Exhaustion): Delta momentum decay.
         3. STS (Structural Trailing Stop): Trailing behind volume nodes.
         """
-        if position.status != "ACTIVE" or position.scaled_out:
+        if position.status != "OPEN" or position.scaled_out:
             return
 
         # Phase 1300: Only activate SCE when in sufficient profit

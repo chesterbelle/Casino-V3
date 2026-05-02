@@ -220,10 +220,12 @@ class ExchangeAdapter(NetworkIterator):
         symbol: str,
         timeframe: str = "1m",
         prefer_ws: bool = False,
+        engine: Optional[Any] = None,
     ):
         super().__init__()
         # El conector es la única dependencia.
         self.connector = connector
+        self.engine = engine
 
         # Configuración básica de operación
         self.symbol = symbol
@@ -247,8 +249,55 @@ class ExchangeAdapter(NetworkIterator):
         """
         if hasattr(self.connector, "connect"):
             await self.connector.connect()
+
+        # Phase 2: Event-Driven Pivot
+        # If engine is available, wire connector callbacks to our dispatchers
+        if self.engine:
+            if hasattr(self.connector, "set_order_update_callback"):
+                self.connector.set_order_update_callback(self.on_order_update)
+                self.logger.info("📡 Event-Driven: Order updates wired to Engine")
+
+            if hasattr(self.connector, "set_account_update_callback"):
+                self.connector.set_account_update_callback(self.on_account_update)
+                self.logger.info("📡 Event-Driven: Account updates wired to Engine")
         else:
             self.logger.warning("Connector does not implement async connect().")
+
+    async def on_order_update(self, data: Dict[str, Any]):
+        """Dispatch order update event to Engine."""
+        if not self.engine:
+            return
+
+        import time
+
+        from core.events import EventType, OrderUpdateEvent
+
+        # Normalize if needed (though connector usually does it)
+        event = OrderUpdateEvent(
+            type=EventType.ORDER_UPDATE,
+            timestamp=time.time(),
+            order_id=data.get("order_id") or data.get("id"),
+            symbol=data.get("symbol"),
+            status=data.get("status"),
+            filled=float(data.get("filled", 0)),
+            remaining=float(data.get("remaining", 0)),
+            price=float(data.get("price", 0)),
+            side=data.get("side"),
+            client_order_id=data.get("client_order_id"),
+        )
+        await self.engine.dispatch(event)
+
+    async def on_account_update(self, data: Dict[str, Any]):
+        """Dispatch account update event to Engine."""
+        if not self.engine:
+            return
+
+        import time
+
+        from core.events import AccountUpdateEvent, EventType
+
+        event = AccountUpdateEvent(type=EventType.ACCOUNT_UPDATE, timestamp=time.time(), data=data)
+        await self.engine.dispatch(event)
 
     # duplicate fetch_positions block removed
 

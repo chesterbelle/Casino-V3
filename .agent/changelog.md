@@ -6,6 +6,17 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+## 📝 Historial de Sesiones
+
+### 2026-05-01: LTA V7 Sensor Unification & Croupier Exit Engine (Capa de Hierro)
+*   **Descripción**: Se resolvió el fallo de inicialización en los workers de sensores (ceguera de footprint) y se refactorizó la configuración del Motor de Salidas para evitar la esquizofrenia algorítmica.
+*   **Detalle Técnico**:
+    *   `core/sensor_manager.py` & `core/sensor_worker.py`: Se inyectó el símbolo en los ticks y se añadió lógica de "hot-prime" del FootprintRegistry para garantizar que cada proceso hijo inicializa correctamente su `tick_size`.
+    *   `config/trading.py`: Se consolidó la configuración fragmentada del ExitEngine en un bloque maestro unificado de 5 capas, operado por un `ACTIVE_EXIT_PROFILE`.
+*   **Hallazgos y Errores**:
+    *   *Bug (Ceguera de sensores)*: El proceso padre acaparaba la actualización del footprint global, ocultando el hecho de que los workers no sabían procesar ticks. Se solucionó aislando el estado y garantizando la propagación de datos.
+    *   *Esquizofrenia Algorítmica*: Activar múltiples salidas tácticas a la vez (ej. Invalidación + Trailing) genera conflictos. Se definió la regla de usar "Perfiles de Ejecución" puros (Exprimidor, Francotirador, Escalador).
+
 ## 🏗️ Estado de las Capas de Certificación
 
 ### 1. Capa de Hierro (Infraestructura) — [CERTIFICADA ✅]

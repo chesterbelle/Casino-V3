@@ -14,7 +14,7 @@ Version: 3.0.0
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.error_handling import RetryConfig, get_error_handler
 from core.exceptions import ExchangeError
@@ -41,24 +41,27 @@ class OrderExecutor:
         })
     """
 
-    def __init__(self, exchange_adapter, error_handler=None, order_tracker=None, position_tracker=None):
+    def __init__(self, exchange_adapter, error_handler=None, position_tracker=None):
         """
         Initialize OrderExecutor.
 
         Args:
             exchange_adapter: ExchangeAdapter instance for order execution
             error_handler: Optional ErrorHandler (uses global if None)
-            order_tracker: Optional OrderTracker instance (Legacy local tracking)
-            position_tracker: Optional PositionTracker (Legacy V3 State / alias registration)
+            position_tracker: Optional PositionTracker (V3 State / alias registration)
         """
         self.adapter = exchange_adapter
         self.error_handler = error_handler or get_error_handler()
-        self.order_tracker = order_tracker
         self.position_tracker = position_tracker
         self.logger = logging.getLogger("OrderExecutor")
+        self.oco_manager = None
+
+    def set_oco_manager(self, oco_manager):
+        """Phase 2: Inject OCOManager to allow smart_close to handle brackets."""
+        self.oco_manager = oco_manager
 
         # Phase 102: Execution Quality - Depth Profiling
-        self.depth_profiler = DepthProfiler(exchange_adapter)
+        self.depth_profiler = DepthProfiler(self.adapter)
         self.max_slippage_pct = 0.005  # 0.5% default threshold
         self.fragmentation_threshold_pct = 0.002  # 0.2% start fragmenting
 
@@ -340,10 +343,7 @@ class OrderExecutor:
                 timeout=5.0,  # Phase 56: Strict Execution Timeout
             )
 
-            # LOCAL TRACKING: Register in OrderTracker if available
-            if self.order_tracker:
-                self.order_tracker.track_local_order(result)
-
+            # Phase 31: Legacy OrderTracker removed
             self._log_execution(result, "Limit")
             return result
         except Exception as e:
@@ -356,8 +356,6 @@ class OrderExecutor:
                 try:
                     recovered = await self.adapter.fetch_order(cid, symbol)
                     self.logger.info(f"✅ Successfully recovered duplicated limit order {cid}")
-                    if self.order_tracker:
-                        self.order_tracker.track_local_order(recovered)
                     return recovered
                 except Exception:
                     pass
@@ -435,10 +433,6 @@ class OrderExecutor:
             else:
                 raise e
 
-        # LOCAL TRACKING: Register in OrderTracker if available
-        if self.order_tracker:
-            self.order_tracker.track_local_order(result)
-
         self.logger.info(f"[OCO] ✅ Stop Order Executed: {result.get('order_id')}")
 
         return result
@@ -501,6 +495,113 @@ class OrderExecutor:
             return RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
         else:
             return RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
+
+    async def smart_close_position(
+        self,
+        trade_id: str,
+        symbol: str,
+        side: str,
+        amount: float,
+        skip_depth_analysis: bool = True,
+        exit_reason: Optional[str] = None,
+        position_obj: Optional[Any] = None,
+        watchdog: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Unified Execution Funnel for closing positions (Phase 2.2).
+        Handles:
+        1. Bracket Cancellation (via OCOManager)
+        2. "Smart Close" Tiered Execution (Market -> Aggressive Limit -> Safe Limit)
+        3. Alias Registration
+        """
+        symbol = self.adapter.normalize_symbol(symbol)
+        close_side = "SELL" if side.upper() == "LONG" else "BUY"
+
+        self.logger.info(f"📤 [SmartClose] {trade_id} | {symbol} {side} {amount} | Reason: {exit_reason}")
+
+        # 1. Cancel Bracket Orders (TP/SL)
+        if self.oco_manager and position_obj:
+            try:
+                tp_cancel_id = (
+                    position_obj.exchange_tp_id
+                    or (position_obj.tp_order.exchange_order_id if getattr(position_obj, "tp_order", None) else None)
+                    or position_obj.tp_order_id
+                )
+                sl_cancel_id = (
+                    position_obj.exchange_sl_id
+                    or (position_obj.sl_order.exchange_order_id if getattr(position_obj, "sl_order", None) else None)
+                    or position_obj.sl_order_id
+                )
+                await self.oco_manager.cancel_bracket(tp_cancel_id, sl_cancel_id, symbol)
+            except Exception as ce:
+                self.logger.warning(f"⚠️ Non-critical failure cancelling bracket for {trade_id}: {ce}")
+
+        if watchdog:
+            watchdog.heartbeat("smart_close", f"Bracket cancelled for {symbol}")
+
+        # 2. Generate Universal ID for tracking
+        import uuid
+
+        client_id = f"CASINO_FC_{uuid.uuid4().hex[:12]}"
+
+        # 3. Pre-Register Alias
+        if self.position_tracker and position_obj:
+            self.position_tracker.register_alias(client_id, position_obj)
+            self.logger.info(f"💾 Pre-Registered Close Alias: {client_id} -> {trade_id}")
+
+        # 4. TIERED EXECUTION (Smart Close)
+        try:
+            # Phase 31: Legacy OrderTracker removed
+            return await self.execute_market_order(
+                {
+                    "symbol": symbol,
+                    "side": close_side,
+                    "amount": amount,
+                    "params": {
+                        "reduceOnly": True,
+                        "client_order_id": client_id,
+                        "exit_reason": exit_reason or "SMART_CLOSE",
+                    },
+                },
+                skip_depth_analysis=skip_depth_analysis,
+            )
+        except Exception as e:
+            # TIER 1/2 fallbacks (Already implemented in force_close logic which I'll keep below or merge)
+            # Re-raising for now to allow original force_close logic to handle it if I rename it
+            self.logger.warning(f"⚠️ Tier 0 (Market) failed for {symbol}: {e}. Attempting fallbacks...")
+            return await self._execute_tiered_fallback(
+                symbol, close_side, amount, client_id, exit_reason or "SMART_CLOSE_FALLBACK"
+            )
+
+    async def _execute_tiered_fallback(self, symbol: str, side: str, amount: float, client_id: str, reason: str):
+        """Tiered limit fallbacks for when market orders are blocked."""
+        try:
+            # Get current price
+            ticker = await self.adapter.fetch_ticker(symbol)
+            price = float(ticker.get("last", 0))
+
+            # TIER 1: Aggressive Limit (5% buffer)
+            buffer = 0.05
+            limit_price = price * (1 + buffer) if side.upper() == "BUY" else price * (1 - buffer)
+            limit_price = float(self.adapter.price_to_precision(symbol, limit_price))
+
+            self.logger.info(f"🛡️ Tier 1 (Aggressive Limit): {symbol} @ {limit_price}")
+            return await self.execute_limit_order(
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "amount": amount,
+                    "price": limit_price,
+                    "params": {
+                        "reduceOnly": True,
+                        "client_order_id": client_id,
+                        "exit_reason": f"{reason}_TIER1",
+                    },
+                }
+            )
+        except Exception as tier1_e:
+            self.logger.error(f"❌ Tier 1 Failed: {tier1_e}")
+            raise tier1_e
 
     async def force_close_position(
         self, symbol: str, side: str, amount: float, skip_depth_analysis: bool = True, exit_reason: Optional[str] = None
@@ -631,6 +732,108 @@ class OrderExecutor:
                 )
 
             raise tier1_e
+
+    async def emergency_sweep(
+        self,
+        symbols: Optional[List[str]] = None,
+        close_positions: bool = False,
+        reason: str = "MANUAL",
+        watchdog: Optional[Any] = None,
+        position_tracker: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Emergency sweep: Clean up state (Cancel Orders + Optional Close Positions).
+        Moved from Croupier to OrderExecutor (Phase 2.2).
+        """
+        self.logger.info(f"🧹 EMERGENCY SWEEP: Cancelling orders {'& Closing Positions' if close_positions else ''}...")
+
+        report = {
+            "positions_closed": 0,
+            "orders_cancelled": 0,
+            "symbols_processed": [],
+            "errors": [],
+        }
+
+        # Enable Shutdown Mode to bypass circuit breakers for graceful exit
+        self.error_handler.set_shutdown_mode(True)
+
+        try:
+            # 1. Audit Sweep (Attempt 3 times to ensure 100% cleanliness)
+            for attempt in range(3):
+                self.logger.info(f"🔍 Audit Sweep (Attempt {attempt+1}/3)...")
+                if watchdog:
+                    watchdog.heartbeat("emergency_sweep", "Bulk fetch start")
+
+                # Fetch all state
+                all_exchange_positions = await self.adapter.fetch_positions()
+                all_exchange_orders = await self.adapter.fetch_open_orders(None)
+
+                # Filter and Map
+                symbol_map = {}
+                for pos in all_exchange_positions:
+                    sym = pos["symbol"]
+                    if symbols and sym not in symbols:
+                        continue
+                    if sym not in symbol_map:
+                        symbol_map[sym] = {"positions": [], "orders": []}
+                    symbol_map[sym]["positions"].append(pos)
+
+                for order in all_exchange_orders:
+                    sym = self.adapter.normalize_symbol(order["symbol"])
+                    if symbols and sym not in symbols:
+                        continue
+                    if sym not in symbol_map:
+                        symbol_map[sym] = {"positions": [], "orders": []}
+                    symbol_map[sym]["orders"].append(order)
+
+                if not symbol_map:
+                    self.logger.info("✅ Exchange is clean.")
+                    break
+
+                # Sequential Processing
+                for sym, state in symbol_map.items():
+                    if watchdog:
+                        watchdog.heartbeat()
+
+                    try:
+                        # Step A: Cancel all orders
+                        if state["orders"]:
+                            await self.adapter.cancel_all_orders(sym)
+                            report["orders_cancelled"] += len(state["orders"])
+                            await asyncio.sleep(0.1)
+
+                        # Step B: Close positions
+                        if close_positions and state["positions"]:
+                            for pos in state["positions"]:
+                                size = abs(float(pos.get("contracts", 0) or pos.get("size", 0) or 0))
+                                if size > 0:
+                                    side = pos.get("side", "").lower()
+                                    close_side = "sell" if side == "long" else "buy"
+
+                                    await self.adapter.create_market_order(
+                                        symbol=sym,
+                                        side=close_side,
+                                        amount=size,
+                                        params={"reduceOnly": True},
+                                    )
+                                    self.logger.info(f"✅ Closed remainder: {sym} {size}")
+                                    report["positions_closed"] += 1
+                                    await asyncio.sleep(0.2)
+                    except Exception as e:
+                        self.logger.error(f"❌ Error sweeping {sym}: {e}")
+                        report["errors"].append(f"{sym}: {str(e)}")
+
+                if not close_positions:
+                    break
+                await asyncio.sleep(1)
+
+        except Exception as e:
+            self.logger.error(f"❌ Emergency sweep failed: {e}")
+            report["errors"].append(str(e))
+        finally:
+            self.error_handler.set_shutdown_mode(False)
+
+        return report
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """

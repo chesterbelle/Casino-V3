@@ -35,7 +35,7 @@ Ensuring the simulation respects the 60-minute warmup period is critical for acc
 
 ```bash
 .venv/bin/python backtest.py \
-  --data tests/validation/long_range/SOL_USDT_USDT_7d.csv \
+  --data tests/validation/sol_24h_audit.csv \
   --symbol SOL/USDT:USDT \
   --depth-db data/historian.db \
   2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log

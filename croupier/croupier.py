@@ -64,6 +64,7 @@ class Croupier(TimeIterator):
         """
         super().__init__()
         self.adapter = exchange_adapter
+        self.engine = engine
         # Backward compatibility: some components expect exchange_adapter
         self.exchange_adapter = exchange_adapter
         self.logger = logging.getLogger("Croupier")
@@ -79,7 +80,16 @@ class Croupier(TimeIterator):
         self.order_executor = OrderExecutor(
             exchange_adapter, self.error_handler, position_tracker=self.position_tracker
         )
-        self.oco_manager = OCOManager(self.order_executor, self.position_tracker, exchange_adapter)
+        # Phase 42: OCOManager (Bracket Control)
+        # OCOManager coordinates the main entry and its associated TP/SL anchors.
+        self.oco_manager = OCOManager(
+            order_executor=self.order_executor,
+            position_tracker=self.position_tracker,
+            exchange_adapter=exchange_adapter,
+        )
+
+        # Phase 2: Link OrderExecutor back to OCOManager for smart_close
+        self.order_executor.set_oco_manager(self.oco_manager)
 
         # Legacy: Still keep reconciliation for Adopt/Cleanup logic, but without its own loop
         self.reconciliation = ReconciliationService(
@@ -109,14 +119,7 @@ class Croupier(TimeIterator):
         # Register callback for automatic cleanup when exchange hits TP/SL
         self.position_tracker.on_close_callback = self._on_position_closed_cleanup
 
-        # Phase 78.2: Connect Liquidation Sheriff (Account Updates)
-        # PositionTracker must listen to ACCOUNT_UPDATE to catch external liquidations
-        self.adapter.set_account_update_callback(self.position_tracker.handle_account_update)
-
-        # Phase 79.1: Connect Order Updates (Total Visibility)
-        # PositionTracker must listen to ORDER_TRADE_UPDATE to catch real-time fills
-        # OCOManager must also listen to resolve futures immediately (Phase 91.2 Fix)
-        self.adapter.set_order_update_callback(self._on_order_update_wrapper)
+        # Phase 2: Reactive wiring handled in start() via Engine subscriptions
 
         # Debounce for reconciliations
         self._reconciliation_tasks: Dict[str, float] = {}
@@ -154,16 +157,55 @@ class Croupier(TimeIterator):
         self.position_tracker.add_close_listener(self._on_trade_close_guard)
 
         # Phase 249.1: Trigger initial solvency check (Startup Sanity)
-        if initial_balance > 0:
-            self.portfolio_guard.on_balance_update(initial_balance)
 
-    async def _on_order_update_wrapper(self, data):
-        """Internal wrapper to route order updates to specialized components."""
-        # Route to PositionTracker
+    async def start(self):
+        """Start Croupier and subscribe to Engine events (Phase 2)."""
+        if not self.engine:
+            self.logger.warning("⚠️ Croupier: No Engine provided. Reactive events disabled.")
+            return
+
+        from core.events import EventType
+
+        # 1. Lifecycle Events
+        self.engine.subscribe(EventType.AGGREGATED_SIGNAL, self.exit_manager.on_signal)
+        self.engine.subscribe(EventType.CANDLE, self.exit_manager.on_candle)
+        self.engine.subscribe(EventType.TICK, self.exit_manager.on_tick)
+        self.engine.subscribe(EventType.MICROSTRUCTURE, self.exit_manager.on_microstructure)
+
+        # 2. Execution Events (The Pivot)
+        self.engine.subscribe(EventType.ORDER_UPDATE, self._on_order_update_event)
+        self.engine.subscribe(EventType.ACCOUNT_UPDATE, self._on_account_update_event)
+
+        self.logger.info("🚀 Croupier: Reactive Event-Driven Reactor OPEN")
+
+        # Phase 102: Industrial Resilience - Start Drift Auditor
+        await self.drift_auditor.start()
+
+    async def _on_order_update_event(self, event):
+        """Reactive handler for ORDER_UPDATE events."""
+        # Convert Event to dict for backward compatibility with component handlers
+        data = {
+            "order_id": event.order_id,
+            "id": event.order_id,
+            "client_order_id": event.client_order_id,
+            "symbol": event.symbol,
+            "status": event.status,
+            "filled": event.filled,
+            "remaining": event.remaining,
+            "price": event.price,
+            "side": event.side,
+        }
+
+        # Route to PositionTracker (Atomic state management)
         await self.position_tracker.handle_order_update(data)
 
-        # Route to OCO Manager (for entry fill detection)
+        # Route to OCOManager (Entry fill detection)
         await self.oco_manager.on_order_update(data)
+
+    async def _on_account_update_event(self, event):
+        """Reactive handler for ACCOUNT_UPDATE events."""
+        # Route to BalanceManager
+        self.balance_manager.handle_account_update(event.data)
 
     @property
     def is_settled(self) -> bool:
@@ -316,225 +358,19 @@ class Croupier(TimeIterator):
         self,
         symbols: Optional[List[str]] = None,
         close_positions: bool = False,
-        reason: str = "MANUAL",
-        watchdog: Optional[Any] = None,
+        reason: str = "SHUTDOWN",
     ) -> Dict[str, Any]:
         """
-        Emergency sweep: Clean up state (Cancel Orders + Optional Close Positions).
-        Includes Rate Limiting to prevent API Saturation (-1021 Errors).
+        Cleanup all exchange state.
+        Redirects to OrderExecutor (Phase 2.2).
         """
-        self.logger.info(f"🧹 EMERGENCY SWEEP: Cancelling orders {'& Closing Positions' if close_positions else ''}...")
-
-        report = {
-            "positions_closed": 0,
-            "orders_cancelled": 0,
-            "symbols_processed": [],
-            "errors": [],
-        }
-
-        # Phase 29: Enable Shutdown Mode to bypass circuit breakers for graceful exit
-        self.error_handler.set_shutdown_mode(True)
-
-        if not self.adapter:
-            self.logger.warning("⚠️ Exchange adapter not initialized in Croupier, skipping sweep")
-            return report
-
-        try:
-            # STEP 0: Gracefully close TRACKED positions first (Counts towards stats/PnL)
-            if close_positions and self.position_tracker.open_positions:
-                tracked_positions = list(self.position_tracker.open_positions)
-                self.logger.info(f"🛡️ Gracefully closing {len(tracked_positions)} tracked positions (Parallel)...")
-
-                # Phase 200: Concurrent Draining Optimization
-                # Phase 236: Reduced from Sem(5) to Sem(3) to prevent API flood during shutdown
-                # Each close = 2 cancel requests (TP+SL) + 1 market order = 3 REST calls
-                # Sem(3) * 3 calls = max 9 concurrent REST requests (safe for testnet)
-                sem = asyncio.Semaphore(3)
-
-                async def close_with_sem(pos, idx, total):
-                    async with sem:
-                        try:
-                            self.logger.info(
-                                f"📉 Closing tracked position {pos.trade_id} ({pos.symbol}) [{idx+1}/{total}]"
-                            )
-                            await self.close_position(
-                                pos.trade_id, exit_reason=reason, position_obj=pos, watchdog=watchdog
-                            )
-                            report["positions_closed"] += 1
-                        except Exception as e:
-                            self.logger.error(f"❌ Failed to close {pos.trade_id}: {e}")
-                        finally:
-                            if watchdog:
-                                watchdog.heartbeat()
-                            # Phase 236: Increased stagger from 50ms to 200ms to prevent API saturation
-                            await asyncio.sleep(0.2)
-
-                # Launch all close tasks
-                tasks = [close_with_sem(pos, i, len(tracked_positions)) for i, pos in enumerate(tracked_positions)]
-
-                # Filter by symbol if requested
-                if symbols:
-                    norm_symbols = [normalize_symbol(s) for s in symbols]
-                    tasks = [t for t, p in zip(tasks, tracked_positions) if normalize_symbol(p.symbol) in norm_symbols]
-
-                if tasks:
-                    await asyncio.gather(*tasks)
-
-            # --- OPTIMIZED BRUTE FORCE SWEEP (Catch ghosts/orphans/remainders) ---
-            # We use a loop for the "Smart Exit" to ensure everything is really closed.
-            for attempt in range(3):
-                self.logger.info(f"🔍 Audit Sweep (Attempt {attempt+1}/3)...")
-
-                if watchdog:
-                    watchdog.heartbeat("emergency_sweep", "Bulk fetch start")
-
-                # 1. Fetch EVERYTHING once
-                # Phase 240: Use strict timeout for audit fetch
-                try:
-                    all_exchange_positions, all_exchange_orders = await asyncio.wait_for(
-                        asyncio.gather(
-                            self.adapter.fetch_positions(), self.adapter.fetch_open_orders(None), return_exceptions=True
-                        ),
-                        timeout=self.EXCHANGE_SHUTDOWN_TIMEOUT,
-                    )
-                except asyncio.TimeoutError:
-                    self.logger.error("❌ Bulk fetch timed out during emergency_sweep")
-                    all_exchange_positions, all_exchange_orders = [], []
-
-                # Handle potential exceptions in bulk fetch
-                if isinstance(all_exchange_positions, Exception):
-                    self.logger.error(f"❌ Failed to bulk fetch positions: {all_exchange_positions}")
-                    all_exchange_positions = []
-                if isinstance(all_exchange_orders, Exception):
-                    self.logger.error(f"❌ Failed to bulk fetch orders: {all_exchange_orders}")
-                    all_exchange_orders = []
-
-                # 2. Build map of symbol -> state
-                symbol_map = {}
-                for pos in all_exchange_positions:
-                    sym = pos["symbol"]
-                    if symbols and sym not in symbols:
-                        continue
-                    if sym not in symbol_map:
-                        symbol_map[sym] = {"positions": [], "orders": []}
-                    symbol_map[sym]["positions"].append(pos)
-
-                for i, order in enumerate(all_exchange_orders):
-                    if watchdog and i % 5 == 0:
-                        watchdog.heartbeat("emergency_sweep", f"Processing order {i}/{len(all_exchange_orders)}")
-                    sym = normalize_symbol(order["symbol"])
-                    if symbols:
-                        norm_symbols = [normalize_symbol(s) for s in symbols]
-                        if sym not in norm_symbols:
-                            continue
-                    if sym not in symbol_map:
-                        symbol_map[sym] = {"positions": [], "orders": []}
-                    symbol_map[sym]["orders"].append(order)
-
-                if not symbol_map:
-                    self.logger.info("✅ Exchange is clean.")
-                    break
-
-                self.logger.info(f"🔍 Sweeping {len(symbol_map)} symbols sequentially...")
-
-                # 3. Sequential Processing (Phase 33 Fix)
-                for sym, state in symbol_map.items():
-                    if watchdog:
-                        watchdog.heartbeat()
-
-                    try:
-                        # Step A: Cancel all orders
-                        if state["orders"]:
-                            await self.adapter.cancel_all_orders(sym, timeout=self.EXCHANGE_SHUTDOWN_TIMEOUT)
-                            report["orders_cancelled"] += len(state["orders"])
-                            await asyncio.sleep(0.1)  # Tiny pause
-
-                        # Step B: Close positions
-                        if close_positions and state["positions"]:
-                            for i, pos in enumerate(state["positions"]):
-                                if watchdog:
-                                    watchdog.heartbeat(
-                                        "emergency_sweep", f"Closing {sym} {i+1}/{len(state['positions'])}"
-                                    )
-                                size = abs(
-                                    float(pos.get("contracts", 0) or pos.get("size", 0) or pos.get("amount", 0) or 0)
-                                )
-                                if size > 0:
-                                    side = pos.get("side", "").lower()
-                                    close_side = "sell" if side == "long" else "buy"
-
-                                    # Create Market Order
-                                    await self.adapter.create_market_order(
-                                        symbol=sym,
-                                        side=close_side,
-                                        amount=size,
-                                        params={"reduceOnly": True, "timeout": self.EXCHANGE_SHUTDOWN_TIMEOUT},
-                                    )
-                                    self.logger.info(f"✅ Closed remainder: {sym} {size}")
-
-                                    # Record Closure (Phase 87: Zero-Leakage)
-                                    try:
-                                        # Estimate PnL (Neutral) or fetch current price
-                                        exit_price = 0.0
-                                        try:
-                                            # Phase 240: Fast Ticker with timeout
-                                            ticker = await asyncio.wait_for(self.adapter.fetch_ticker(sym), timeout=5.0)
-                                            exit_price = float(ticker.get("last", 0))
-                                        except Exception:
-                                            pass
-
-                                        # Record in Historian so variance is explained
-                                        historian.record_trade(
-                                            {
-                                                "trade_id": f"AUDIT_{int(time.time()*1000)}",
-                                                "symbol": sym,
-                                                "side": "SHORT" if close_side == "sell" else "LONG",
-                                                "action": "CLOSE",
-                                                "amount": size,
-                                                "price": exit_price,
-                                                "pnl": 0.0,  # Will be adjusted by Ledger Reconciler later
-                                                "fee": 0.0,
-                                                "exit_reason": "AUDIT_SWEEP_CLOSE",
-                                                "session_id": self.session_id,
-                                            }
-                                        )
-                                    except Exception as hist_err:
-                                        self.logger.error(f"⚠️ Failed to record audit closure for {sym}: {hist_err}")
-
-                                    report["positions_closed"] += 1
-                                    await asyncio.sleep(0.2)  # Throttle closures
-
-                    except Exception as e:
-                        self.logger.error(f"❌ Error sweeping {sym}: {e}")
-
-                if not close_positions:
-                    break
-
-                await asyncio.sleep(1)
-
-            # ... (Rest of method) ...
-            self.logger.info(
-                f"✅ Emergency sweep complete: "
-                f"{report['positions_closed']} positions closed, "
-                f"{report['orders_cancelled']} orders cancelled"
-            )
-
-            # Reverting: Only clear if we actually closed something on exchange.
-            if report["positions_closed"] > 0 or report["orders_cancelled"] > 0:
-                self.position_tracker.open_positions.clear()
-                self.logger.warning(
-                    f"⚠️ Cleaned up {report['positions_closed']} positions and "
-                    f"{report['orders_cancelled']} orders from exchange"
-                )
-
-        except Exception as e:
-            self.logger.error(f"❌ Emergency sweep failed: {e}")
-            report["errors"].append(str(e))
-
-        finally:
-            self.error_handler.set_shutdown_mode(False)
-
-        return report
+        return await self.order_executor.emergency_sweep(
+            symbols=symbols,
+            close_positions=close_positions,
+            reason=reason,
+            watchdog=self.watchdog,
+            position_tracker=self.position_tracker,
+        )
 
     async def modify_tp(
         self,
@@ -661,232 +497,48 @@ class Croupier(TimeIterator):
         exit_reason: str = "MANUAL",
         position_obj: Optional[Any] = None,
         watchdog: Optional[Any] = None,
-    ) -> Dict[str, Any]:
+    ) -> Dict:
         """
-        Close a position manually.
-
-        1. Cancel TP/SL orders
-        2. Execute market close order
+        Close an open position.
+        Delegates the execution funnel to OrderExecutor.smart_close_position (Phase 2.2).
         """
-        # Centralized Governance: Attempt to lock position for closure
-        # This replaces the manual status check with an atomic architectural guard
-        position = self.position_tracker.get_position(trade_id)
-        if position and position.status == "CLOSING":
-            self.logger.debug(f"⏭️ Skipping close_position: {trade_id} is already CLOSING")
-            return {"status": "skipped", "reason": "already_closing"}
+        position = position_obj or self.position_tracker.get_position(trade_id)
+        if not position:
+            self.logger.warning(f"⚠️ Cannot close {trade_id}: Position not found")
+            return {"status": "error", "message": "Position not found"}
 
+        # 0. Atomic Lock (Prevents double-close)
+        # Phase 243: Use the unified lock_for_closure instead of manual lock()
         if not await self.position_tracker.lock_for_closure(trade_id):
             self.logger.debug(f"⏭️ Skipping close_position: {trade_id} is busy or already CLOSING")
             return {"status": "skipped", "reason": "already_closing"}
 
         # Phase 84: Track pending closure for Settlement
         self._pending_closures.add(trade_id)
-
-        # At this point, the position status is "CLOSING" and we hold the governance lock
-        # We RE-FETCH position to ensure we have the locked object
-        position = self.position_tracker.get_position(trade_id)
-        if not position:
-            self.position_tracker.unlock(trade_id)  # Safety
-            self._pending_closures.discard(trade_id)
-            raise ValueError(f"Position vanished after locking: {trade_id}")
-
         self.logger.info(f"📤 Closing position: {trade_id} | {position.symbol} {position.side}")
 
         try:
-            # 1. Cancel TP/SL
-            try:
-                tp_cancel_id = (
-                    position.exchange_tp_id
-                    or (position.tp_order.exchange_order_id if getattr(position, "tp_order", None) else None)
-                    or position.tp_order_id
-                )
-                sl_cancel_id = (
-                    position.exchange_sl_id
-                    or (position.sl_order.exchange_order_id if getattr(position, "sl_order", None) else None)
-                    or position.sl_order_id
-                )
-                await self.oco_manager.cancel_bracket(tp_cancel_id, sl_cancel_id, position.symbol)
-            except Exception as ce:
-                self.logger.warning(
-                    f"⚠️ Non-critical failure cancelling bracket for {trade_id}: {ce}. Proceeding to close market position."
-                )
-
-            if watchdog:
-                watchdog.heartbeat("close_position", f"Bracket cancelled for {position.symbol}")
-
-            # 2. Execute market close
-
-            # Calculate amount (use remaining amount if partial fills supported, but for now full close)
-            # We need to use the original amount or current size.
-            # Fallback logic for reconciled positions that lack 'order' history.
-            amount = position.order.get("amount")
-
+            # 1. Determine Amount
+            amount = position.order.get("amount") or abs(position.notional) / (position.entry_price or 1.0)
             if not amount:
-                # Fallback 1: Try getting from raw exchange info (most accurate)
-                if hasattr(position, "info") and position.info and "positionAmt" in position.info:
-                    try:
-                        amount = abs(float(position.info["positionAmt"]))
-                    except (ValueError, TypeError):
-                        pass
+                raise ValueError(f"Position {trade_id} has no amount information")
 
-            if not amount:
-                # Fallback 2: Calculate from Notional / Entry Price
-                if position.entry_price > 0 and position.notional:
-                    amount = abs(position.notional) / position.entry_price
+            # 2. Execute Smart Close
+            result = await self.order_executor.smart_close_position(
+                trade_id=trade_id,
+                symbol=position.symbol,
+                side=position.side,
+                amount=amount,
+                exit_reason=exit_reason,
+                position_obj=position,
+                watchdog=watchdog,
+            )
 
-            if not amount:
-                # Fallback 3: Raise error if strictly impossible to determine
-                raise ValueError(
-                    f"Position {trade_id} has no amount information (Order missing, Info missing, Calc failed)"
-                )
-
-            try:
-                # Phase 43: Universal Funnel - Delegate "Smart Close" to OrderExecutor
-                result = await self.order_executor.force_close_position(
-                    symbol=position.symbol, side=position.side, amount=amount, exit_reason=exit_reason
-                )
-            except Exception as e:
-                # Phase 82: Handle position already closed by TP/SL gracefully
-                from core.exceptions import PositionAlreadyClosedError
-
-                if isinstance(e, PositionAlreadyClosedError):
-                    self.logger.info(
-                        f"✅ Position {trade_id} was already closed (TP/SL hit). Confirming closure in tracker."
-                    )
-                    # Get current price for PnL estimation
-                    try:
-                        exit_price = await asyncio.wait_for(
-                            self.adapter.get_current_price(position.symbol), timeout=5.0
-                        )
-                    except Exception:
-                        exit_price = position.entry_price  # Neutral fallback
-
-                    # Calculate approximate PnL
-                    if position.entry_price > 0:
-                        if position.side == "LONG":
-                            pnl = (exit_price - position.entry_price) * position.notional / position.entry_price
-                        else:
-                            pnl = (position.entry_price - exit_price) * position.notional / position.entry_price
-                    else:
-                        pnl = 0.0
-
-                    await self.position_tracker.confirm_close(
-                        trade_id=trade_id,
-                        exit_price=exit_price,
-                        exit_reason="TP_SL_HIT",
-                        pnl=pnl,
-                        fee=0.0,
-                    )
-
-                    # Update ContextRegistry (Phase 974 Sniper Patience Lock)
-                    if self.context_registry:
-                        # Check if any OTHER position for this symbol is still open
-                        other_positions = [
-                            p for p in self.position_tracker.open_positions if p.symbol == position.symbol
-                        ]
-                        if not other_positions:
-                            self.context_registry.set_in_trade(position.symbol, False)
-                            self.logger.debug(f"🔓 [CONCURRENCY] {position.symbol} unlocked. Accepting new signals.")
-
-                    return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
-                else:
-                    self.logger.error(f"❌ Smart Close Failed for {trade_id}: {e}. Triggering RAW EMERGENCY BYPASS.")
-                    # Extreme Failsafe: Bypass OrderExecutor and Circuit Breakers entirely
-                    connector = getattr(self.adapter, "connector", None) or getattr(self.adapter, "_connector", None)
-                    if connector:
-                        close_side = "sell" if position.side == "LONG" else "buy"
-                        try:
-                            result = await connector.create_order(
-                                symbol=position.symbol,
-                                side=close_side,
-                                amount=amount,
-                                order_type="market",
-                                params={"reduceOnly": True},
-                                timeout=5.0,  # CRITICAL: Prevent 5-minute aiohttp fallback hang
-                            )
-                            self.logger.warning(f"🛡️ RAW EMERGENCY BYPASS SUCCESS for {position.symbol}")
-                        except Exception as bypass_err:
-                            if "-2022" in str(bypass_err) or "ReduceOnly" in str(bypass_err):
-                                self.logger.info(
-                                    f"✅ Position {trade_id} was actually already closed. Handled gracefully."
-                                )
-                                try:
-                                    exit_price = await asyncio.wait_for(
-                                        self.adapter.get_current_price(position.symbol), timeout=5.0
-                                    )
-                                except Exception:
-                                    exit_price = position.entry_price
-
-                                if position.entry_price > 0:
-                                    if position.side == "LONG":
-                                        pnl = (
-                                            (exit_price - position.entry_price)
-                                            * position.notional
-                                            / position.entry_price
-                                        )
-                                    else:
-                                        pnl = (
-                                            (position.entry_price - exit_price)
-                                            * position.notional
-                                            / position.entry_price
-                                        )
-                                else:
-                                    pnl = 0.0
-
-                                await self.position_tracker.confirm_close(
-                                    trade_id=trade_id, exit_price=exit_price, exit_reason="TP_SL_HIT", pnl=pnl, fee=0.0
-                                )
-
-                                # Update ContextRegistry (Phase 974 Sniper Patience Lock)
-                                if self.context_registry:
-                                    # Check if any OTHER position for this symbol is still open
-                                    other_positions = [
-                                        p for p in self.position_tracker.open_positions if p.symbol == position.symbol
-                                    ]
-                                    if not other_positions:
-                                        self.context_registry.set_in_trade(position.symbol, False)
-                                        self.logger.debug(
-                                            f"🔓 [CONCURRENCY] {position.symbol} unlocked. Accepting new signals."
-                                        )
-
-                                return {"status": "already_closed", "exit_price": exit_price, "pnl": pnl}
-
-                            self.logger.critical(f"🔥 RAW EMERGENCY BYPASS FAILED. POSITION ORPHANED: {bypass_err}")
-                            return {"status": "error", "message": str(bypass_err), "original_error": str(e)}
-                    else:
-                        self.logger.critical("🔥 RAW EMERGENCY BYPASS FAILED. No connector available.")
-                        return {"status": "error", "message": "No connector", "original_error": str(e)}
-
+            # 3. Post-Execution Accounting
             fill_price = float(result.get("average", 0) or result.get("price", 0))
-
-            # Phase 1200: Extract exit fee from close result for accurate accounting
-            exit_fee_info = result.get("fee", {})
-            if isinstance(exit_fee_info, dict):
-                exit_fee = float(exit_fee_info.get("cost", 0) or 0)
-            else:
-                exit_fee = float(exit_fee_info or 0)
-
-            # FIX: Prevent 0.0 fill price from destroying PnL
             if fill_price <= 0:
-                self.logger.warning(
-                    f"⚠️ Order result missing fill price (Got {fill_price}). Fetching current price for PnL estimation..."
-                )
-                try:
-                    fill_price = await asyncio.wait_for(self.adapter.get_current_price(position.symbol), timeout=5.0)
-                    self.logger.info(f"✅ Fetched fallback price: {fill_price}")
-                except Exception as e:
-                    # Final fallback: use entry price or trigger price to keep the record alive
-                    fallback_base = position.entry_price if position.entry_price > 0 else position.order.get("price", 0)
-                    fill_price = fallback_base if fallback_base > 0 else 0.00000001
-                    self.logger.critical(
-                        f"🔥 FAILED to fetch current price fallback: {e}. "
-                        f"Using position entry/order price fallback: {fill_price}"
-                    )
-
-            self.logger.info(f"✅ Position closed: {trade_id} | Fill: {fill_price}")
-
-            # The lock is released by confirm_close or in the finally block below
-            # if confirm_close is not called.
+                # Fallback to current price if order result is incomplete
+                fill_price = await self.adapter.get_current_price(position.symbol)
 
             # Calculate PnL
             if position.entry_price > 0:
@@ -897,46 +549,28 @@ class Croupier(TimeIterator):
             else:
                 pnl = 0.0
 
-            # Phase 1200: Pass actual fees to confirm_close for accurate accounting
-            # Previously fee=0.0 was passed and _deferred_fee_enrichment overwrote with only exit_fee
-            total_fee = position.entry_fee + exit_fee
-
-            # Phase 1200: Skip deferred enrichment in backtest — fees are already accurate
-            # In backtest, _deferred_fee_enrichment overwrites correct total_fee with only exit_fee
-            is_backtest = (
-                hasattr(self.adapter, "connector") and getattr(self.adapter.connector, "mode", "live") == "testing"
-            )
-            if not is_backtest:
-                asyncio.create_task(self._deferred_fee_enrichment(trade_id, position.symbol))
-
+            # Confirm close in tracker (Unlocks and removes)
             await self.position_tracker.confirm_close(
                 trade_id=trade_id,
                 exit_price=fill_price,
                 exit_reason=exit_reason,
                 pnl=pnl,
-                fee=total_fee,  # Phase 1200: entry_fee + exit_fee (was 0.0)
+                fee=position.entry_fee + float((result.get("fee", {}) or {}).get("cost", 0)),
             )
 
-            # Update ContextRegistry (Phase 974 Sniper Patience Lock)
+            # 4. Context Unlock
             if self.context_registry:
-                # Check if any OTHER position for this symbol is still open
                 other_positions = [p for p in self.position_tracker.open_positions if p.symbol == position.symbol]
                 if not other_positions:
                     self.context_registry.set_in_trade(position.symbol, False)
-                    self.logger.debug(f"🔓 [CONCURRENCY] {position.symbol} unlocked. Accepting new signals.")
-
-            # IMPORTANT: Position is now removed from tracker, lock is effectively gone.
 
             return result
-        finally:
-            # Phase 236: Mark as CLOSE_FAILED instead of reverting to ACTIVE
-            # Reverting to ACTIVE causes infinite retry loops during drain/shutdown
-            # (drain ticker retries → fails → reverts → retries → 587 stalls)
-            # CLOSE_FAILED allows emergency_sweep audit to pick it up without drain retries
-            if position and getattr(position, "status", "") == "CLOSING":
-                self.logger.warning(f"⚠️ Marking {trade_id} as CLOSE_FAILED (will not auto-retry)")
-                position.status = "CLOSE_FAILED"
 
+        except Exception as e:
+            self.logger.error(f"❌ Error closing position {trade_id}: {e}")
+            position.status = "CLOSE_FAILED"
+            raise e
+        finally:
             self.position_tracker.unlock(trade_id, position=position)
 
     def _on_position_closed_cleanup(self, trade_id: str, result: Dict[str, Any]):
@@ -1016,8 +650,8 @@ class Croupier(TimeIterator):
         3. Update position amount/notional in memory
         """
         position = self.position_tracker.get_position(trade_id)
-        if not position or position.status != "ACTIVE":
-            return {"status": "skipped", "reason": "position_not_active"}
+        if not position or position.status != "OPEN":
+            return {"status": "skipped", "reason": "position_not_open"}
 
         if position.scaled_out:
             return {"status": "skipped", "reason": "already_scaled_out"}
@@ -1135,7 +769,7 @@ class Croupier(TimeIterator):
     def get_open_positions(self) -> List[OpenPosition]:
         """
         Get all open positions tracked in memory.
-        Includes ACTIVE, OPENING, MODIFYING, CLOSING, and OFF_BOARDING states.
+        Includes OPEN, PENDING, MODIFYING, CLOSING, and OFF_BOARDING states.
         """
         return self.position_tracker.open_positions
 
@@ -1290,12 +924,6 @@ class Croupier(TimeIterator):
     @property
     def name(self) -> str:
         return "Croupier"
-
-    async def start(self) -> None:
-        """Start components."""
-        self.logger.info("🛡️ Croupier Reactor Started")
-        # Phase 102: Industrial Resilience - Start Drift Auditor
-        await self.drift_auditor.start()
 
     async def stop(self) -> None:
         """Stop components."""

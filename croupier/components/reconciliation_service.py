@@ -377,21 +377,21 @@ class ReconciliationService:
                 continue
 
             # Integrity check
-            status = getattr(pos, "status", "ACTIVE")
-            if status in ["OPENING", "CLOSING", "MODIFYING", "OFF_BOARDING", "SYMLINK"]:
+            status = getattr(pos, "status", "OPEN")
+            if status in ["PENDING", "CLOSING", "MODIFYING", "OFF_BOARDING", "SYMLINK"]:
                 continue
 
             # Phase 51: Naked Protection Grace Period
-            # If position is ACTIVE but missing brackets, give it 60 seconds before force-closing.
+            # If position is OPEN but missing brackets, give it 60 seconds before force-closing.
             # This prevents race conditions where the main order is filled but OCOManager is still creating brackets.
-            if status == "ACTIVE":
+            if status == "OPEN":
                 try:
                     entry_time_ms = float(pos.entry_timestamp or 0)
                     if entry_time_ms < 100000000000:
                         entry_time_ms *= 1000
                     now_ms = time.time() * 1000
                     if (now_ms - entry_time_ms) < 120000:
-                        # self.logger.debug(f"⏳ Sync: {pos.trade_id} is ACTIVE but in 120s grace period. Skipping naked check.")
+                        # self.logger.debug(f"⏳ Sync: {pos.trade_id} is OPEN but in 120s grace period. Skipping naked check.")
                         continue
                 except (ValueError, TypeError):
                     pass
@@ -632,7 +632,7 @@ class ReconciliationService:
                 exchange_tp_id=str(tp_order.get("algo_id") or tp_order.get("id")),
                 exchange_sl_id=str(sl_order.get("algo_id") or sl_order.get("id")),
                 bars_held=0,
-                status="ACTIVE",  # Assume active if on exchange
+                status="OPEN",  # Assume active if on exchange
             )
 
             # Inject position into tracker

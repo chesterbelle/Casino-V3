@@ -47,7 +47,11 @@
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [EN DESARROLLO ⚔️]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
 *   **Exit Engine (5-Layer Stack)**:
-    *   Layer 5: **Catastrophic Stop** | Layer 4: **Thesis Invalidation** | Layer 3: **Valentino** | Layer 2: **Shadow** | Layer 1: **Drain**.
+    *   Layer 5: **Catastrophic Stop** | Layer 4: **Thesis Invalidation** | Layer 3: **Valentino (SCE)** | Layer 2: **Shadow Protection** | Layer 1: **Drain**.
+    *   *Regla de Hierro (Anti-Esquizofrenia)*: Nunca habilitar capas que compitan entre sí. Usar siempre un `ACTIVE_EXIT_PROFILE` único:
+        *   **EXPRIMIDOR**: L2 (Trailing/Winner Catcher) activo. L4 y L3 apagados. Ideal para Micro-Scalping.
+        *   **FRANCOTIRADOR**: L4 (Invalidación por Flujo) activo. L2 apagado. Ideal para Reversiones Puras.
+        *   **ESCALADOR**: L3 (Scale-out) activo. L2 apagado. Ideal para asegurar 50% de ganancia temprana.
 *   **Drain Phase**: Solo con `--close-on-exit`. Bloquea entradas cuando `elapsed >= timeout - drain_duration`.
 
 ---
@@ -97,6 +101,6 @@
 
 ---
 
-## 🎯 Objetivo de la Sesión Actual
-*   **Principal (Macro)**: Unificación drástica de la arquitectura: Re-inyectar el motor de Absorción (Footprint) en el chasis estructural de LTA.
-*   **Secundario (Micro)**: Modularización del `Croupier` (Separar Accountant de Executioner) y eliminación de la lógica duplicada entre `AbsorptionSetupEngine` y `SetupEngine`.
+## 🎯 Objetivo de la Siguiente Sesión
+*   **Principal (Macro)**: Validar el ciclo completo (End-to-End) desde la detección de absorción en los workers hasta la ejecución del `Croupier` en modo "Exprimidor".
+*   **Secundario (Micro)**: Ejecutar un Live-Simulation (demo) para observar cómo el "Winner Catcher" expande el TP y ajusta el Trailing Stop en tiempo real.

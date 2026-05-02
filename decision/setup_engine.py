@@ -20,7 +20,8 @@ from core.events import (
     MicrostructureEvent,
     SignalEvent,
 )
-from core.footprint_registry import footprint_registry
+from decision.guardians import GuardianManager
+from utils.structural_math import calculate_lvn_target, check_level_proximity
 
 logger = logging.getLogger("SetupEngine")
 
@@ -82,6 +83,7 @@ class SetupEngineV4:
         self.climax_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
         self._micro_count = 0
+        self.guardian_manager = GuardianManager(self._trace_decision)
         logger.info("🎯 LTA V4 Setup Engine initialized (Structural Warmup: Dynamic)")
 
     def is_system_warm(self, symbol: str, now: float) -> Tuple[bool, List[str]]:
@@ -98,43 +100,6 @@ class SetupEngineV4:
             reasons.append("Structural Levels (POC/VAH/VAL)")
 
         return len(reasons) == 0, reasons
-
-    def _calculate_lvn_target(self, symbol: str, entry_price: float, side: str) -> Optional[float]:
-        """
-        LTA V7: LVN-based dynamic Take Profit.
-        Identifies the first liquidity gap (LVN) in the trade direction.
-        """
-        try:
-            # Look up to 0.60% for a target
-            range_pct = 0.0060
-            if side == "LONG":
-                p_from, p_to = entry_price, entry_price * (1 + range_pct)
-            else:
-                p_from, p_to = entry_price * (1 - range_pct), entry_price
-
-            profile = footprint_registry.get_volume_profile(symbol, p_from, p_to)
-            if len(profile) < 5:
-                return None
-
-            # LVN = volume < 50% of average in the range
-            avg_vol = sum(ask + bid for _, ask, bid in profile) / len(profile)
-            lvn_threshold = avg_vol * 0.5
-
-            lvns = [p for p, ask, bid in profile if (ask + bid) < lvn_threshold]
-            if not lvns:
-                return None
-
-            if side == "LONG":
-                # First LVN ABOVE entry
-                targets = [p for p in lvns if p > entry_price * 1.0010]
-                return min(targets) if targets else None
-            else:
-                # First LVN BELOW entry
-                targets = [p for p in lvns if p < entry_price * 0.9990]
-                return max(targets) if targets else None
-        except Exception as e:
-            logger.error(f"❌ Error calculating LVN target: {e}")
-            return None
 
     def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
         """Phase 950: Inject structural levels from ContextRegistry into trigger metadata.
@@ -157,7 +122,7 @@ class SetupEngineV4:
 
         # Phase 1200: Limit Sniper Integration - Resolve nearest level for maker entry
         if "level_price" not in metadata and self.context_registry and metadata.get("price", 0) > 0:
-            proximity = self._check_level_proximity(symbol, metadata["price"])
+            proximity = check_level_proximity(symbol, metadata["price"], self.context_registry, self.fast_track)
             if proximity:
                 metadata["level_price"] = proximity["level_price"]
                 metadata["level_ref"] = proximity["level_ref"]
@@ -172,42 +137,6 @@ class SetupEngineV4:
                 metadata["cancel_reason"] = f"TP dist {tp_dist:.4%} < Fee {fee_friction:.4%}"
 
         return metadata
-
-    def _check_level_proximity(self, symbol: str, price: float) -> Optional[dict]:
-        """Phase 700: Check if price is within proximity of a structural level.
-
-        Returns the nearest level reference dict or None if price is in open space.
-        Levels checked: POC, VAH, VAL, IBH, IBL.
-        """
-        if not self.context_registry or price <= 0:
-            return None
-
-        poc, vah, val = self.context_registry.get_structural(symbol)
-        ib_high, ib_low = self.context_registry.get_ib(symbol)
-
-        levels = []
-        if poc > 0:
-            levels.append(("POC", poc))
-        if vah > 0:
-            levels.append(("VAH", vah))
-        if val > 0:
-            levels.append(("VAL", val))
-        if ib_high and ib_high > 0:
-            levels.append(("IBH", ib_high))
-        if ib_low and ib_low > 0:
-            levels.append(("IBL", ib_low))
-
-        PROX_THRESHOLD = 1.0 if self.fast_track else 0.0020  # Phase 990: Fast-Track bypasses location gating
-
-        nearest = None
-        min_dist = float("inf")
-        for name, level_price in levels:
-            dist = abs(price - level_price) / price
-            if dist < PROX_THRESHOLD and dist < min_dist:
-                min_dist = dist
-                nearest = {"level_ref": name, "level_price": level_price, "dist_pct": round(dist * 100, 4)}
-
-        return nearest
 
     def _evaluate_lta_structural(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
         """
@@ -250,6 +179,7 @@ class SetupEngineV4:
             t_type = md.get("tactical_type")
             if t_type in TACTICAL_WHITELIST:
                 reversal_signal = md
+                side = e.side  # Phase 2400: Use explicit event side (LONG/SHORT)
                 break
 
         if not reversal_signal:
@@ -270,7 +200,7 @@ class SetupEngineV4:
                         break
 
         price = reversal_signal.get("close") or reversal_signal.get("price") or 0.0
-        side = reversal_signal.get("direction")
+        # side = reversal_signal.get("direction") # REMOVED: Metadata 'direction' contains sensor-specific strings like 'SELL_EXHAUSTION'
 
         if price <= 0:
             return None
@@ -289,33 +219,10 @@ class SetupEngineV4:
             return None
 
         # Phase 2000: Order Flow Guardians (6 Gates — AMT/Axia Validation)
-        # Guardian 1: Regime Alignment (prevents fading strong trends)
-        regime_mult = self._check_regime_alignment(symbol, side, reversal_signal)
-        if regime_mult <= 0:
-            return None
-
-        # Guardian 2: POC Migration Gate
-        poc_mult = self._check_poc_migration(symbol, side)
-        if poc_mult <= 0:
-            return None
-
-        # Guardian 3: VA Integrity Gate (dynamic by liquidity window)
-        va_mult = self._check_va_integrity(symbol)
-        if va_mult <= 0:
-            return None
-
-        # Guardian 4: REMOVED in Phase 2300 — Failed Auction
-        # Concept operates at session timeframe (hours), not 1m candles.
-        # SessionValueArea already handles this correctly at session level.
-        # Tactical sensors (Absorption, TrappedTraders) already confirm rejection.
-        # Keeping it caused inverted discrimination (-29% in trending conditions).
-
-        # Guardian 5: Delta Divergence Confirmation
-        if not self._check_delta_divergence(symbol, side):
-            return None
-
-        # Guardian 6: Spread Sanity (prevents entries during illiquid micro-moments)
-        if not self._check_spread_sanity(symbol):
+        passed, final_sizing_multiplier = self.guardian_manager.evaluate_all(
+            symbol, side, reversal_signal, self.context_registry, self.recent_extremes, self.fast_track
+        )
+        if not passed:
             return None
 
         # 4. Directional Logic:
@@ -328,7 +235,7 @@ class SetupEngineV4:
 
         # 5. Calculate Structural Targets (LTA V7 Dynamic Targets)
         # Search for the first Low Volume Node (LVN) in the trade direction
-        tp_price = self._calculate_lvn_target(symbol, price, side)
+        tp_price = calculate_lvn_target(symbol, price, side)
 
         if not tp_price:
             # Fallback to structural 0.20% (Increased from 0.15% to cover fees)
@@ -354,7 +261,7 @@ class SetupEngineV4:
             sl_price = vah * (1 + sl_buffer)
 
         # 6. Calculate Aggregated Sizing Multiplier (Phase 2350)
-        final_sizing_multiplier = regime_mult * poc_mult * va_mult
+        # Multiplier is calculated in GuardianManager
 
         # 7. Metadata Enrichment
         trigger_meta = {
@@ -539,7 +446,7 @@ class SetupEngineV4:
             # Phase 700: Level Proximity Gate for Playbook signals
             price = trigger["metadata"].get("price", 0)
             if price > 0:
-                proximity = self._check_level_proximity(sym, price)
+                proximity = check_level_proximity(sym, price, self.context_registry, self.fast_track)
                 if proximity:
                     trigger["metadata"]["level_ref"] = proximity["level_ref"]
                     trigger["metadata"]["level_price"] = proximity["level_price"]
@@ -852,417 +759,3 @@ class SetupEngineV4:
         )
         await self.engine.dispatch(out_evt)
         logger.debug(f"🎯 [PRE-FLIGHT] {symbol} {side} proximity detected. Pre-positioning LIMIT.")
-
-    def _check_regime_alignment(self, symbol: str, side: str, reversal_signal: dict) -> float:
-        """
-        Phase 2100: Regime Alignment Gate (Guardian 1) — Anticipatory Version.
-        Phase 2350: Transition Recovery — Allow entries in TRANSITION if flow is extreme.
-
-        Returns a sizing multiplier (0.0 to 1.0).
-        """
-        if self.fast_track:
-            return 1.0
-
-        if not self.context_registry:
-            return 1.0
-
-        # --- Phase 2100: Try V2 regime first ---
-        regime_v2_data = getattr(self.context_registry, "_regime_v2", {}).get(symbol)
-        if regime_v2_data:
-            regime_v2 = regime_v2_data.get("regime", "BALANCE")
-            direction = regime_v2_data.get("direction", "NEUTRAL")
-            confidence = regime_v2_data.get("confidence", 0.0)
-            layers = regime_v2_data.get("layers", {})
-
-            metrics = {
-                "regime_v2": regime_v2,
-                "direction": direction,
-                "confidence": confidence,
-                "side": side,
-                "layers": {k: v.get("vote") for k, v in layers.items()},
-            }
-
-            # 1. Consensus Override: If Micro & Meso are both NEUTRAL, we prioritize local balance
-            # even if Macro thinks we are trending. This captures "local range" reversions.
-            micro_vote = (
-                layers.get("micro", {}).get("vote", "NEUTRAL")
-                if isinstance(layers.get("micro"), dict)
-                else layers.get("micro", "NEUTRAL")
-            )
-            meso_vote = (
-                layers.get("meso", {}).get("vote", "NEUTRAL")
-                if isinstance(layers.get("meso"), dict)
-                else layers.get("meso", "NEUTRAL")
-            )
-
-            if micro_vote == "NEUTRAL" and meso_vote == "NEUTRAL":
-                # Local balance confirmed - allow reversal with soft-sizing if confidence is low
-                local_mult = 1.0 if confidence < 0.6 else strat_config.LTA_SOFT_GATE_REDUCTION
-                self._trace_decision(
-                    symbol,
-                    "PASS",
-                    "REGIME_ALIGNMENT_V2",
-                    f"Local consensus (Micro/Meso Neutral) overrides Macro {regime_v2}",
-                    metrics,
-                    0.0,
-                    side,
-                )
-                return local_mult
-
-            # 2. Confidence Filter: If confidence is very low, don't block counter-trend
-            if confidence < 0.5:
-                self._trace_decision(
-                    symbol,
-                    "PASS",
-                    "REGIME_ALIGNMENT_V2",
-                    f"Low confidence ({confidence:.2f}) - counter-trend allowed",
-                    metrics,
-                    0.0,
-                    side,
-                )
-                return strat_config.LTA_SOFT_GATE_REDUCTION
-
-            # BALANCE → always allow reversion (our edge lives here)
-            if regime_v2 == "BALANCE":
-                self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT_V2", "Balance regime", metrics, 0.0, side)
-                return 1.0
-
-            # TRANSITION → Recovery Logic
-            if regime_v2 == "TRANSITION":
-                # Phase 2350: Recovery via extreme micro-flow
-                z_score = abs(reversal_signal.get("z_score", 0.0))
-                if z_score >= strat_config.LTA_TRANSITION_Z_THRESHOLD:
-                    logger.info(
-                        f"🛡️ [REGIME_V2] {symbol} {side} RECOVERED in TRANSITION: "
-                        f"Extreme Z-Score {z_score:.2f} >= {strat_config.LTA_TRANSITION_Z_THRESHOLD}"
-                    )
-                    self._trace_decision(
-                        symbol, "PASS", "REGIME_ALIGNMENT_V2", "Transition Recovery (Extreme Flow)", metrics, 0.0, side
-                    )
-                    return strat_config.LTA_SOFT_GATE_REDUCTION
-
-                logger.info(
-                    f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TRANSITION state "
-                    f"(conf={confidence:.2f}, dir={direction}) — market leaving balance"
-                )
-                self._trace_decision(
-                    symbol,
-                    "REJECT",
-                    "REGIME_ALIGNMENT_V2",
-                    f"TRANSITION state (dir={direction}, conf={confidence:.2f})",
-                    metrics,
-                    0.0,
-                    side,
-                )
-                return 0.0
-
-            # TREND_UP → Block ALL reversions (Phase 2400: Deep Analysis showed 75.6% timeouts in BULL)
-            # Old logic: Allowed LONG (trend-aligned)
-            # New logic: Block ALL (mean-reversion doesn't work in trending markets)
-            if regime_v2 == "TREND_UP":
-                logger.info(
-                    f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TREND_UP active "
-                    f"(conf={confidence:.2f}) — mean-reversion disabled in trending markets"
-                )
-                self._trace_decision(
-                    symbol,
-                    "REJECT",
-                    "REGIME_ALIGNMENT_V2",
-                    f"TREND_UP - mean-reversion disabled (conf={confidence:.2f})",
-                    metrics,
-                    0.0,
-                    side,
-                )
-                return 0.0
-
-            # TREND_DOWN → Block ALL reversions (Phase 2400: Deep Analysis showed negative expectancy in BEAR)
-            # Old logic: Allowed SHORT (trend-aligned)
-            # New logic: Block ALL (mean-reversion doesn't work in trending markets)
-            if regime_v2 == "TREND_DOWN":
-                logger.info(
-                    f"🛡️ [REGIME_V2] {symbol} {side} BLOCKED: TREND_DOWN active "
-                    f"(conf={confidence:.2f}) — mean-reversion disabled in trending markets"
-                )
-                self._trace_decision(
-                    symbol,
-                    "REJECT",
-                    "REGIME_ALIGNMENT_V2",
-                    f"TREND_DOWN - mean-reversion disabled (conf={confidence:.2f})",
-                    metrics,
-                    0.0,
-                    side,
-                )
-                return 0.0
-
-        # --- Legacy fallback: OTF-based regime (Phase 2000) ---
-        regime = self.context_registry.get_regime(symbol)
-        otf = self.context_registry.otf.get(symbol, "NEUTRAL")
-        metrics = {"regime": regime, "otf": otf, "side": side, "source": "legacy_otf"}
-
-        if regime == "NEUTRAL" or otf == "NEUTRAL":
-            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Neutral regime (legacy)", metrics, 0.0, side)
-            return 1.0
-
-        if side == "LONG" and regime == "UP":
-            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned LONG (legacy)", metrics, 0.0, side)
-            return 1.0
-        if side == "SHORT" and regime == "DOWN":
-            self._trace_decision(symbol, "PASS", "REGIME_ALIGNMENT", "Trend-aligned SHORT (legacy)", metrics, 0.0, side)
-            return 1.0
-
-        logger.info(f"🛡️ [REGIME_OTF] {symbol} {side} blocked: Counter-trend (Regime: {regime}, OTF: {otf})")
-        self._trace_decision(
-            symbol, "REJECT", "REGIME_ALIGNMENT", "Counter-trend reversion (legacy)", metrics, 0.0, side
-        )
-        return 0.0
-
-    def _check_poc_migration(self, symbol: str, side: str) -> float:
-        """
-        Phase 1150: POC Migration Gate (Guardian 2).
-        Phase 2350: Conversion to Soft Gate.
-
-        Returns a sizing multiplier (0.0 to 1.0).
-        """
-        if self.fast_track:
-            return 1.0
-
-        if not self.context_registry:
-            return 1.0
-
-        migration = self.context_registry.get_poc_migration(symbol, lookback_ticks=300)
-        threshold = strat_config.LTA_POC_MIGRATION_THRESHOLD
-        metrics = {"migration": migration, "threshold": threshold}
-
-        # If we want to LONG (at VAL), POC should NOT be migrating DOWN.
-        if side == "LONG" and migration < -threshold:
-            # Phase 2350: Check for hard block (1.5x threshold)
-            if migration < -(threshold * 1.5):
-                logger.info(f"🛡️ [POC_MIGRATION] {symbol} LONG blocked: POC migrated {migration:.4%} (hard discovery)")
-                self._trace_decision(
-                    symbol, "REJECT", "POC_MIGRATION", "Hard migration against side", metrics, 0.0, side
-                )
-                return 0.0
-
-            # Soft gate
-            logger.info(f"🛡️ [POC_MIGRATION] {symbol} LONG soft-gate: POC migrated {migration:.4%} (soft discovery)")
-            self._trace_decision(symbol, "PASS", "POC_MIGRATION", "Soft migration against side", metrics, 0.0, side)
-            return strat_config.LTA_SOFT_GATE_REDUCTION
-
-        # If we want to SHORT (at VAH), POC should NOT be migrating UP.
-        if side == "SHORT" and migration > threshold:
-            # Phase 2350: Check for hard block (1.5x threshold)
-            if migration > (threshold * 1.5):
-                logger.info(f"🛡️ [POC_MIGRATION] {symbol} SHORT blocked: POC migrated {migration:.4%} (hard discovery)")
-                self._trace_decision(
-                    symbol, "REJECT", "POC_MIGRATION", "Hard migration against side", metrics, 0.0, side
-                )
-                return 0.0
-
-            # Soft gate
-            logger.info(f"🛡️ [POC_MIGRATION] {symbol} SHORT soft-gate: POC migrated {migration:.4%} (soft discovery)")
-            self._trace_decision(symbol, "PASS", "POC_MIGRATION", "Soft migration against side", metrics, 0.0, side)
-            return strat_config.LTA_SOFT_GATE_REDUCTION
-
-        self._trace_decision(symbol, "PASS", "POC_MIGRATION", "Healthy migration", metrics, 0.0, side)
-        return 1.0
-
-    def _check_va_integrity(self, symbol: str) -> float:
-        """
-        Phase 2200: VA Integrity Gate (Restructured — Soft Gate).
-        Phase 2350: Multi-tier Soft Gate.
-
-        Returns a sizing multiplier (0.0 to 1.0).
-        """
-        if self.fast_track:
-            return 1.0
-
-        if not self.context_registry:
-            return 1.0
-
-        integrity = self.context_registry.get_va_integrity(symbol)
-
-        # Phase B1: Dynamic threshold by liquidity window
-        current_window = getattr(self.context_registry, "current_window", {}).get(symbol, "")
-        va_thresholds = getattr(strat_config, "LTA_VA_INTEGRITY_BY_WINDOW", {})
-        threshold = va_thresholds.get(current_window, strat_config.LTA_VA_INTEGRITY_MIN)
-
-        # Phase 2350: Soft gate logic
-        critical_threshold = threshold * 0.50
-
-        metrics = {
-            "integrity": integrity,
-            "threshold": threshold,
-            "critical_threshold": critical_threshold,
-            "window": current_window,
-        }
-
-        # Hard Reject
-        if integrity < critical_threshold:
-            logger.info(
-                f"🛡️ [VA_INTEGRITY] {symbol} rejected: Integrity {integrity:.4f} critically low "
-                f"< {critical_threshold:.4f} ({current_window})"
-            )
-            self._trace_decision(symbol, "REJECT", "VA_INTEGRITY", "Critically low VA density", metrics, 0.0, "")
-            return 0.0
-
-        # Soft Gate
-        if integrity < threshold:
-            self._trace_decision(symbol, "PASS", "VA_INTEGRITY", "Soft VA density (sizing reduced)", metrics, 0.0, "")
-            return strat_config.LTA_SOFT_GATE_REDUCTION
-
-        self._trace_decision(symbol, "PASS", "VA_INTEGRITY", "Acceptable VA density", metrics, 0.0, "")
-        return 1.0
-
-    def _check_failed_auction(self, symbol: str, side: str, reversal_signal: dict) -> bool:
-        """
-        Phase 2300: Failed Auction Confirmation (Redesigned).
-
-        REDESIGN from Phase 2200:
-        The original check only verified that price PROBED the edge.
-        Problem: In a crash, price always probes the edge (it blows through it).
-        This caused the guardian to be INVERTED — rejecting more in RANGE than in CRASH.
-
-        New logic: Price must have probed the edge AND closed back inside the VA.
-        This is the true definition of a "Failed Auction" — the market attempted
-        to break out but was rejected and returned to value.
-
-        A probe that doesn't close back inside = continuation (not a failed auction).
-        A probe that closes back inside = rejection (valid failed auction).
-        """
-        if self.fast_track:
-            return True
-
-        poc, vah, val = self.context_registry.get_structural(symbol)
-        price = reversal_signal.get("close", 0.0)
-        high = reversal_signal.get("high", 0.0)
-        low = reversal_signal.get("low", 0.0)
-
-        # Phase 2300: Extended lookback — use max(high) and min(low) across recent candles
-        recent = self.recent_extremes.get(symbol)
-        if recent and len(recent) > 0:
-            lookback_high = max(c["high"] for c in recent)
-            lookback_low = min(c["low"] for c in recent)
-            high = max(high, lookback_high) if high > 0 else lookback_high
-            low = min(low, lookback_low) if low > 0 else lookback_low
-
-        metrics = {
-            "price": price,
-            "high": high,
-            "low": low,
-            "val": val,
-            "vah": vah,
-            "lookback_candles": len(recent) if recent else 0,
-        }
-
-        if side == "LONG":
-            # Must have probed below VAL
-            if low > val:
-                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: No probe below VAL ({low:.4f} > {val:.4f})")
-                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe below edge", metrics, price, side)
-                return False
-
-            # Phase 2300: Must have CLOSED back above VAL (failed auction confirmation)
-            # If price closed below VAL, it's a continuation (breakdown), not a rejection
-            if price > 0 and price < val:
-                logger.info(
-                    f"🛡️ [FAILED_AUCTION] {symbol} LONG blocked: "
-                    f"Price closed below VAL ({price:.4f} < {val:.4f}) — continuation, not rejection"
-                )
-                self._trace_decision(
-                    symbol, "REJECT", "FAILED_AUCTION", "Close below edge — continuation", metrics, price, side
-                )
-                return False
-
-        if side == "SHORT":
-            # Must have probed above VAH
-            if high < vah:
-                logger.info(f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: No probe above VAH ({high:.4f} < {vah:.4f})")
-                self._trace_decision(symbol, "REJECT", "FAILED_AUCTION", "No probe above edge", metrics, price, side)
-                return False
-
-            # Phase 2300: Must have CLOSED back below VAH (failed auction confirmation)
-            # If price closed above VAH, it's a continuation (breakout), not a rejection
-            if price > 0 and price > vah:
-                logger.info(
-                    f"🛡️ [FAILED_AUCTION] {symbol} SHORT blocked: "
-                    f"Price closed above VAH ({price:.4f} > {vah:.4f}) — continuation, not rejection"
-                )
-                self._trace_decision(
-                    symbol, "REJECT", "FAILED_AUCTION", "Close above edge — continuation", metrics, price, side
-                )
-                return False
-
-        self._trace_decision(symbol, "PASS", "FAILED_AUCTION", "Valid probe with close inside VA", metrics, price, side)
-        return True
-
-    def _check_delta_divergence(self, symbol: str, side: str) -> bool:
-        """
-        Phase 2200: Delta Divergence Confirmation (Restructured).
-
-        CHANGE from Phase 1150:
-        Threshold relaxed from z < -1.5 to z < -2.5.
-        Rationale: In legitimate reversions, flow can be at -1.8 to -2.0 just
-        before turning. The old threshold was blocking valid exhaustion setups.
-        Only truly extreme, sustained flow (z < -2.5) should block a LONG.
-        """
-        if self.fast_track:
-            return True
-
-        if not self.context_registry:
-            return True
-
-        state = self.context_registry.micro_state.get(symbol)
-        if not state:
-            return True
-
-        z_score = state.get("z_score", 0.0)
-        metrics = {"z_score": z_score, "threshold": 2.5}
-
-        if side == "LONG":
-            # Reject only if selling flow is extremely strong (z < -2.5)
-            if z_score < -2.5:
-                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} LONG blocked: Extreme selling flow (Z: {z_score:.2f})")
-                self._trace_decision(
-                    symbol, "REJECT", "DELTA_DIVERGENCE", "Orderflow pressure too high", metrics, 0.0, side
-                )
-                return False
-
-        if side == "SHORT":
-            # Reject only if buying flow is extremely strong (z > 2.5)
-            if z_score > 2.5:
-                logger.info(f"🛡️ [DELTA_DIVERGENCE] {symbol} SHORT blocked: Extreme buying flow (Z: {z_score:.2f})")
-                self._trace_decision(
-                    symbol, "REJECT", "DELTA_DIVERGENCE", "Orderflow pressure too high", metrics, 0.0, side
-                )
-                return False
-
-        self._trace_decision(symbol, "PASS", "DELTA_DIVERGENCE", "Orderflow supportive/neutral", metrics, 0.0, side)
-        return True
-
-    def _check_spread_sanity(self, symbol: str) -> bool:
-        """
-        Phase 2000: Spread Sanity Gate (Guardian 6).
-        Prevents entries during illiquid micro-moments where the spread
-        is abnormally wide, which would eat the edge via slippage.
-        """
-        if self.fast_track:
-            return True
-
-        if not self.context_registry:
-            return True
-
-        spread_data = getattr(self.context_registry, "spread_state", {}).get(symbol)
-        if not spread_data:
-            return True  # No spread data yet, allow (conservative start)
-
-        current = spread_data.get("current", 0.0)
-        avg_5m = spread_data.get("avg_5m", 0.0)
-        metrics = {"current_spread": current, "avg_5m": avg_5m}
-
-        if avg_5m > 0 and current > avg_5m * 2.0:
-            logger.info(f"🛡️ [SPREAD_SANITY] {symbol} rejected: Spread {current:.6f} > 2x avg {avg_5m:.6f}")
-            self._trace_decision(symbol, "REJECT", "SPREAD_SANITY", "Wide spread", metrics, 0.0, "")
-            return False
-
-        self._trace_decision(symbol, "PASS", "SPREAD_SANITY", "Normal spread", metrics, 0.0, "")
-        return True

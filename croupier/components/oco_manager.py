@@ -502,8 +502,8 @@ class OCOManager:
         self.tracker.register_bracket_alias(tp_order_id, position, "TP", client_id=tp_client_id)
         self.tracker.register_bracket_alias(sl_order_id, position, "SL", client_id=sl_client_id)
 
-        if position.status == "OPENING":
-            position.status = "ACTIVE"
+        if position.status == "PENDING":
+            position.status = "OPEN"
             self.logger.info(f"[TRADE] ✅ Position Active (Parallel): {position.trade_id}")
 
         self.tracker._trigger_state_change()
@@ -575,8 +575,8 @@ class OCOManager:
         )
 
         # 5. OPTIMISTIC PROMOTION (Fire-and-Forget)
-        # Mark as ACTIVE before we even send, so the strategy can react to exit signals immediately.
-        position.status = "ACTIVE"
+        # Mark as OPEN before we even send, so the strategy can react to exit signals immediately.
+        position.status = "OPEN"
         position.entry_price = est_price  # Tentative
         position.tp_level = tp_price
         position.sl_level = sl_price

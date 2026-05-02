@@ -42,7 +42,7 @@ from core.candle_maker import CandleMaker
 from core.clock import Clock
 from core.engine import Engine
 from core.error_handling.error_handler import RetryConfig, get_error_handler
-from core.events import AccountUpdateEvent, AggregatedSignalEvent, EventType, TickEvent
+from core.events import AggregatedSignalEvent, EventType, TickEvent
 from core.execution import OrderManager
 from core.feed import StreamManager
 
@@ -335,13 +335,13 @@ async def main():
             mode="demo" if args.mode != "live" else "live",
             enable_websocket=True,
         )
-    # Initialize Adapter
-    adapter = ExchangeAdapter(connector, symbol=args.symbol)
 
     # 2. Initialize Core Engine
     engine = Engine()
 
-    # 3. Initialize Croupier (Execution Layer)
+    # Initialize Adapter
+    adapter = ExchangeAdapter(connector, symbol=args.symbol, engine=engine)
+
     # 3. Initialize Croupier (Execution Layer)
     # Fetch actual balance from exchange
     # Use ErrorHandler to ensure connection succeeds
@@ -370,22 +370,6 @@ async def main():
     recon_worker.daemon = True
     recon_worker.start()
     croupier.set_recon_queue(recon_queue)
-
-    # 3.1 Subscribe components to exchange and logic events
-    engine.subscribe(EventType.AGGREGATED_SIGNAL, croupier.exit_manager.on_signal)
-    engine.subscribe(EventType.CANDLE, croupier.exit_manager.on_candle)
-    engine.subscribe(EventType.TICK, croupier.exit_manager.on_tick)
-    engine.subscribe(EventType.MICROSTRUCTURE, croupier.exit_manager.on_microstructure)
-
-    # Phase 31: Unified ORDER_UPDATE routing through PositionTracker
-    async def unified_order_update_handler(event: dict):
-        """Unified handler that routes through PositionTracker."""
-        # PositionTracker is now the single source of truth for order events
-        matched = await croupier.position_tracker.handle_order_update(event)
-        if matched:
-            logger.debug(f"[Phase31] ✅ ORDER_UPDATE handled by PositionTracker: {matched}")
-
-    engine.subscribe(EventType.ORDER_UPDATE, unified_order_update_handler)
 
     # 4. Initialize Data Feed
     data_feed = StreamManager(adapter, engine)
@@ -426,7 +410,8 @@ async def main():
     )
 
     # 10. Initialize Order Manager (Decision → Execution)
-    order_manager = OrderManager(engine, croupier, player, tracker)
+    # OrderTracker removed in Phase 2 (PositionTracker handles order state)
+    order_manager = OrderManager(engine, croupier, player)
 
     # 11. Link Real-Time Events to Context Registry
     # This ensures the 0-latency mirror stays updated BEFORE any signal processing
@@ -498,27 +483,8 @@ async def main():
     # Hook callback into PositionTracker
     croupier.position_tracker.on_close_callback = on_trade_close
 
-    # Register order update callback for OCO cancellation in live/demo mode
-    # The callback is async, so we wrap it for the synchronous connector callback
-    async def async_order_update_handler(order):
-        # 1. Update Position Tracker (Current Limit/Stop management)
-        croupier.position_tracker.handle_order_update(order)
-        # 2. Update OCO Manager (Initial entry wait)
-        await croupier.oco_manager.on_order_update(order)
-
-    connector.set_order_update_callback(async_order_update_handler)
+    # MOVED to ExchangeAdapter.connect() in Phase 2
     logger.info("✅ Order update callback registered for OCO cancellation")
-
-    # Phase 46: Real-Time Shadow Balance routing
-    async def account_update_handler(event: dict):
-        """Routes real-time balance updates to BalanceManager."""
-        croupier.balance_manager.handle_account_update(event)
-        # Also emit to engine for other interested components (Historian, etc.)
-        await engine.dispatch(AccountUpdateEvent(type=EventType.ACCOUNT_UPDATE, timestamp=time.time(), data=event))
-
-    if hasattr(connector, "set_account_update_callback"):
-        connector.set_account_update_callback(account_update_handler)
-        logger.info("✅ Account update callback registered for real-time balance sync")
 
     # Attempt recovery from previous session
     logger.info("🔄 Attempting state recovery...")
