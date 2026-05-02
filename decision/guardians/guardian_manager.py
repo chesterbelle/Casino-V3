@@ -8,6 +8,8 @@ from .poc_migration_guardian import check_poc_migration
 from .regime_guardian import check_regime_alignment
 from .spread_sanity_guardian import check_spread_sanity
 from .va_integrity_guardian import check_va_integrity
+from .liquidity_guardian import check_liquidity_heatmap
+
 
 
 class GuardianManager(TraceBulletMixin):
@@ -35,6 +37,11 @@ class GuardianManager(TraceBulletMixin):
         results.append(check_va_integrity(symbol, context_registry, fast_track))
         results.append(check_delta_divergence(symbol, side, context_registry, fast_track))
         results.append(check_spread_sanity(symbol, context_registry, fast_track))
+        
+        # Guardian 7: Liquidity Heatmap (Phase 3 Alpha)
+        target_price = reversal_signal.get("close") or reversal_signal.get("price", 0.0)
+        results.append(check_liquidity_heatmap(symbol, side, target_price, context_registry, fast_track))
+
 
         # 2. Hard Gate Evaluation (Interpretability)
         for res in results:

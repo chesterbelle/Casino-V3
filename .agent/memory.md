@@ -103,8 +103,8 @@
 
 ## 🗺️ Roadmap Capa de Cristal (Alpha Optimization)
 - [x] **Fase 1: Dynamic Limit Sniper**: Maker-fee optimization con lógica de chase y telemetría TraceBullet completa.
-- [ ] **Fase 2: Guardian Scoring**: Transición de veto binario a scoring de confianza fuzzy (En discusión).
-- [ ] **Fase 3: Location Heatmap**: Refinamiento alpha contextual basado en zonas de liquidez (En discusión).
+- [x] **Fase 2: Guardian Scoring**: Transición de veto binario a scoring de confianza fuzzy y atribución TraceBullet.
+- [x] **Fase 3: Location Heatmap**: Refinamiento alpha contextual basado en muros de liquidez (Zero-Lag Heatmap).
 
 ## ⚠️ Gotchas Críticos
 1. **Symbol Normalization**: Usar siempre `normalize_symbol()`.

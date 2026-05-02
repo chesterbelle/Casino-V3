@@ -410,6 +410,10 @@ class SensorManager:
             total_vol = self.bid_depth_5[sym] + self.ask_depth_5[sym]
             if total_vol > 0:
                 self.ob_skewness[sym] = self.bid_depth_5[sym] / total_vol
+                
+            # Phase C1: Heatmap Update (Zero-Lag)
+            reg.update_liquidity(sym, event_data.bids, event_data.asks)
+
 
         # 3. Phase 1000: De-correlated Z-Score (P0)
         # Use separate 60s history to measure the "Toxic" nature of the last 5 seconds.

@@ -55,6 +55,10 @@ class ContextRegistry:
         # Phase 2100: V2 Regime data from MarketRegimeSensor (3-layer anticipatory)
         self._regime_v2: Dict[str, dict] = {}  # symbol -> full V2 regime dict
 
+        # Phase C1: Liquidity Heatmap (Location Alpha)
+        self.liquidity_walls: Dict[str, Dict[float, float]] = defaultdict(dict)  # symbol -> {price: volume}
+
+
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
         self.attr_long_window = 100
@@ -301,3 +305,53 @@ class ContextRegistry:
         ratio = atr_data["short"] / atr_data["long"]
         # Clamp to reasonable range [0.5, 2.0]
         return max(0.5, min(2.0, ratio))
+
+    def update_liquidity(self, symbol: str, bids: list, asks: list):
+        """
+        Phase C1: Update liquidity walls from OrderBook snapshot.
+        Only keeps significant 'walls' to minimize memory and query time.
+        """
+        key = self._norm_key(symbol)
+        new_walls = {}
+        
+        # We only care about the top 20 levels for each side for HFT Location Alpha
+        # And only if they are significantly larger than the average depth
+        
+        all_levels = bids[:20] + asks[:20]
+        if not all_levels:
+            return
+            
+        avg_vol = sum(float(l[1]) for l in all_levels) / len(all_levels)
+        
+        for price_str, vol_str in all_levels:
+            price = float(price_str)
+            vol = float(vol_str)
+            if vol > avg_vol * 1.5: # 1.5x average is a 'wall'
+                new_walls[price] = vol
+                
+        self.liquidity_walls[key] = new_walls
+
+    def get_liquidity_score(self, symbol: str, target_price: float, side: str, tolerance_pct: float = 0.0005) -> float:
+        """
+        Phase C1: Returns a score (0.0 to 1.0) based on liquidity support.
+        - target_price: The price we want to validate (e.g. VAL or Entry).
+        - side: LONG (look for bids below/at) or SHORT (look for asks above/at).
+        - tolerance_pct: Price window to search for walls.
+        """
+        key = self._norm_key(symbol)
+        walls = self.liquidity_walls.get(key, {})
+        if not walls:
+            return 0.5 # Neutral if no data
+            
+        # Find walls within tolerance
+        upper = target_price * (1 + tolerance_pct)
+        lower = target_price * (1 - tolerance_pct)
+        
+        relevant_walls = [vol for price, vol in walls.items() if lower <= price <= upper]
+        
+        if not relevant_walls:
+            return 0.2 # 'Air' - No liquidity support
+            
+        # If we find walls, the score is 1.0 (Supported)
+        return 1.0
+
