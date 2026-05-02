@@ -1,14 +1,16 @@
 import logging
 import math
+import uuid
 from typing import Dict, List, Optional, Tuple
 
 from core.footprint_registry import footprint_registry
 from sensors.base import SensorV3
+from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger(__name__)
 
 
-class AbsorptionDetector(SensorV3):
+class AbsorptionDetector(SensorV3, TraceBulletMixin):
     """
     Absorption Detector V3 - High-Precision Tactical Sensor.
 
@@ -17,7 +19,8 @@ class AbsorptionDetector(SensorV3):
     """
 
     def __init__(self):
-        super().__init__()
+        SensorV3.__init__(self)
+        TraceBulletMixin.__init__(self)
         self._name = "TacticalAbsorptionV2"
         self.timeframes = ["1m"]
 
@@ -89,6 +92,7 @@ class AbsorptionDetector(SensorV3):
 
             # SUCCESS: Tactical Absorption V2 Detected
             side = "LONG" if direction == "SELL_EXHAUSTION" else "SHORT"
+            trace_id = f"TRB-{self.symbol.split('/')[0]}-{uuid.uuid4().hex[:8]}"
 
             logger.info(
                 f"🎯 [TACTICAL_ABS] {self.symbol} {side} Detected | "
@@ -96,10 +100,11 @@ class AbsorptionDetector(SensorV3):
             )
 
             # Return signal dict for SensorManager to emit
-            return {
+            signal = {
                 "side": side,
                 "score": abs(z_score) / 5.0,  # Normalized score
                 "price": candle_1m["close"],
+                "trace_id": trace_id,
                 "metadata": {
                     "tactical_type": self.name,
                     "z_score": z_score,
@@ -107,8 +112,12 @@ class AbsorptionDetector(SensorV3):
                     "noise": noise,
                     "absorption_level": level,
                     "direction": direction,
+                    "trace_id": trace_id,
                 },
             }
+
+            self.trace(signal, "SENSOR_INGEST")
+            return signal
 
         return None
 

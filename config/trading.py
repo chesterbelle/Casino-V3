@@ -231,7 +231,14 @@ AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
 
 # Master switch: Enable Limit Sniper mode (Maker entries)
 # When False, the bot uses traditional Market (Taker) orders.
-LIMIT_SNIPER_ENABLED = False  # Phase 1200: Maker entries on LTA signals (no PreFlight)
+LIMIT_SNIPER_ENABLED = True  # Phase 1200: Maker entries on LTA signals (no PreFlight)
+
+# --- DYNAMIC SNIPER (Chase Logic) ---
+# Phase 1201: Active Maker-Optimization
+LIMIT_SNIPER_CHASE_ENABLED = True
+LIMIT_SNIPER_MAX_CHASE_ATTEMPTS = 3  # How many times to re-price before giving up
+LIMIT_SNIPER_TIMEOUT_MS = 5000  # 5 seconds max for sniper to work
+LIMIT_SNIPER_CHECK_INTERVAL_MS = 100  # Polling interval for book/status
 
 # Front-Running Offset: Distance (in % decimal) to place the LIMIT order ahead of the level.
 # E.g., 0.0004 = 0.04% ahead. This significantly improves fill rate in fast reversals.

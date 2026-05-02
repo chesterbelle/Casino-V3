@@ -20,6 +20,7 @@ from core.error_handling import RetryConfig, get_error_handler
 from core.exceptions import ExchangeError
 
 from .depth_profiler import DepthProfiler
+from .sniper_engine import SniperEngine
 
 
 class OrderExecutor:
@@ -55,6 +56,7 @@ class OrderExecutor:
         self.position_tracker = position_tracker
         self.logger = logging.getLogger("OrderExecutor")
         self.oco_manager = None
+        self.sniper = SniperEngine(self, self.adapter)
 
     def set_oco_manager(self, oco_manager):
         """Phase 2: Inject OCOManager to allow smart_close to handle brackets."""

@@ -609,6 +609,16 @@ class SetupEngineV4:
         if not t0:
             t0 = self.memory[symbol][0][1] if self.memory[symbol] else time.time()
 
+        # Phase 1130: TraceBullet propagation
+        trace_id = None
+        if hasattr(source_event, "metadata") and isinstance(source_event.metadata, dict):
+            trace_id = source_event.metadata.get("trace_id")
+        elif isinstance(source_event, dict):
+            trace_id = source_event.get("trace_id") or source_event.get("metadata", {}).get("trace_id")
+
+        if trace_id:
+            metadata["trace_id"] = trace_id
+
         out_evt = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=now,
@@ -620,6 +630,7 @@ class SetupEngineV4:
             confidence=1.0,
             total_signals=1,
             metadata=metadata,
+            trace_id=trace_id,  # Directly set trace_id
             t0_timestamp=t0,
             t1_decision_ts=now,  # Phase 1130: Use simulation-aware 'now' for deterministic parity
             setup_type=setup_type,

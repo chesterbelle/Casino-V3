@@ -854,24 +854,18 @@ class OCOManager:
             # Apply tick precision
             limit_price_adj = float(self.adapter.price_to_precision(order["symbol"], limit_price_adj))
 
-            exchange_order = {
-                "symbol": order["symbol"],
-                "type": "limit",
-                "side": "BUY" if side == "LONG" else "SELL",
-                "amount": order.get("amount", 0),
-                "price": limit_price_adj,
-                "post_only": True,  # Ensure maker fill
-                "params": params,
-            }
             self.logger.info(
-                f"🏹 [LIMIT_SNIPER] Placing LIMIT {side} @ {limit_price_adj:.4f} "
-                f"(level={limit_price:.4f}, offset={offset:.4f})"
+                f"🏹 [DYNAMIC_SNIPER] Initiating Sniper for {side} @ {limit_price_adj:.4f} "
+                f"(level={limit_price:.4f})"
             )
-            return await self.executor.execute_limit_order(
+
+            # Phase 1201: Use the Dynamic Sniper Engine for Chase Logic
+            return await self.executor.sniper.snipe_entry(
                 symbol=order["symbol"],
                 side="BUY" if side == "LONG" else "SELL",
                 amount=order.get("amount", 0),
                 price=limit_price_adj,
+                trace_id=order.get("trace_id"),  # Use signal trace_id for end-to-end tracking
                 params=params,
             )
         else:

@@ -101,6 +101,11 @@
 2.  **Flytest**: Validación de notional/precisión. BTC siempre falla en Testnet (min $100).
 3.  **Agnosticismo**: Prohibido thresholds distintos para SOL vs LTC (Anti-Overfitting).
 
+## 🗺️ Roadmap Capa de Cristal (Alpha Optimization)
+- [x] **Fase 1: Dynamic Limit Sniper**: Maker-fee optimization con lógica de chase y telemetría TraceBullet completa.
+- [ ] **Fase 2: Guardian Scoring**: Transición de veto binario a scoring de confianza fuzzy (En discusión).
+- [ ] **Fase 3: Location Heatmap**: Refinamiento alpha contextual basado en zonas de liquidez (En discusión).
+
 ## ⚠️ Gotchas Críticos
 1. **Symbol Normalization**: Usar siempre `normalize_symbol()`.
 2. **Historian 0 trades**: Verificar `confirm_close` en PositionTracker.
