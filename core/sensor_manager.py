@@ -262,7 +262,12 @@ class SensorManager:
 
         # Dispatch to all queues
         if self.num_workers == 0:
+            # Phase D1: Synchronous VWAP Update (Zero-Lag)
+            from core.context_registry import ContextRegistry
+            ContextRegistry().update_vwap(event.symbol, event.close, event.volume)
+            
             await self._dispatch_local(msg)
+
         else:
             for q in self.input_queues:
                 asyncio.get_running_loop().run_in_executor(None, q.put, msg)

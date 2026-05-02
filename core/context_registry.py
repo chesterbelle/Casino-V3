@@ -66,6 +66,12 @@ class ContextRegistry:
         self.ranges_long: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.attr_long_window))
         self.atrs: Dict[str, Dict[str, float]] = defaultdict(lambda: {"short": 0.0, "long": 0.0})
 
+        # Phase D1: Rolling VWAP & Z-Bands (Statistical Location)
+        self.vwap_window = 120  # 120 minutes
+        self.vwap_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.vwap_window))
+        self.vwap_state: Dict[str, dict] = defaultdict(lambda: {"vwap": 0.0, "std": 0.0})
+
+
         # Gravity Layer (System Global)
         self.btc_delta = 0.0
         self.btc_trend = "NEUTRAL"
@@ -354,4 +360,43 @@ class ContextRegistry:
             
         # If we find walls, the score is 1.0 (Supported)
         return 1.0
+
+    def update_vwap(self, symbol: str, price: float, volume: float):
+        """
+        Phase D1: Update Rolling VWAP state.
+        Called on every candle close to maintain a 120m statistical window.
+        """
+        key = self._norm_key(symbol)
+        self.vwap_history[key].append((price, volume))
+        
+        history = self.vwap_history[key]
+        if not history:
+            return
+            
+        total_pv = sum(p * v for p, v in history)
+        total_v = sum(v for p, v in history)
+        
+        if total_v > 0:
+            vwap = total_pv / total_v
+            
+            # Calculate Standard Deviation of prices relative to VWAP
+            import math
+            prices = [p for p, v in history]
+            variance = sum((p - vwap) ** 2 for p in prices) / len(prices)
+            std = math.sqrt(variance)
+            
+            self.vwap_state[key] = {"vwap": vwap, "std": std}
+
+    def get_vwap_zscore(self, symbol: str, current_price: float) -> float:
+        """
+        Returns the Z-Score of the current price relative to the Rolling VWAP.
+        Z = (Price - VWAP) / Std
+        """
+        key = self._norm_key(symbol)
+        state = self.vwap_state.get(key)
+        if not state or state["std"] == 0:
+            return 0.0
+            
+        return (current_price - state["vwap"]) / state["std"]
+
 
