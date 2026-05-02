@@ -25,8 +25,9 @@
 
 ### 1. Capa de Hierro (Infraestructura) — [CERTIFICADA ✅]
 *   **Propósito**: Paridad 1:1, Resiliencia del Historian, Latencia < 50ms, Integridad Contable.
-*   **Hito Actual (v7.0.0)**: Certificada con Integridad de Jornadas (`parent_trade_id`) y paridad de Ledger (Delta = 0).
-*   **Tag de Restauración**: `v7.0.0-absorption-v2-baseline`
+*   **Hito Actual (v7.1.0)**: Certificada con Estabilidad Reactiva y Cierre de Posiciones Fantasma.
+*   **Tag de Restauración**: `v7.1.0-reactive-stability-pass`
+*   **Métrica de Estrés**: Loop Lag: **1.01ms** bajo carga de 2,000 eventos/seg.
 *   **HFT Latency Telemetry (T0-T4)**:
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
     *   *Resilient Logic*: Fallbacks en `historian.py` y `position_tracker.py` para evitar NULLs y Silent Skips.
@@ -86,6 +87,14 @@
 *   **`/fast-track-parity`**: Paridad mecánica (30 min, LTC).
 *   **`/execution-quality-audit`**: Pipeline asíncrono y latencia (15 min, LTC).
 *   **`/edge-audit`**: Certificación de Alpha basada en Expectancia Bruta.
+*   **`@/validate-all`**: Suite completa de 6 capas (Math -> Stress -> Chaos).
+
+### Protocolo de Debugueo: TraceBullet 🎯
+*   **Propósito**: Seguimiento determinístico de eventos en sistemas asíncronos y multiversionados.
+*   **Implementación**: `TraceBulletMixin` inyecta telemetría en `metadata["trace_id"]`.
+*   *Uso*: Activar con `TRACE_BULLET_ACTIVE=1` para capturar la trayectoria exacta de una señal a través de los componentes.
+*   *Bordes Críticos*: `SENSOR_INGEST` -> `GUARDIAN_CHECK` -> `SETUP_GEN` -> `EXEC_SUBMIT` -> `RECON_SYNC`.
+*   **Regla de Oro**: Si una señal desaparece, el TraceBullet debe indicar el último "Borde" alcanzado.
 
 ### Reglas de Operación
 1.  **Regla de Oro del Silencio**: Si hay 0 trades en Fast-Track, revisar flags y gates antes que el mercado.

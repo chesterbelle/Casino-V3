@@ -1,5 +1,7 @@
 from typing import Tuple
 
+from utils.trace_bullet import TraceBulletMixin
+
 from .delta_divergence_guardian import check_delta_divergence
 from .guardian_result import GuardianResult
 from .poc_migration_guardian import check_poc_migration
@@ -8,13 +10,14 @@ from .spread_sanity_guardian import check_spread_sanity
 from .va_integrity_guardian import check_va_integrity
 
 
-class GuardianManager:
+class GuardianManager(TraceBulletMixin):
     """
     Orchestrator for the 6 Order Flow Guardians.
     Evaluates them sequentially and traces the result.
     """
 
     def __init__(self, trace_callback):
+        super().__init__()
         self.trace_decision = trace_callback
 
     def evaluate_all(
@@ -28,6 +31,11 @@ class GuardianManager:
         # Guardian 1: Regime Alignment
         res1 = check_regime_alignment(symbol, side, reversal_signal, context_registry, fast_track)
         self._trace(symbol, side, reversal_signal.get("close", 0.0), res1)
+        self.trace(
+            reversal_signal,
+            f"GUARDIAN_CHECK:{res1.gate_name}",
+            {"passed": res1.passed, "reason": res1.reason, "metrics": res1.metrics},
+        )
         if not res1.passed:
             return False, 0.0
         multiplier *= res1.multiplier
@@ -35,6 +43,11 @@ class GuardianManager:
         # Guardian 2: POC Migration
         res2 = check_poc_migration(symbol, side, context_registry, fast_track)
         self._trace(symbol, side, 0.0, res2)
+        self.trace(
+            reversal_signal,
+            f"GUARDIAN_CHECK:{res2.gate_name}",
+            {"passed": res2.passed, "reason": res2.reason, "metrics": res2.metrics},
+        )
         if not res2.passed:
             return False, 0.0
         multiplier *= res2.multiplier
@@ -42,26 +55,34 @@ class GuardianManager:
         # Guardian 3: VA Integrity
         res3 = check_va_integrity(symbol, context_registry, fast_track)
         self._trace(symbol, side, 0.0, res3)
+        self.trace(
+            reversal_signal,
+            f"GUARDIAN_CHECK:{res3.gate_name}",
+            {"passed": res3.passed, "reason": res3.reason, "metrics": res3.metrics},
+        )
         if not res3.passed:
             return False, 0.0
         multiplier *= res3.multiplier
 
-        # Guardian 4: REMOVED in Phase 2300 — Failed Auction
-        # Concept operates at session timeframe (hours), not 1m candles.
-        # Keeping it caused inverted discrimination (-29% in trending conditions).
-        # res4 = check_failed_auction(symbol, side, reversal_signal, context_registry, recent_extremes, fast_track)
-        # self._trace(symbol, side, reversal_signal.get("close", 0.0), res4)
-        # if not res4.passed: return False, 0.0
-
         # Guardian 5: Delta Divergence
         res5 = check_delta_divergence(symbol, side, context_registry, fast_track)
         self._trace(symbol, side, 0.0, res5)
+        self.trace(
+            reversal_signal,
+            f"GUARDIAN_CHECK:{res5.gate_name}",
+            {"passed": res5.passed, "reason": res5.reason, "metrics": res5.metrics},
+        )
         if not res5.passed:
             return False, 0.0
 
         # Guardian 6: Spread Sanity
         res6 = check_spread_sanity(symbol, context_registry, fast_track)
         self._trace(symbol, side, 0.0, res6)
+        self.trace(
+            reversal_signal,
+            f"GUARDIAN_CHECK:{res6.gate_name}",
+            {"passed": res6.passed, "reason": res6.reason, "metrics": res6.metrics},
+        )
         if not res6.passed:
             return False, 0.0
 

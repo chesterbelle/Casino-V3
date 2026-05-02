@@ -24,11 +24,12 @@ import logging
 from typing import Optional
 
 from core.footprint_registry import footprint_registry
+from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger(__name__)
 
 
-class AbsorptionSetupEngine:
+class AbsorptionSetupEngine(TraceBulletMixin):
     """
     Converts confirmed entry signals into executable setups (V2).
 
@@ -41,6 +42,7 @@ class AbsorptionSetupEngine:
     """
 
     def __init__(self, fast_track: bool = False):
+        super().__init__()
         self.name = "AbsorptionSetupEngine"
         self.fast_track = fast_track
 
@@ -70,19 +72,24 @@ class AbsorptionSetupEngine:
         current_price = signal["entry_price"]
         timestamp = signal["timestamp"]
 
+        self.trace(signal, "SETUP_GEN_START")
+
         # Calculate TP
         tp_price = self._calculate_tp(symbol, level, direction, current_price)
         if tp_price is None:
             logger.debug(f"❌ [ABSORPTION_V2] No valid TP found for {symbol}")
+            self.trace(signal, "SETUP_GEN_REJECT", {"reason": "NO_TP_FOUND"})
             return None
 
         # Validate TP distance
         tp_distance_pct = abs(tp_price - current_price) / current_price * 100
         if tp_distance_pct < self.min_tp_distance_pct:
             logger.debug(f"❌ [ABSORPTION_V2] TP too close: {tp_distance_pct:.2f}% < {self.min_tp_distance_pct}%")
+            self.trace(signal, "SETUP_GEN_REJECT", {"reason": "TP_TOO_CLOSE", "dist": tp_distance_pct})
             return None
         if tp_distance_pct > self.max_tp_distance_pct:
             logger.debug(f"❌ [ABSORPTION_V2] TP too far: {tp_distance_pct:.2f}% > {self.max_tp_distance_pct}%")
+            self.trace(signal, "SETUP_GEN_REJECT", {"reason": "TP_TOO_FAR", "dist": tp_distance_pct})
             return None
 
         # Calculate SL
@@ -108,7 +115,10 @@ class AbsorptionSetupEngine:
             "size_multiplier": size_multiplier,
             "confirmations": signal.get("confirmations", 0),
             "is_contra_trend": signal.get("is_contra_trend", False),
+            "trace_id": signal.get("trace_id"),  # Propagate trace_id
         }
+
+        self.trace(setup, "SETUP_GEN_COMPLETE")
 
         logger.info(
             f"🎯 [ABSORPTION_V2] Setup generated: {symbol} {side} @ {current_price:.2f} "
