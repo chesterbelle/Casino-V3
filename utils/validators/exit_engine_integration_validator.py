@@ -249,37 +249,44 @@ async def test_flow_invalidation_triggers_close():
         trading_config.EXIT_LAYER_THESIS_INVALIDATION = orig_thesis
 
 
-async def test_valentino_triggers_scale_out():
-    """Valentino scale-out → croupier.scale_out_position() called (50% partial)."""
+async def test_winner_catcher_triggers_tp_expansion():
+    """Winner Catcher → croupier.modify_tp() called."""
     print("\n" + "=" * 60)
-    print(" VALENTINO → CROUPIER SCALE_OUT")
+    print(" WINNER CATCHER → CROUPIER MODIFY_TP")
     print("=" * 60)
 
+    import config.trading as trading_config
     from croupier.components.exit_engine import ExitEngine
 
-    croupier = MockCroupier()
-    # LONG: entry=100, TP=103, Valentino trigger at 70% = 102.1
-    pos = make_position(
-        side="LONG", entry_price=100.0, tp_level=103.0, trade_id="val_001", timestamp=time.time() - 100.0
-    )
-    croupier.position_tracker.open_positions = [pos]
+    orig_ts = getattr(trading_config, "TRAILING_STOP_ENABLED", False)
+    orig_thresh = getattr(trading_config, "TRAILING_STOP_EXPANSION_THRESHOLD_PCT", 0.02)
+    trading_config.TRAILING_STOP_ENABLED = True
+    trading_config.TRAILING_STOP_EXPANSION_THRESHOLD_PCT = 0.02
 
-    engine = ExitEngine(croupier)
+    try:
+        croupier = MockCroupier()
+        # LONG: entry=100, price hits 102.5 (+2.5% profit)
+        pos = make_position(
+            side="LONG", entry_price=100.0, tp_level=103.0, trade_id="wc_001", timestamp=time.time() - 100.0
+        )
+        pos.tp_order_id = "mock_tp_id"
+        croupier.position_tracker.open_positions = [pos]
 
-    # Price at 102.5 (above 70% threshold)
-    tick = make_tick(price=102.5, timestamp=time.time())
-    await engine.on_tick(tick)
-    await asyncio.sleep(0.1)
+        engine = ExitEngine(croupier)
 
-    found = any(tid == "val_001" for tid, frac in croupier.scale_out_calls)
-    if found:
-        _, fraction = croupier.scale_out_calls[0]
-        if abs(fraction - 0.50) < 0.01:
-            ok(f"Valentino → croupier.scale_out_position(trade_id, fraction=0.50)")
+        # Price at 102.5 (above 2% threshold)
+        tick = make_tick(price=102.5, timestamp=time.time())
+        await engine.on_tick(tick)
+        await asyncio.sleep(0.1)
+
+        found = any(tid == "wc_001" for tid, _ in croupier.modify_tp_calls)
+        if found:
+            ok(f"Winner Catcher → croupier.modify_tp() called")
         else:
-            fail(f"Valentino fraction should be 0.50, got {fraction}")
-    else:
-        fail(f"Valentino should call scale_out_position, got: {croupier.scale_out_calls}")
+            fail(f"Winner Catcher should call modify_tp, got: {croupier.modify_tp_calls}")
+    finally:
+        trading_config.TRAILING_STOP_ENABLED = orig_ts
+        trading_config.TRAILING_STOP_EXPANSION_THRESHOLD_PCT = orig_thresh
 
 
 async def test_shadow_sl_triggers_close():
@@ -339,8 +346,6 @@ async def test_pending_terminations_prevents_double_close():
     tick1 = make_tick(price=49.0, timestamp=time.time())
     await engine.on_tick(tick1)
     await asyncio.sleep(0.1)
-
-    first_close_count = len(croupier.close_calls)
 
     # Second tick: same position, still catastrophic + flow
     # Position should be skipped because trade_id is in _pending_terminations
@@ -460,7 +465,7 @@ async def main():
 
     await test_catastrophic_triggers_close()
     await test_flow_invalidation_triggers_close()
-    await test_valentino_triggers_scale_out()
+    await test_winner_catcher_triggers_tp_expansion()
     await test_shadow_sl_triggers_close()
     await test_pending_terminations_prevents_double_close()
     await test_audit_mode_no_execution()

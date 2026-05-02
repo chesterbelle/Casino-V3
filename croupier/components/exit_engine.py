@@ -467,7 +467,7 @@ class ExitEngine:
             detector = AbsorptionDetector()
 
             # Find extreme deltas (potential counter-absorption)
-            candidates = detector._find_extreme_deltas(footprint, current_price)
+            candidates = detector._find_extreme_deltas(footprint)
 
             if not candidates:
                 return None
@@ -475,9 +475,9 @@ class ExitEngine:
             # Check each candidate for counter-absorption
             for level, delta, ask_vol, bid_vol in candidates:
                 # Calculate quality metrics
-                z_score = detector._calculate_z_score(position.symbol, delta, current_price)
-                concentration = detector._calculate_concentration(footprint, level, current_price)
-                noise = detector._calculate_noise(ask_vol, bid_vol, delta)
+                z_score = detector._cross_sectional_zscore(footprint, delta)
+                concentration = detector._concentration(footprint, level, current_price)
+                noise = detector._noise_ratio(ask_vol, bid_vol, delta)
 
                 # Check if it passes quality filters
                 if abs(z_score) < detector.z_score_min:

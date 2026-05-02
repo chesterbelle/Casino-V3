@@ -23,6 +23,7 @@ from core.error_handling import get_error_handler
 from core.interfaces import TimeIterator
 from core.observability.decision_auditor import DecisionAuditor
 from core.observability.historian import historian
+from core.observability.watchdog import watchdog
 
 # Phase 31: OrderTracker removed - PositionTracker is now the single source of truth
 from core.portfolio.balance_manager import BalanceManager
@@ -113,6 +114,7 @@ class Croupier(TimeIterator):
         self.is_shutting_down: bool = False
         self._drain_in_progress: bool = False  # Task guard for drain status updates
         self._last_funding_sync: float = 0.0  # Phase 30: For precision accounting
+        self.watchdog = watchdog
 
         self.logger.info(f"[CORE] ✅ Croupier V4 initialized | Balance: {initial_balance} | Global limit: UNLIMITED")
 

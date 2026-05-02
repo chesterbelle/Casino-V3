@@ -66,21 +66,25 @@ class AbsorptionDetector(SensorV3):
             # Filter 1: Magnitude
             z_score = self._cross_sectional_zscore(footprint, delta)
             if abs(z_score) < self.z_score_min:
+                logger.debug(f"❌ [ABS] Rejected {level}: Z-score {z_score:.2f} < {self.z_score_min}")
                 continue
 
             # Filter 2: Velocity
             concentration = self._concentration(footprint, level, timestamp)
             if concentration < self.concentration_min:
+                logger.debug(f"❌ [ABS] Rejected {level}: Concentration {concentration:.2f} < {self.concentration_min}")
                 continue
 
             # Filter 3: Noise
             noise = self._noise_ratio(ask_vol, bid_vol, delta)
             if noise > self.noise_max:
+                logger.debug(f"❌ [ABS] Rejected {level}: Noise {noise:.2f} > {self.noise_max}")
                 continue
 
             # Filter 4: Stagnation
             direction = "SELL_EXHAUSTION" if delta < 0 else "BUY_EXHAUSTION"
             if not self._check_price_stagnation(direction, candle_1m):
+                logger.debug(f"❌ [ABS] Rejected {level}: Stagnation check failed")
                 continue
 
             # SUCCESS: Tactical Absorption V2 Detected
@@ -134,7 +138,7 @@ class AbsorptionDetector(SensorV3):
             delta = data["delta"]
             if abs(delta) > 0:
                 deltas.append((level, delta, data["ask_volume"], data["bid_volume"]))
-        if len(deltas) < 2:
+        if len(deltas) < 10:
             return []
         deltas.sort(key=lambda x: abs(x[1]), reverse=True)
         top_n = max(1, min(5, len(deltas) // 10))
@@ -144,7 +148,7 @@ class AbsorptionDetector(SensorV3):
         all_deltas = [data["delta"] for data in footprint.levels.values()]
         if len(all_deltas) < 2:
             return 0.0
-        mean = 0.0
+        mean = sum(all_deltas) / len(all_deltas)
         variance = sum((d - mean) ** 2 for d in all_deltas) / len(all_deltas)
         std_dev = math.sqrt(variance)
         return (delta - mean) / std_dev if std_dev > 1e-9 else 0.0

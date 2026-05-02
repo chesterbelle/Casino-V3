@@ -11,6 +11,7 @@ Phase 7: LTA V4/V5/V6 PURGED - Absorption V1 is the sole strategy.
 # =====================================================
 # 🎛️ SENSORES ACTIVOS ROOT
 # =====================================================
+DISABLE_WORKERS = False  # Set to True for debugging/validation in single process
 
 ACTIVE_SENSORS = {
     # === CONTEXT SENSORS (Required for structural levels and regime detection) ===

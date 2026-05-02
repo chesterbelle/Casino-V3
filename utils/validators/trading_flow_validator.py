@@ -35,6 +35,8 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from core.engine import Engine
+from core.events import EventType
 from croupier.components.reconciliation_service import ReconciliationService
 from croupier.croupier import Croupier
 from exchanges.adapters import ExchangeAdapter
@@ -128,23 +130,20 @@ class PreflightValidator:
 
         logger.info(f"💰 Balance: ${self.initial_balance:,.2f}")
 
-        # 4. Create croupier (matches main.py line 148)
-        self.croupier = Croupier(exchange_adapter=self.adapter, initial_balance=self.initial_balance)
+        # 4. Create Engine & Croupier (matches main.py)
+        self.engine = Engine()
+        self.croupier = Croupier(
+            exchange_adapter=self.adapter, initial_balance=self.initial_balance, engine=self.engine
+        )
+        # 4.1 Start Croupier (Enables reactive subscriptions)
+        await self.croupier.start()
+
         # LIFECYCLE SUPPORT: Initialize Reconciliation Service for GC (Phase 48)
         self.recon_service = ReconciliationService(
             self.adapter, self.croupier.position_tracker, self.croupier.oco_manager, self.croupier
         )
         self.croupier.reconciliation_service = self.recon_service
-        logger.info("✅ Croupier & Reconciliation initialized")
-
-        # 4.1 Register order update callback (matches main.py)
-        # This is CRITICAL for PositionTracker to see fills and close positions!
-        async def async_order_update_handler(order):
-            self.croupier.position_tracker.handle_order_update(order)
-            await self.croupier.oco_manager.on_order_update(order)
-
-        self.connector.set_order_update_callback(async_order_update_handler)
-        logger.info("✅ Order update callback registered")
+        logger.info("✅ Croupier (Reactive) & Reconciliation initialized")
 
         # 4.2 Signal Handling (Phase 243 Resilience)
         loop = asyncio.get_running_loop()

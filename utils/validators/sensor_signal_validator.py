@@ -34,7 +34,7 @@ from config.sensors import ACTIVE_SENSORS
 from core.footprint_registry import footprint_registry
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s | %(levelname)-8s | %(message)s",
 )
 
@@ -133,19 +133,27 @@ class SensorSignalValidator:
         """
         Patch AbsorptionDetector to collect diagnostic data.
         """
+        import config.sensors as sensor_config
+
+        sensor_config.DISABLE_WORKERS = True
+        logger.info("🛠️ Force disabled sensor workers for validation")
+
         from sensors.absorption.absorption_detector import AbsorptionDetector
 
-        original_analyze = AbsorptionDetector._analyze_absorption
+        original_calculate = AbsorptionDetector.calculate
         validator = self
 
-        def patched_analyze(self, symbol: str, timestamp: float):
-            """Patched _analyze_absorption with diagnostics."""
-            sensor_name = "AbsorptionDetector"
+        def patched_calculate(self, context: dict):
+            """Patched calculate with diagnostics."""
+            sensor_name = "TacticalAbsorptionV2"  # Name in config
             diag = validator.sensor_diagnostics[sensor_name]
             diag["calls"] += 1
 
+            symbol = context.get("symbol")
+            timestamp = context.get("timestamp")
+
             # Get footprint data for diagnostics
-            footprint = footprint_registry.get_footprint(symbol)
+            footprint = footprint_registry.get_footprint(symbol) if symbol else None
 
             # Sample input data (every 100 calls)
             if diag["calls"] % 100 == 0 and footprint:
@@ -164,7 +172,7 @@ class SensorSignalValidator:
                 diag["sample_inputs"].append(input_sample)
 
             # Call original method
-            result = original_analyze(self, symbol, timestamp)
+            result = original_calculate(self, context)
 
             if result:
                 diag["signals_generated"] += 1
@@ -183,7 +191,7 @@ class SensorSignalValidator:
             return result
 
         # Apply patch
-        AbsorptionDetector._analyze_absorption = patched_analyze
+        AbsorptionDetector.calculate = patched_calculate
         logger.info("🔧 Patched AbsorptionDetector for diagnostics collection")
 
     def _clean_database(self):
@@ -312,10 +320,20 @@ class SensorSignalValidator:
                 for i, signal in enumerate(diag["sample_signals"], 1):
                     logger.info(f"      Signal #{i}:")
                     logger.info(f"         Direction: {signal['direction']}")
-                    logger.info(f"         Z-Score: {signal['z_score']:.2f}")
-                    logger.info(f"         Concentration: {signal['concentration']:.2f}")
-                    logger.info(f"         Noise: {signal['noise']:.2f}")
-                    logger.info(f"         Level: {signal['level']:.2f}")
+                    z_val = signal.get("z_score")
+                    z_str = f"{z_val:.2f}" if z_val is not None else "None"
+                    logger.info(f"         Z-Score: {z_str}")
+                    c_val = signal.get("concentration")
+                    c_str = f"{c_val:.2f}" if c_val is not None else "None"
+                    logger.info(f"         Concentration: {c_str}")
+
+                    n_val = signal.get("noise")
+                    n_str = f"{n_val:.2f}" if n_val is not None else "None"
+                    logger.info(f"         Noise: {n_str}")
+
+                    l_val = signal.get("level")
+                    l_str = f"{l_val:.2f}" if l_val is not None else "None"
+                    logger.info(f"         Level: {l_str}")
 
             # Show rejection reasons if no signals
             if diag["signals_generated"] == 0 and diag["calls"] > 0:

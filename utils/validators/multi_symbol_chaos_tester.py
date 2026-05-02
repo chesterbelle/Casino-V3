@@ -92,6 +92,9 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                     await asyncio.sleep(2)
                     continue
 
+                if "position" in result:
+                    trade_id = result["position"].trade_id
+
                 self.total_operations += 1
 
                 # 2. Chaos Phase: Random Modals/Waits

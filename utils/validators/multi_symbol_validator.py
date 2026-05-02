@@ -27,6 +27,8 @@ sys.path.append(os.getcwd())
 
 from dotenv import load_dotenv
 
+from core.engine import Engine
+from core.events import EventType
 from croupier.components.reconciliation_service import ReconciliationService
 from croupier.components.reconciliation_worker import ReconciliationWorker
 from croupier.croupier import Croupier
@@ -119,9 +121,14 @@ class MultiSymbolValidator:
 
         logger.info(f"💰 Balance: ${self.initial_balance:,.2f}")
 
-        self.croupier = Croupier(exchange_adapter=self.multi_adapter, initial_balance=self.initial_balance)
-        # LIFECYCLE SUPPORT: Initialize Reconciliation Service for GC
-        # We need this to cleanup OFF_BOARDING positions
+        # 4. Create Engine & Croupier (matches main.py)
+        self.engine = Engine()
+        self.croupier = Croupier(
+            exchange_adapter=self.multi_adapter, initial_balance=self.initial_balance, engine=self.engine
+        )
+        # 4.1 Start Croupier (Enables reactive subscriptions)
+        await self.croupier.start()
+
         self.oco_manager = self.croupier.oco_manager
         self.recon_service = ReconciliationService(
             self.multi_adapter, self.croupier.position_tracker, self.oco_manager, self.croupier
@@ -143,18 +150,7 @@ class MultiSymbolValidator:
         self.recon_worker.start()
         self.croupier.set_recon_queue(self.recon_queue)
 
-        logger.info("✅ Croupier & ReconciliationWorker initialized (Phase 4 isolation)")
-
-        # 4.1 Register order update callback (matches main.py)
-        # This is CRITICAL for PositionTracker to see fills and close positions!
-        async def async_order_update_handler(order):
-            # 1. Update Position Tracker (Current Limit/Stop management)
-            self.croupier.position_tracker.handle_order_update(order)
-            # 2. Update OCO Manager (Initial entry wait)
-            await self.croupier.oco_manager.on_order_update(order)
-
-        self.connector.set_order_update_callback(async_order_update_handler)
-        logger.info("✅ Order update callback registered for tracker/OCO")
+        logger.info("✅ Croupier (Reactive) & ReconciliationWorker initialized")
 
         # 4.2 Signal Handling (Phase 243 Resilience)
         loop = asyncio.get_running_loop()
@@ -419,7 +415,9 @@ class MultiSymbolValidator:
         try:
             # 0. Trigger Garbage Collection (Lifecycle Architecture)
             logger.info("🧹 Triggering final reconciliation sweep...")
+            self.croupier.error_handler.shutdown_mode = True
             await self.recon_service.reconcile_all()
+            self.croupier.error_handler.shutdown_mode = False
 
             # 1. Tracker should be empty
             open_pos = self.croupier.position_tracker.open_positions

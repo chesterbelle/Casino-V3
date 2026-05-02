@@ -93,8 +93,8 @@ class MockCroupier:
     async def close_position(self, trade_id, exit_reason=""):
         self.close_calls.append((trade_id, exit_reason))
 
-    async def scale_out_position(self, trade_id, fraction=0.5):
-        self.scale_out_calls.append((trade_id, fraction))
+    async def scale_out_structural(self, trade_id, fraction=0.5, reason=""):
+        self.scale_out_calls.append((trade_id, fraction, reason))
 
     def get_open_positions(self):
         return self.position_tracker.open_positions
@@ -363,68 +363,70 @@ def test_layer4_wall_collapse():
         fail(f"Normal skew should return None, got {result3}")
 
 
-async def test_layer3_valentino():
-    """Layer 3: Valentino triggers at 70% of TP distance."""
+async def test_layer3_sce():
+    """Layer 3: SCE (Structural Conviction Engine) — MEX & CFI."""
     print("\n" + "=" * 60)
-    print(" LAYER 3: VALENTINO (SCALE-OUT)")
+    print(" LAYER 3: SCE (STRUCTURAL CONVICTION ENGINE)")
     print("=" * 60)
 
+    import config.trading as trading_config
     from croupier.components.exit_engine import ExitEngine
 
-    croupier = MockCroupier()
-    engine = ExitEngine(croupier)
+    # --- 1. MEX: Micro-Exhaustion (Delta Momentum Decay) ---
+    ctx_mex = MockContextRegistry(z=0.20)  # Low Z (neutral)
+    croupier_mex = MockCroupier(context_registry=ctx_mex)
+    engine_mex = ExitEngine(croupier_mex)
 
-    # LONG: entry=100, TP=103, trigger at 70% = 102.1
-    pos = make_position(side="LONG", entry_price=100.0, tp_level=103.0)
     from core.events import TickEvent
 
-    # Price at 101.0 → NOT triggered (< 102.1)
-    tick_low = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=101.0)
-    result = await engine._check_valentino(pos, tick_low, 101.0)
-    if result is False:
-        ok("Valentino NOT triggered at 101.0 (below 70% threshold 102.1)")
-    else:
-        fail("Valentino should not trigger below 70% threshold")
+    # LONG: in profit (100 -> 101), Z=0.20 < threshold (0.50) → MEX!
+    pos_mex = make_position(side="LONG", entry_price=100.0)
+    TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=101.0)
 
-    # Price at 102.5 → triggered (> 102.1)
-    pos2 = make_position(side="LONG", entry_price=100.0, tp_level=103.0)
-    tick_high = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=102.5)
-    result2 = await engine._check_valentino(pos2, tick_high, 102.5)
-    if result2 is True:
-        ok("Valentino triggered at 102.5 (above 70% threshold)")
+    # We call the internal check_micro_exhaustion
+    mex_triggered = engine_mex._check_micro_exhaustion(pos_mex)
+    if mex_triggered:
+        ok("MEX triggered: LONG in profit with low Z (decay)")
     else:
-        fail("Valentino should trigger above 70% threshold")
+        fail("MEX should trigger for LONG with Z=0.20")
 
-    # Verify scale_out was called
-    await asyncio.sleep(0.05)
-    if len(croupier.scale_out_calls) == 1:
-        tid, frac = croupier.scale_out_calls[0]
-        if frac == 0.50:
-            ok(f"scale_out_position called with fraction=0.50 (trade_id={tid})")
-        else:
-            fail(f"scale_out fraction should be 0.50, got {frac}")
-    else:
-        fail(f"Expected 1 scale_out call, got {len(croupier.scale_out_calls)}")
+    # --- 2. CFI: Counter-Flow Invalidation (Absorption) ---
+    # LONG: we see BUY_EXHAUSTION (counter-absorption)
+    # We need a footprint with absorption
+    from core.footprint_registry import footprint_registry
 
-    # Already scaled out → skip
-    pos3 = make_position(side="LONG", entry_price=100.0, tp_level=103.0, scaled_out=True)
-    tick3 = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=102.5)
-    result3 = await engine._check_valentino(pos3, tick3, 102.5)
-    if result3 is False:
-        ok("Valentino skips already-scaled-out position")
-    else:
-        fail("Valentino should skip already-scaled-out position")
+    footprint_registry.reset()
+    footprint_registry.register_symbol("LTCUSDT", 0.01)
+    fp = footprint_registry.get_footprint("LTCUSDT")
+    # 10 levels to pass the guard
+    for i in range(10):
+        fp.levels[100.0 + i * 0.01] = {"delta": 10.0, "ask_volume": 60.0, "bid_volume": 50.0, "last_update": 1000.0}
+    # One counter-absorption level: BUY_EXHAUSTION (large positive delta)
+    fp.levels[101.0] = {"delta": 1000.0, "ask_volume": 1050.0, "bid_volume": 50.0, "last_update": 1000.0}
 
-    # SHORT: entry=100, TP=97, trigger at 70% = 97.9
-    croupier4 = MockCroupier()
-    engine4 = ExitEngine(croupier4)
-    pos4 = make_position(side="SHORT", entry_price=100.0, tp_level=97.0)
-    tick4 = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=97.5)
-    result4 = await engine4._check_valentino(pos4, tick4, 97.5)
-    if result4 is True:
-        ok("SHORT Valentino triggered at 97.5 (below 70% threshold 97.9)")
+    ctx_cfi = MockContextRegistry(z=1.5, vol_ratio=1.0)
+    croupier_cfi = MockCroupier(context_registry=ctx_cfi)
+    engine_cfi = ExitEngine(croupier_cfi)
+    pos_cfi = make_position(side="LONG", entry_price=100.0)
+
+    cfi_reason = await engine_cfi._check_counter_flow_invalidation(pos_cfi, 101.0)
+    if cfi_reason == "COUNTER_ABSORPTION_BUY":
+        ok("CFI triggered: LONG sees BUY_EXHAUSTION counter-absorption")
     else:
-        fail("SHORT Valentino should trigger below 70% threshold")
+        fail(f"CFI should trigger COUNTER_ABSORPTION_BUY, got {cfi_reason}")
+
+    # --- 3. SCE Activation Gate ---
+    # Price at entry -> No profit -> SCE should NOT trigger scale-out even if MEX is true
+    croupier_gate = MockCroupier(context_registry=ctx_mex)
+    engine_gate = ExitEngine(croupier_gate)
+    pos_gate = make_position(side="LONG", entry_price=100.0)
+    tick_gate = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=100.0)
+
+    await engine_gate._check_structural_conviction(pos_gate, tick_gate, 100.0)
+    if len(croupier_gate.scale_out_calls) == 0:
+        ok("SCE Gate: Scale-out skipped due to insufficient profit")
+    else:
+        fail("SCE should NOT scale out at zero profit")
 
 
 async def test_layer2_breakeven():
@@ -534,7 +536,7 @@ def test_pending_terminations():
     pos = make_position(trade_id="test_001")
     from core.events import TickEvent
 
-    tick = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=49.0)  # Catastrophic level
+    TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=49.0)  # Catastrophic level
 
     # Position should be skipped (already in _pending_terminations)
     # The on_tick loop checks: position.trade_id in self._pending_terminations → continue
@@ -601,7 +603,7 @@ async def main():
     test_layer4_flow_invalidation()
     test_layer4_stagnation_profit_aware()
     test_layer4_wall_collapse()
-    await test_layer3_valentino()
+    await test_layer3_sce()
     await test_layer2_breakeven()
     await test_layer1_session_drain()
     test_pending_terminations()

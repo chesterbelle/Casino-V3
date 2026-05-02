@@ -151,12 +151,6 @@ async def run_backtest():
         SIM_TIME = e.timestamp
         context_registry.on_tick(e.symbol, e.price, e.volume, e.side)
 
-    async def on_tick_croupier(e):
-        await croupier.exit_manager.on_tick(e)
-
-    async def on_order_update_tracker(e):
-        await croupier.position_tracker.handle_order_update(e)
-
     async def on_candle_context(e):
         context_registry.on_candle(e.symbol, e.high, e.low)
 
@@ -165,10 +159,8 @@ async def run_backtest():
             context_registry.set_micro_state(event.symbol, event.cvd, event.skewness, event.z_score)
 
     engine.subscribe(EventType.TICK, on_tick_context)
-    engine.subscribe(EventType.TICK, on_tick_croupier)
     engine.subscribe(EventType.CANDLE, on_candle_context)
     engine.subscribe(EventType.MICROSTRUCTURE_BATCH, on_micro_batch)
-    engine.subscribe(EventType.ORDER_UPDATE, on_order_update_tracker)
     engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)
 
     # 6.5 Setup Audit Handlers

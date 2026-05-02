@@ -326,7 +326,6 @@ class ReconciliationService:
                     # Still closing on exchange -> Wait, do nothing (Respect State)
                     continue
 
-            if not self._exists_in_exchange(pos, exchange_positions):
                 # Phase 57.1: Ghost Protection Grace Period (Prevent killing new positions due to REST lag)
                 try:
                     # entry_timestamp is in milliseconds (Binance/CCXT format)
@@ -334,7 +333,11 @@ class ReconciliationService:
                     if entry_time_ms < 100000000000:  # Detect seconds vs milliseconds
                         entry_time_ms *= 1000
                     now_ms = time.time() * 1000
-                    if (now_ms - entry_time_ms) < 120000:  # 120 seconds grace for simulation lag
+
+                    # Bypassed in shutdown_mode for immediate cleanup during emergency sweeps or validation audits.
+                    if (
+                        not self.error_handler.shutdown_mode and (now_ms - entry_time_ms) < 120000
+                    ):  # 120 seconds grace for simulation lag
                         self.logger.debug(
                             f"⏳ Sync: {pos.trade_id} is GHOST but in 120s grace period. Skipping ghost removal."
                         )

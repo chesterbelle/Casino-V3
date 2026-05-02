@@ -30,6 +30,8 @@ sys.path.append(os.getcwd())
 
 from dotenv import load_dotenv
 
+from core.engine import Engine
+from core.events import EventType
 from croupier.components.reconciliation_service import ReconciliationService
 from croupier.croupier import Croupier
 from exchanges.adapters import ExchangeAdapter
@@ -126,21 +128,22 @@ class HFTLatencyBenchmark:
             raise ValueError(f"Insufficient balance: ${self.initial_balance:.2f}")
         logger.info(f"💰 Balance: ${self.initial_balance:,.2f}")
 
-        self.croupier = Croupier(exchange_adapter=self.adapter, initial_balance=self.initial_balance)
-        # Phase 240: Disable PortfolioGuard during HFT benchmarks to avoid "5 consecutive losses"
-        # from force-closed test positions triggering Drain Mode and failing the test.
+        # 4. Create Engine & Croupier (matches main.py)
+        self.engine = Engine()
+        self.croupier = Croupier(
+            exchange_adapter=self.adapter, initial_balance=self.initial_balance, engine=self.engine
+        )
+        # Phase 240: Disable PortfolioGuard during HFT benchmarks
         self.croupier.portfolio_guard.config.enabled = False
+
+        # 4.1 Start Croupier (Enables reactive subscriptions)
+        await self.croupier.start()
 
         self.recon_service = ReconciliationService(
             self.adapter, self.croupier.position_tracker, self.croupier.oco_manager, self.croupier
         )
         self.croupier.reconciliation_service = self.recon_service
-
-        async def async_order_update_handler(order):
-            self.croupier.position_tracker.handle_order_update(order)
-            await self.croupier.oco_manager.on_order_update(order)
-
-        self.connector.set_order_update_callback(async_order_update_handler)
+        logger.info("✅ Croupier (Reactive) & Reconciliation initialized")
 
         # 4.2 Signal Handling (Phase 243 Resilience)
         loop = asyncio.get_running_loop()

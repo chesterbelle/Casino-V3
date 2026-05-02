@@ -25,10 +25,6 @@ from .events import (
 
 logger = logging.getLogger(__name__)
 
-# Number of worker processes for parallel sensor execution
-# Use half of CPU cores to leave room for other tasks
-SENSOR_WORKERS = max(2, (os.cpu_count() or 4) // 2)
-
 
 def _calculate_sensor(sensor_data: Tuple) -> Tuple[str, dict]:
     """
@@ -66,6 +62,16 @@ class SensorManager:
         self.cooldown_bars = 5
         self._candle_index = -1
         self._last_trigger: Dict[str, int] = {}
+
+        # Worker Configuration (Dynamic)
+        from config.sensors import DISABLE_WORKERS
+
+        self.num_workers = max(2, (os.cpu_count() or 4) // 2)
+        if DISABLE_WORKERS:
+            self.num_workers = 0
+            logger.info("🚫 SensorManager: Parallel workers DISABLED (running in-process)")
+        else:
+            logger.info(f"🏭 SensorManager: Initializing with {self.num_workers} workers")
 
         # Phase 1: Real-time Microstructural Tracking
         self.tick_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=10000))
@@ -150,33 +156,44 @@ class SensorManager:
             return
 
         # 2. Determine worker count
-        cpu_count = os.cpu_count() or 4
-        # Use roughly 50-75% of cores, min 2
-        num_workers = max(2, int(cpu_count * 0.75))
+        num_workers = self.num_workers
 
-        logger.info(f"🏭 Spawning {num_workers} SensorWorkers for {len(enabled_classes)} sensors...")
+        if num_workers > 0:
+            logger.info(f"🏭 Spawning {num_workers} SensorWorkers for {len(enabled_classes)} sensors...")
+        else:
+            logger.info(f"🧠 Using in-process execution for {len(enabled_classes)} sensors")
 
         # 3. Distribute sensors (Round Robin)
         from .sensor_worker import SensorWorker
 
-        chunks = [[] for _ in range(num_workers)]
-        capabilities = [{"tick": False, "ob": False} for _ in range(num_workers)]
+        if num_workers > 0:
+            chunks = [[] for _ in range(num_workers)]
+            capabilities = [{"tick": False, "ob": False} for _ in range(num_workers)]
 
-        for i, cls in enumerate(enabled_classes):
-            worker_idx = i % num_workers
-            chunks[worker_idx].append(cls)
+            for i, cls in enumerate(enabled_classes):
+                worker_idx = i % num_workers
+                chunks[worker_idx].append(cls)
 
-            # Detect capabilities
-            try:
-                tmp = cls()
-                if hasattr(tmp, "on_tick"):
-                    capabilities[worker_idx]["tick"] = True
-                if hasattr(tmp, "on_orderbook"):
-                    capabilities[worker_idx]["ob"] = True
-            except Exception:
-                pass
+                # Detect capabilities
+                try:
+                    tmp = cls()
+                    if hasattr(tmp, "on_tick"):
+                        capabilities[worker_idx]["tick"] = True
+                    if hasattr(tmp, "on_orderbook"):
+                        capabilities[worker_idx]["ob"] = True
+                except Exception:
+                    pass
+        else:
+            chunks = []
+            capabilities = []
 
         # 4. Create Processes
+        if self.num_workers == 0:
+            self.local_sensors = defaultdict(list)
+            self._enabled_classes = enabled_classes
+            logger.info("🧠 [SENSOR_MGR] Running in-process (Actor state preserved per symbol)")
+            return
+
         for i in range(num_workers):
             if not chunks[i]:
                 continue  # Skip empty workers if few sensors
@@ -244,8 +261,11 @@ class SensorManager:
         }
 
         # Dispatch to all queues
-        for q in self.input_queues:
-            asyncio.get_running_loop().run_in_executor(None, q.put, msg)
+        if self.num_workers == 0:
+            await self._dispatch_local(msg)
+        else:
+            for q in self.input_queues:
+                asyncio.get_running_loop().run_in_executor(None, q.put, msg)
 
     async def on_tick(self, event: TickEvent):
         """
@@ -309,8 +329,11 @@ class SensorManager:
 
         loop = asyncio.get_running_loop()
         # Phase 660: Targeted broadcast (Only to workers that have tick-aware sensors)
-        for q in self.tick_queues:
-            loop.run_in_executor(None, q.put, msg)
+        if self.num_workers == 0:
+            await self._dispatch_local(msg)
+        else:
+            for q in self.tick_queues:
+                loop.run_in_executor(None, q.put, msg)
 
     async def on_orderbook(self, event: OrderBookEvent):
         """
@@ -341,8 +364,11 @@ class SensorManager:
 
         loop = asyncio.get_running_loop()
         # Phase 660: Targeted broadcast (Only to workers that have OB-aware sensors)
-        for q in self.ob_queues:
-            loop.run_in_executor(None, q.put, msg)
+        if self.num_workers == 0:
+            await self._dispatch_local(msg)
+        else:
+            for q in self.ob_queues:
+                loop.run_in_executor(None, q.put, msg)
 
     async def _dispatch_micro_state(self, sym: str, now: float, event_data: Any = None):
         """
@@ -646,6 +672,55 @@ class SensorManager:
                 q.join_thread()
             except Exception:
                 pass
+
+    async def _dispatch_local(self, msg: dict):
+        """
+        Dispatches a message to local sensors (in-process).
+        Used when DISABLE_WORKERS is True.
+        """
+        symbol = msg.get("symbol")
+        if not symbol:
+            return
+
+        # Ensure sensors for symbol
+        if symbol not in self.local_sensors:
+            for cls in self._enabled_classes:
+                try:
+                    self.local_sensors[symbol].append(cls())
+                except Exception as e:
+                    logger.error(f"❌ Failed to instantiate {cls} for {symbol}: {e}")
+
+        for sensor in self.local_sensors[symbol]:
+            try:
+                event_type = msg.get("event")
+                data = msg.get("data")
+                context = msg.get("context")
+
+                signal = None
+                if event_type == "candle":
+                    # Match SensorWorker's calculate call
+                    signal = sensor.calculate(context if context else data)
+                elif event_type == "tick":
+                    if hasattr(sensor, "on_tick"):
+                        signal = sensor.on_tick(data)
+                elif event_type == "orderbook":
+                    if hasattr(sensor, "on_orderbook"):
+                        signal = sensor.on_orderbook(data)
+
+                if signal:
+                    # Map to worker message format
+                    worker_msg = {
+                        "sensor": sensor.name,
+                        "symbol": symbol,
+                        "signals": signal,
+                        "context": context,
+                    }
+                    await self._handle_worker_message(worker_msg)
+            except Exception as e:
+                logger.error(f"❌ Error in local sensor {sensor.name} ({symbol}): {e}")
+                import traceback
+
+                traceback.print_exc()
 
     def _get_all_sensor_classes(self):
         """Helper to return all sensor classes (moved from original _load_sensors)."""

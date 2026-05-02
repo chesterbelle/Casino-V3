@@ -123,13 +123,15 @@ def main():
     section("TEST 4: _check_price_stagnation()")
 
     # SELL_EXHAUSTION: open=100, low=99.96 -> dropped 0.04% -> should pass (stagnation=True)
-    stag_sell_pass = detector._check_price_stagnation("SYM", "SELL_EXHAUSTION", 99.98, 100.0, 100.0, 99.96)
+    candle_pass = {"open": 100.0, "close": 99.98, "high": 100.0, "low": 99.96}
+    stag_sell_pass = detector._check_price_stagnation("SELL_EXHAUSTION", candle_pass)
     if not stag_sell_pass:
         fail("Expected True (stagnation passed) for 0.04% drop")
     ok("stagnation(sell, small drop) = PASS")
 
     # SELL_EXHAUSTION: open=100, low=99.00 -> dropped 1.0% -> should fail (impulse=False)
-    stag_sell_fail = detector._check_price_stagnation("SYM", "SELL_EXHAUSTION", 99.50, 100.0, 100.0, 99.00)
+    candle_fail = {"open": 100.0, "close": 99.50, "high": 100.0, "low": 99.00}
+    stag_sell_fail = detector._check_price_stagnation("SELL_EXHAUSTION", candle_fail)
     if stag_sell_fail:
         fail("Expected False (stagnation failed) for 1.0% drop")
     ok("stagnation(sell, big drop) = FAIL (Impulse)")
