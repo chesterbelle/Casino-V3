@@ -1,3 +1,7 @@
+---
+description: Protocolo de Backtest Mensual (Validación de 30 días)
+---
+
 # Phase 1200 — Monthly Backtest Protocol (30-Day Edge Validation)
 
 // turbo-all

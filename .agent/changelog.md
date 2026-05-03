@@ -8,6 +8,17 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-03: Performance O(1) & Structural Integrity (The Silicon Eye)
+*   **Descripción**: Se resolvió el cuello de botella crítico en el cálculo del VWAP y se blindó el bot contra errores de naming y precisión mediante una nueva capa de metrología.
+*   **Detalle Técnico**:
+    *   `core/context_registry.py`: Refactorización de VWAP/STD a complejidad **O(1)** mediante sumas acumulativas y deques.
+    *   `core/symbol_manager.py`: Creación del **CanonicalSymbolMapper** para unificar alias (ADAUSDT, ADA/USDT, etc).
+    *   `core/tick_registry.py`: Evolución a **The Silicon Eye**; motor de inferencia probabilística que deduce el tick real observando el feed de trades.
+    *   `decision/setup_engine.py` & `exit_engine.py`: Implementación de targets dinámicos. **TP = VWAP**, **SL = Entry +/- 3.5Z**.
+*   **Hallazgos y Errores**:
+    *   *Tick Mismatch*: Se descubrió que el bot fallaba en multi-asset porque no reconocía el formato de nombres de la exchange, aplicando un tick de `0.01` por defecto (2% en ADA), lo que rompía el Market Profile.
+    *   *Volume Expansion*: La relajación de filtros (Integridad 0.01, Proximidad 0.35%) permitió certificar el Edge en 9 de 10 monedas auditadas.
+
 ### 2026-05-02: Reactive Execution Stability & Validate-All Certification
 *   **Descripción**: Se alcanzó la estabilidad determinística en el pipeline reactivo eliminando las "posiciones fantasma" y se certificó la "Capa de Hierro" mediante el protocolo `@/validate-all`.
 *   **Detalle Técnico**:

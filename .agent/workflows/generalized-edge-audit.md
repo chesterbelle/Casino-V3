@@ -1,3 +1,7 @@
+---
+description: Auditoría de Borde Generalizada (10 Coins × 24h)
+---
+
 # Generalized Edge Audit — 10 Coins × 24h (Cross-Instrument Validation)
 
 // turbo-all

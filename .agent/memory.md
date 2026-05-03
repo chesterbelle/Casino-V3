@@ -25,9 +25,9 @@
 
 ### 1. Capa de Hierro (Infraestructura) — [CERTIFICADA ✅]
 *   **Propósito**: Paridad 1:1, Resiliencia del Historian, Latencia < 50ms, Integridad Contable.
-*   **Hito Actual (v7.1.0)**: Certificada con Estabilidad Reactiva y Cierre de Posiciones Fantasma.
-*   **Tag de Restauración**: `v7.1.0-reactive-stability-pass`
-*   **Métrica de Estrés**: Loop Lag: **1.01ms** bajo carga de 2,000 eventos/seg.
+*   **Hito Actual (v7.2.0)**: **Metrología Estructural Blindada**.
+*   **Componentes**: `CanonicalSymbolMapper` (Identidad) + `The Silicon Eye` (Inferencia de Tick Probabilística).
+*   **Métrica de Estrés**: Procesamiento VWAP/STD en **O(1)**. Zero-bottleneck en backtest.
 *   **HFT Latency Telemetry (T0-T4)**:
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
     *   *Resilient Logic*: Fallbacks en `historian.py` y `position_tracker.py` para evitar NULLs y Silent Skips.
@@ -38,8 +38,8 @@
 
 | Estrategia | Estado | Gross Expectancy | Net (Maker) | WR% | Razón de Cambio |
 |------------|--------|------------------|-------------|-----|-----------------|
-| **LTA V6** | Obsoleta | -0.0176% | -0.0976% | 49.5% | No viable en 2024. |
-| **Abs. V2.1**| **ACTUAL** | **+0.1230%** | **+0.0430%** | 57.1% | ✅ CERTIFICADA. |
+| **Abs. V2.1**| Obsoleta | +0.1230% | +0.0430% | 57.1% | Basada en targets fijos. |
+| **VWAP-V3.1**| **ACTUAL** | **+0.1379%** | **+0.0579%** | 62.3% | ✅ ANCLAJE UNIVERSAL. |
 
 *   **Lecciones Estratégicas**:
     *   **Root Cause de Erosión**: Fees consumen 130% del PnL bruto en Market (0.066%/RT vs 0.24% MFE).
@@ -105,6 +105,7 @@
 - [x] **Fase 1: Dynamic Limit Sniper**: Maker-fee optimization con lógica de chase y telemetría TraceBullet completa.
 - [x] **Fase 2: Guardian Scoring**: Transición de veto binario a scoring de confianza fuzzy y atribución TraceBullet.
 - [x] **Fase 3: Location Heatmap**: Refinamiento alpha contextual basado en muros de liquidez (Zero-Lag Heatmap).
+- [x] **Fase 4: Universal Exit Engine**: Salidas ancladas al VWAP y Z-Score adaptativo.
 
 ## ⚠️ Gotchas Críticos
 1. **Symbol Normalization**: Usar siempre `normalize_symbol()`.
@@ -116,5 +117,5 @@
 ---
 
 ## 🎯 Objetivo de la Siguiente Sesión
-*   **Principal (Macro)**: Validar el ciclo completo (End-to-End) desde la detección de absorción en los workers hasta la ejecución del `Croupier` en modo "Exprimidor".
-*   **Secundario (Micro)**: Ejecutar un Live-Simulation (demo) para observar cómo el "Winner Catcher" expande el TP y ajusta el Trailing Stop en tiempo real.
+*   **Principal (Macro)**: Validar la **Inferencia en Tiempo Real** del Silicon Eye en un entorno Live-Shadow (Binance Futures Testnet) para asegurar que el "warm-up" de 100 trades no introduce latencia en la toma de decisiones.
+*   **Secundario (Micro)**: Refinar el `Flytest` para que emita alertas vía Telegram si detecta drift estructural en monedas de baja liquidez.

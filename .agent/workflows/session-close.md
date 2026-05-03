@@ -1,3 +1,7 @@
+---
+description: Protocolo de Cierre de Sesión (Actualiza memory.md y changelog.md)
+---
+
 # Protocolo de Cierre de Sesión (/session-close)
 
 ## 🎯 Objetivo

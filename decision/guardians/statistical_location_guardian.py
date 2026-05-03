@@ -25,31 +25,36 @@ def check_statistical_location(
     passed = True
     score = 0.5  # Default neutral
 
+    # Phase D1.5: Regime-Aware Aggressiveness
+    regime = context_registry.get_regime(symbol)  # Returns "BALANCE", "TREND_UP", "TREND_DOWN", etc.
+
+    # In RANGE/BALANCE, we require higher displacement (Wait for the real extreme)
+    # In TREND, we can be slightly more aggressive as the failed auction is more potent.
+    min_z = 2.0 if "BALANCE" in regime else 1.5
+
     if side == "LONG":
-        if z_score > -1.5:
+        if z_score > -min_z:
             passed = False
             score = 0.0  # Price too near mean for reversion
-        elif z_score > -2.0:
-            score = 0.5  # Neutral/Moderate
+        elif z_score > -2.5:
+            score = 0.5  # Moderate extreme
         else:
-            # Z <= -2.0 (Oversold extreme)
-            score = 1.0
+            score = 1.0  # Deep extreme
 
     elif side == "SHORT":
-        if z_score < 1.5:
+        if z_score < min_z:
             passed = False
             score = 0.0  # Price too near mean for reversion
-        elif z_score < 2.0:
-            score = 0.5  # Neutral/Moderate
+        elif z_score < 2.5:
+            score = 0.5  # Moderate extreme
         else:
-            # Z >= 2.0 (Overbought extreme)
-            score = 1.0
+            score = 1.0  # Deep extreme
 
     metrics = {"z_score": round(z_score, 3), "price": current_price}
 
     reason = (
         f"Price at {z_score:.2f}Z (Extremes supported)"
-        if score > 0.5
+        if passed
         else f"Price at {z_score:.2f}Z (Too near mean for reversion)"
     )
 

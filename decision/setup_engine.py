@@ -237,8 +237,9 @@ class SetupEngineV4:
         # Primary Target: The Rolling VWAP (Fair Value)
         vwap_data = self.context_registry.vwap_state.get(self.context_registry._norm_key(symbol))
         vwap_price = vwap_data["vwap"] if vwap_data else 0.0
+        std = vwap_data["std"] if vwap_data else 0.0
 
-        # Target is the VWAP or the POC
+        # Target is the VWAP (Z=0)
         tp_price = vwap_price if vwap_price > 0 else poc
 
         # Safety: Ensure TP is at least 0.20% away to cover fees
@@ -249,12 +250,22 @@ class SetupEngineV4:
             else:
                 tp_price = price * 0.9975
 
-        # SL is structural: Buffer outside the edge
-        sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
-        if side == "LONG":
-            sl_price = val * (1 - sl_buffer)
+        # SL is Dynamic/Statistical: 3.5Z from VWAP (or structural if no STD)
+        if std > 0 and vwap_price > 0:
+            if side == "LONG":
+                sl_price = vwap_price - (3.5 * std)
+                # Hard limit: SL cannot be better than entry - 0.1% for safety
+                sl_price = min(sl_price, price * 0.999)
+            else:
+                sl_price = vwap_price + (3.5 * std)
+                sl_price = max(sl_price, price * 1.001)
         else:
-            sl_price = vah * (1 + sl_buffer)
+            # Fallback to structural: Buffer outside the edge
+            sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
+            if side == "LONG":
+                sl_price = val * (1 - sl_buffer)
+            else:
+                sl_price = vah * (1 + sl_buffer)
 
         # 6. Calculate Aggregated Sizing Multiplier (Phase 2350)
         # Multiplier is calculated in GuardianManager

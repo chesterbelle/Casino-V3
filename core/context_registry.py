@@ -4,6 +4,7 @@ from collections import defaultdict, deque
 from typing import Dict, Optional, Tuple
 
 from .market_profile import MarketProfile
+from .symbol_manager import symbol_mapper
 from .tick_registry import tick_registry
 
 logger = logging.getLogger(__name__)
@@ -67,8 +68,9 @@ class ContextRegistry:
 
         # Phase D1: Rolling VWAP & Z-Bands (Statistical Location)
         self.vwap_window_secs = 120 * 60  # 120 minutes
-        self.vwap_history: Dict[str, list] = defaultdict(list)
+        self.vwap_history: Dict[str, deque] = defaultdict(deque)
         self.vwap_state: Dict[str, dict] = defaultdict(lambda: {"vwap": 0.0, "std": 0.0})
+        self.vwap_accumulators: Dict[str, dict] = defaultdict(lambda: {"pv": 0.0, "v": 0.0})
 
         # Gravity Layer (System Global)
         self.btc_delta = 0.0
@@ -223,7 +225,7 @@ class ContextRegistry:
 
     def _norm_key(self, symbol: str) -> str:
         """Normalize symbol to a canonical key for dict lookups."""
-        return symbol.upper().replace("/", "").split(":")[0] if symbol else ""
+        return symbol_mapper.normalize(symbol)
 
     def set_micro_state(self, symbol: str, cvd: float, skewness: float, z_score: float):
         """Update real-time microstructure state."""
@@ -361,44 +363,55 @@ class ContextRegistry:
 
     def update_vwap(self, symbol: str, price: float, volume: float, timestamp: float = None):
         """
-        Phase D1: Update Rolling VWAP state (High Resolution).
-        Called on every tick to maintain a 120m statistical window.
+        Phase D1: Update Rolling VWAP state (High Performance).
+        Uses running sums and deques for O(1) update complexity.
         """
-        import time
+        import math
 
         now = timestamp or time.time()
         key = self._norm_key(symbol)
 
-        # Add new data point
-        self.vwap_history[key].append((now, price, volume))
-
-        # Filter old data (Window: 120m)
-        cutoff = now - self.vwap_window_secs
-        self.vwap_history[key] = [pt for pt in self.vwap_history[key] if pt[0] > cutoff]
+        # Feed the Silicon Eye for real-time tick inference
+        tick_registry.observe_price(symbol, price)
 
         history = self.vwap_history[key]
-        if len(history) < 2:
-            return
+        acc = self.vwap_accumulators[key]
 
-        total_pv = sum(p * v for _, p, v in history)
-        total_v = sum(v for _, p, v in history)
+        # 1. Add new point to history and accumulator
+        pv = price * volume
+        history.append((now, price, volume, pv))
+        acc["pv"] += pv
+        acc["v"] += volume
 
-        if total_v > 0:
-            vwap = total_pv / total_v
+        # 2. Evict expired points (O(1) amortized with popleft)
+        cutoff = now - self.vwap_window_secs
+        while history and history[0][0] < cutoff:
+            _, _, old_v, old_pv = history.popleft()
+            acc["pv"] -= old_pv
+            acc["v"] -= old_v
 
-            # Calculate Standard Deviation (Optimized)
-            import math
+        # 3. Update State (VWAP)
+        if acc["v"] > 0:
+            vwap = acc["pv"] / acc["v"]
 
-            prices = [p for _, p, v in history]
-            # We sample every 10th price if history is huge to save CPU in HFT
-            if len(prices) > 1000:
-                prices = prices[::10]
+            # 4. Standard Deviation (Periodic Sampling to save CPU)
+            # Recalculating std on EVERY tick is still heavy due to the sqrt and sum.
+            # We only update STD every 100 ticks or when a signal is likely.
+            if len(history) % 100 == 0 or symbol not in self.vwap_state:
+                # Sample prices for STD
+                # We use a subset of history to keep it fast
+                step = max(1, len(history) // 500)  # Max 500 samples
+                sample_prices = [history[i][1] for i in range(0, len(history), step)]
 
-            n = len(prices)
-            variance = sum((p - vwap) ** 2 for p in prices) / n
-            std = math.sqrt(variance)
-
-            self.vwap_state[key] = {"vwap": vwap, "std": std}
+                n = len(sample_prices)
+                if n > 1:
+                    variance = sum((p - vwap) ** 2 for p in sample_prices) / n
+                    std = math.sqrt(variance)
+                    self.vwap_state[key] = {"vwap": vwap, "std": std}
+                else:
+                    self.vwap_state[key]["vwap"] = vwap
+            else:
+                self.vwap_state[key]["vwap"] = vwap
 
     def get_vwap_zscore(self, symbol: str, current_price: float) -> float:
         """

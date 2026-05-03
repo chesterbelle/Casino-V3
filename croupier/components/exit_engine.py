@@ -180,8 +180,8 @@ class ExitEngine:
             if getattr(config, "EXIT_LAYER_SCE", True):
                 await self._check_structural_conviction(position, event, event.close)
 
-            # POC Migration (always active, not layer-gated)
-            await self._check_poc_migration(position)
+            # VWAP Migration (always active, not layer-gated)
+            await self._check_vwap_migration(position)
 
     async def on_signal(self, event: AggregatedSignalEvent):
         """
@@ -760,42 +760,61 @@ class ExitEngine:
                 except Exception as e:
                     self.logger.error(f"❌ Failed to execute hard time exit: {e}")
 
-    async def _check_poc_migration(self, position: OpenPosition):
-        """Dynamic Value Migration: Adjust TP if POC shifts significantly."""
-        if not hasattr(self.context_registry, "get_structural") or not position.tp_order_id:
+    async def _check_vwap_migration(self, position: OpenPosition):
+        """Dynamic VWAP Migration: Adjust TP if VWAP shifts significantly."""
+        if not hasattr(self.context_registry, "vwap_state") or not position.tp_order_id:
             return
 
         now = time.time()
-        last_update = getattr(position, "last_poc_migration", 0)
-        if now - last_update < 300:
+        # Frequency: Check every 30s instead of 300s for higher sensitivity
+        last_update = getattr(position, "last_vwap_migration", 0)
+        if now - last_update < 30:
             return
 
-        poc, _, _ = self.context_registry.get_structural(position.symbol)
-        if not poc or poc <= 0:
+        vwap_data = self.context_registry.vwap_state.get(self.context_registry._norm_key(position.symbol))
+        if not vwap_data or vwap_data["vwap"] <= 0:
             return
 
+        vwap = vwap_data["vwap"]
+
+        # 1. Update Dynamic TP (Tracking VWAP Fair Value)
         current_tp = position.tp_level
-        if not current_tp or current_tp <= 0:
-            return
-
-        migration_pct = abs(poc - current_tp) / current_tp
-        if migration_pct >= 0.0020:
-            self.logger.info(
-                f"🧲 [VALUE MIGRATION] POC shifted for {position.symbol}. "
-                f"Old TP: {current_tp:.4f} -> New POC: {poc:.4f} (Shift: {migration_pct:.2%})"
-            )
-            try:
-                await asyncio.sleep(0.05)
-                await self.croupier.modify_tp(
-                    trade_id=position.trade_id,
-                    new_tp_price=poc,
-                    symbol=position.symbol,
-                    old_tp_order_id=position.tp_order_id,
-                )
-                position.last_poc_migration = now
-                position.tp_level = poc
-            except Exception as e:
-                self.logger.error(f"❌ Failed to migrate POC for {position.trade_id}: {e}")
+        if current_tp and current_tp > 0:
+            migration_pct = abs(vwap - current_tp) / current_tp
+            # Shift if > 0.10% (avoid micro-jitter but stay responsive)
+            if migration_pct >= 0.0010:
+                try:
+                    await self.croupier.modify_tp(
+                        trade_id=position.trade_id,
+                        new_tp_price=vwap,
+                        symbol=position.symbol,
+                        old_tp_order_id=position.tp_order_id,
+                    )
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Failed to migrate VWAP for {position.trade_id}: {e}")
+                finally:
+                    position.last_vwap_migration = now
+                    position.tp_level = vwap
+        # 2. Update Dynamic Shadow SL (Tracking Volatility / Z-Score)
+        # Target: Stay outside Z=3.5 (Statistical Invalidation)
+        std = vwap_data.get("std", 0)
+        if std > 0:
+            if position.side == "LONG":
+                new_shadow_sl = vwap - (3.5 * std)
+                # Only move Shadow SL UP (tightening), never down
+                if position.shadow_sl_level is None or new_shadow_sl > position.shadow_sl_level:
+                    position.shadow_sl_level = new_shadow_sl
+                    self.logger.debug(f"🛡️ [DYNAMIC SHADOW SL] {position.symbol} LONG -> {new_shadow_sl:.4f} (3.5Z)")
+            else:  # SHORT
+                new_shadow_sl = vwap + (3.5 * std)
+                # Only move Shadow SL DOWN (tightening), never up
+                if (
+                    position.shadow_sl_level is None
+                    or new_shadow_sl < position.shadow_sl_level
+                    or position.shadow_sl_level == 0
+                ):
+                    position.shadow_sl_level = new_shadow_sl
+                    self.logger.debug(f"🛡️ [DYNAMIC SHADOW SL] {position.symbol} SHORT -> {new_shadow_sl:.4f} (3.5Z)")
 
     # =========================================================
     # DRAIN PHASE METHODS (Interface compatibility)
