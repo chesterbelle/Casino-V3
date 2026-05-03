@@ -117,5 +117,5 @@
 ---
 
 ## 🎯 Objetivo de la Siguiente Sesión
-*   **Principal (Macro)**: Validar la **Inferencia en Tiempo Real** del Silicon Eye en un entorno Live-Shadow (Binance Futures Testnet) para asegurar que el "warm-up" de 100 trades no introduce latencia en la toma de decisiones.
-*   **Secundario (Micro)**: Refinar el `Flytest` para que emita alertas vía Telegram si detecta drift estructural en monedas de baja liquidez.
+*   **Principal (Macro)**: Calibrar la rentabilidad del perfil **EXPRIMIDOR**. Ahora que el motor está desbloqueado (10 trades en 24h), el Win Rate fue de 30% con 7 Stop Loss hits. Necesitamos ajustar el umbral del Shadow SL y las reglas de Invalidación de Tesis para optimizar el Edge (PF actual: 0.14).
+*   **Secundario (Micro)**: Refinar el `PortfolioGuard` para asegurar que las secuencias de pérdidas rápidas no afecten la escalabilidad del tamaño de apuesta (Kelly Sizing) y re-ajustar el Z-Score de entrada.

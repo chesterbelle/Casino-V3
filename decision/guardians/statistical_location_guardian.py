@@ -26,11 +26,9 @@ def check_statistical_location(
     score = 0.5  # Default neutral
 
     # Phase D1.5: Regime-Aware Aggressiveness
-    regime = context_registry.get_regime(symbol)  # Returns "BALANCE", "TREND_UP", "TREND_DOWN", etc.
 
-    # In RANGE/BALANCE, we require higher displacement (Wait for the real extreme)
-    # In TREND, we can be slightly more aggressive as the failed auction is more potent.
-    min_z = 2.0 if "BALANCE" in regime else 1.5
+    # For EXPRIMIDOR iteration: Reduce min_z to 1.0 to increase signal frequency
+    min_z = 1.0
 
     if side == "LONG":
         if z_score > -min_z:

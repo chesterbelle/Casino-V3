@@ -8,6 +8,15 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-03: Execution Unblocking & Exprimidor Profile Validation
+*   **Descripción**: Se resolvió un bloqueo crítico en el sistema de ejecución (Sniper Patience Lock) que congelaba el bot después del primer trade. Se validó el flujo completo del perfil de salida EXPRIMIDOR en SOLUSDT, alcanzando 10 trades en 24h.
+*   **Detalle Técnico**:
+    *   `main.py`: Se inyectó la dependencia faltante `croupier.context_registry = context_registry` para conectar el orquestador con la memoria de contexto.
+    *   `croupier/croupier.py`: Se corrigió el chequeo de cierre de posición (`close_position`) filtrando posiciones en estado `OFF_BOARDING` para que liberen efectivamente el candado `IN_TRADE`.
+    *   `decision/guardians/statistical_location_guardian.py`: Se redujo el umbral Z-score para maximizar la recolección de señales tácticas y someter al ExitEngine a estrés de alta frecuencia.
+*   **Hallazgos y Errores**:
+    *   *Sniper Patience Lock Freeze*: Tras un trade, el PositionTracker hacía un Soft-Delete (`OFF_BOARDING`), lo que causaba que `Croupier` nunca enviara el comando de desbloqueo al `ContextRegistry`.
+    *   *Shadow SL Performance*: El mecanismo L2 Shadow SL del perfil EXPRIMIDOR cerró prematuramente y con profit ($+0.4574) 2 operaciones, probando ser efectivo como "Winner Catcher".
 ### 2026-05-03: Performance O(1) & Structural Integrity (The Silicon Eye)
 *   **Descripción**: Se resolvió el cuello de botella crítico en el cálculo del VWAP y se blindó el bot contra errores de naming y precisión mediante una nueva capa de metrología.
 *   **Detalle Técnico**:

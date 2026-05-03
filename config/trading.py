@@ -231,7 +231,7 @@ AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
 
 # Master switch: Enable Limit Sniper mode (Maker entries)
 # When False, the bot uses traditional Market (Taker) orders.
-LIMIT_SNIPER_ENABLED = True  # Phase 1200: Maker entries on LTA signals (no PreFlight)
+LIMIT_SNIPER_ENABLED = False  # Set to False to use Market (Taker) entries for quality iteration
 
 # --- DYNAMIC SNIPER (Chase Logic) ---
 # Phase 1201: Active Maker-Optimization

@@ -387,6 +387,7 @@ async def main():
 
     # Use tick_size from args if available, else default
     context_registry = ContextRegistry()
+    croupier.context_registry = context_registry  # Phase 974: Inject to allow trade status unlocking
 
     # 8. Initialize Setup Engine (Tactical Event Setup Engine -> Decision)
     setup_engine = SetupEngineV4(

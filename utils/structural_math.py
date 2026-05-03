@@ -76,7 +76,7 @@ def check_level_proximity(symbol: str, price: float, context_registry, fast_trac
     if ib_low and ib_low > 0:
         levels.append(("IBL", ib_low))
 
-    PROX_THRESHOLD = 1.0 if fast_track else 0.0020  # Phase 990: Fast-Track bypasses location gating
+    PROX_THRESHOLD = 1.0 if fast_track else 0.0035  # Synchronized with LTA_PROXIMITY_THRESHOLD (0.35%)
 
     nearest = None
     min_dist = float("inf")

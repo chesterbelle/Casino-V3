@@ -562,7 +562,11 @@ class Croupier(TimeIterator):
 
             # 4. Context Unlock
             if self.context_registry:
-                other_positions = [p for p in self.position_tracker.open_positions if p.symbol == position.symbol]
+                other_positions = [
+                    p
+                    for p in self.position_tracker.open_positions
+                    if p.symbol == position.symbol and p.status not in ("OFF_BOARDING", "CLOSED", "CLOSE_FAILED")
+                ]
                 if not other_positions:
                     self.context_registry.set_in_trade(position.symbol, False)
 

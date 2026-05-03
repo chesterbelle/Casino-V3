@@ -71,5 +71,6 @@ class TraceBulletMixin:
         # 1. Record in registry (for validators)
         self._trace_registry.record(trace_id, component_name, border, data)
 
-        # 2. Log specifically for trace debugging
-        logger.debug(f"🎯 [TRACE] {trace_id} | {component_name} | {border}")
+        # 2. Log specifically for trace debugging (Compact representation)
+        data_summary = f" | {data.get('reason', '')} {data.get('gate', '')}" if data else ""
+        logger.debug(f"🎯 [TRACE] {trace_id} | {component_name} | {border}{data_summary}")
