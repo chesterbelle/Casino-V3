@@ -27,8 +27,7 @@ def check_statistical_location(
 
     # Phase D1.5: Regime-Aware Aggressiveness
 
-    # For EXPRIMIDOR iteration: Reduce min_z to 1.0 to increase signal frequency
-    min_z = 1.0
+    min_z = 2.0
 
     if side == "LONG":
         if z_score > -min_z:

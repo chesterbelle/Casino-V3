@@ -221,7 +221,7 @@ class ExitEngine:
                 skew = getattr(event, "skewness", 0.5)
 
                 emergency_z = getattr(config, "HFT_TOXIC_FLOW_THRESHOLD", 5.5)
-                early_z = 3.0
+                early_z = 4.0
 
                 flow_reason = None
                 # Emergency tier
@@ -332,8 +332,8 @@ class ExitEngine:
             self.logger.warning(f"🚨 [FLOW-EMERGENCY] {position.symbol} SHORT: Toxic buy (Z={z:.1f} > +{emergency_z})")
             return "FLOW_EMERGENCY"
 
-        # Early warning tier (Z > 3.0)
-        early_z = 3.0
+        # Early warning tier (Z > 4.0, raised for reversion compatibility)
+        early_z = 4.0
         if position.side == "LONG" and z < -early_z:
             self.logger.warning(f"⚠️ [FLOW-EARLY] {position.symbol} LONG: Strong sell (Z={z:.1f} < -{early_z})")
             return "FLOW_INVALIDATION"

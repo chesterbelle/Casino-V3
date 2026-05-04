@@ -257,7 +257,7 @@ LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
 # =====================================================
 
 # --- SELECTOR MAESTRO DE PERFIL ---
-ACTIVE_EXIT_PROFILE = "EXPRIMIDOR"  # Options: "EXPRIMIDOR", "FRANCOTIRADOR", "ESCALADOR"
+ACTIVE_EXIT_PROFILE = "ESCALADOR"  # Options: "EXPRIMIDOR", "FRANCOTIRADOR", "ESCALADOR"
 
 # Perfiles de ejecución (Previenen "Esquizofrenia Algorítmica" entre capas)
 _EXIT_PROFILES = {
@@ -313,8 +313,8 @@ CATASTROPHIC_STOP_PCT = 0.50  # 50% drawdown = true emergency only
 # LAYER 4: THESIS INVALIDATION
 # -----------------------------------------------------
 # Flow thresholds
-HFT_TOXIC_FLOW_THRESHOLD = 5.5  # Emergency tier: Z > 5.5
-HFT_WALL_COLLAPSE_THRESHOLD = 0.15  # Skewness < 0.15 means our wall vanished
+HFT_TOXIC_FLOW_THRESHOLD = 4.5  # Emergency tier: Z > 4.5 (tightened for reversion coherence)
+HFT_WALL_COLLAPSE_THRESHOLD = 0.10  # Skewness < 0.10 means our wall vanished (reduced false positives)
 
 # Stagnation
 STAGNATION_BASE_TIMEOUT = 900.0  # 15min base (Edge-aligned: matches audit window)
@@ -326,7 +326,7 @@ STAGNATION_PROFIT_EXEMPT = True  # Never stagnate profitable trades
 SCE_MEX_THRESHOLD = 0.50  # Micro-Exhaustion: Delta momentum decay < 50% (balanced)
 SCE_CFI_ENABLED = True  # Counter-Flow Invalidation (Absorption at target)
 SCE_STS_ENABLED = True  # Structural Trailing Stop (behind volume nodes)
-SCE_MIN_PROFIT_PCT = 0.0008  # Activation floor (0.08%): must exceed round-trip fees (0.06%)
+SCE_MIN_PROFIT_PCT = 0.0005  # Activation floor (0.05%): lowered to capture more trades before reversal
 SCE_SCALE_FRACTION = 0.50  # Amount to scale out on MEX/CFI trigger
 
 # -----------------------------------------------------
@@ -334,9 +334,9 @@ SCE_SCALE_FRACTION = 0.50  # Amount to scale out on MEX/CFI trigger
 # -----------------------------------------------------
 # Dynamic SL that follows price when it moves in favor.
 TRAILING_STOP_ENABLED = True
-# En Footprint scalping, una vez alcanzado el 0.15%, iniciamos el trailing a una distancia de 0.08%
-TRAILING_STOP_ACTIVATION_PCT = 0.0015
-TRAILING_STOP_DISTANCE_PCT = 0.0008
+# En Footprint scalping, una vez alcanzado el 0.12%, iniciamos el trailing a una distancia de 0.10%
+TRAILING_STOP_ACTIVATION_PCT = 0.0012
+TRAILING_STOP_DISTANCE_PCT = 0.0010
 
 # ATR-Based Exits: Multipliers for dynamic distances (Distance = Multiplier * ATR)
 EXIT_ATR_MULT_TS = 3.5  # Allow breathing room in Defensive Phase
@@ -344,7 +344,7 @@ EXIT_ATR_MULT_BE = 3.0
 
 # "Winner Catcher" Expansion
 # Transitions from Defensive (Phase 0) to Expansion (Phase 1)
-TRAILING_STOP_EXPANSION_THRESHOLD_PCT = 0.0020  # 0.20% for micro-scalping Winner Catcher
+TRAILING_STOP_EXPANSION_THRESHOLD_PCT = 0.0025  # 0.25% for micro-scalping Winner Catcher (more selective)
 TRAILING_STOP_EXPANSION_MULT = 7.5  # Widened for structural trend capture
 EXPANSION_TP_RR = 6.0  # Ambitious 6:1 target for the expansion phase
 

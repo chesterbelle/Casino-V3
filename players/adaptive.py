@@ -225,13 +225,13 @@ class AdaptivePlayer:
             if risk > 0:
                 rr_ratio = reward / risk
 
-                # Phase 700: Simple RR validation — trust the structure (Relaxed for EXPRIMIDOR iteration)
-                # if rr_ratio < 1.0:
-                #     logger.warning(
-                #         f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.0) | "
-                #         f"Symbol: {event.symbol} | Side: {event.side}"
-                #     )
-                #     return
+                # Phase 700: Simple RR validation — trust the structure
+                if rr_ratio < 1.0:
+                    logger.warning(
+                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.0) | "
+                        f"Symbol: {event.symbol} | Side: {event.side}"
+                    )
+                    return
 
                 # RR-Based Sizing (keep from Phase 1300)
                 rr_multiplier = max(0.5, min(2.0, rr_ratio / 1.5))
