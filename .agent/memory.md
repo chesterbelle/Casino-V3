@@ -102,12 +102,12 @@
 2.  **Flytest**: Validación de notional/precisión. BTC siempre falla en Testnet (min $100).
 3.  **Agnosticismo**: Prohibido thresholds distintos para SOL vs LTC (Anti-Overfitting).
 
-## 🗺️ Roadmap Capa de Cristal (Alpha Optimization)
-- [x] **Fase 1: Dynamic Limit Sniper**: Maker-fee optimization con lógica de chase y telemetría TraceBullet completa.
-- [x] **Fase 2: Guardian Scoring**: Transición de veto binario a scoring de confianza fuzzy y atribución TraceBullet.
-- [x] **Fase 3: Location Heatmap**: Refinamiento alpha contextual basado en muros de liquidez (Zero-Lag Heatmap).
-- [x] **Fase 4: Universal Exit Engine**: Salidas ancladas al VWAP y Z-Score adaptativo.
-- [ ] **Fase 5: Winner Catcher Optimization**: Calibración del Trailing Stop (Shadow Protection) para elevar el RR de 1:1 a 1.5:1 sobre la base del 66% WR.
+## 🗺️ Roadmap de Evolución V3 (Post-Certificación)
+- [x] **Fase Alpha: Total Spectrum Absorption**: Unificación de Reversión/Continuación (V3.0).
+- [x] **Fase Beta: Squeeze Guard**: Filtrado de calidad estructural (V3.1).
+- [x] **Fase Gamma: Inertia Guard**: Validación de momentum por micro-flujo (V3.2 - **BASELINE ACTUAL**).
+- [ ] **Fase Delta: Winner Catcher (V3.3)**: Optimización del Trailing Stop (L2) para elevar el RR de 1:1 a 1.5:1 sin degradar la precisión del 66%.
+- [ ] **Fase Épsilon: Limit Sniper V3**: Migración total a entradas Maker (Limit orders) con lógica de "Chase" adaptativa.
 
 ## ⚠️ Gotchas Críticos
 1. **Symbol Normalization**: Usar siempre `normalize_symbol()`.
