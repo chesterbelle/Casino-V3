@@ -40,11 +40,15 @@
 |------------|--------|------------------|-------------|-----|-----------------|
 | **Abs. V2.1**| Obsoleta | +0.1230% | +0.0430% | 57.1% | Basada en targets fijos. |
 | **VWAP-V3.1**| Obsoleta | +0.1379% | +0.0579% | 62.3% | Squeeze Guard (Calidad Estructural). |
-| **VWAP-V3.2**| **BASELINE** | **+0.2678%**| **+0.1478%**| **66.7%**| 🚀 **CERTIFICADA TAKER** (Inertia Guard). |
+| **VWAP-V3.2**| Obsoleta | +0.2678%| +0.1478%| 66.7%| Baseline anterior (Inertia Guard). |
+| **V3.3-Guardian**| **BASELINE** | **+0.1205%**| **+0.0405%**| **55.9%**| 🚀 **RegimeGuardian V3 + Micro Absorption Fix** (Continuation: +0.162%). |
 
 *   **Lecciones Estratégicas**:
     *   **Root Cause de Erosión**: Fees consumen 130% del PnL bruto en Market (0.066%/RT vs 0.24% MFE).
     *   **Agnosticismo**: Prohibido ajuste de parámetros por moneda. La lógica debe ser global.
+    *   **RegimeGuardian V3 (Phase 2100)**: Value Position × Value Acceptance model. Elimina TRANSITION state, Local Consensus Override bug, y absorción invisible.
+    *   **Micro Absorption Fix**: Absorción ahora tiene dirección (opuesta al CVD agresivo), score > 0, y threshold pv_z < 1.0 (antes < 0.5). Esto desbloqueó el edge de continuación.
+    *   **Continuation > Reversion**: Continuation (86 señales, WR 56.9%, Exp +0.162%) domina. Reversion (30 señales, WR 52.9%, Exp -0.005%) no tiene edge propio.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [EN DESARROLLO ⚔️]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
@@ -61,7 +65,8 @@
 ## 🗺️ Mapa de Arquitectura
 
 ### Componentes Core
-*   `SetupEngine`: Detección táctica (Trapped Traders, Divergence).
+*   `SetupEngine`: Detección táctica (Trapped Traders, Divergence). Fix: setup_type ahora usa trigger metadata (no hardcoded "reversion").
+*   `RegimeGuardian V3`: Value Position × Value Acceptance. Z-score clasifica IN_VALUE/OUT_OF_VALUE/EXCESS. Absorción = REJECTING. Counter-trend bloqueado salvo absorción en EXCESS.
 *   `AdaptivePlayer`: Decisión estratégica (Kelly sizing, TP/SL validation).
 *   `OrderManager`: Ejecución de órdenes y recalibración de TP < 50ms.
 *   `Croupier`: Orquestador de ejecución y ciclo de vida de posición.
@@ -102,13 +107,6 @@
 2.  **Flytest**: Validación de notional/precisión. BTC siempre falla en Testnet (min $100).
 3.  **Agnosticismo**: Prohibido thresholds distintos para SOL vs LTC (Anti-Overfitting).
 
-## 🗺️ Roadmap de Evolución V3 (Post-Certificación)
-- [x] **Fase Alpha: Total Spectrum Absorption**: Unificación de Reversión/Continuación (V3.0).
-- [x] **Fase Beta: Squeeze Guard**: Filtrado de calidad estructural (V3.1).
-- [x] **Fase Gamma: Inertia Guard**: Validación de momentum por micro-flujo (V3.2 - **BASELINE ACTUAL**).
-- [ ] **Fase Delta: Winner Catcher (V3.3)**: Optimización del Trailing Stop (L2) para elevar el RR de 1:1 a 1.5:1 sin degradar la precisión del 66%.
-- [ ] **Fase Épsilon: Limit Sniper V3**: Migración total a entradas Maker (Limit orders) con lógica de "Chase" adaptativa.
-
 ## ⚠️ Gotchas Críticos
 1. **Symbol Normalization**: Usar siempre `normalize_symbol()`.
 2. **Historian 0 trades**: Verificar `confirm_close` en PositionTracker.
@@ -116,3 +114,5 @@
 4. **Binance -2021**: OCO rechazado si TP/SL ya están en precio.
 5. **Fee Accounting**: Total = entry_fee + exit_fee (Calculado en `VirtualExchange`).
 6. **No Fast-Track**: El uso de `--fast-track` está deprecado. Usar `TRACE_BULLET_ACTIVE=1` para validación de flujo y detección de "Alpha Starvation".
+7. **Micro Absorption Direction**: Absorción vota en dirección OPUESTA al CVD agresivo (buyers absorbed → DOWN, sellers absorbed → UP). Score > 0 para contribuir al régimen.
+8. **RegimeGuardian Z-score**: El Z-score del reversal_signal puede ser 0.0 (fallback a context_registry.get_vwap_zscore). Verificar que el Z-score sea consistente entre guardian y sensor.

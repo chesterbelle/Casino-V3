@@ -333,10 +333,10 @@ class SetupEngineV4:
         # 3. Evaluate LTA Structural Playbook (The single LTA focus)
         events = [e[2] for e in self.memory[sym]]
         trigger = self._evaluate_lta_structural(sym, events)
-        setup_type = "reversion"
 
         # 4. Fire 0ms Latency Action if playbook matches using Guarded Dispatch
         if trigger:
+            setup_type = trigger["metadata"].get("setup_type", "reversion")
             # Enrichment (Phase 1300): Add vol_ratio and skew to memory-based signals
             # vol_ratio = self.context_registry.get_volatility_ratio(sym) if self.context_registry else 1.0
             latest_skew = 0.5

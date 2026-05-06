@@ -8,6 +8,31 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-06: RegimeGuardian V3 — Value Position × Value Acceptance
+*   **Descripción**: Reemplazo completo del sistema de detección de régimen basado en velocidad por un modelo estructural basado en Auction Market Theory (AMT). El nuevo modelo clasifica el mercado según Posición de Valor (Z-score relativo a VWAP) × Aceptación de Valor (si el mercado acepta o rechaza nuevos precios).
+*   **Detalle Técnico**:
+    *   `sensors/regime/market_regime.py`: Nuevo `_synthesize()` elimina TRANSITION state, reemplaza confidence por flags estructurales (`value_acceptance`, `absorption_detected`). Fix del micro layer: absorción ahora tiene dirección (opuesta al CVD agresivo), score > 0, y threshold pv_z < 1.0 (antes < 0.5).
+    *   `decision/guardians/regime_guardian.py`: RegimeGuardian V3 con matriz de decisión Value Position × Value Acceptance. BALANCE+OUT_OF_VALUE=strong reversion, TREND+ACCEPTING=continuation, counter-trend BLOQUEADO salvo absorción en EXCESS. Elimina bug de "Local Consensus Override" que permitía counter-trend en tendencias fuertes.
+    *   `decision/setup_engine.py`: Fix de setup_type hardcodeado — ahora usa trigger metadata para distinguir reversion vs continuation correctamente.
+*   **Hallazgos y Errores**:
+    *   *Micro Absorption Invisible*: La absorción devolvía score=0.0 y vote=NEUTRAL, haciendo que fuera invisible para el cálculo de régimen. El `_synthesize()` detectaba la flag pero no tenía peso. Fix: dirección opuesta + score proporcional.
+    *   *Absorption Threshold Demasiado Estricto*: pv_z < 0.5 requería precio prácticamente congelado. Cambiado a pv_z < 1.0 (precio se mueve menos de lo esperado).
+    *   *Absorción Sin Dirección*: La absorción es direccional (buyers absorbed → reversal DOWN, sellers absorbed → reversal UP). El micro layer perdía esta info con vote=NEUTRAL.
+    *   *BALANCE IN_VALUE Bug*: El guardian hardcodeaba "(IN_VALUE)" en el reason incluso cuando Z=4.3. Fix: usar value_position real del Z-score.
+    *   *Local Consensus Override*: El V2 guardian permitía counter-trend cuando micro/meso eran NEUTRAL, ignorando el macro TREND. Era el bug original que motivó esta sesión.
+*   **Métricas Crudas (9 backtests, LTC × Range/Bear/Bull)**:
+
+| Iteración | Signals | Decided | WR | Gross Exp | Net(Maker) | Continuation Exp | Reversion Exp |
+|---|---|---|---|---|---|---|---|
+| V2 Guardian | 48 | 21 | 52.4% | -0.023% | N/A | — | — |
+| V3 (sin micro fix) | 97 | 53 | 47.2% | +0.001% | -0.079% | +0.011% | -0.018% |
+| **V3 (con micro fix)** | **116** | **68** | **55.9%** | **+0.120%** | **+0.040%** | **+0.162%** | -0.005% |
+
+    *   Continuation: 86 signals, WR 56.9%, MFE 0.318%, MAE 0.241%, Ratio 1.32 → WATCH
+    *   Reversion: 30 signals, WR 52.9%, MFE 0.277%, MAE 0.240%, Ratio 1.15 → INSUFFICIENT
+    *   Counter-trend bloqueados: ~250 señales (SHORT en TREND_UP, LONG en TREND_DOWN)
+*   **Commit**: `a58895b` en branch `v7.3.0-total-spectrum-absorption-v3`
+
 ### 2026-05-03: Execution Unblocking & Exprimidor Profile Validation
 *   **Descripción**: Se resolvió un bloqueo crítico en el sistema de ejecución (Sniper Patience Lock) que congelaba el bot después del primer trade. Se validó el flujo completo del perfil de salida EXPRIMIDOR en SOLUSDT, alcanzando 10 trades en 24h.
 *   **Detalle Técnico**:
@@ -88,6 +113,6 @@
 ---
 
 ## 🎯 Objetivo de la Sesión Actual
-*   **Meta**: Incrementar la frecuencia de trades en SOL (actual: 11/día, target: 15-20/día) sin degradar la expectancia.
-*   **Estado de Git**: Tag `v7.0.0-absorption-v2-baseline` creado.
-*   **Siguiente paso**: Análisis de bloqueos del `Location Gate` y `AbsorptionReversalGuardian`.
+*   **Meta**: RegimeGuardian V3 implementado y validado. Edge positivo (Gross +0.120%, Net Maker +0.040%).
+*   **Estado de Git**: Commit `a58895b` en `v7.3.0-total-spectrum-absorption-v3`.
+*   **Siguiente paso**: (1) Investigar por qué Reversion no tiene edge propio (-0.005%), (2) Considerar Limit Sniper para reducir fees y amplificar Net edge, (3) Validar con datos más recientes (2025).

@@ -307,11 +307,15 @@ class _MicroLayer:
                 "dv_z": round(dv_z, 2),
             }
 
-        # Case 2: High delta velocity but price not moving → absorption (balance)
-        if dv_z > MICRO_SURGE_Z_THRESHOLD and pv_z < 0.5:
+        # Case 2: High delta velocity but price not moving → absorption
+        # Direction is OPPOSITE to CVD: buyers absorbed (CVD up, price flat) → reversal DOWN
+        # sellers absorbed (CVD down, price flat) → reversal UP
+        if dv_z > MICRO_SURGE_Z_THRESHOLD and pv_z < 1.0:
+            direction = "DOWN" if delta_vel > 0 else "UP"  # opposite of aggressive flow
+            score = min(0.8, dv_z / 4.0)  # proportional to delta strength, capped below surge
             return {
-                "vote": "NEUTRAL",
-                "score": 0.0,
+                "vote": direction,
+                "score": round(score, 3),
                 "reason": "absorption_detected",
                 "delta_vel": round(delta_vel, 2),
                 "dv_z": round(dv_z, 2),
@@ -694,10 +698,17 @@ class MarketRegimeSensor(SensorV3):
                 )
 
             reversion_allowed = False
+            value_acceptance = "ACCEPTING"  # Crash/rally = market accepting new prices
+            absorption_detected = False
         else:
             # Normal path: use microstructure layers
-            regime, direction, confidence = self._synthesize(micro_result, meso_result, macro_result)
-            reversion_allowed = regime == "BALANCE"
+            synth = self._synthesize(micro_result, meso_result, macro_result)
+            regime = synth["regime"]
+            direction = synth["direction"]
+            confidence = synth["confidence"]
+            value_acceptance = synth["value_acceptance"]
+            absorption_detected = synth["absorption_detected"]
+            reversion_allowed = value_acceptance != "ACCEPTING"
 
         # Build output
         output = {
@@ -706,6 +717,8 @@ class MarketRegimeSensor(SensorV3):
             "direction": direction,
             "confidence": round(confidence, 3),
             "reversion_allowed": reversion_allowed,
+            "value_acceptance": value_acceptance,
+            "absorption_detected": absorption_detected,
             "layers": {
                 "micro": micro_result,
                 "meso": meso_result,
@@ -728,7 +741,7 @@ class MarketRegimeSensor(SensorV3):
 
         # Log regime transitions prominently
         if regime != last and last != "":
-            emoji = {"BALANCE": "⚖️", "TRANSITION": "⚠️", "TREND_UP": "🚀", "TREND_DOWN": "📉"}.get(regime, "🔄")
+            emoji = {"BALANCE": "⚖️", "TREND_UP": "🚀", "TREND_DOWN": "📉"}.get(regime, "🔄")
             logger.warning(
                 f"{emoji} [REGIME] {symbol}: {last} → {regime} "
                 f"(confidence={confidence:.2f}, dir={direction}) | "
@@ -748,29 +761,24 @@ class MarketRegimeSensor(SensorV3):
         micro: dict,
         meso: dict,
         macro: dict,
-    ) -> Tuple[str, str, float]:
+    ) -> dict:
         """
-        Synthesize the 3 layer votes into a single regime verdict.
+        V3 Synthesis: Value Position × Value Acceptance model.
 
-        Voting weights:
-            Micro:  0.25  (fast but noisy)
-            Meso:   0.35  (structural, medium speed)
-            Macro:  0.40  (slow but most reliable)
+        Instead of BALANCE/TRANSITION/TREND, we determine:
+        - Is the market ACCEPTING new prices (trend continuation)?
+        - Is the market REJECTING new prices (absorption → reversion)?
+        - Is the market NEUTRAL (no conviction)?
 
-        Logic:
-            1. Calculate weighted directional score for UP and DOWN.
-            2. Net score = UP_score - DOWN_score (signed).
-            3. Map to regime based on thresholds.
+        The guardian combines value_acceptance with Z-score
+        (IN_VALUE vs OUT_OF_VALUE) to determine SetupMode.
 
-        Special cases:
-            - If micro and meso agree but macro doesn't → TRANSITION (early warning)
-            - If all 3 agree → TREND (full conviction)
-            - If none agree → BALANCE
+        TRANSITION state is eliminated — either the market has
+        conviction (TREND) or it doesn't (BALANCE).
         """
         WEIGHTS = {"micro": 0.25, "meso": 0.35, "macro": 0.40}
 
         def directional_score(layer_result: dict, weight: float) -> Tuple[float, float]:
-            """Returns (up_contribution, down_contribution)."""
             vote = layer_result.get("vote", "NEUTRAL")
             score = layer_result.get("score", 0.0)
             if vote == "UP":
@@ -787,45 +795,79 @@ class MarketRegimeSensor(SensorV3):
             up_total += up_c
             down_total += down_c
 
-        net_score = up_total - down_total  # Positive = bullish, Negative = bearish
+        net_score = up_total - down_total
         abs_score = abs(net_score)
         direction = "UP" if net_score > 0 else ("DOWN" if net_score < 0 else "NEUTRAL")
 
         # Count how many layers agree on the dominant direction
         dominant_votes = sum(1 for r in [micro, meso, macro] if r.get("vote") == direction and r.get("score", 0) > 0)
 
-        # --- Regime Classification ---
+        # Detect absorption from micro layer (high delta velocity, no price movement)
+        absorption_detected = micro.get("reason") == "absorption_detected"
+
+        # Determine value acceptance
+        if absorption_detected:
+            value_acceptance = "REJECTING"
+        elif dominant_votes >= 2 and abs_score > BALANCE_MAX_CONFIDENCE:
+            value_acceptance = "ACCEPTING"
+        else:
+            value_acceptance = "NEUTRAL"
+
+        # --- Regime Classification (no TRANSITION) ---
 
         # BALANCE: Low directional conviction
         if abs_score < BALANCE_MAX_CONFIDENCE:
-            return "BALANCE", "NEUTRAL", abs_score
+            return {
+                "regime": "BALANCE",
+                "direction": "NEUTRAL",
+                "confidence": abs_score,
+                "value_acceptance": value_acceptance,
+                "absorption_detected": absorption_detected,
+            }
 
-        # TRANSITION: Medium conviction OR early warning (2 layers agree, macro lags)
-        # This is the critical new state — market is leaving balance
-        if abs_score >= TRANSITION_CONFIDENCE_MIN:
-            # Check if it's a full TREND or just TRANSITION
-            if abs_score >= TREND_CONFIDENCE_MIN and dominant_votes >= 2:
-                regime = "TREND_UP" if direction == "UP" else "TREND_DOWN"
-                return regime, direction, abs_score
+        # TREND: Full conviction (2+ layers agree + high score)
+        if abs_score >= TREND_CONFIDENCE_MIN and dominant_votes >= 2:
+            regime = "TREND_UP" if direction == "UP" else "TREND_DOWN"
+            return {
+                "regime": regime,
+                "direction": direction,
+                "confidence": abs_score,
+                "value_acceptance": value_acceptance,
+                "absorption_detected": absorption_detected,
+            }
 
-            # Macro alone can declare TREND even without micro/meso
-            # (slow but reliable — if macro says trend, trust it)
-            if macro.get("vote") == direction and macro.get("score", 0) >= 0.4:
-                regime = "TREND_UP" if direction == "UP" else "TREND_DOWN"
-                return regime, direction, abs_score
+        # Macro alone can declare TREND (slow but reliable)
+        if macro.get("vote") == direction and macro.get("score", 0) >= 0.4:
+            regime = "TREND_UP" if direction == "UP" else "TREND_DOWN"
+            return {
+                "regime": regime,
+                "direction": direction,
+                "confidence": abs_score,
+                "value_acceptance": value_acceptance,
+                "absorption_detected": absorption_detected,
+            }
 
-            # Early warning: micro + meso agree but macro hasn't confirmed yet
-            # This is the TRANSITION state — block reversions NOW, before OTF fires
-            if (
-                micro.get("vote") == direction
-                and micro.get("score", 0) > 0
-                and meso.get("vote") == direction
-                and meso.get("score", 0) > 0
-            ):
-                return "TRANSITION", direction, abs_score
+        # Micro + meso agree → early TREND (was TRANSITION, now TREND)
+        if (
+            micro.get("vote") == direction
+            and micro.get("score", 0) > 0
+            and meso.get("vote") == direction
+            and meso.get("score", 0) > 0
+        ):
+            regime = "TREND_UP" if direction == "UP" else "TREND_DOWN"
+            return {
+                "regime": regime,
+                "direction": direction,
+                "confidence": abs_score,
+                "value_acceptance": value_acceptance,
+                "absorption_detected": absorption_detected,
+            }
 
-            # Single layer with medium conviction
-            return "TRANSITION", direction, abs_score
-
-        # Fallback: BALANCE
-        return "BALANCE", "NEUTRAL", abs_score
+        # Single layer with weak conviction → BALANCE (was TRANSITION)
+        return {
+            "regime": "BALANCE",
+            "direction": direction,
+            "confidence": abs_score,
+            "value_acceptance": value_acceptance,
+            "absorption_detected": absorption_detected,
+        }
