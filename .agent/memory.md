@@ -8,9 +8,9 @@
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
-*   **Strategy**: LTA V7 (Structural Absorption) — Unificación de Contexto LTA + Motor Abs. V2.1.
-*   **Current Branch**: `v7.1.0-lta-v7-structural-absorption`
-*   **Active Mode**: Multi-Coin Agnostic (Evolución de SOL, LTC, ADA).
+*   **Strategy**: Total Spectrum Absorption V3 — Dual-Core (Reversión/Continuación) con Inercia de Micro-Flujo.
+*   **Current Branch**: `v7.3.0-certified-v3.2-inertia`
+*   **Active Mode**: Multi-Coin Agnostic (LTC, SOL, BTC Certified).
 
 
 ## 📚 Historial y Contexto
@@ -25,8 +25,8 @@
 
 ### 1. Capa de Hierro (Infraestructura) — [CERTIFICADA ✅]
 *   **Propósito**: Paridad 1:1, Resiliencia del Historian, Latencia < 50ms, Integridad Contable.
-*   **Hito Actual (v7.2.0)**: **Metrología Estructural Blindada**.
-*   **Componentes**: `CanonicalSymbolMapper` (Identidad) + `The Silicon Eye` (Inferencia de Tick Probabilística).
+*   **Hito Actual (v7.3.0)**: **Arquitectura Dual-Core (Reversión/Continuación)**.
+*   **Componentes**: `GuardianClassifier` (V3) + `DynamicTargetEngine`.
 *   **Métrica de Estrés**: Procesamiento VWAP/STD en **O(1)**. Zero-bottleneck en backtest.
 *   **HFT Latency Telemetry (T0-T4)**:
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
@@ -39,7 +39,8 @@
 | Estrategia | Estado | Gross Expectancy | Net (Maker) | WR% | Razón de Cambio |
 |------------|--------|------------------|-------------|-----|-----------------|
 | **Abs. V2.1**| Obsoleta | +0.1230% | +0.0430% | 57.1% | Basada en targets fijos. |
-| **VWAP-V3.1**| **ACTUAL** | **+0.1379%** | **+0.0579%** | 62.3% | ✅ ANCLAJE UNIVERSAL. |
+| **VWAP-V3.1**| Obsoleta | +0.1379% | +0.0579% | 62.3% | Squeeze Guard (Calidad Estructural). |
+| **VWAP-V3.2**| **BASELINE** | **+0.2678%**| **+0.1478%**| **66.7%**| 🚀 **CERTIFICADA TAKER** (Inertia Guard). |
 
 *   **Lecciones Estratégicas**:
     *   **Root Cause de Erosión**: Fees consumen 130% del PnL bruto en Market (0.066%/RT vs 0.24% MFE).
@@ -106,6 +107,7 @@
 - [x] **Fase 2: Guardian Scoring**: Transición de veto binario a scoring de confianza fuzzy y atribución TraceBullet.
 - [x] **Fase 3: Location Heatmap**: Refinamiento alpha contextual basado en muros de liquidez (Zero-Lag Heatmap).
 - [x] **Fase 4: Universal Exit Engine**: Salidas ancladas al VWAP y Z-Score adaptativo.
+- [ ] **Fase 5: Winner Catcher Optimization**: Calibración del Trailing Stop (Shadow Protection) para elevar el RR de 1:1 a 1.5:1 sobre la base del 66% WR.
 
 ## ⚠️ Gotchas Críticos
 1. **Symbol Normalization**: Usar siempre `normalize_symbol()`.

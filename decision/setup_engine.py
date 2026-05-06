@@ -133,10 +133,30 @@ class SetupEngineV4:
             return None
 
         price = reversal_signal.get("close") or reversal_signal.get("price") or 0.0
-        # side = reversal_signal.get("direction") # REMOVED: Metadata 'direction' contains sensor-specific strings like 'SELL_EXHAUSTION'
-
         if price <= 0:
             return None
+
+        # --- V3.1 Squeeze Guard (Structural Quality Filter) ---
+        # Purpose: Reduce MAE by ensuring we don't buy into deep/erratic pullbacks.
+        recent_candles = list(self.memory[symbol])[-5:]  # Look at last 5 events
+        if len(recent_candles) >= 3:
+            prices = [e[2].price for e in recent_candles if hasattr(e[2], "price") and e[2].price > 0]
+            if len(prices) >= 3:
+                # 1. Micro-Geometry Check
+                if side == "LONG":
+                    # We want to see the price stabilizing or moving up (No lower lows in last 3)
+                    if prices[-1] < min(prices[-3:-1]):
+                        return None  # Abort: Price is still stabbing down
+                else:
+                    # For SHORT: We want to see price stabilizing or moving down (No higher highs)
+                    if prices[-1] > max(prices[-3:-1]):
+                        return None  # Abort: Price is still stabbing up
+
+                # 2. Volatility Compression Check
+                recent_range = max(prices) - min(prices)
+                atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0)
+                if atr > 0 and recent_range > (atr * 2.0):
+                    return None  # Abort: Volatility is too high (Chaos Zone)
 
         # 3. Order Flow Guardians (Statistical Location)
         from decision.guardians.guardian_result import SetupMode
@@ -418,6 +438,21 @@ class SetupEngineV4:
         if now - self.last_fire_ts[symbol] < self.fire_cooldown:
             return
 
+        # 2. Inertia Guard (V3.2) - Micro-Flow Confluence for Continuation
+        if setup_type == "continuation" and not self.fast_track:
+            passed, inertia_val = self._check_micro_inertia_guard(symbol, side, now)
+            if not passed:
+                self._trace_decision(
+                    symbol,
+                    "REJECTED",
+                    "INERTIA_GUARD",
+                    f"No momentum (Delta CVD: {inertia_val:.1f})",
+                    {"inertia": inertia_val},
+                    price=metadata.get("price", 0.0),
+                    side=side,
+                )
+                return
+
         # 3. Confirmed - Enrich and Fire
         self.last_fire_ts[symbol] = now
         logger.warning(
@@ -493,3 +528,33 @@ class SetupEngineV4:
             "side": side,
         }
         historian.record_decision_trace(trace_data)
+
+    def _check_micro_inertia_guard(self, symbol: str, side: str, now: float) -> Tuple[bool, float]:
+        """
+        Phase V3.2: Inertia Guard.
+        Ensures that aggressive flow (CVD) is moving in our direction
+        within the last 2 seconds before entering a continuation trade.
+
+        Returns (passed, delta_cvd).
+        """
+        memory = self.micro_memory.get(symbol)
+        if not memory or len(memory) < 5:
+            return True, 0.0  # Safe-default: don't block if memory is cold
+
+        # Window: Last 2 seconds
+        cutoff = now - 2.0
+        relevant_events = [evt for ts, wall, evt in memory if ts > cutoff]
+
+        if len(relevant_events) < 3:
+            return True, 0.0
+
+        current_cvd = relevant_events[-1].cvd
+        baseline_cvd = relevant_events[0].cvd
+        delta_cvd = current_cvd - baseline_cvd
+
+        if side == "LONG":
+            # For LONG, we need CVD to be increasing (Aggressive Buyers entering)
+            return delta_cvd > 0, delta_cvd
+        else:
+            # For SHORT, we need CVD to be decreasing (Aggressive Sellers entering)
+            return delta_cvd < 0, delta_cvd

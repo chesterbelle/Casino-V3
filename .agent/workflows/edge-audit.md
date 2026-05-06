@@ -28,7 +28,7 @@ Present results + specific observations and **wait for explicit user approval** 
 ## Step 0: Nuclear Reset (Clean Slate)
 Wipe all databases and states to ensure zero data leakage.
 ```bash
-.venv/bin/python reset_data.py
+.venv/bin/python utils/reset_data.py
 ```
 **Must output**: `✨ Sistema limpio.`
 
