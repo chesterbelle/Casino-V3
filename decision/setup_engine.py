@@ -68,20 +68,6 @@ class SetupEngineV4:
         # Phase 1800: Cold Start Warmup Guard (Dynamic/Structural)
         # LTA V4: No time limits. Purely relies on the ContextRegistry returning valid structural levels.
 
-        # Phase 800: Failed Auction Memory (Dalton Targets)
-        self.failed_auctions: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        self.last_volatility_spike: Dict[str, float] = defaultdict(float)
-
-        # Phase 2000: Recent candle extremes for Failed Auction lookback (Axia-style)
-        # Stores last N candle (high, low) per symbol from SessionValueArea events
-        self.recent_extremes: Dict[str, deque] = defaultdict(
-            lambda: deque(maxlen=strat_config.LTA_FAILED_AUCTION_LOOKBACK)
-        )
-
-        # Phase 850: Pullback and Climax Watch states
-        self.pullback_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
-        self.climax_watch: Dict[str, Dict[str, Any]] = defaultdict(dict)
-
         self._micro_count = 0
         self.guardian_manager = GuardianManager(self._trace_decision)
         logger.info("🎯 LTA V4 Setup Engine initialized (Structural Warmup: Dynamic)")
@@ -108,17 +94,7 @@ class SetupEngineV4:
         through to config_fallback TP/SL (0.3%/0.2%), which is mathematically losing.
         """
         if self.context_registry:
-            poc, vah, val = self.context_registry.get_structural(symbol)
-            if poc > 0 and vah > 0 and val > 0:
-                metadata["poc"] = poc
-                metadata["vah"] = vah
-                metadata["val"] = val
-            # Phase 700: Also inject IB levels
-            ib_high, ib_low = self.context_registry.get_ib(symbol)
-            if ib_high and ib_high > 0:
-                metadata["ib_high"] = ib_high
-            if ib_low and ib_low > 0:
-                metadata["ib_low"] = ib_low
+            pass
 
         # Phase 1200: Limit Sniper Integration - Resolve nearest level for maker entry
         if "level_price" not in metadata and self.context_registry and metadata.get("price", 0) > 0:
@@ -140,38 +116,20 @@ class SetupEngineV4:
 
     def _evaluate_lta_structural(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
         """
-        LTA V4: Structural Reversion (Unified Playbook)
-
-        Strategy: Identify extreme exhaustion/absorption at VA edges and
-        target the POC (Point of Control) as the primary magnet.
-
+        Statistical Absorption V2.1
         Conditions:
-        1. Price is near VAH or VAL (dist < 0.25%).
-        2. Footprint confluence (Absorption, Rejection, Delta Flip, or Cascade Fade).
-        3. Target is the current POC.
-        4. All 6 Order Flow Guardians must PASS.
+        1. Price is at a statistical extreme (VWAP Z-Score).
+        2. Footprint confluence (AbsorptionV2).
+        3. Target is VWAP.
         """
         if not self.context_registry:
             return None
 
-        # 1. Get structural anchors
-        poc, vah, val = self.context_registry.get_structural(symbol)
-        if not (poc > 0 and vah > 0 and val > 0):
-            return None
-
         # 2. Find the most recent reversal signal in 5s memory
         reversal_signal = None
-        # Phase 800: Expanded Whitelist for LTA V4 Confluence
-        # Phase 2100: LTA V5 Sensor Consolidation - Eliminated redundant sensors
         TACTICAL_WHITELIST = (
-            "TacticalAbsorptionV2",  # Nuevo núcleo LTA V7: Absorción de alta precisión
-            "TacticalAbsorption",  # Legacy fallback
-            "TacticalDivergence",  # Confirmador: agotamiento de momentum
-            "TacticalTrappedTraders",  # Confirmador: participantes atrapados
-            "TacticalExhaustion",  # Confirmador: volumen extremo sin follow-through
-            "TacticalLiquidationCascade",  # Playbook Beta: fade de dislocación extrema
-            "TacticalSinglePrintReversion",  # Market Profile: single print rejection
-            "TacticalVolumeClimaxReversion",  # Wyckoff: volume climax without extension
+            "TacticalAbsorptionV2",
+            "TacticalAbsorption",
         )
 
         for e in events:
@@ -185,52 +143,17 @@ class SetupEngineV4:
         if not reversal_signal:
             return None
 
-        # Phase A1: OHLC Backfill — tick-based sensors (Absorption, etc.) emit
-        # only 'price' but no candle OHLC.  The Failed Auction gate requires
-        # high/low/open/close to verify wick rejection.  We search the 5-second
-        # signal memory for the most recent candle-based event that carries OHLC
-        # and merge those values into the reversal signal.
-        for ohlc_key in ("high", "low", "open", "close"):
-            if not reversal_signal.get(ohlc_key):
-                # Search memory backwards for a signal that has this key
-                for _, _, mem_event in reversed(self.memory[symbol]):
-                    mem_md = mem_event.metadata or {}
-                    if mem_md.get(ohlc_key) and mem_md[ohlc_key] > 0:
-                        reversal_signal[ohlc_key] = mem_md[ohlc_key]
-                        break
-
         price = reversal_signal.get("close") or reversal_signal.get("price") or 0.0
         # side = reversal_signal.get("direction") # REMOVED: Metadata 'direction' contains sensor-specific strings like 'SELL_EXHAUSTION'
 
         if price <= 0:
             return None
 
-        # 3. Location Gate: Must be at the edges to play LTA
-        if self.fast_track:
-            # Phase 990: Infrastructure Validation Bypass
-            # Mock edge proximity to guarantee execution flow tests during short windows
-            is_at_vah = side == "SHORT"
-            is_at_val = side == "LONG"
-        else:
-            is_at_vah = abs(price - vah) / price < strat_config.LTA_PROXIMITY_THRESHOLD
-            is_at_val = abs(price - val) / price < strat_config.LTA_PROXIMITY_THRESHOLD
-
-        if not (is_at_vah or is_at_val):
-            return None
-
-        # Phase 2000: Order Flow Guardians (6 Gates — AMT/Axia Validation)
+        # 3. Order Flow Guardians (Statistical Location)
         passed, final_sizing_multiplier = self.guardian_manager.evaluate_all(
-            symbol, side, reversal_signal, self.context_registry, self.recent_extremes, self.fast_track
+            symbol, side, reversal_signal, self.context_registry, {}, self.fast_track
         )
         if not passed:
-            return None
-
-        # 4. Directional Logic:
-        # If at VAH, we want to SHORT back to POC.
-        # If at VAL, we want to LONG back to POC.
-        if is_at_vah and side != "SHORT":
-            return None
-        if is_at_val and side != "LONG":
             return None
 
         # 5. Calculate Structural Targets (LTA V7 Dynamic Targets - VWAP focus)
@@ -240,7 +163,7 @@ class SetupEngineV4:
         std = vwap_data["std"] if vwap_data else 0.0
 
         # Target is the VWAP (Z=0)
-        tp_price = vwap_price if vwap_price > 0 else poc
+        tp_price = vwap_price if vwap_price > 0 else price * (1.0025 if side == "LONG" else 0.9975)
 
         # Safety: Ensure TP is at least 0.20% away to cover fees
         tp_dist = abs(tp_price - price) / price
@@ -260,12 +183,12 @@ class SetupEngineV4:
                 sl_price = vwap_price + (3.5 * std)
                 sl_price = max(sl_price, price * 1.001)
         else:
-            # Fallback to structural: Buffer outside the edge
+            # Fallback
             sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
             if side == "LONG":
-                sl_price = val * (1 - sl_buffer)
+                sl_price = price * (1 - sl_buffer)
             else:
-                sl_price = vah * (1 + sl_buffer)
+                sl_price = price * (1 + sl_buffer)
 
         # 6. Calculate Aggregated Sizing Multiplier (Phase 2350)
         # Multiplier is calculated in GuardianManager
@@ -277,10 +200,7 @@ class SetupEngineV4:
             "price": price,
             "tp_price": tp_price,
             "sl_price": sl_price,
-            "poc": poc,
-            "vah": vah,
-            "val": val,
-            "level_ref": "VAH" if is_at_vah else "VAL",
+            "level_ref": "VWAP_BAND",
             "z_score": reversal_signal.get("z_score"),
             "sizing_multiplier": final_sizing_multiplier,
         }
@@ -364,39 +284,6 @@ class SetupEngineV4:
         if event.sensor_id == "VolatilitySpike":
             self.last_volatility_spike[event.symbol] = event.timestamp
             logger.warning(f"🚨 [SETUP] {event.symbol} Volatility Spike received. Blocking reversions for 15s.")
-
-        # Phase 800: Capture Failed Auction Targets from Session sensor
-        if event.sensor_id == "SessionValueArea" and event.metadata:
-            new_fa = event.metadata.get("failed_auctions", [])
-            if new_fa:
-                self.failed_auctions[event.symbol] = new_fa
-                logger.info(f"🎯 [SETUP] {event.symbol} Updated Failed Auction Targets: {len(new_fa)} levels")
-            # Phase 700: Wire IB levels to ContextRegistry for proximity gate
-            ib_h = event.metadata.get("ib_high")
-            ib_l = event.metadata.get("ib_low")
-            if ib_h and ib_l and self.context_registry:
-                self.context_registry.set_ib(event.symbol, ib_h, ib_l)
-
-            # Phase A2: Sync session-aware structural levels to ContextRegistry
-            s_poc = event.metadata.get("poc")
-            s_vah = event.metadata.get("vah")
-            s_val = event.metadata.get("val")
-            s_va_integrity = event.metadata.get("va_integrity", 0.0)  # Phase 2000
-            if s_poc and s_vah and s_val and self.context_registry:
-                self.context_registry.update_structural_from_session(
-                    event.symbol, s_poc, s_vah, s_val, va_integrity=s_va_integrity
-                )
-
-            # Phase B1: Track current liquidity window for dynamic VA thresholds
-            window_name = event.metadata.get("liquidity_window")
-            if window_name and self.context_registry:
-                self.context_registry.current_window[event.symbol] = window_name
-
-            # Phase 2000: Track recent candle extremes for Failed Auction lookback
-            c_high = event.metadata.get("candle_high")
-            c_low = event.metadata.get("candle_low")
-            if c_high and c_low:
-                self.recent_extremes[event.symbol].append({"high": c_high, "low": c_low})
 
         if event.side not in ["TACTICAL", "LONG", "SHORT", "NEUTRAL"]:
             return
@@ -508,51 +395,13 @@ class SetupEngineV4:
         if len(self.micro_memory[sym]) < 2:
             return
 
-        # Phase 850: Pullback Watch Trigger
-        curr_evt = self.micro_memory[sym][-1][2]
-
-        # Phase 850: Pullback Watch Trigger
-        if self.pullback_watch[sym].get("active"):
-            pb = self.pullback_watch[sym]
-            if time.time() - pb["start_ts"] > 60:
-                pb["active"] = False
-            else:
-                retrace_touched = False
-                if pb["direction"] == "LONG":
-                    if event.price <= pb["target_poc"] * 1.0005:
-                        retrace_touched = True
-                else:
-                    if event.price >= pb["target_poc"] * 0.9995:
-                        retrace_touched = True
-
-                if retrace_touched:
-                    if self.context_registry:
-                        otf = self.context_registry.get_regime(sym)
-                        if otf == ("UP" if pb["direction"] == "LONG" else "DOWN") or otf == "NEUTRAL":
-                            logger.info(
-                                f"🎯 [PULLBACK_TRIGGER] {sym} price {event.price:.4f} hit POC {pb['target_poc']:.4f}. Firing {pb['direction']} Continuation."
-                            )
-                            await self._dispatch_guarded_signal(
-                                sym,
-                                pb["direction"],
-                                "Trend_Continuation_Pullback",
-                                pb["metadata"],
-                                curr_evt,
-                                setup_type="continuation",
-                            )
-                            pb["active"] = False
-                            return
-
         skewness = event.skewness
 
         if event.price == 0:
             return
 
         z = event.z_score
-        otf = "NEUTRAL"
-
         if self.context_registry:
-            otf = self.context_registry.get_regime(sym)
             self.context_registry.set_micro_state(sym, event.cvd, skewness, z)
             # Phase B3: Feed spread data to ContextRegistry for spread sanity gate
             if hasattr(event, "spread") and event.spread > 0:
@@ -588,12 +437,6 @@ class SetupEngineV4:
 
         # 1. Cooldown Check (Priority 1: Speed)
         if now - self.last_fire_ts[symbol] < self.fire_cooldown:
-            return
-
-        # 2. Phase 900: Micro-Confirmation Gate (replaces old Confluence Check)
-        # Reject signals where real-time order flow contradicts the direction.
-        if not self._check_micro_gate(symbol, side):
-            logger.info(f"❌ [MICRO_GATE] {pattern} {side} rejected: Real-time flow contradicts direction")
             return
 
         # 3. Confirmed - Enrich and Fire
@@ -644,30 +487,6 @@ class SetupEngineV4:
             price=getattr(source_event, "price", 0.0) or metadata.get("price", 0.0),
         )
         await self.engine.dispatch(out_evt)
-
-    def _check_micro_gate(self, symbol: str, side: str) -> bool:
-        """Phase 900: Micro-Confirmation Gate.
-
-        Checks if real-time order flow supports the proposed direction.
-        Returns False to REJECT the signal if the flow strongly contradicts.
-        This replaces the old Toxic_OrderFlow signal generation and
-        Confluence Check with a pure Dale-aligned context filter.
-        """
-        if not self.micro_memory[symbol] or self.fast_track:
-            return True  # No micro data yet, or Fast-Track forces execution
-
-        latest = self.micro_memory[symbol][-1][2]
-        z = latest.z_score
-
-        # Gate: reject if flow is significantly against the direction
-        if side == "LONG" and z < -2.0:
-            logger.debug(f"❌ [MICRO_GATE] {symbol} LONG blocked: Z-Score {z:.2f} (heavy selling flow)")
-            return False
-        if side == "SHORT" and z > 2.0:
-            logger.debug(f"❌ [MICRO_GATE] {symbol} SHORT blocked: Z-Score {z:.2f} (heavy buying flow)")
-            return False
-
-        return True
 
     def _trace_decision(
         self, symbol: str, status: str, gate: str, reason: str, metrics: dict, price: float = 0.0, side: str = ""

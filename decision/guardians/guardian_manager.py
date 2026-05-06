@@ -2,15 +2,11 @@ from typing import Tuple
 
 from utils.trace_bullet import TraceBulletMixin
 
-from .delta_divergence_guardian import check_delta_divergence
-from .failed_auction_guardian import check_failed_auction
 from .guardian_result import GuardianResult
 from .liquidity_guardian import check_liquidity_heatmap
-from .poc_migration_guardian import check_poc_migration
 from .regime_guardian import check_regime_alignment
 from .spread_sanity_guardian import check_spread_sanity
 from .statistical_location_guardian import check_statistical_location
-from .va_integrity_guardian import check_va_integrity
 
 
 class GuardianManager(TraceBulletMixin):
@@ -34,9 +30,6 @@ class GuardianManager(TraceBulletMixin):
 
         # 1. Execute all guardians
         results.append(check_regime_alignment(symbol, side, reversal_signal, context_registry, fast_track))
-        results.append(check_poc_migration(symbol, side, context_registry, fast_track))
-        results.append(check_va_integrity(symbol, context_registry, fast_track))
-        results.append(check_delta_divergence(symbol, side, context_registry, fast_track))
         results.append(check_spread_sanity(symbol, context_registry, fast_track))
 
         # Phase 3 & D1: Location Guardians
@@ -44,11 +37,6 @@ class GuardianManager(TraceBulletMixin):
 
         results.append(check_liquidity_heatmap(symbol, side, target_price, context_registry, fast_track))
         results.append(check_statistical_location(symbol, side, target_price, context_registry, fast_track))
-
-        # Guardian 9: Failed Auction (Hypothesis Round 2)
-        results.append(
-            check_failed_auction(symbol, side, reversal_signal, context_registry, recent_extremes, fast_track)
-        )
 
         # 2. Hard Gate Evaluation (Interpretability)
         for res in results:
