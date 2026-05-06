@@ -5,6 +5,7 @@ High-fidelity historical simulation using the Clock Reactor.
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -169,13 +170,14 @@ async def run_backtest():
     if trading_config.AUDIT_MODE:
 
         async def audit_signal_handler(event: AggregatedSignalEvent):
+            logger.warning(f"📝 AUDIT SIGNAL HANDLER FIRED: {event.symbol} {event.side}")
             historian.record_signal(
                 timestamp=event.timestamp,
                 symbol=event.symbol,
                 side=event.side,
                 setup_type=event.setup_type or "unknown",
                 price=event.price,
-                metadata=str(event.metadata),
+                metadata=json.dumps(event.metadata),
                 session_id=croupier.position_tracker.session_id,
             )
 

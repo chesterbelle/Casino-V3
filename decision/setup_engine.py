@@ -12,7 +12,6 @@ from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional, Tuple
 
 import config.strategies as strat_config
-import config.trading as trading_config
 from core.events import (
     AggregatedSignalEvent,
     EventType,
@@ -21,7 +20,6 @@ from core.events import (
     SignalEvent,
 )
 from decision.guardians import GuardianManager
-from utils.structural_math import check_level_proximity
 
 logger = logging.getLogger("SetupEngine")
 
@@ -43,11 +41,7 @@ class SetupEngineV4:
     def __init__(self, engine, context_registry=None, fast_track=False):
         self.engine = engine
         self.context_registry = context_registry
-        self.tracker = DummyTracker()  # For OrderManager compatibility
-        self.fast_track = fast_track
-
-        self.context_registry = context_registry
-        self.tracker = DummyTracker()  # For OrderManager compatibility
+        self.tracker = DummyTracker()
         self.fast_track = fast_track
 
         # Memory of tactical events per symbol. (timestamp, event_data)
@@ -82,8 +76,10 @@ class SetupEngineV4:
             # Phase 1800: Audit/Validation Bypass
             return True, []
 
-        if self.context_registry and not self.context_registry.is_structural_ready(symbol):
-            reasons.append("Structural Levels (POC/VAH/VAL)")
+        if self.context_registry:
+            vwap = self.context_registry.vwap_state.get(self.context_registry._norm_key(symbol))
+            if not vwap or vwap.get("std", 0) == 0:
+                reasons.append("VWAP Bands (Need 120m data)")
 
         return len(reasons) == 0, reasons
 
@@ -95,13 +91,6 @@ class SetupEngineV4:
         """
         if self.context_registry:
             pass
-
-        # Phase 1200: Limit Sniper Integration - Resolve nearest level for maker entry
-        if "level_price" not in metadata and self.context_registry and metadata.get("price", 0) > 0:
-            proximity = check_level_proximity(symbol, metadata["price"], self.context_registry, self.fast_track)
-            if proximity:
-                metadata["level_price"] = proximity["level_price"]
-                metadata["level_ref"] = proximity["level_ref"]
 
         # Phase 980: Pre-Entry Breakeven Guard (Institutional Guard)
         if "tp_price" in metadata and "price" in metadata and metadata["price"] > 0:
@@ -150,59 +139,68 @@ class SetupEngineV4:
             return None
 
         # 3. Order Flow Guardians (Statistical Location)
-        passed, final_sizing_multiplier = self.guardian_manager.evaluate_all(
+        from decision.guardians.guardian_result import SetupMode
+
+        passed, final_sizing_multiplier, setup_mode = self.guardian_manager.evaluate_all(
             symbol, side, reversal_signal, self.context_registry, {}, self.fast_track
         )
         if not passed:
             return None
 
-        # 5. Calculate Structural Targets (LTA V7 Dynamic Targets - VWAP focus)
-        # Primary Target: The Rolling VWAP (Fair Value)
+        # 5. Calculate Structural Targets (V3 Dual-Core Strategy)
         vwap_data = self.context_registry.vwap_state.get(self.context_registry._norm_key(symbol))
         vwap_price = vwap_data["vwap"] if vwap_data else 0.0
         std = vwap_data["std"] if vwap_data else 0.0
+        atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0)
 
-        # Target is the VWAP (Z=0)
-        tp_price = vwap_price if vwap_price > 0 else price * (1.0025 if side == "LONG" else 0.9975)
+        if setup_mode == SetupMode.CONTINUATION:
+            # V3 CONTINUATION: Target Trend Extension (1.5 * ATR)
+            # Stop Loss is the VWAP (if we cross mean, trend is over)
+            atr_extension = atr * 1.5 if atr > 0 else (price * 0.005)  # 0.5% fallback
+            if side == "LONG":
+                tp_price = price + atr_extension
+                sl_price = vwap_price if vwap_price > 0 else price * 0.997
+            else:
+                tp_price = price - atr_extension
+                sl_price = vwap_price if vwap_price > 0 else price * 1.003
+
+            setup_type_name = "continuation"
+            level_ref = "TREND_EXTENSION"
+        else:
+            # V3 REVERSION: Target is the Rolling VWAP (Fair Value)
+            tp_price = vwap_price if vwap_price > 0 else price * (1.0025 if side == "LONG" else 0.9975)
+
+            # SL is Dynamic/Statistical: 3.5Z from VWAP
+            if std > 0 and vwap_price > 0:
+                if side == "LONG":
+                    sl_price = vwap_price - (3.5 * std)
+                    sl_price = min(sl_price, price * 0.999)
+                else:
+                    sl_price = vwap_price + (3.5 * std)
+                    sl_price = max(sl_price, price * 1.001)
+            else:
+                sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
+                sl_price = price * (1 - sl_buffer) if side == "LONG" else price * (1 + sl_buffer)
+
+            setup_type_name = "reversion"
+            level_ref = "VWAP_BAND"
 
         # Safety: Ensure TP is at least 0.20% away to cover fees
         tp_dist = abs(tp_price - price) / price
         if tp_dist < 0.0020:
-            if side == "LONG":
-                tp_price = price * 1.0025
-            else:
-                tp_price = price * 0.9975
-
-        # SL is Dynamic/Statistical: 3.5Z from VWAP (or structural if no STD)
-        if std > 0 and vwap_price > 0:
-            if side == "LONG":
-                sl_price = vwap_price - (3.5 * std)
-                # Hard limit: SL cannot be better than entry - 0.1% for safety
-                sl_price = min(sl_price, price * 0.999)
-            else:
-                sl_price = vwap_price + (3.5 * std)
-                sl_price = max(sl_price, price * 1.001)
-        else:
-            # Fallback
-            sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
-            if side == "LONG":
-                sl_price = price * (1 - sl_buffer)
-            else:
-                sl_price = price * (1 + sl_buffer)
-
-        # 6. Calculate Aggregated Sizing Multiplier (Phase 2350)
-        # Multiplier is calculated in GuardianManager
+            tp_price = price * (1.0025 if side == "LONG" else 0.9975)
 
         # 7. Metadata Enrichment
         trigger_meta = {
             "trigger": f"LTA_{reversal_signal.get('tactical_type')}",
-            "setup_type": "reversion",
+            "setup_type": setup_type_name,
             "price": price,
             "tp_price": tp_price,
             "sl_price": sl_price,
-            "level_ref": "VWAP_BAND",
+            "level_ref": level_ref,
             "z_score": reversal_signal.get("z_score"),
             "sizing_multiplier": final_sizing_multiplier,
+            "v3_mode": setup_mode.value,
         }
         trigger_meta = self._enrich_metadata(trigger_meta, symbol)
 
@@ -336,25 +334,6 @@ class SetupEngineV4:
             if recent_dv:
                 dv_multiplier = recent_dv[-1].metadata.get("sizing_multiplier", 1.0)
             trigger["metadata"]["dv_multiplier"] = dv_multiplier
-
-            # Phase 700: Level Proximity Gate for Playbook signals
-            price = trigger["metadata"].get("price", 0)
-            if price > 0:
-                proximity = check_level_proximity(sym, price, self.context_registry, self.fast_track)
-                if proximity:
-                    trigger["metadata"]["level_ref"] = proximity["level_ref"]
-                    trigger["metadata"]["level_price"] = proximity["level_price"]
-                    trigger["metadata"]["level_dist_pct"] = proximity["dist_pct"]
-                    logger.info(
-                        f"📍 [LEVEL_CONFIRMED] {sym} Playbook {trigger['setup_name']} near {proximity['level_ref']} "
-                        f"@ {proximity['level_price']:.4f} (dist: {proximity['dist_pct']:.4f}%)"
-                    )
-                else:
-                    logger.info(
-                        f"📍 [LEVEL_FILTER] {sym} Playbook {trigger['setup_name']} filtered: "
-                        f"Price {price:.4f} not near any structural level (threshold: 0.20%)"
-                    )
-                    return
 
             await self._dispatch_guarded_signal(
                 sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event, setup_type=setup_type
@@ -514,85 +493,3 @@ class SetupEngineV4:
             "side": side,
         }
         historian.record_decision_trace(trace_data)
-
-    async def _evaluate_pre_flight(self, symbol: str, event: SignalEvent):
-        """
-        Phase 2360: Limit Sniper Pre-Flight Mode.
-        Detects structural proximity and pre-positions LIMIT orders.
-        """
-        # Master switch check
-        if not getattr(trading_config, "LIMIT_SNIPER_ENABLED", False):
-            return
-
-        if self.fast_track or not self.context_registry:
-            return
-
-        now_wall = time.time()
-        # 1. Get structural anchors and current price
-        poc, vah, val = self.context_registry.get_structural(symbol)
-        if not (poc > 0 and vah > 0 and val > 0):
-            return
-
-        md = event.metadata or {}
-        price = md.get("price") or md.get("close") or 0.0
-        if price <= 0:
-            return
-
-        # 2. Proximity Gate (0.20% by default)
-        is_at_vah = abs(price - vah) / price < strat_config.LTA_PROXIMITY_THRESHOLD
-        is_at_val = abs(price - val) / price < strat_config.LTA_PROXIMITY_THRESHOLD
-
-        if not (is_at_vah or is_at_val):
-            return
-
-        # 3. Determine potential side and targets
-        side = "SHORT" if is_at_vah else "LONG"
-
-        # 4. Guardian Quick-Check (Regime must be Balance/Neutral)
-        # We don't want to pre-position in a hard trend
-        regime_mult = self._check_regime_alignment(symbol, side, md)
-        if regime_mult <= 0:
-            return
-
-        # 5. Apply Front-Running Offset (Phase 2361)
-        offset = getattr(trading_config, "LIMIT_SNIPER_OFFSET_PCT", 0.0)
-        if side == "SHORT":
-            # Short limit slightly BELOW the level
-            entry_price = vah * (1 - offset)
-        else:
-            # Long limit slightly ABOVE the level
-            entry_price = val * (1 + offset)
-
-        # 6. Emit PRE_FLIGHT event for OrderManager
-        # This tells the OrderManager to place a LIMIT order
-        pre_flight_metadata = {
-            "symbol": symbol,
-            "side": side,
-            "entry_price": entry_price,
-            "tp_price": poc,
-            "sl_price": vah * (1 + 0.0015) if is_at_vah else val * (1 - 0.0015),  # Standard structural buffer
-            "type": "limit_sniper",
-            "is_pre_flight": True,
-            "tactical_type": "PreFlightProximity",
-        }
-
-        # We use a custom event type for Pre-Flight (OrderManager will subscribe to this)
-        # Note: We use AGGREGATED_SIGNAL so it reaches OrderManager/Player flow
-        out_evt = AggregatedSignalEvent(
-            type=EventType.AGGREGATED_SIGNAL,
-            timestamp=event.timestamp,
-            symbol=symbol,
-            candle_timestamp=event.timestamp,
-            selected_sensor="SetupEngine_PreFlight",
-            sensor_score=1.0,
-            side=side,
-            confidence=1.0,
-            total_signals=1,
-            metadata=pre_flight_metadata,
-            t0_timestamp=now_wall,
-            t1_decision_ts=event.timestamp,
-            setup_type="reversion",
-            price=price,
-        )
-        await self.engine.dispatch(out_evt)
-        logger.debug(f"🎯 [PRE-FLIGHT] {symbol} {side} proximity detected. Pre-positioning LIMIT.")

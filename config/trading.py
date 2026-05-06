@@ -257,7 +257,7 @@ LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
 # =====================================================
 
 # --- SELECTOR MAESTRO DE PERFIL ---
-ACTIVE_EXIT_PROFILE = "ESCALADOR"  # Options: "EXPRIMIDOR", "FRANCOTIRADOR", "ESCALADOR"
+ACTIVE_EXIT_PROFILE = "EXPRIMIDOR"  # Options: "EXPRIMIDOR", "FRANCOTIRADOR", "ESCALADOR"
 
 # Perfiles de ejecución (Previenen "Esquizofrenia Algorítmica" entre capas)
 _EXIT_PROFILES = {
@@ -334,9 +334,9 @@ SCE_SCALE_FRACTION = 0.50  # Amount to scale out on MEX/CFI trigger
 # -----------------------------------------------------
 # Dynamic SL that follows price when it moves in favor.
 TRAILING_STOP_ENABLED = True
-# En Footprint scalping, una vez alcanzado el 0.12%, iniciamos el trailing a una distancia de 0.10%
-TRAILING_STOP_ACTIVATION_PCT = 0.0012
-TRAILING_STOP_DISTANCE_PCT = 0.0010
+# En Footprint scalping, una vez alcanzado el 0.20%, iniciamos el trailing a una distancia de 0.15%
+TRAILING_STOP_ACTIVATION_PCT = 0.0020
+TRAILING_STOP_DISTANCE_PCT = 0.0015
 
 # ATR-Based Exits: Multipliers for dynamic distances (Distance = Multiplier * ATR)
 EXIT_ATR_MULT_TS = 3.5  # Allow breathing room in Defensive Phase

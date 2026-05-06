@@ -2,7 +2,7 @@ from typing import Tuple
 
 from utils.trace_bullet import TraceBulletMixin
 
-from .guardian_result import GuardianResult
+from .guardian_result import GuardianResult, SetupMode
 from .liquidity_guardian import check_liquidity_heatmap
 from .regime_guardian import check_regime_alignment
 from .spread_sanity_guardian import check_spread_sanity
@@ -21,10 +21,10 @@ class GuardianManager(TraceBulletMixin):
 
     def evaluate_all(
         self, symbol: str, side: str, reversal_signal: dict, context_registry, recent_extremes: dict, fast_track: bool
-    ) -> Tuple[bool, float]:
+    ) -> Tuple[bool, float, SetupMode]:
         """
-        Runs all guardians. Returns (passed, final_multiplier).
-        Phase 2 Alpha: Transition to Confidence Scoring + Attribution.
+        Runs all guardians. Returns (passed, final_multiplier, mode).
+        Phase V3: Opportunity Classification (Reversion vs Continuation).
         """
         results = []
 
@@ -39,6 +39,7 @@ class GuardianManager(TraceBulletMixin):
         results.append(check_statistical_location(symbol, side, target_price, context_registry, fast_track))
 
         # 2. Hard Gate Evaluation (Interpretability)
+        final_mode = SetupMode.REVERSION
         for res in results:
             self._trace(symbol, side, reversal_signal.get("close", 0.0), res)
             if not res.passed:
@@ -47,10 +48,13 @@ class GuardianManager(TraceBulletMixin):
                     "GUARDIAN_REJECT",
                     {"gate": res.gate_name, "reason": res.reason, "metrics": res.metrics},
                 )
-                return False, 0.0
+                return False, 0.0, SetupMode.NEUTRAL
+
+            # V3: Aggregate Mode (Priority to Continuation if alignment says so)
+            if res.setup_mode == SetupMode.CONTINUATION:
+                final_mode = SetupMode.CONTINUATION
 
         # 3. Aggregate Scoring (Phase 2 Alpha)
-        # We calculate total_confidence as the average score of all guardians
         total_score = sum(res.score for res in results) / len(results)
 
         # Sizing Multiplier is the product of individual multipliers * final confidence
@@ -59,22 +63,25 @@ class GuardianManager(TraceBulletMixin):
             final_multiplier *= res.multiplier
 
         # Apply confidence-based sizing (Soft Sizing)
-        # If confidence is low (e.g. 0.6), we reduce size by that factor
         final_multiplier *= total_score
 
         # 4. Detailed Attribution Trace (The "Crystal Layer" Observability)
-        attribution = {res.gate_name: {"score": res.score, "multiplier": res.multiplier} for res in results}
+        attribution = {
+            res.gate_name: {"score": res.score, "multiplier": res.multiplier, "mode": res.setup_mode.value}
+            for res in results
+        }
         self.trace(
             reversal_signal,
             "GUARDIAN_BREAKDOWN",
             {
                 "total_score": round(total_score, 3),
                 "final_multiplier": round(final_multiplier, 3),
+                "final_mode": final_mode.value,
                 "attribution": attribution,
             },
         )
 
-        return True, final_multiplier
+        return True, final_multiplier, final_mode
 
     def _trace(self, symbol: str, side: str, price: float, res: GuardianResult):
         status = "PASS" if res.passed else "REJECT"

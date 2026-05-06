@@ -427,13 +427,15 @@ async def main():
 
         async def audit_signal_handler(event: AggregatedSignalEvent):
             """Records all signals even if not picked up by Player."""
+            import json
+
             historian.record_signal(
                 timestamp=event.timestamp,
                 symbol=event.symbol,
                 side=event.side,
                 setup_type=event.setup_type or "unknown",
                 price=event.price,
-                metadata=str(event.metadata),
+                metadata=json.dumps(event.metadata),
                 session_id=croupier.position_tracker.session_id,
             )
 

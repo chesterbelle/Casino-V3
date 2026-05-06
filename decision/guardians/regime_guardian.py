@@ -2,7 +2,7 @@ import logging
 
 import config.strategies as strat_config
 
-from .guardian_result import GuardianResult
+from .guardian_result import GuardianResult, SetupMode
 
 logger = logging.getLogger("RegimeGuardian")
 
@@ -52,29 +52,74 @@ def check_regime_alignment(
 
         if regime_v2 == "BALANCE":
             return GuardianResult(
-                passed=True, score=1.0, reason="Balance regime", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2"
+                passed=True,
+                score=1.0,
+                reason="Balance regime",
+                metrics=metrics,
+                gate_name="REGIME_ALIGNMENT_V2",
+                setup_mode=SetupMode.REVERSION,
             )
 
         # Confidence based logic for Trends
-        # For REVERSION (LTA), we want to be cautious against strong trends.
         if regime_v2 == "TREND_UP":
             if side == "SHORT":
-                if confidence > 0.8:
-                    return GuardianResult(passed=False, score=0.0, reason="Strong TREND_UP", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
-                # Score decreases as trend confidence increases
+                if confidence > 0.3:
+                    return GuardianResult(
+                        passed=False,
+                        score=0.0,
+                        reason="Strong TREND_UP",
+                        metrics=metrics,
+                        gate_name="REGIME_ALIGNMENT_V2",
+                    )
                 score = max(0.1, 1.0 - confidence)
-                return GuardianResult(passed=True, score=score, reason="Counter-trend (TREND_UP)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+                return GuardianResult(
+                    passed=True,
+                    score=score,
+                    reason="Counter-trend (TREND_UP)",
+                    metrics=metrics,
+                    gate_name="REGIME_ALIGNMENT_V2",
+                    setup_mode=SetupMode.REVERSION,
+                )
             else:
-                return GuardianResult(passed=True, score=1.0, reason="Trend-aligned (UP)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+                mode = SetupMode.CONTINUATION if confidence > 0.25 else SetupMode.REVERSION
+                return GuardianResult(
+                    passed=True,
+                    score=1.0,
+                    reason="Trend-aligned (UP)",
+                    metrics=metrics,
+                    gate_name="REGIME_ALIGNMENT_V2",
+                    setup_mode=mode,
+                )
 
         if regime_v2 == "TREND_DOWN":
             if side == "LONG":
-                if confidence > 0.8:
-                    return GuardianResult(passed=False, score=0.0, reason="Strong TREND_DOWN", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+                if confidence > 0.3:
+                    return GuardianResult(
+                        passed=False,
+                        score=0.0,
+                        reason="Strong TREND_DOWN",
+                        metrics=metrics,
+                        gate_name="REGIME_ALIGNMENT_V2",
+                    )
                 score = max(0.1, 1.0 - confidence)
-                return GuardianResult(passed=True, score=score, reason="Counter-trend (TREND_DOWN)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+                return GuardianResult(
+                    passed=True,
+                    score=score,
+                    reason="Counter-trend (TREND_DOWN)",
+                    metrics=metrics,
+                    gate_name="REGIME_ALIGNMENT_V2",
+                    setup_mode=SetupMode.REVERSION,
+                )
             else:
-                return GuardianResult(passed=True, score=1.0, reason="Trend-aligned (DOWN)", metrics=metrics, gate_name="REGIME_ALIGNMENT_V2")
+                mode = SetupMode.CONTINUATION if confidence > 0.25 else SetupMode.REVERSION
+                return GuardianResult(
+                    passed=True,
+                    score=1.0,
+                    reason="Trend-aligned (DOWN)",
+                    metrics=metrics,
+                    gate_name="REGIME_ALIGNMENT_V2",
+                    setup_mode=mode,
+                )
 
         if regime_v2 == "TRANSITION":
             z_score = abs(reversal_signal.get("z_score", 0.0))
@@ -85,6 +130,7 @@ def check_regime_alignment(
                     reason="Transition Recovery (Extreme Flow)",
                     metrics=metrics,
                     gate_name="REGIME_ALIGNMENT_V2",
+                    setup_mode=SetupMode.REVERSION,
                 )
             return GuardianResult(
                 passed=False,
@@ -94,7 +140,7 @@ def check_regime_alignment(
                 gate_name="REGIME_ALIGNMENT_V2",
             )
 
-    # Legacy fallback: OTF-based regime
+    # Legacy fallback
     regime = context_registry.get_regime(symbol)
     otf = getattr(context_registry, "otf", {}).get(symbol, "NEUTRAL")
     metrics = {"regime": regime, "otf": otf, "side": side, "source": "legacy_otf"}
@@ -111,6 +157,7 @@ def check_regime_alignment(
             reason="Trend-aligned LONG (legacy)",
             metrics=metrics,
             gate_name="REGIME_ALIGNMENT",
+            setup_mode=SetupMode.CONTINUATION,
         )
     if side == "SHORT" and regime == "DOWN":
         return GuardianResult(
@@ -119,9 +166,9 @@ def check_regime_alignment(
             reason="Trend-aligned SHORT (legacy)",
             metrics=metrics,
             gate_name="REGIME_ALIGNMENT",
+            setup_mode=SetupMode.CONTINUATION,
         )
 
-    logger.info(f"🛡️ [REGIME_OTF] {symbol} {side} blocked: Counter-trend (Regime: {regime}, OTF: {otf})")
     return GuardianResult(
         passed=False,
         multiplier=0.0,

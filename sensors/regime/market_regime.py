@@ -61,24 +61,24 @@ logger = logging.getLogger("MarketRegimeSensor")
 
 # Layer 1 — Micro: tick-level flow momentum
 MICRO_FLOW_WINDOW_SECONDS = 10.0  # Rolling window for delta accumulation
-MICRO_SURGE_Z_THRESHOLD = 2.0  # Z-score to declare directional flow surge
+MICRO_SURGE_Z_THRESHOLD = 1.2  # Z-score to declare directional flow surge (from 2.0)
 MICRO_SNAPSHOT_HZ = 4.0  # Snapshots per second
 
 # Layer 2 — Meso: VA expansion rate
 MESO_VA_EXPANSION_FAST_WINDOW = 3  # Candles for fast VA width measurement
 MESO_VA_EXPANSION_SLOW_WINDOW = 10  # Candles for slow VA width measurement
-MESO_EXPANSION_THRESHOLD = 0.15  # 15% faster expansion = market leaving balance
+MESO_EXPANSION_THRESHOLD = 0.05  # 5% faster expansion (from 15%)
 MESO_IB_BREAK_WEIGHT = 0.4  # Extra weight if IB is broken with volume
 
 # Layer 3 — Macro: POC migration velocity
 MACRO_POC_HISTORY_WINDOW = 20  # Candles to measure POC velocity
-MACRO_POC_VELOCITY_THRESHOLD = 0.0003  # 0.03% per candle = meaningful migration
+MACRO_POC_VELOCITY_THRESHOLD = 0.0001  # 0.01% per candle (from 0.03%)
 MACRO_CONSECUTIVE_MIGRATION = 3  # N consecutive candles migrating = conviction
 
 # Regime thresholds
-TRANSITION_CONFIDENCE_MIN = 0.40  # Min confidence to declare TRANSITION
+TRANSITION_CONFIDENCE_MIN = 0.30  # Min confidence to declare TRANSITION (from 0.40)
 TREND_CONFIDENCE_MIN = 0.65  # Min confidence to declare TREND
-BALANCE_MAX_CONFIDENCE = 0.35  # Max directional confidence to stay in BALANCE
+BALANCE_MAX_CONFIDENCE = 0.20  # Max directional confidence to stay in BALANCE (from 0.35)
 
 # ---------------------------------------------------------------------------
 # Phase 2300: Price Circuit Breaker — absolute price movement detector

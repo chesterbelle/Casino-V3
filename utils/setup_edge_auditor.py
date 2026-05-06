@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -108,7 +109,34 @@ class EdgeAuditor:
                 mae_price = np.max(prices_list)
                 mfe_pct = (entry_price - mfe_price) / entry_price * 100
                 mae_pct = (mae_price - entry_price) / entry_price * 100
+            # Phase 850: Real Strategy Performance (Dynamic TP/SL from Metadata)
+            real_outcome = "TIMEOUT"
+            tp_price = 0.0
+            sl_price = 0.0
+            if sig["metadata"]:
+                try:
+                    meta = json.loads(sig["metadata"])
+                    tp_price = meta.get("tp_price", 0.0)
+                    sl_price = meta.get("sl_price", 0.0)
 
+                    if tp_price > 0 and sl_price > 0:
+                        for p in prices_list:
+                            if side == "LONG":
+                                if p >= tp_price:
+                                    real_outcome = "WIN"
+                                    break
+                                if p <= sl_price:
+                                    real_outcome = "LOSS"
+                                    break
+                            else:  # SHORT
+                                if p <= tp_price:
+                                    real_outcome = "WIN"
+                                    break
+                                if p >= sl_price:
+                                    real_outcome = "LOSS"
+                                    break
+                except Exception:
+                    pass
             # Phase 900A: First Touch Win-Rate per TP/SL config
             first_touch = {}
             for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
@@ -132,6 +160,9 @@ class EdgeAuditor:
                     "mfe": mfe_pct,
                     "mae": mae_pct,
                     "ratio": mfe_pct / (mae_pct + 1e-9),
+                    "real_outcome": real_outcome,
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
                     **first_touch,
                 }
             )
@@ -246,6 +277,23 @@ class EdgeAuditor:
                 f"{tp:.1f}%/{sl:.1f}%    {wins:<8} {losses:<8} {timeouts:<8} {color}{wr:>6.1f}%{RESET}  "
                 f"{ev:>+10.4f}%  {net_color_taker}{net_taker:>+10.4f}%{RESET}  {net_color_maker}{net_maker:>+10.4f}%{RESET}"
             )
+
+        # Phase 850: Real Strategy Performance (Dynamic)
+        print(f"\n{BOLD}[2B] REAL STRATEGY PERFORMANCE (Dynamic TP/SL from SetupEngine){RESET}")
+        if "real_outcome" in df.columns:
+            wins = (df["real_outcome"] == "WIN").sum()
+            losses = (df["real_outcome"] == "LOSS").sum()
+            timeouts = (df["real_outcome"] == "TIMEOUT").sum()
+            decided = wins + losses
+            wr = (wins / decided * 100) if decided > 0 else 0
+
+            color = GREEN if wr > 50 else RED
+            print(f"{'Total Decided':<15} {'Wins':<8} {'Losses':<8} {'Timeout':<8} {'WR%':<8}")
+            print("-" * 60)
+            print(f"{decided:<15} {wins:<8} {losses:<8} {timeouts:<8} {color}{wr:>6.1f}%{RESET}")
+            print(f"{YELLOW}* Evaluated using the actual tp_price and sl_price injected by the SetupEngine.{RESET}")
+        else:
+            print(f"{RED}❌ No real_outcome data available in signals.{RESET}")
 
         # Phase 900A: Per-Setup First Touch Breakdown
         print(f"\n{BOLD}[3] PER-SETUP FIRST TOUCH (0.3%/0.3%) + GROSS EXPECTANCY{RESET}")

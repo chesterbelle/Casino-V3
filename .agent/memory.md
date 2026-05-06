@@ -80,7 +80,7 @@
 
 ### CLI Flags — Propósito Exacto
 *   **`--close-on-exit`**: Sweep de cierre y Drain Phase defensiva.
-*   **`--fast-track`**: Bypasea gates estructurales para testeo. **NUNCA en producción**.
+*   **`--fast-track`**: [DEPRECADO ⚠️] — Sustituido por el protocolo **TraceBullet**. Ya no se requiere para testear infraestructura, ya que la telemetría TRB permite ver señales rechazadas sin forzar OCOs.
 *   **`--audit`**: Zero-Interference Mode. Registra señales sin ejecutarlas.
 
 ### Protocolos de Validación (Workflows)
@@ -113,9 +113,4 @@
 3. **Stagnation Profit-Aware**: NUNCA cerrar trades ganadores por estancamiento.
 4. **Binance -2021**: OCO rechazado si TP/SL ya están en precio.
 5. **Fee Accounting**: Total = entry_fee + exit_fee (Calculado en `VirtualExchange`).
-
----
-
-## 🎯 Objetivo de la Siguiente Sesión
-*   **Principal (Macro)**: Calibrar la rentabilidad del perfil **EXPRIMIDOR**. Ahora que el motor está desbloqueado (10 trades en 24h), el Win Rate fue de 30% con 7 Stop Loss hits. Necesitamos ajustar el umbral del Shadow SL y las reglas de Invalidación de Tesis para optimizar el Edge (PF actual: 0.14).
-*   **Secundario (Micro)**: Refinar el `PortfolioGuard` para asegurar que las secuencias de pérdidas rápidas no afecten la escalabilidad del tamaño de apuesta (Kelly Sizing) y re-ajustar el Z-Score de entrada.
+6. **No Fast-Track**: El uso de `--fast-track` está deprecado. Usar `TRACE_BULLET_ACTIVE=1` para validación de flujo y detección de "Alpha Starvation".

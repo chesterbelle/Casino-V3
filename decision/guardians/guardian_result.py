@@ -1,5 +1,12 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict
+
+
+class SetupMode(Enum):
+    REVERSION = "reversion"
+    CONTINUATION = "continuation"
+    NEUTRAL = "neutral"
 
 
 @dataclass
@@ -10,3 +17,4 @@ class GuardianResult:
     reason: str = ""
     metrics: Dict[str, Any] = field(default_factory=dict)
     gate_name: str = ""
+    setup_mode: SetupMode = SetupMode.REVERSION  # V3: Classification of the opportunity

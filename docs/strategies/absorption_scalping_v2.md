@@ -1,87 +1,60 @@
-# ABSORPTION SCALPING V2.1: The Ultimate Absorption Strategy
+# Manifiesto de Estrategia: Absorción Estadística V2.1 (Statistical Absorption Scalping)
 
-## Filosofía Central
-
-El mercado es una guerra entre agresores y defensores. Cuando un bando ataca con todo su volumen y no logra mover el precio, queda expuesto: se quedó sin munición. El otro bando lo devora y el precio gira.
-
-Esta versión **V2.1 (Ultimate)** institucionaliza la estrategia mediante una arquitectura de **Triple Guardián**, eliminando la subjetividad y el sesgo direccional. No solo buscamos la absorción física; exigimos alineación con el régimen macro, estabilidad en el flujo de órdenes y ubicación estructural precisa.
-
-La diferencia entre un trader retail y uno institucional en order flow es la disciplina de los filtros. **V2.1 no opera absorciones; opera desequilibrios de alta probabilidad certificados por auditoría.**
+**Enfoque**: Scalping de Reversión a la Media (Mean-Reversion) guiado por Order Flow.
+**Entorno**: Mercados 24/7 (Criptomonedas).
 
 ---
 
-## 1. El Principio de Esfuerzo sin Resultado (Agnóstico)
+## 1. La Filosofía Base
 
-### 1.1 El Concepto Simétrico
-Históricamente, los sistemas de detección de absorción sufrían de un sesgo matemático: en tendencias alcistas, era más fácil detectar absorciones de venta que de compra debido a la media del delta. **V2.1 introduce el Z-Score Simétrico (Mean=0)**, lo que garantiza que la detección sea 100% agnóstica. Medimos la anomalía del volumen contra el cero absoluto, no contra la tendencia de la vela.
+El mercado no se mueve por líneas diagonales imaginarias ni soportes estáticos. El mercado se mueve por la **búsqueda de liquidez** y el **agotamiento direccional**.
 
-### 1.2 La Trampa del "Catching Knives"
-Detectar absorción es fácil; sobrevivir a ella no. El mayor riesgo es entrar mientras el "tren" agresivo aún tiene inercia. Por eso, V2.1 separa estrictamente la **Detección** (Fase 1) de la **Confirmación** (Fase 2) y añade una capa de **Guardianes de Seguridad**.
+En los mercados tradicionales (como futuros del CME), la estructura del mercado se define por "sesiones" con horarios estrictos (Market Profile). En el ecosistema cripto, que opera ininterrumpidamente, los límites de las sesiones son arbitrarios. Un nivel estático calculado a las 4:00 AM pierde relevancia cuando la volatilidad cambia a las 10:00 AM.
 
----
-
-## 2. Los Guardianes Institucionales (La Matriz de Alpha)
-
-Para que una señal de absorción sea ejecutable, debe superar tres compuertas de seguridad lógica:
-
-### 2.1 Guardian 0: Regime Alignment (Hard Gate)
-Basado en la metodología de firmas como Axia Futures y Jigsaw Trading. No operamos contra la tendencia macro.
-- **BALANCE:** Se permiten tanto entradas LARGAS como CORTAS.
-- **TREND_UP:** Solo se permiten entradas LARGAS. Los shorts son bloqueados.
-- **TREND_DOWN:** Solo se permiten entradas CORTAS. Los longs son bloqueados.
-- **TRANSITION:** Prohibido operar. El mercado está rompiendo su estructura y es impredecible.
-
-### 2.2 Guardian 1: Flow Exhaustion (Surge Filter)
-Incluso con absorción, no entramos si el bando agresivo sigue "golpeando" con fuerza inusual.
-- Utilizamos el **Flow Momentum** (Z-Score de la velocidad del delta).
-- Si el impulso agresor supera ±2.5Z, la entrada se bloquea. Esperamos a que el bando atacante se fatigue antes de entrar en la contra-ofensiva.
-
-### 2.3 Guardian 1.5: Location Gate (Ubicación Estructural)
-La absorción en el "vacío" es ruido. La absorción real ocurre en niveles donde las instituciones tienen interés en defender.
-- Solo se aceptan señales que ocurran a menos de **0.25%** de una zona estructural: **VAH, VAL, POC o IB (Initial Balance)**.
+Por lo tanto, el concepto de **Valor Justo (Fair Value)** debe ser dinámico, no estático. Nuestra estrategia busca identificar dislocaciones extremas de ese valor justo y operar la reversión **solamente cuando el flujo de órdenes en tiempo real confirma que el agresor ha sido atrapado**.
 
 ---
 
-## 3. El Setup de Entrada
+## 2. Los Dos Pilares de la Estrategia
 
-### 3.1 FASE 1 — Detección (AbsorptionDetector)
-Identificamos un candidato que cumpla:
-1. **Z-Score Simétrico > 3.0:** Volumen anormalmente extremo comparado con el resto del footprint (media 0).
-2. **Concentración > 70%:** El volumen debe estar en un nivel de precio claro, no disperso.
-3. **Precio Estancado:** Desplazamiento < 0.05% en la dirección del ataque.
+La estrategia no adivina techos ni suelos. Requiere la coincidencia exacta de dos dimensiones: el "Dónde" (Contexto Estadístico) y el "Cuándo" (Microestructura).
 
-### 3.2 FASE 2 — Confirmación (AbsorptionReversalGuardian)
-Una vez detectado el candidato, esperamos el giro real (≥2 de 3 confirmaciones en ventana de 3 velas):
-- **Confirmación A (Delta Reversal):** El flujo cambia de bando agresivamente.
-- **Confirmación B (Price Break):** El precio rompe el nivel de absorción en sentido contrario.
-- **Confirmación C (CVD Flip):** La pendiente del Cumulative Volume Delta gira.
+### Pilar A: El Mapa Estadístico (VWAP y Bandas de Desviación)
+Utilizamos un **Rolling VWAP** (Precio Promedio Ponderado por Volumen) como nuestra brújula de Valor Justo.
 
----
+Sobre este VWAP, proyectamos bandas de Desviación Estándar (ej. ±2.0Z a ±2.5Z). Estas bandas actúan como **nuestras zonas de interés dinámicas**:
+*   **Zona de Ruido**: Todo lo que ocurre cerca de la media (VWAP). Aquí el mercado está en equilibrio. Operar aquí es un juego de azar.
+*   **Zona de Trampa (Los Extremos)**: Cuando el precio toca o supera las bandas externas, sabemos matemáticamente que el activo está experimentando una dislocación estadística (euforia o pánico). Aquí es donde prestamos atención.
 
-## 4. Gestión de Riesgo y Operación
+### Pilar B: El Gatillo Táctico (Absorción en el Footprint)
+El precio en un extremo estadístico no es motivo suficiente para entrar al mercado (evitamos intentar atrapar "cuchillos cayendo"). Necesitamos ver quién gana la batalla en la trinchera.
 
-### 4.1 Entrada y Sizing
-- **Entrada:** Market Order inmediata tras la confirmación de Fase 2.
-- **Sniper Mode:** Uso obligatorio de **Limit Sniper** (Maker Orders) para capturar el rebate de comisiones, esencial en estrategias de alta frecuencia donde el edge es delgado (+0.1230% bruto).
-
-### 4.2 Salida
-- **Stop Loss (SL):** Nivel de absorción ± buffer de 0.15%. Si el precio invalida el nivel de defensa, la tesis ha muerto.
-- **Take Profit (TP):** Dinámico basado en **Low Volume Nodes (LVN)**. Buscamos el primer "vacío" de liquidez donde el precio pueda correr sin resistencia.
-- **Invalidación (Counter-Absorption):** Si mientras estamos en un trade aparece una absorción institucional en nuestra contra, cerramos la posición inmediatamente. El mercado ha cambiado de opinión.
+Utilizamos el análisis de **Footprint (Order Flow)** para buscar **Absorción Institucional**.
+La absorción ocurre cuando vemos un volumen agresivo masivo (compras o ventas a mercado) estrellándose contra un muro de liquidez pasiva (órdenes limitadas) **sin lograr desplazar el precio**. El agresor gasta toda su munición, el precio se estanca y quedan "atrapados" en un nivel extremo.
 
 ---
 
-## 5. Validación y Edge Generalizado
+## 3. El Setup de Ejecución
 
-La arquitectura V2.1 ha sido certificada mediante un **Generalized Edge Audit** en una sección cruzada de 10 criptomonedas (SOL, SUI, ADA, LTC, etc.):
-- **Expectativa Bruta:** **+0.1230%** (Promedio global).
-- **Short Performance:** Históricamente el lado más rentable del sistema (+0.15%).
-- **Generalización:** Efectiva en activos con alta liquidez y volatilidad estructural. Falla en activos lentos o con spread manipulado (BNB, LINK, DOGE), los cuales deben ser excluidos del universo de trading.
+Una operación solo se ejecuta cuando ocurre la siguiente secuencia:
+
+1. **Contexto Extremo**: El mercado sufre un impulso direccional agresivo que lo empuja fuera de las bandas de desviación (ej. > +2.0Z del VWAP).
+2. **Agotamiento Detectado**: En el nivel más alto del impulso, el Footprint detecta un *Delta* extremo de compra, pero la vela cierra sin avance direccional. Las compras a mercado fueron absorbidas por liquidez pasiva.
+3. **Disparo**: La combinación de desequilibrio estadístico + agresores atrapados genera una entrada inmediata en contra del movimiento (Short), apostando a que los agresores tendrán que liquidar sus posiciones, acelerando la reversión.
 
 ---
 
-## Resumen Ejecutivo
+## 4. Gestión de Salida (Take Profit y Stop Loss)
 
-**Ultimate Absorption V2.1** es un sistema agnóstico que mide la fatiga institucional. No adivina suelos ni techos; verifica matemáticamente que un bando ha agotado su munición en un nivel estructural clave y entra solo cuando el flujo de órdenes confirma el contraataque.
+Nuestra gestión de la salida es estrictamente matemática y estructural, eliminando la emocionalidad del trader.
 
-> **Regla de Oro:** La absorción es el hecho; el régimen es el permiso; el flujo es el timing; y la estructura es la ubicación. Solo cuando los cuatro coinciden, hay trade.
+*   **Take Profit (El Imán Matemático)**: Nuestro objetivo no es adivinar hasta dónde llegará el mercado. Nuestro único objetivo es el **VWAP actual**. Cuando el mercado expulsa a los participantes atrapados, el precio tiende a regresar a su punto de equilibrio natural (la media). Operar de los extremos hacia la media ofrece una tasa de acierto muy superior a buscar expansiones.
+*   **Stop Loss (Invalidación de Tesis)**: El Stop Loss se coloca de forma rígida detrás del nivel de absorción. Si entramos porque un muro pasivo estaba absorbiendo compras, y ese muro es derribado (el precio rompe con volumen), nuestra tesis queda inmediatamente invalidada. Asumimos la pérdida pequeña y salimos.
+
+---
+
+## 5. Por Qué Funciona en Entornos Modernos
+
+1. **Agnóstica a Horarios**: Al basarse en un Rolling VWAP, la estrategia no sufre el "reinicio" artificial del Market Profile. Las bandas se expanden automáticamente en momentos de alta volatilidad y se contraen en consolidaciones.
+2. **Alta Fidelidad**: Evita las entradas prematuras de los sistemas puramente estadísticos (que operan solo porque el precio está lejos) al exigir la confirmación táctica del Footprint.
+3. **Riesgo Asimétrico**: Operar reversiones desde extremos estadísticos con confirmación de flujo permite utilizar Stops muy ajustados, logrando un Ratio Riesgo/Beneficio altamente eficiente para el scalping agresivo.

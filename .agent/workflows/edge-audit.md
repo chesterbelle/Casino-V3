@@ -36,14 +36,14 @@ Wipe all databases and states to ensure zero data leakage.
 Run the backtester with the `--audit` flag to record raw signals and price samples.
 We run exclusively on the LTC audit dataset for consistent comparison.
 
-### 1A: SOL (Primary Audit Dataset)
+### 1A: LTC (Primary Audit Dataset)
 ```bash
 .venv/bin/python backtest.py \
-  --data tests/validation/cross_section/SOL_USDT_USDT_24h.csv \
-  --symbol SOLUSDT \
+  --data tests/validation/cross_section/LTC_USDT_USDT_24h.csv \
+  --symbol LTC/USDT:USDT \
   --depth-db data/historian.db \
   --audit \
-  2>&1 | tee logs/edge_audit_sol_$(date +%Y%m%d_%H%M%S).log
+  2>&1 | tee logs/edge_audit_ltc_$(date +%Y%m%d_%H%M%S).log
 ```
 
 ## Step 2: Verify Data Collection
