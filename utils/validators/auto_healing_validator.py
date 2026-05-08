@@ -14,7 +14,7 @@ from exchanges.connectors.binance.binance_native_connector import BinanceNativeC
 
 # Configure Logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s | %(name)-15s | %(levelname)-8s | %(message)s",
 )
 logger = logging.getLogger("HealValidator")
@@ -39,7 +39,8 @@ async def run_validator():
     await croupier.start()
 
     # Lower audit interval for fast test
-    croupier.drift_auditor.audit_interval = 5
+    croupier.drift_auditor.audit_interval = 2
+    croupier.drift_auditor.recon_cooldown = 0
     logger.info(f"⚙️ Test Audit Interval: {croupier.drift_auditor.audit_interval}s")
 
     # TEST 1: Balance Drift
@@ -70,7 +71,8 @@ async def run_validator():
     # (Using 5.5 USDT as minimum notional for Testnet is usually 5)
     amount = 0.1  # ~ $6.5
     logger.info(f"📤 Placing manual exchange order for {amount} {symbol}...")
-    await connector.create_order(symbol=symbol, side="buy", order_type="market", amount=amount)
+    resp = await connector.create_order(symbol=symbol, side="buy", order_type="market", amount=amount)
+    logger.info(f"📥 Order Response: {resp}")
 
     logger.info("⏳ Waiting for DriftAuditor to detect discrepancy...")
 

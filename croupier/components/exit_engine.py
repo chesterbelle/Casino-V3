@@ -225,14 +225,14 @@ class ExitEngine:
 
                 flow_reason = None
                 # Emergency tier
-                if position.side == "LONG" and z < -emergency_z:
+                if position.side == "LONG" and z <= -emergency_z:
                     flow_reason = "FLOW_EMERGENCY"
-                elif position.side == "SHORT" and z > emergency_z:
+                elif position.side == "SHORT" and z >= emergency_z:
                     flow_reason = "FLOW_EMERGENCY"
                 # Early warning tier
-                elif position.side == "LONG" and z < -early_z:
+                elif position.side == "LONG" and z <= -early_z:
                     flow_reason = "FLOW_INVALIDATION"
-                elif position.side == "SHORT" and z > early_z:
+                elif position.side == "SHORT" and z >= early_z:
                     flow_reason = "FLOW_INVALIDATION"
 
                 if flow_reason:
@@ -243,9 +243,9 @@ class ExitEngine:
                 # Wall Collapse (from event skewness)
                 wall_threshold = getattr(config, "HFT_WALL_COLLAPSE_THRESHOLD", 0.15)
                 wall_reason = None
-                if position.side == "LONG" and skew < wall_threshold:
+                if position.side == "LONG" and skew <= wall_threshold:
                     wall_reason = "WALL_COLLAPSE_BID"
-                elif position.side == "SHORT" and skew > (1 - wall_threshold):
+                elif position.side == "SHORT" and skew >= (1 - wall_threshold):
                     wall_reason = "WALL_COLLAPSE_ASK"
 
                 if wall_reason:
@@ -325,20 +325,20 @@ class ExitEngine:
 
         # Emergency tier (Z > 5.5)
         emergency_z = getattr(config, "HFT_TOXIC_FLOW_THRESHOLD", 5.5)
-        if position.side == "LONG" and z < -emergency_z:
-            self.logger.warning(f"🚨 [FLOW-EMERGENCY] {position.symbol} LONG: Toxic sell (Z={z:.1f} < -{emergency_z})")
+        if position.side == "LONG" and z <= -emergency_z:
+            self.logger.warning(f"🚨 [FLOW-EMERGENCY] {position.symbol} LONG: Toxic sell (Z={z:.1f} <= -{emergency_z})")
             return "FLOW_EMERGENCY"
-        if position.side == "SHORT" and z > emergency_z:
-            self.logger.warning(f"🚨 [FLOW-EMERGENCY] {position.symbol} SHORT: Toxic buy (Z={z:.1f} > +{emergency_z})")
+        if position.side == "SHORT" and z >= emergency_z:
+            self.logger.warning(f"🚨 [FLOW-EMERGENCY] {position.symbol} SHORT: Toxic buy (Z={z:.1f} >= +{emergency_z})")
             return "FLOW_EMERGENCY"
 
         # Early warning tier (Z > 4.0, raised for reversion compatibility)
         early_z = 4.0
-        if position.side == "LONG" and z < -early_z:
-            self.logger.warning(f"⚠️ [FLOW-EARLY] {position.symbol} LONG: Strong sell (Z={z:.1f} < -{early_z})")
+        if position.side == "LONG" and z <= -early_z:
+            self.logger.warning(f"⚠️ [FLOW-EARLY] {position.symbol} LONG: Strong sell (Z={z:.1f} <= -{early_z})")
             return "FLOW_INVALIDATION"
-        if position.side == "SHORT" and z > early_z:
-            self.logger.warning(f"⚠️ [FLOW-EARLY] {position.symbol} SHORT: Strong buy (Z={z:.1f} > +{early_z})")
+        if position.side == "SHORT" and z >= early_z:
+            self.logger.warning(f"⚠️ [FLOW-EARLY] {position.symbol} SHORT: Strong buy (Z={z:.1f} >= +{early_z})")
             return "FLOW_INVALIDATION"
 
         return None
@@ -430,11 +430,15 @@ class ExitEngine:
         cvd, skew, z = self.croupier.context_registry.get_micro_state(position.symbol)
         wall_threshold = getattr(config, "HFT_WALL_COLLAPSE_THRESHOLD", 0.15)
 
-        if position.side == "LONG" and skew < wall_threshold:
-            self.logger.warning(f"🚨 [WALL] Bid wall collapsed (Skew: {skew:.2f}) | Closing LONG")
+        if position.side == "LONG" and skew <= wall_threshold:
+            self.logger.warning(
+                f"🚨 [WALL] Bid wall collapsed (Skew: {skew:.2f} <= {wall_threshold:.2f}) | Closing LONG"
+            )
             return "WALL_COLLAPSE_BID"
-        if position.side == "SHORT" and skew > (1 - wall_threshold):
-            self.logger.warning(f"🚨 [WALL] Ask wall collapsed (Skew: {skew:.2f}) | Closing SHORT")
+        if position.side == "SHORT" and skew >= (1 - wall_threshold):
+            self.logger.warning(
+                f"🚨 [WALL] Ask wall collapsed (Skew: {skew:.2f} >= {1 - wall_threshold:.2f}) | Closing SHORT"
+            )
             return "WALL_COLLAPSE_ASK"
 
         return None

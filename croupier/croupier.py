@@ -162,6 +162,9 @@ class Croupier(TimeIterator):
 
     async def start(self):
         """Start Croupier and subscribe to Engine events (Phase 2)."""
+        # Phase 102: Industrial Resilience - Start Drift Auditor
+        await self.drift_auditor.start()
+
         if not self.engine:
             self.logger.warning("⚠️ Croupier: No Engine provided. Reactive events disabled.")
             return
@@ -179,9 +182,6 @@ class Croupier(TimeIterator):
         self.engine.subscribe(EventType.ACCOUNT_UPDATE, self._on_account_update_event)
 
         self.logger.info("🚀 Croupier: Reactive Event-Driven Reactor OPEN")
-
-        # Phase 102: Industrial Resilience - Start Drift Auditor
-        await self.drift_auditor.start()
 
     async def _on_order_update_event(self, event):
         """Reactive handler for ORDER_UPDATE events."""

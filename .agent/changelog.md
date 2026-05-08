@@ -8,6 +8,24 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-08: Structural Integrity & Validator Alignment — V3.4c Certification
+*   **Descripción**: Certificación de la integridad estructural y matemática del pipeline Casino-V3 (V3.4c) para prepararlo para la re-calibración de la estrategia BEAR. Se alinearon los validadores de las Capas 0-3 con la arquitectura reactiva V4 y se corrigieron fallos críticos de metadatos y mocks.
+*   **Detalle Técnico**:
+    *   `decision/setup_engine.py`: Implementada la inyección de niveles estructurales (POC/VAH/VAL) desde `ContextRegistry` en `_enrich_metadata`. Esto permite a `ExitEngine` y validadores externos conocer la ubicación del precio relativo al valor.
+    *   `croupier/croupier.py`: Movida la inicialización de `DriftAuditor` al inicio de `start()`. Ahora el auditor proactivo corre incluso si el Croupier no tiene un motor reactivo (útil para validadores y modo audit).
+    *   `croupier/components/reconciliation_service.py`: Añadido flag `force_balance` a `reconcile_all`. Ahora el balance se sincroniza inmediatamente cuando el `DriftAuditor` detecta una desviación, rompiendo el cooldown de 5 minutos en situaciones críticas.
+    *   `utils/validators/test_concurrent_positions.py`: Actualizado a la API V4. Se reemplazó `size` por `amount` y se eliminaron llamadas a métodos obsoletos (`monitor_positions`). Certificada la estabilidad de ejecución paralela de 2+ posiciones con OCO independiente.
+    *   `utils/validators/auto_healing_validator.py`: Corregido para operar con intervalos de auditoría agresivos (2s) y sin cooldown de reconciliación para validación rápida de "Self-Healing".
+*   **Hallazgos y Errores**:
+    *   *Metadata Starvation*: `SetupEngineV4` no estaba recuperando los niveles del registro, lo que causaba que las señales no tuvieran contexto estructural.
+    *   *Drift Auditor Silencioso*: El auditor no arrancaba en los tests porque el Croupier abortaba el `start()` si no detectaba un motor (`self.engine`).
+    *   *WS Self-Healing Overlap*: Se descubrió que el WebSocket es tan rápido que a menudo sana el balance (via ACCOUNT_UPDATE) antes de que el Auditor REST fallback entre en acción.
+*   **Estado de la Suite `@/validate-all` (L0-L3)**:
+    *   **L0 (Math)**: ✅ CERTIFICADA.
+    *   **L1 (Decision)**: ✅ CERTIFICADA (Metadata enrichment fix).
+    *   **L2 (Execution)**: ✅ CERTIFICADA (Concurrent positions stable).
+    *   **L3 (Resilience)**: ✅ CERTIFICADA (Drift Auditor forced sync).
+
 ### 2026-05-07: Crystal Layer Refinements — VWAP Z-score Fix + IN_VALUE Rotation + Target Architecture
 *   **Descripción**: Refinamiento del RegimeGuardian V3 y SetupEngine basado en análisis de la "Crystal Layer" (arquitectura de visibilidad). Se corrigieron 3 bugs conceptuales críticos: (1) confusión footprint Z vs VWAP Z, (2) IN_VALUE forzado a REVERSION con TP=VWAP (estructuralmente imposible ganar), (3) targets de rotation relativos a VWAP en vez de entry price. Se refactorizó SetupEngine en 4 sub-métodos.
 *   **Detalle Técnico**:

@@ -32,37 +32,44 @@
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
     *   *Resilient Logic*: Fallbacks en `historian.py` y `position_tracker.py` para evitar NULLs y Silent Skips.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [EN EVOLUCIÓN 💎]
+### 2. Capa de Cristal (Estrategia / Alpha) — [RE-CALIBRACIÓN BEAR 📉]
 *   **Propósito**: Validación de Edge (Expectancia Bruta > 0.12%), Win Rate, MAE/MFE.
+*   **Hito Actual (v7.3.0c)**: **Certificación de Integridad Estructural para BEAR Re-calibration**.
 *   **Tabla Comparativa de Estrategias (Baselines)**:
 
 | Estrategia | Estado | Gross Expectancy | Net (Maker) | WR% | Razón de Cambio |
 |------------|--------|------------------|-------------|-----|-----------------|
-| **Abs. V2.1**| Obsoleta | +0.1230% | +0.0430% | 57.1% | Basada en targets fijos. |
-| **VWAP-V3.1**| Obsoleta | +0.1379% | +0.0579% | 62.3% | Squeeze Guard (Calidad Estructural). |
-| **VWAP-V3.2**| Obsoleta | +0.2678%| +0.1478%| 66.7%| Baseline anterior (Inertia Guard). |
-| **V3.3-Guardian**| Obsoleta | +0.1205%| +0.0405%| 55.9%| RegimeGuardian V3 + Micro Absorption Fix (footprint Z-score). |
-| **V3.4-Crystal**| **BASELINE** | **+0.1548%**| **+0.0748%**| **56.2%**| 🚀 **VWAP Z correcto + IN_VALUE Rotation + ATR Targets** (Rotation: +0.104%). |
+| **V3.4-Crystal**| Obsoleta | +0.1548%| +0.0748%| 56.2%| VWAP Z correcto + Rotation (ATR Targets). |
+| **V3.4c-Integrity**| **BASELINE** | **TBD** | **TBD** | **TBD** | 🚀 **Layer 0-3 CERTIFIED**. Pipeline estructuralmente estable para re-calibración BEAR. |
 
 *   **Lecciones Estratégicas**:
-    *   **Root Cause de Erosión**: Fees consumen 130% del PnL bruto en Market (0.066%/RT vs 0.24% MFE).
-    *   **Agnosticismo**: Prohibido ajuste de parámetros por moneda. La lógica debe ser global.
-    *   **RegimeGuardian V3 (Phase 2100)**: Value Position × Value Acceptance model. Elimina TRANSITION state, Local Consensus Override bug, y absorción invisible.
-    *   **Micro Absorption Fix**: Absorción ahora tiene dirección (opuesta al CVD agresivo), score > 0, y threshold pv_z < 1.0 (antes < 0.5). Esto desbloqueó el edge de continuación.
-    *   **Footprint Z ≠ VWAP Z**: El footprint Z mide magnitud de delta; el VWAP Z mide posición de precio. El guardian debe usar VWAP Z para value_position. Metadata emite ambos.
-    *   **IN_VALUE Rotation**: IN_VALUE + REVERSION (TP=VWAP) es estructuralmente imposible (Exp -0.028%). IN_VALUE + CONTINUATION rotation (ATR targets) funciona (Exp +0.104%).
-    *   **Rotation Targets**: ATR-relativos al entry price, no VAH/VAL absolutos. VAH/VAL como mínimo de TP. SL = entry ± 1.0*ATR.
-    *   **Three Setup Types**: rotation (IN_VALUE, WR 55.6%), reversion (OUT_OF_VALUE, WR 70.4%), continuation (OUT_OF_VALUE trend, WR 53.8%).
+    *   **Metadatos Estructurales**: `SetupEngineV4` ahora inyecta niveles POC/VAH/VAL correctamente desde el `ContextRegistry`.
+    *   **Paralelismo Real**: Validada la ejecución concurrente de múltiples posiciones sin colisiones de estado en el reactor event-driven.
+    *   **Auto-Healing Proactivo**: `DriftAuditor` sincroniza balance y posiciones via REST fallback si el WebSocket falla (Cooldown=0 para validación).
 
-### 3. Capa de Acero (Resiliencia / Ejecución) — [EN DESARROLLO ⚔️]
+### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
-*   **Exit Engine (5-Layer Stack)**:
-    *   Layer 5: **Catastrophic Stop** | Layer 4: **Thesis Invalidation** | Layer 3: **Valentino (SCE)** | Layer 2: **Shadow Protection** | Layer 1: **Drain**.
-    *   *Regla de Hierro (Anti-Esquizofrenia)*: Nunca habilitar capas que compitan entre sí. Usar siempre un `ACTIVE_EXIT_PROFILE` único:
-        *   **EXPRIMIDOR**: L2 (Trailing/Winner Catcher) activo. L4 y L3 apagados. Ideal para Micro-Scalping.
-        *   **FRANCOTIRADOR**: L4 (Invalidación por Flujo) activo. L2 apagado. Ideal para Reversiones Puras.
-        *   **ESCALADOR**: L3 (Scale-out) activo. L2 apagado. Ideal para asegurar 50% de ganancia temprana.
-*   **Drain Phase**: Solo con `--close-on-exit`. Bloquea entradas cuando `elapsed >= timeout - drain_duration`.
+*   **Resiliencia Validada**:
+    *   **Chaos Matching**: 100% de integridad en eventos WebSocket bajo carga masiva.
+    *   **Auto-Healing**: Recuperación automática de drifts de balance y "Adoptión" de posiciones huérfanas.
+    *   **Connectivity Integrity**: Reconexión automática de shards sin pérdida de flujo de órdenes.
+
+---
+
+## 📉 Roadmap: BEAR Strategy Re-calibration
+1.  **Analisis de MAE en Downtrend**: Identificar si el SL de 1.0*ATR es suficiente para absorber volatilidad en impulsos bajistas.
+2.  **Ajuste de MFE/MAE Ratio**: Calibrar targets de continuación para capturar rotaciones completas al VAL opuesto.
+3.  **Filtrado de False Positives**: Evaluar impacto de `Inertia Guard` en señales de absorción durante "Dumping" agresivo.
+
+---
+
+## 🏛️ Estado de las Capas de Certificación (v7.3.0c)
+1. **Capa 0 (Data/Math)**: **CERTIFICADA ✅** (Flytest + Guardian Math + Exit Math).
+2. **Capa 1 (Decision)**: **CERTIFICADA ✅** (Setup Metadata Enrichment + Registry Parity).
+3. **Capa 2 (Execution)**: **CERTIFICADA ✅** (Concurrent OCO + Reactor Reactor).
+4. **Capa 3 (Resilience)**: **CERTIFICADA ✅** (Drift Auditor + Connectivity Stress).
+5. **Capa 4 (Strategy)**: **EN CURSO 📉** (BEAR Re-calibration).
+6. **Capa 5 (Risk)**: **PENDIENTE 🛡️**.
 
 ---
 

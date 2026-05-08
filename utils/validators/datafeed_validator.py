@@ -239,7 +239,7 @@ class DataFeedValidator:
         # =====================================================================
         logger.info("\n📋 TEST 4: ContextRegistry.on_tick()")
 
-        context_registry = ContextRegistry(tick_size=0.01)
+        context_registry = ContextRegistry()
 
         # Add some trades
         context_registry.on_tick(symbol, 100.0, 10.0, "buy", time.time())
@@ -349,7 +349,7 @@ class DataFeedValidator:
         # =====================================================================
         logger.info("\n📋 TEST 7: SessionValueArea.calculate()")
 
-        session_sensor = SessionValueArea(tick_size=0.01)
+        session_sensor = SessionValueArea()
 
         # Create context with profile
         context = {
@@ -405,7 +405,7 @@ class DataFeedValidator:
         logger.info("\n📋 TEST 8: SetupEngine._enrich_metadata()")
 
         engine8 = Engine()
-        context_registry8 = ContextRegistry(tick_size=0.01)
+        context_registry8 = ContextRegistry()
 
         # Add trades to ContextRegistry first
         context_registry8.on_tick(symbol, 100.0, 100.0, "buy", time.time())

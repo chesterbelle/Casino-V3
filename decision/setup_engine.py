@@ -90,7 +90,10 @@ class SetupEngineV4:
         through to config_fallback TP/SL (0.3%/0.2%), which is mathematically losing.
         """
         if self.context_registry:
-            pass
+            poc, vah, val = self.context_registry.get_structural(symbol)
+            metadata["poc"] = poc
+            metadata["vah"] = vah
+            metadata["val"] = val
 
         # Phase 980: Pre-Entry Breakeven Guard (Institutional Guard)
         if "tp_price" in metadata and "price" in metadata and metadata["price"] > 0:

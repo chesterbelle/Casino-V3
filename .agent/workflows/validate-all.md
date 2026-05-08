@@ -177,18 +177,17 @@ Each layer must pass before proceeding to the next.
 **Debug if fails**: Bug is in SensorManager→worker→sensor IPC or config/sensors.py registration.
 **Debug if Layer 0.D passes**: Bug is in wiring, not detector logic.
 
-### Layer 1.3: AbsorptionSetupEngine + SetupEngine (Setup Generation)
+### Layer 1.3: SetupEngineV4 Target Math (Setup Generation)
 ```bash
 .venv/bin/python utils/validators/setup_data_validator.py
 ```
-**Must pass**: Absorption V1 setup must produce valid `tp_price` and `sl_price`.
+**Must pass**: SetupEngineV4 must produce valid `tp_price` and `sl_price` using ATR and VWAP logic.
+- IN_VALUE: Rotation logic triggers, targets are ATR-relative to entry price.
+- OUT_OF_VALUE: Reversion logic triggers, TP at VWAP, SL at VWAP ± 3.5 STD.
+- OUT_OF_VALUE (Trend): Continuation logic triggers, TP is 1.5*ATR, SL is VWAP.
 - No setup returns with missing or zero TP/SL values
-- CVD flattening confirmation works (slope < 5.0)
-- Price holding confirmation works (< 0.05% from level)
-- TP distance in valid range (0.10% - 0.50%)
-- SL placed at absorption level + buffer
 
-**Debug if fails**: Bug is in `decision/absorption_setup_engine.py` confirmation/TP/SL logic.
+**Debug if fails**: Bug is in `decision/setup_engine.py` target calculation math.
 
 ### Layer 1.4: ExitEngine + Croupier (Exit Execution)
 ```bash
@@ -327,15 +326,16 @@ Each layer must pass before proceeding to the next.
 - [ ] Layer 0.B: Absorption Quality Filters Math ✅
 - [ ] Layer 0.C: Candidate Detection Math ✅
 - [ ] Layer 0.D: Signal Generation (Isolated) ✅
-- [ ] Layer 0.E: ExitEngine Layer Math ✅ ← **NEW**
-- [ ] Layer 0.F: VirtualExchange Fee Accounting ✅ ← **NEW**
-- [ ] Layer 0.G: OCOManager Limit Order Logic ✅ ← **NEW**
+- [ ] Layer 0.E: ExitEngine Layer Math ✅
+- [ ] Layer 0.F: VirtualExchange Fee Accounting ✅
+- [ ] Layer 0.G: OCOManager Limit Order Logic ✅
+- [ ] Layer 0.H: Regime Guardian Math ✅ ← **NEW**
 
 ### Layer 1: Pairwise Integration
 - [ ] Layer 1.1: FootprintRegistry + SensorManager (Tick Ingestion) ✅
 - [ ] Layer 1.2: AbsorptionDetector + SensorManager (Signal Flow) ✅
-- [ ] Layer 1.3: AbsorptionSetupEngine + SetupEngine (Setup Generation) ✅
-- [ ] Layer 1.4: ExitEngine + Croupier (Exit Execution) ✅ ← **NEW**
+- [ ] Layer 1.3: SetupEngineV4 Target Math (Setup Generation) ✅
+- [ ] Layer 1.4: ExitEngine + Croupier (Exit Execution) ✅
 
 ### Layer 2: Subsystem Integration
 - [ ] Layer 2.1: Signal Pipeline (Tick → Decision) ✅
@@ -371,7 +371,4 @@ These files remain in repo for historical reference but should NOT be part of va
 
 | Layer | Validator | Tests | Priority |
 |-------|-----------|-------|----------|
-| 0.E | `exit_engine_validator.py` | ExitEngine 5-layer math (catastrophic, flow, counter-absorption, valentino, drain) | HIGH |
-| 0.F | `virtual_exchange_fee_validator.py` | Fee accounting (entry_fee + exit_fee), limit fill prices | HIGH |
-| 0.G | `oco_limit_order_validator.py` | OCOManager limit order placement, offset calculation | MEDIUM |
-| 1.4 | `exit_engine_integration_validator.py` | ExitEngine→Croupier close/scale_out callbacks | HIGH |
+| 0.H | `regime_guardian_validator.py` | RegimeGuardian V3 Math (Value Position x Value Acceptance 7-case matrix) | HIGH |

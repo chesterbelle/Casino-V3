@@ -125,7 +125,7 @@ class ReconciliationService:
 
         return reports
 
-    async def reconcile_all(self) -> List[Dict[str, Any]]:
+    async def reconcile_all(self, force_balance: bool = False) -> List[Dict[str, Any]]:
         """
         Reconcile ALL symbols in a single optimized pass.
         Fetches all positions and all orders once from the exchange.
@@ -229,7 +229,7 @@ class ReconciliationService:
 
             if _account_cb_healthy and self.croupier and hasattr(self.croupier, "balance_manager"):
                 last_bal_reconcile = getattr(self, "_last_balance_reconcile", 0)
-                if (time.time() - last_bal_reconcile) > 300:  # Every 5 minutes
+                if force_balance or (time.time() - last_bal_reconcile) > 300:  # Every 5 minutes or forced
                     try:
                         balance_data = await self.adapter.connector.fetch_balance()
                         new_balance = (balance_data.get("total") or {}).get("USDT", 0.0)

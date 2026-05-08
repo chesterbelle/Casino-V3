@@ -19,7 +19,12 @@ import argparse
 import asyncio
 import logging
 import os
+import sys
+import uuid
 from datetime import datetime
+
+# Add root to sys.path
+sys.path.append(os.getcwd())
 
 from dotenv import load_dotenv
 
@@ -97,21 +102,21 @@ class ConcurrentPositionsTest:
         try:
             # Cerrar posiciones
             if hasattr(self, "croupier") and self.croupier:
-                exchange_positions = await self.croupier.state_sync.sync_positions()
-                symbol_positions = [p for p in exchange_positions if p.symbol == self.symbol]
+                exchange_positions = await self.connector.fetch_positions()
+                symbol_positions = [p for p in exchange_positions if p.get("symbol") == self.symbol]
 
                 for pos in symbol_positions:
                     try:
-                        side = "sell" if pos.is_long else "buy"
-                        position_side = "LONG" if pos.is_long else "SHORT"
+                        side = "sell" if pos.get("side", "").upper() == "LONG" else "buy"
+                        position_side = pos.get("positionSide", "BOTH")
                         await self.connector.create_order(
                             symbol=self.symbol,
                             order_type="market",
                             side=side,
-                            amount=abs(pos.size),
+                            amount=abs(float(pos.get("amount", 0) or pos.get("size", 0))),
                             params={"positionSide": position_side},
                         )
-                        logger.info(f"🔨 Posición {pos.side} cerrada")
+                        logger.info(f"🔨 Posición {position_side} cerrada")
                     except Exception as e:
                         logger.warning(f"⚠️ Error cerrando posición: {e}")
 
@@ -155,7 +160,7 @@ class ConcurrentPositionsTest:
         position1 = {
             "symbol": self.symbol,
             "side": "LONG",
-            "size": 0.01,
+            "amount": 0.5,  # 0.5 LTC
             "tp_price": current_price * 1.003,  # +0.3%
             "sl_price": current_price * 0.997,  # -0.3%
             "leverage": 5,
@@ -171,7 +176,7 @@ class ConcurrentPositionsTest:
         position2 = {
             "symbol": self.symbol,
             "side": "LONG",
-            "size": 0.01,
+            "amount": 0.5,  # 0.5 LTC
             "tp_price": current_price * 1.05,  # +5%
             "sl_price": current_price * 0.95,  # -5%
             "leverage": 5,
@@ -201,7 +206,8 @@ class ConcurrentPositionsTest:
         max_iterations = 17280  # 24 horas
         for i in range(max_iterations):
             await asyncio.sleep(5)
-            await self.croupier.monitor_positions()
+            # monitor_positions is now internal to ExitEngine/Croupier reactor
+            # We just wait for the tracker to update
 
             open_positions = self.croupier.get_open_positions()
 

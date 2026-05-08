@@ -40,12 +40,33 @@ def fail(msg):
 # =========================================================
 
 
+class MockSniper:
+    def __init__(self, executor):
+        self.executor = executor
+        self.snipe_calls = []
+
+    async def snipe_entry(self, symbol, side, amount, price, trace_id=None, params=None):
+        self.snipe_calls.append(
+            {
+                "symbol": symbol,
+                "side": side,
+                "amount": amount,
+                "price": price,
+                "trace_id": trace_id,
+                "params": params or {},
+            }
+        )
+        # Simulate limit order being placed via executor
+        return await self.executor.execute_limit_order(symbol, side, amount, price, params=params)
+
+
 class MockExecutor:
     """Records orders placed by OCOManager for verification."""
 
     def __init__(self):
         self.market_orders = []
         self.limit_orders = []
+        self.sniper = MockSniper(self)
 
     async def execute_market_order(self, exchange_order, timeout=30.0, **kwargs):
         self.market_orders.append(exchange_order)

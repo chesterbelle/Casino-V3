@@ -1,208 +1,120 @@
 """
-Setup Data Validator - Phase 7: Absorption V1 Only
----------------------------------------------------
-Validates that AbsorptionSetupEngine produces valid TP/SL prices.
-
-LTA V4/V5/V6 tests PURGED - Absorption V1 is the sole strategy.
-
-Usage:
-    python utils/validators/setup_data_validator.py
+Setup Data Validator V4 (Layer 1.3)
+-----------------------------------
+Validates that SetupEngineV4 produces correct TP/SL prices based on
+the new Crystal Layer V3.4c logic (ATR-relative and VWAP-based targets).
 """
 
 import asyncio
 import logging
 import os
 import sys
-import time
-from unittest.mock import patch
+from typing import Tuple
 
 # Ensure Casino-V3 is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from core.context_registry import ContextRegistry
-from core.events import EventType, SignalEvent
-from core.footprint_registry import footprint_registry
-from decision.absorption_setup_engine import AbsorptionSetupEngine
+from decision.guardians.guardian_result import SetupMode
+from decision.setup_engine import SetupEngineV4
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("SetupDataValidator")
 
 
-class MockEngine:
-    def __init__(self):
-        self.dispatched_events = []
+class MockContextRegistry:
+    def __init__(self, vwap=0.0, std=0.0, atr=0.0):
+        self.vwap_state = {"BTCUSDT": {"vwap": vwap, "std": std}}
+        self.atrs = {"BTCUSDT": {"short": atr}}
 
-    def subscribe(self, event_type, handler):
-        pass
-
-    async def dispatch(self, event):
-        self.dispatched_events.append(event)
+    def _norm_key(self, symbol):
+        return symbol.replace("/", "").replace(":USDT", "")
 
 
-def create_absorption_v1_signal(side: str, price: float) -> dict:
-    """Create a mock Absorption V2 confirmed signal."""
-    direction = "SELL_EXHAUSTION" if side == "LONG" else "BUY_EXHAUSTION"
-
-    return {
-        "symbol": "BTC/USDT:USDT",
-        "direction": direction,
-        "absorption_level": price,
-        "entry_price": price,
-        "timestamp": time.time(),
-        "side": side,
-        "delta": -100.0 if direction == "SELL_EXHAUSTION" else 100.0,
-        "z_score": 3.5,
-        "concentration": 0.80,
-        "noise": 0.15,
-        "confirmations": 3,
-        "is_contra_trend": False,
-        "size_multiplier": 1.0,
-    }
-
-
-def validate_setup_metadata(setup_name: str, metadata: dict) -> list:
-    """Validate setup metadata has required fields."""
-    errors = []
-
-    # Required fields
-    required = ["tp_price", "sl_price", "price"]
-    for field in required:
-        if field not in metadata or metadata[field] is None:
-            errors.append(f"Missing or None: {field}")
-
-    # TP/SL must be non-zero
-    tp = metadata.get("tp_price", 0)
-    sl = metadata.get("sl_price", 0)
-    price = metadata.get("price", 0)
-
-    if tp == 0:
-        errors.append("tp_price is 0")
-    if sl == 0:
-        errors.append("sl_price is 0")
-    if price == 0:
-        errors.append("price is 0")
-
-    # Math inversion check
-    side = metadata.get("side", "UNKNOWN")
-    if side == "LONG":
-        if tp <= price:
-            errors.append(f"LONG: TP ({tp}) <= entry ({price})")
-        if sl >= price:
-            errors.append(f"LONG: SL ({sl}) >= entry ({price})")
-    elif side == "SHORT":
-        if tp >= price:
-            errors.append(f"SHORT: TP ({tp}) >= entry ({price})")
-        if sl <= price:
-            errors.append(f"SHORT: SL ({sl}) <= entry ({price})")
-
-    return errors
-
-
-async def test_absorption_v1_setup() -> bool:
-    """Test Absorption V2 setup generation."""
-    logger.info("\n" + "=" * 60)
-    logger.info("ABSORPTION V2 SETUP VALIDATION")
+def run_tests() -> bool:
     logger.info("=" * 60)
-
-    setup_engine = AbsorptionSetupEngine(fast_track=False)
+    logger.info("SETUP DATA VALIDATOR V4 (Layer 1.3)")
+    logger.info("Validating ATR-Relative & VWAP-Based Targets")
+    logger.info("=" * 60)
     all_passed = True
+    symbol = "BTCUSDT"
 
-    # Mock FootprintRegistry.get_volume_profile to return synthetic LVNs
-    def mock_volume_profile_long(symbol, price_from, price_to):
-        # Return volume profile with low volume nodes above entry
-        # Entry at 65432.0, create LVN at 65650.0
-        return [
-            (65432.0, 100.0, 100.0),  # Entry level - high volume
-            (65440.0, 85.0, 85.0),  # Medium volume
-            (65450.0, 90.0, 90.0),  # Medium volume
-            (65460.0, 75.0, 75.0),  # Medium volume
-            (65470.0, 95.0, 95.0),  # Medium volume
-            (65480.0, 85.0, 85.0),  # Medium volume
-            (65490.0, 90.0, 90.0),  # Medium volume
-            (65500.0, 80.0, 80.0),  # Medium volume
-            (65510.0, 85.0, 85.0),  # Medium volume
-            (65650.0, 20.0, 20.0),  # LOW VOLUME NODE (LVN) - TP target
-        ]
+    # We need a dummy engine for SetupEngineV4 init
+    class DummyEngine:
+        def subscribe(self, *args):
+            pass
 
-    def mock_volume_profile_short(symbol, price_from, price_to):
-        # Return volume profile with low volume nodes below entry
-        # Entry at 65432.0, create LVN at 65200.0
-        return [
-            (65200.0, 20.0, 20.0),  # LOW VOLUME NODE (LVN) - TP target
-            (65310.0, 85.0, 85.0),  # Medium volume
-            (65320.0, 90.0, 90.0),  # Medium volume
-            (65330.0, 75.0, 75.0),  # Medium volume
-            (65340.0, 95.0, 95.0),  # Medium volume
-            (65350.0, 85.0, 85.0),  # Medium volume
-            (65360.0, 90.0, 90.0),  # Medium volume
-            (65370.0, 80.0, 80.0),  # Medium volume
-            (65380.0, 85.0, 85.0),  # Medium volume
-            (65432.0, 100.0, 100.0),  # Entry level - high volume
-        ]
+    setup_engine = SetupEngineV4(DummyEngine())
 
-    # Test LONG (from SELL_EXHAUSTION)
-    logger.info("\n--- Testing LONG (SELL_EXHAUSTION) ---")
-    with patch.object(footprint_registry, "get_volume_profile", side_effect=mock_volume_profile_long):
-        signal_long = create_absorption_v1_signal("LONG", 65432.0)
-        setup = setup_engine.process_confirmed_signal(signal_long)
+    # --- TEST 1: IN_VALUE Rotation (ATR-Relative) ---
+    logger.info("\n--- Test 1: IN_VALUE Rotation (ATR-Relative) ---")
+    # Entry at 60500, VWAP at 60000, STD 1000 (Z=0.5), ATR 500
+    # Expected: SL = 60500 - 500 = 60000
+    # Expected: TP = max(60500 + 500, VAH) -> VAH = 60000 + 1000 = 61000. TP = 61000
+    context = MockContextRegistry(vwap=60000, std=1000, atr=500)
+    setup_engine.context_registry = context
 
-        if setup:
-            # We add 'price' for the validate_setup_metadata backwards compatibility
-            setup["price"] = setup["entry_price"]
-            errors = validate_setup_metadata("Absorption_LONG", setup)
-            if errors:
-                logger.error(f"❌ Absorption V2 LONG validation failed:")
-                for error in errors:
-                    logger.error(f"   {error}")
-                all_passed = False
-            else:
-                logger.info("✅ Absorption V2 LONG setup valid")
-        else:
-            logger.warning("⚠️ No setup generated for Absorption V2 LONG")
-            all_passed = False
+    tp, sl, mode, ref = setup_engine._calculate_targets(symbol, "LONG", 60500, SetupMode.CONTINUATION, "IN_VALUE")
 
-    # Test SHORT (from BUY_EXHAUSTION)
-    logger.info("\n--- Testing SHORT (BUY_EXHAUSTION) ---")
-    with patch.object(footprint_registry, "get_volume_profile", side_effect=mock_volume_profile_short):
-        signal_short = create_absorption_v1_signal("SHORT", 65432.0)
-        setup = setup_engine.process_confirmed_signal(signal_short)
+    if tp == 61000 and sl == 60000 and mode == "rotation":
+        logger.info(f"✅ Passed: TP={tp}, SL={sl}, Mode={mode}")
+    else:
+        logger.error(f"❌ Failed: Expected TP 61000, SL 60000, Mode rotation. Got TP={tp}, SL={sl}, Mode={mode}")
+        all_passed = False
 
-        if setup:
-            setup["price"] = setup["entry_price"]
-            errors = validate_setup_metadata("Absorption_SHORT", setup)
-            if errors:
-                logger.error(f"❌ Absorption V2 SHORT validation failed:")
-                for error in errors:
-                    logger.error(f"   {error}")
-                all_passed = False
-            else:
-                logger.info("✅ Absorption V2 SHORT setup valid")
-        else:
-            logger.warning("⚠️ No setup generated for Absorption V2 SHORT")
-            all_passed = False
+    # --- TEST 2: OUT_OF_VALUE Reversion (VWAP Target) ---
+    logger.info("\n--- Test 2: OUT_OF_VALUE Reversion (VWAP Target) ---")
+    # Entry at 62000, VWAP at 60000, STD 1000 (Z=2.0), ATR 500
+    # Expected: TP = VWAP = 60000
+    # Expected: SL = VWAP + 3.5*STD = 60000 + 3500 = 63500
+    context = MockContextRegistry(vwap=60000, std=1000, atr=500)
+    setup_engine.context_registry = context
+
+    tp, sl, mode, ref = setup_engine._calculate_targets(symbol, "SHORT", 62000, SetupMode.REVERSION, "OUT_OF_VALUE")
+
+    if tp == 60000 and sl == 63500 and mode == "reversion":
+        logger.info(f"✅ Passed: TP={tp}, SL={sl}, Mode={mode}")
+    else:
+        logger.error(f"❌ Failed: Expected TP 60000, SL 63500, Mode reversion. Got TP={tp}, SL={sl}, Mode={mode}")
+        all_passed = False
+
+    # --- TEST 3: OUT_OF_VALUE Continuation (Trend Extension) ---
+    logger.info("\n--- Test 3: OUT_OF_VALUE Continuation (Trend Extension) ---")
+    # Entry at 62000, VWAP at 60000, STD 1000 (Z=2.0), ATR 500
+    # Expected: TP = Entry + 1.5*ATR = 62000 + 750 = 62750
+    # Expected: SL = VWAP = 60000
+    context = MockContextRegistry(vwap=60000, std=1000, atr=500)
+    setup_engine.context_registry = context
+
+    tp, sl, mode, ref = setup_engine._calculate_targets(symbol, "LONG", 62000, SetupMode.CONTINUATION, "OUT_OF_VALUE")
+
+    if tp == 62750 and sl == 60000 and mode == "continuation":
+        logger.info(f"✅ Passed: TP={tp}, SL={sl}, Mode={mode}")
+    else:
+        logger.error(f"❌ Failed: Expected TP 62750, SL 60000, Mode continuation. Got TP={tp}, SL={sl}, Mode={mode}")
+        all_passed = False
+
+    # --- TEST 4: Fee Safety Guard (Min 0.20% TP) ---
+    logger.info("\n--- Test 4: Fee Safety Guard (Min 0.20% TP) ---")
+    # Entry at 60050, VWAP at 60000. TP is too close (0.08%).
+    # Expected: TP forced to 0.25% distance -> 60050 * 1.0025 = 60200.125
+    context = MockContextRegistry(vwap=60000, std=1000, atr=500)
+    setup_engine.context_registry = context
+
+    tp, sl, mode, ref = setup_engine._calculate_targets(symbol, "LONG", 60050, SetupMode.REVERSION, "IN_VALUE")
+
+    if tp > 60200:
+        logger.info(f"✅ Passed: TP={tp} (Forced extension active)")
+    else:
+        logger.error(f"❌ Failed: TP={tp} was not extended despite being too close to entry.")
+        all_passed = False
 
     return all_passed
 
 
-async def run_validator():
-    """Main validation routine."""
-    logger.info("=" * 60)
-    logger.info("SETUP DATA VALIDATOR - Absorption V1 Only")
-    logger.info("Validating TP/SL production from AbsorptionSetupEngine")
-    logger.info("=" * 60)
-
-    all_passed = await test_absorption_v1_setup()
-
-    logger.info("\n" + "=" * 60)
-    if all_passed:
-        logger.info("✅ ALL TESTS PASSED")
-        logger.info("=" * 60)
+if __name__ == "__main__":
+    if run_tests():
+        logger.info("\n✅ ALL SETUP DATA TESTS PASSED")
         sys.exit(0)
     else:
-        logger.error("❌ SOME TESTS FAILED")
-        logger.error("=" * 60)
+        logger.error("\n❌ SOME SETUP DATA TESTS FAILED")
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    asyncio.run(run_validator())

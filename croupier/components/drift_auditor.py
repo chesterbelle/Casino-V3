@@ -102,6 +102,9 @@ class DriftAuditor:
 
             # 3. Calculate Drift
             drift = abs(ex_balance - local_balance)
+            self.logger.info(
+                f"🔍 Audit Balance Check: Exchange=${ex_balance:.4f} | Local=${local_balance:.4f} | Drift=${drift:.4f}"
+            )
 
             if drift > self.drift_threshold_usd:
                 now = asyncio.get_event_loop().time()
@@ -116,13 +119,14 @@ class DriftAuditor:
                     f"Diff=${drift:.4f}. Initiating Auto-Healing..."
                 )
                 self.last_recon_time = now
-                await self.recon.reconcile_all()
+                await self.recon.reconcile_all(force_balance=True)
                 return
 
             # 4. Position Count Audit
             positions = await self.adapter.connector.fetch_positions()
             ex_pos_count = len([p for p in positions if float(p.get("contracts", 0) or p.get("size", 0)) != 0])
             local_pos_count = len(self.tracker.open_positions)
+            self.logger.info(f"🔍 Audit Pos Check: Exchange={ex_pos_count} | Local={local_pos_count}")
 
             if ex_pos_count != local_pos_count:
                 now = asyncio.get_event_loop().time()
@@ -137,7 +141,7 @@ class DriftAuditor:
                     "Initiating Auto-Healing..."
                 )
                 self.last_recon_time = now
-                await self.recon.reconcile_all()
+                await self.recon.reconcile_all(force_balance=True)
                 return
 
             self.logger.debug("✅ State Audit Passed: No drift detected.")
