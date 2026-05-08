@@ -103,19 +103,8 @@ class SetupEngineV4:
 
         return metadata
 
-    def _evaluate_lta_structural(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
-        """
-        Statistical Absorption V2.1
-        Conditions:
-        1. Price is at a statistical extreme (VWAP Z-Score).
-        2. Footprint confluence (AbsorptionV2).
-        3. Target is VWAP.
-        """
-        if not self.context_registry:
-            return None
-
-        # 2. Find the most recent reversal signal in 5s memory
-        reversal_signal = None
+    def _find_tactical_signal(self, events: List[SignalEvent]) -> Optional[Tuple[dict, str]]:
+        """Find the most recent tactical absorption signal in 5s memory."""
         TACTICAL_WHITELIST = (
             "TacticalAbsorptionV2",
             "TacticalAbsorption",
@@ -125,72 +114,90 @@ class SetupEngineV4:
             md = e.metadata or {}
             t_type = md.get("tactical_type")
             if t_type in TACTICAL_WHITELIST:
-                reversal_signal = md
-                side = e.side  # Phase 2400: Use explicit event side (LONG/SHORT)
-                break
+                return md, e.side
+        return None
 
-        if not reversal_signal:
-            return None
+    def _check_squeeze_guard(self, symbol: str, side: str) -> bool:
+        """V3.1 Squeeze Guard: Reject entries into deep/erratic pullbacks.
 
-        price = reversal_signal.get("close") or reversal_signal.get("price") or 0.0
-        if price <= 0:
-            return None
+        Returns True if the signal passes quality filters.
+        """
+        recent_candles = list(self.memory[symbol])[-5:]
+        if len(recent_candles) < 3:
+            return True  # Not enough data to filter — allow
 
-        # --- V3.1 Squeeze Guard (Structural Quality Filter) ---
-        # Purpose: Reduce MAE by ensuring we don't buy into deep/erratic pullbacks.
-        recent_candles = list(self.memory[symbol])[-5:]  # Look at last 5 events
-        if len(recent_candles) >= 3:
-            prices = [e[2].price for e in recent_candles if hasattr(e[2], "price") and e[2].price > 0]
-            if len(prices) >= 3:
-                # 1. Micro-Geometry Check
-                if side == "LONG":
-                    # We want to see the price stabilizing or moving up (No lower lows in last 3)
-                    if prices[-1] < min(prices[-3:-1]):
-                        return None  # Abort: Price is still stabbing down
-                else:
-                    # For SHORT: We want to see price stabilizing or moving down (No higher highs)
-                    if prices[-1] > max(prices[-3:-1]):
-                        return None  # Abort: Price is still stabbing up
+        prices = [e[2].price for e in recent_candles if hasattr(e[2], "price") and e[2].price > 0]
+        if len(prices) < 3:
+            return True
 
-                # 2. Volatility Compression Check
-                recent_range = max(prices) - min(prices)
-                atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0)
-                if atr > 0 and recent_range > (atr * 2.0):
-                    return None  # Abort: Volatility is too high (Chaos Zone)
+        # 1. Micro-Geometry Check: No lower lows (LONG) or higher highs (SHORT)
+        if side == "LONG":
+            if prices[-1] < min(prices[-3:-1]):
+                return False  # Price still stabbing down
+        else:
+            if prices[-1] > max(prices[-3:-1]):
+                return False  # Price still stabbing up
 
-        # 3. Order Flow Guardians (Statistical Location)
+        # 2. Volatility Compression Check: Reject chaos zones
+        recent_range = max(prices) - min(prices)
+        atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0)
+        if atr > 0 and recent_range > (atr * 2.0):
+            return False  # Volatility too high
+
+        return True
+
+    def _calculate_targets(
+        self, symbol: str, side: str, price: float, setup_mode, value_position: str = "OUT_OF_VALUE"
+    ) -> Tuple[float, float, str, str]:
+        """Calculate structural TP/SL based on setup mode and value position.
+
+        Returns (tp_price, sl_price, setup_type_name, level_ref).
+        """
         from decision.guardians.guardian_result import SetupMode
 
-        passed, final_sizing_multiplier, setup_mode = self.guardian_manager.evaluate_all(
-            symbol, side, reversal_signal, self.context_registry, {}, self.fast_track
-        )
-        if not passed:
-            return None
-
-        # 5. Calculate Structural Targets (V3 Dual-Core Strategy)
         vwap_data = self.context_registry.vwap_state.get(self.context_registry._norm_key(symbol))
         vwap_price = vwap_data["vwap"] if vwap_data else 0.0
         std = vwap_data["std"] if vwap_data else 0.0
         atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0)
 
         if setup_mode == SetupMode.CONTINUATION:
-            # V3 CONTINUATION: Target Trend Extension (1.5 * ATR)
-            # Stop Loss is the VWAP (if we cross mean, trend is over)
-            atr_extension = atr * 1.5 if atr > 0 else (price * 0.005)  # 0.5% fallback
-            if side == "LONG":
-                tp_price = price + atr_extension
-                sl_price = vwap_price if vwap_price > 0 else price * 0.997
-            else:
-                tp_price = price - atr_extension
-                sl_price = vwap_price if vwap_price > 0 else price * 1.003
+            if value_position == "IN_VALUE":
+                # ROTATION: Price inside Value Area → target opposite VA boundary
+                # Key: TP/SL must be relative to ENTRY PRICE, not VWAP.
+                # If LONG at Z=0.5, VAH is only 0.5σ away (too close for TP),
+                # but VAL is 1.5σ away (too far for SL). Fix: use ATR-based targets
+                # with VA as minimum TP distance.
+                atr_dist = atr * 1.0 if atr > 0 else (price * 0.003)
 
-            setup_type_name = "continuation"
-            level_ref = "TREND_EXTENSION"
+                if side == "LONG":
+                    # TP: max of (1.0*ATR above entry, VAH) — ensures enough room
+                    tp_atr = price + atr_dist
+                    tp_vah = vwap_price + std if std > 0 and vwap_price > 0 else tp_atr
+                    tp_price = max(tp_atr, tp_vah) if vwap_price > 0 else tp_atr
+                    # SL: below entry by 1.0*ATR (not at VAL which can be far below)
+                    sl_price = price - atr_dist
+                else:
+                    tp_atr = price - atr_dist
+                    tp_val = vwap_price - std if std > 0 and vwap_price > 0 else tp_atr
+                    tp_price = min(tp_atr, tp_val) if vwap_price > 0 else tp_atr
+                    sl_price = price + atr_dist
+                setup_type_name = "rotation"
+                level_ref = "VA_ROTATION"
+            else:
+                # TREND EXTENSION: Target 1.5 * ATR, SL = VWAP
+                atr_extension = atr * 1.5 if atr > 0 else (price * 0.005)
+                if side == "LONG":
+                    tp_price = price + atr_extension
+                    sl_price = vwap_price if vwap_price > 0 else price * 0.997
+                else:
+                    tp_price = price - atr_extension
+                    sl_price = vwap_price if vwap_price > 0 else price * 1.003
+                setup_type_name = "continuation"
+                level_ref = "TREND_EXTENSION"
         else:
-            # V3 REVERSION: Target is the Rolling VWAP (Fair Value)
+            # REVERSION: Target = VWAP (Fair Value), SL = 3.5Z from VWAP
             tp_price = vwap_price if vwap_price > 0 else price * (1.0025 if side == "LONG" else 0.9975)
 
-            # SL is Dynamic/Statistical: 3.5Z from VWAP
             if std > 0 and vwap_price > 0:
                 if side == "LONG":
                     sl_price = vwap_price - (3.5 * std)
@@ -201,7 +208,6 @@ class SetupEngineV4:
             else:
                 sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
                 sl_price = price * (1 - sl_buffer) if side == "LONG" else price * (1 + sl_buffer)
-
             setup_type_name = "reversion"
             level_ref = "VWAP_BAND"
 
@@ -210,7 +216,48 @@ class SetupEngineV4:
         if tp_dist < 0.0020:
             tp_price = price * (1.0025 if side == "LONG" else 0.9975)
 
-        # 7. Metadata Enrichment
+        return tp_price, sl_price, setup_type_name, level_ref
+
+    def _evaluate_lta_structural(self, symbol: str, events: List[SignalEvent]) -> Optional[dict]:
+        """
+        LTA V4 Structural Playbook — Dual-Core (Reversion/Continuation).
+
+        Pipeline:
+        1. Find tactical absorption signal
+        2. Squeeze Guard (quality filter)
+        3. Order Flow Guardians (regime + location)
+        4. Calculate structural TP/SL
+        """
+        if not self.context_registry:
+            return None
+
+        # 1. Find tactical signal
+        result = self._find_tactical_signal(events)
+        if not result:
+            return None
+        reversal_signal, side = result
+
+        price = reversal_signal.get("close") or reversal_signal.get("price") or 0.0
+        if price <= 0:
+            return None
+
+        # 2. Squeeze Guard (Structural Quality Filter)
+        if not self._check_squeeze_guard(symbol, side):
+            return None
+
+        # 3. Order Flow Guardians
+        passed, final_sizing_multiplier, setup_mode, value_position = self.guardian_manager.evaluate_all(
+            symbol, side, reversal_signal, self.context_registry, {}, self.fast_track
+        )
+        if not passed:
+            return None
+
+        # 4. Calculate Structural Targets
+        tp_price, sl_price, setup_type_name, level_ref = self._calculate_targets(
+            symbol, side, price, setup_mode, value_position
+        )
+
+        # 5. Metadata Enrichment
         trigger_meta = {
             "trigger": f"LTA_{reversal_signal.get('tactical_type')}",
             "setup_type": setup_type_name,
@@ -218,7 +265,7 @@ class SetupEngineV4:
             "tp_price": tp_price,
             "sl_price": sl_price,
             "level_ref": level_ref,
-            "z_score": reversal_signal.get("z_score"),
+            "footprint_z_score": reversal_signal.get("z_score"),
             "sizing_multiplier": final_sizing_multiplier,
             "v3_mode": setup_mode.value,
         }
@@ -267,13 +314,18 @@ class SetupEngineV4:
             }
             mapped = legacy_regime_map.get(regime_v2, "NEUTRAL")
 
+            value_acceptance = md.get("value_acceptance", "NEUTRAL")
+            absorption_detected = md.get("absorption_detected", False)
+
             logger.info(
                 f"🌐 [REGIME_V2] {event.symbol}: {regime_v2} → {mapped} "
-                f"(dir={direction}, conf={confidence:.2f}, reversion={'✅' if reversion_allowed else '🚫'})"
+                f"(dir={direction}, conf={confidence:.2f}, va={value_acceptance}, "
+                f"abs={'✅' if absorption_detected else '—'}, "
+                f"reversion={'✅' if reversion_allowed else '🚫'})"
             )
             if self.context_registry:
                 self.context_registry.set_regime(event.symbol, mapped)
-                # Store full V2 regime data for Guardian 1 to use
+                # Store full V2 regime data for Guardian V3 to use
                 self.context_registry.set_regime_v2(
                     event.symbol,
                     {
@@ -281,6 +333,8 @@ class SetupEngineV4:
                         "direction": direction,
                         "confidence": confidence,
                         "reversion_allowed": reversion_allowed,
+                        "value_acceptance": value_acceptance,
+                        "absorption_detected": absorption_detected,
                         "layers": md.get("layers", {}),
                     },
                 )

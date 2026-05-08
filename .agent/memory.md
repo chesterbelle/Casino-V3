@@ -41,14 +41,18 @@
 | **Abs. V2.1**| Obsoleta | +0.1230% | +0.0430% | 57.1% | Basada en targets fijos. |
 | **VWAP-V3.1**| Obsoleta | +0.1379% | +0.0579% | 62.3% | Squeeze Guard (Calidad Estructural). |
 | **VWAP-V3.2**| Obsoleta | +0.2678%| +0.1478%| 66.7%| Baseline anterior (Inertia Guard). |
-| **V3.3-Guardian**| **BASELINE** | **+0.1205%**| **+0.0405%**| **55.9%**| 🚀 **RegimeGuardian V3 + Micro Absorption Fix** (Continuation: +0.162%). |
+| **V3.3-Guardian**| Obsoleta | +0.1205%| +0.0405%| 55.9%| RegimeGuardian V3 + Micro Absorption Fix (footprint Z-score). |
+| **V3.4-Crystal**| **BASELINE** | **+0.1548%**| **+0.0748%**| **56.2%**| 🚀 **VWAP Z correcto + IN_VALUE Rotation + ATR Targets** (Rotation: +0.104%). |
 
 *   **Lecciones Estratégicas**:
     *   **Root Cause de Erosión**: Fees consumen 130% del PnL bruto en Market (0.066%/RT vs 0.24% MFE).
     *   **Agnosticismo**: Prohibido ajuste de parámetros por moneda. La lógica debe ser global.
     *   **RegimeGuardian V3 (Phase 2100)**: Value Position × Value Acceptance model. Elimina TRANSITION state, Local Consensus Override bug, y absorción invisible.
     *   **Micro Absorption Fix**: Absorción ahora tiene dirección (opuesta al CVD agresivo), score > 0, y threshold pv_z < 1.0 (antes < 0.5). Esto desbloqueó el edge de continuación.
-    *   **Continuation > Reversion**: Continuation (86 señales, WR 56.9%, Exp +0.162%) domina. Reversion (30 señales, WR 52.9%, Exp -0.005%) no tiene edge propio.
+    *   **Footprint Z ≠ VWAP Z**: El footprint Z mide magnitud de delta; el VWAP Z mide posición de precio. El guardian debe usar VWAP Z para value_position. Metadata emite ambos.
+    *   **IN_VALUE Rotation**: IN_VALUE + REVERSION (TP=VWAP) es estructuralmente imposible (Exp -0.028%). IN_VALUE + CONTINUATION rotation (ATR targets) funciona (Exp +0.104%).
+    *   **Rotation Targets**: ATR-relativos al entry price, no VAH/VAL absolutos. VAH/VAL como mínimo de TP. SL = entry ± 1.0*ATR.
+    *   **Three Setup Types**: rotation (IN_VALUE, WR 55.6%), reversion (OUT_OF_VALUE, WR 70.4%), continuation (OUT_OF_VALUE trend, WR 53.8%).
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [EN DESARROLLO ⚔️]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
@@ -65,8 +69,9 @@
 ## 🗺️ Mapa de Arquitectura
 
 ### Componentes Core
-*   `SetupEngine`: Detección táctica (Trapped Traders, Divergence). Fix: setup_type ahora usa trigger metadata (no hardcoded "reversion").
-*   `RegimeGuardian V3`: Value Position × Value Acceptance. Z-score clasifica IN_VALUE/OUT_OF_VALUE/EXCESS. Absorción = REJECTING. Counter-trend bloqueado salvo absorción en EXCESS.
+*   `SetupEngine`: Pipeline 4 pasos: `_find_tactical_signal()` → `_check_squeeze_guard()` → guardians → `_calculate_targets()`. Targets por value_position: rotation (ATR-relativo), continuation (1.5*ATR extension), reversion (VWAP target).
+*   `RegimeGuardian V3`: Value Position × Value Acceptance. VWAP Z-score clasifica IN_VALUE/OUT_OF_VALUE/EXCESS. IN_VALUE → rotation, OUT_OF_VALUE → reversion/continuation. Absorción = REJECTING. Counter-trend bloqueado salvo absorción en EXCESS.
+*   `GuardianManager`: `evaluate_all()` retorna 4-tuple (passed, multiplier, mode, value_position). Trace GUARDIAN_BREAKDOWN enriquecido con regime context.
 *   `AdaptivePlayer`: Decisión estratégica (Kelly sizing, TP/SL validation).
 *   `OrderManager`: Ejecución de órdenes y recalibración de TP < 50ms.
 *   `Croupier`: Orquestador de ejecución y ciclo de vida de posición.
@@ -115,4 +120,6 @@
 5. **Fee Accounting**: Total = entry_fee + exit_fee (Calculado en `VirtualExchange`).
 6. **No Fast-Track**: El uso de `--fast-track` está deprecado. Usar `TRACE_BULLET_ACTIVE=1` para validación de flujo y detección de "Alpha Starvation".
 7. **Micro Absorption Direction**: Absorción vota en dirección OPUESTA al CVD agresivo (buyers absorbed → DOWN, sellers absorbed → UP). Score > 0 para contribuir al régimen.
-8. **RegimeGuardian Z-score**: El Z-score del reversal_signal puede ser 0.0 (fallback a context_registry.get_vwap_zscore). Verificar que el Z-score sea consistente entre guardian y sensor.
+8. **Footprint Z ≠ VWAP Z**: `reversal_signal["z_score"]` es el FOOTPRINT cross-sectional Z (delta magnitude). El VWAP Z-score viene de `context_registry.get_vwap_zscore()`. NUNCA usar footprint Z para value_position.
+9. **IN_VALUE Rotation Targets**: SL y TP deben ser ATR-relativos al ENTRY PRICE, no a VWAP/VAH/VAL. Si LONG a Z=0.5, VAH está solo 0.5σ arriba (TP muy corto) pero VAL está 1.5σ abajo (SL muy lejos).
+10. **No Bloquear IN_VALUE**: Bloquear trades destruye señal. Mejor routing correcto: IN_VALUE → rotation (continuación) con targets apropiados.

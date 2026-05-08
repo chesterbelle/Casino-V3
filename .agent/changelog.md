@@ -8,6 +8,38 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-07: Crystal Layer Refinements — VWAP Z-score Fix + IN_VALUE Rotation + Target Architecture
+*   **Descripción**: Refinamiento del RegimeGuardian V3 y SetupEngine basado en análisis de la "Crystal Layer" (arquitectura de visibilidad). Se corrigieron 3 bugs conceptuales críticos: (1) confusión footprint Z vs VWAP Z, (2) IN_VALUE forzado a REVERSION con TP=VWAP (estructuralmente imposible ganar), (3) targets de rotation relativos a VWAP en vez de entry price. Se refactorizó SetupEngine en 4 sub-métodos.
+*   **Detalle Técnico**:
+    *   `decision/guardians/regime_guardian.py`: VWAP Z-score ahora se calcula siempre desde `context_registry.get_vwap_zscore()` (no footprint Z). Metadata emite ambos: `vwap_z_score` y `footprint_z_score`. IN_VALUE → CONTINUATION (rotation) en vez de REVERSION.
+    *   `decision/guardians/guardian_manager.py`: `evaluate_all()` ahora retorna 4-tuple `(passed, multiplier, mode, value_position)`. Trace `GUARDIAN_BREAKDOWN` enriquecido con `value_position`, `value_acceptance`, `absorption_detected`, `vwap_z_score`, `footprint_z_score`, y `reason` por guardian.
+    *   `decision/setup_engine.py`: Refactorizado en 4 métodos: `_find_tactical_signal()`, `_check_squeeze_guard()`, `_calculate_targets()`, `_evaluate_lta_structural()`. Rotation targets ahora son ATR-relativos al entry price (no VAH/VAL absolutos). Metadata usa `footprint_z_score` en vez de `z_score`.
+    *   `players/adaptive.py`: Lee `footprint_z_score` con fallback a `z_score` (legacy).
+    *   `sensors/absorption/absorption_detector.py`: Emite `footprint_z_score` junto a `z_score` (legacy).
+*   **Hallazgos y Errores**:
+    *   *Footprint Z ≠ VWAP Z*: El footprint Z-score mide magnitud de delta (cross-sectional). El VWAP Z-score mide posición de precio relativo a la media. El RegimeGuardian usaba footprint Z para clasificar value_position, lo que era incorrecto. Con footprint Z, casi todas las señales de absorción eran OUT_OF_VALUE (por selección natural: solo se generan con delta extremo). Con VWAP Z correcto, 94.5% son IN_VALUE.
+    *   *IN_VALUE REVERSION es estructuralmente imposible*: TP=VWAP está demasiado cerca del entry cuando el precio ya está IN_VALUE. Data: IN_VALUE REVERSION WR=44%, Exp=-0.028%. IN_VALUE ROTATION WR=55.6%, Exp=+0.104%.
+    *   *VAH/VAL Targets absolutos fallan en RANGE*: Si LONG a Z=0.5, VAH (+1Z) está solo 0.5σ arriba (TP demasiado cerca) pero VAL (-1Z) está 1.5σ abajo (SL demasiado lejos). R:R 3:1 en contra. Fix: targets ATR-relativos al entry price con VA como mínimo de TP.
+    *   *Weak Trend Guard (revertido)*: Intentar degradar TREND con conf<0.5 a BALANCE empeoró el edge (+0.111% → +0.002%). Los falsos trends en RANGE no son el problema; el problema eran los targets.
+*   **Métricas Crudas (9 backtests, LTC × Range/Bear/Bull)**:
+
+| Iteración | Signals | Decided | WR | Gross Exp | Net(Taker) | Net(Maker) |
+|---|---|---|---|---|---|---|
+| V3.3 (footprint Z) | 116 | 68 | 55.9% | +0.120% | +0.001% | +0.040% |
+| V3.4a (VWAP Z, IN_VALUE=REVERSION) | 124 | 71 | 50.7% | +0.036% | -0.085% | -0.045% |
+| V3.4b (VWAP Z, IN_VALUE=BLOCKED) | 151 | 95 | 48.4% | +0.111% | -0.009% | +0.031% |
+| **V3.4c (VWAP Z, rotation + ATR targets)** | **126** | **73** | **56.2%** | **+0.155%** | **+0.035%** | **+0.075%** |
+
+    *   Per-Condition V3.4c:
+        *   RANGE: n=31, WR=50%, MFE=0.253%, MAE=0.188%, Ratio=1.34 → FAILED (mejoró de 34.5%)
+        *   BEAR: n=58, WR=50%, MFE=0.303%, MAE=0.302%, Ratio=1.00 → FAILED
+        *   BULL: n=37, WR=71.4%, MFE=0.494%, MAE=0.220%, Ratio=2.25 → CERTIFIED
+    *   Per-Setup V3.4c:
+        *   IN_VALUE|rotation: n=81, WR=55.6%, Exp=+0.104%
+        *   OUT_OF_VALUE|reversion: n=27, WR=70.4%, Exp=+0.108%
+        *   OUT_OF_VALUE|continuation: n=13, WR=53.8%, Exp=+0.049%
+*   **Commit**: Pendiente en branch `v7.3.0-total-spectrum-absorption-v3`
+
 ### 2026-05-06: RegimeGuardian V3 — Value Position × Value Acceptance
 *   **Descripción**: Reemplazo completo del sistema de detección de régimen basado en velocidad por un modelo estructural basado en Auction Market Theory (AMT). El nuevo modelo clasifica el mercado según Posición de Valor (Z-score relativo a VWAP) × Aceptación de Valor (si el mercado acepta o rechaza nuevos precios).
 *   **Detalle Técnico**:
@@ -113,6 +145,6 @@
 ---
 
 ## 🎯 Objetivo de la Sesión Actual
-*   **Meta**: RegimeGuardian V3 implementado y validado. Edge positivo (Gross +0.120%, Net Maker +0.040%).
-*   **Estado de Git**: Commit `a58895b` en `v7.3.0-total-spectrum-absorption-v3`.
-*   **Siguiente paso**: (1) Investigar por qué Reversion no tiene edge propio (-0.005%), (2) Considerar Limit Sniper para reducir fees y amplificar Net edge, (3) Validar con datos más recientes (2025).
+*   **Meta**: V3.4-Crystal validado. Gross +0.155%, Net Maker +0.075%. BULL CERTIFIED.
+*   **Estado de Git**: Sin commit aún en `v7.3.0-total-spectrum-absorption-v3`.
+*   **Siguiente paso**: (1) Investigar RANGE (WR 50%, Ratio 1.34 — mejoró pero aún FAILED), (2) Investigar BEAR (WR 50%, Ratio 1.00), (3) Commit de V3.4, (4) Contrato de metadata TypedDict (baja prioridad).

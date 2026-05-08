@@ -108,6 +108,7 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
                 "metadata": {
                     "tactical_type": self.name,
                     "z_score": z_score,
+                    "footprint_z_score": z_score,
                     "concentration": concentration,
                     "noise": noise,
                     "absorption_level": level,
