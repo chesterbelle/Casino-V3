@@ -34,6 +34,9 @@ El objetivo es eliminarlos completamente.
 // turbo
 ```bash
 .venv/bin/python utils/audit_logs.py logs/stress_test_$(ls -t logs/ | head -1)
+
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow stress-test
 ```
 
 ### 4. Analizar SESSION SUMMARY

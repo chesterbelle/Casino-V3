@@ -52,7 +52,7 @@ logger = logging.getLogger("Backtest-V4")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Casino V4 Backtester")
-    parser.add_argument("--data", type=str, required=True, help="Path to historical CSV/Parquet file")
+    parser.add_argument("--data", type=str, default=None, help="Path to historical CSV/Parquet file")
     parser.add_argument("--symbol", type=str, default="BTC/USDT:USDT", help="Symbol to backtest")
     parser.add_argument("--balance", type=float, default=10000.0, help="Initial balance")
     parser.add_argument("--bet-size", type=float, default=0.01, help="Fixed bet size fraction")
@@ -60,7 +60,7 @@ def parse_args():
     parser.add_argument("--limit", type=int, default=None, help="Stop after N events")
     parser.add_argument("--fast-track", action="store_true", help="Bypass warmup and RR limits for mechanical testing")
     parser.add_argument(
-        "--depth-db", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
+        "--depth-db-path", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
     )
     parser.add_argument("--audit", action="store_true", help="Enable Zero-Interference Audit Mode (Edge Validation)")
     return parser.parse_args()
@@ -75,7 +75,7 @@ async def run_backtest():
         logger.warning("🔍 AUDIT MODE ENABLED: Simulation will record signals and prices. Proactive exits DISABLED.")
         logger.warning("📝 DECISION TRACE ENABLED: Logic gates will be audited and recorded to DB.")
 
-    if not os.path.exists(args.data):
+    if args.data and not os.path.exists(args.data):
         logger.error(f"❌ Data file not found: {args.data}")
         sys.exit(1)
 
@@ -97,7 +97,7 @@ async def run_backtest():
         delay=args.delay,
         exchange_connector=connector,
         limit=args.limit,
-        depth_db_path=args.depth_db,
+        depth_db_path=args.depth_db_path,
     )
 
     # 4. Setup Execution Layer
@@ -203,7 +203,8 @@ async def run_backtest():
     clock.add_iterator(adapter)
     clock.add_iterator(croupier)
 
-    logger.info(f"🏁 Starting Backtest: {args.symbol} | Data: {Path(args.data).name}")
+    data_name = Path(args.data).name if args.data else "historian.db"
+    logger.info(f"🏁 Starting Backtest: {args.symbol} | Data: {data_name}")
 
     # Start clock in background
     asyncio.create_task(clock.start())

@@ -233,17 +233,26 @@ class TradeHistorian:
         )
 
         # Phase 1300: L2 Hybrid Simulation (Depth Snapshots)
+        # Create price candles table if not exists
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS depth_snapshots (
+            CREATE TABLE IF NOT EXISTS price_candles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp REAL,
                 symbol TEXT,
-                bids TEXT,
-                asks TEXT
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume REAL
             )
             """
         )
+        # Index for fast look‑ups
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_price_ts_sym ON price_candles(timestamp, symbol)")
+        except sqlite3.OperationalError:
+            pass
         try:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_depth_ts_sym ON depth_snapshots(timestamp, symbol)")
         except sqlite3.OperationalError:

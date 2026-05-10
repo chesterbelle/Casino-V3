@@ -34,11 +34,20 @@ Use the largest available dataset for maximum statistical power.
 Ensuring the simulation respects the 60-minute warmup period is critical for accurate signal generation.
 
 ```bash
-.venv/bin/python backtest.py \
-  --data tests/validation/cross_section/SOL_USDT_USDT_24h.csv \
+.venv/bin/python utils/data/l2_price_ingestor.py \
   --symbol SOLUSDT \
-  --depth-db data/historian.db \
+  --download \
+  --start 2024-01-01 \
+  --end 2024-01-02 \
+  --db-path data/historian.db
+
+.venv/bin/python backtest.py \
+  --depth-db-path data/historian.db \
+  --symbol SOL/USDT:USDT \
   2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow strategy-audit
 ```
 
 **Expected output**: A BACKTEST V4 RESULTS SUMMARY at the end with trade count.

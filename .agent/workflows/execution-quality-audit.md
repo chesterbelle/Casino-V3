@@ -20,8 +20,23 @@ rm -f logs/demo_exec.log logs/bt_exec.log
 // turbo
 2. Ejecutar Simulación Fast-Track sobre el sample recién creado / predefinido:
 ```bash
-# Nota: Utilizamos el sample real local (ej. 1week data pero limitado en eventos equivalentes a ~15m reales o 15,000 eventos).
-.venv/bin/python backtest.py --data data/raw/LTCUSDT_trades_1week.csv --symbol LTC/USDT:USDT --limit 5000 --fast-track > logs/bt_exec.log 2>&1
+# Nota: Utilizamos el sample real local de SQLite tras ingestar L2
+.venv/bin/python utils/data/l2_price_ingestor.py \
+  --symbol LTCUSDT \
+  --download \
+  --start 2024-01-01 \
+  --end 2024-01-02 \
+  --db-path data/historian.db
+
+.venv/bin/python backtest.py \
+  --depth-db-path data/historian.db \
+  --symbol LTC/USDT:USDT \
+  --limit 5000 \
+  --fast-track \
+  > logs/bt_exec.log 2>&1
+
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow execution-quality-audit
 ```
 
 ## Phase 3: Execution Quality Validation

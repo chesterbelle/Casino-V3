@@ -44,8 +44,22 @@ cp data/historian.db-wal tests/validation/ft_demo_historian.db-wal 2>/dev/null |
 4. Replay en Simulador mapeando el comportamiento Fast-Track:
 ```bash
 .venv/bin/python reset_data.py
-.venv/bin/python backtest.py --data tests/validation/ft_parity_data.csv --symbol LTC/USDT:USDT --fast-track --depth-db tests/validation/ft_demo_historian.db
+
+.venv/bin/python utils/data/l2_price_ingestor.py \
+  --symbol LTCUSDT \
+  --download \
+  --start 2024-01-01 \
+  --end 2024-01-02 \
+  --db-path tests/validation/ft_demo_historian.db
+
+.venv/bin/python backtest.py \
+  --depth-db-path tests/validation/ft_demo_historian.db \
+  --symbol LTC/USDT:USDT \
+  --fast-track
+
 cp data/historian.db tests/validation/ft_backtest_historian.db
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow fast-track-parity
 ```
 
 ## Phase 4: Validation

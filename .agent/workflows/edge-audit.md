@@ -38,12 +38,21 @@ We run exclusively on the LTC audit dataset for consistent comparison.
 
 ### 1A: LTC (Primary Audit Dataset)
 ```bash
+.venv/bin/python utils/data/l2_price_ingestor.py \
+  --symbol LTCUSDT \
+  --download \
+  --start 2024-01-01 \
+  --end 2024-01-31 \
+  --db-path data/historian.db
+
 .venv/bin/python backtest.py \
-  --data tests/validation/cross_section/LTC_USDT_USDT_24h.csv \
+  --depth-db-path data/historian.db \
   --symbol LTC/USDT:USDT \
-  --depth-db data/historian.db \
   --audit \
   2>&1 | tee logs/edge_audit_ltc_$(date +%Y%m%d_%H%M%S).log
+
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow edge-audit
 ```
 
 ## Step 2: Verify Data Collection

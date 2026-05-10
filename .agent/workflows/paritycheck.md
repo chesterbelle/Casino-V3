@@ -44,10 +44,24 @@ cp data/historian.db-shm tests/validation/demo_historian.db-shm 2>/dev/null || :
 4. Limpiar el entorno para inyectar los ticks en el Backtester con las mismas configuraciones exactas (Balance y Tamaño de Posición de Demo):
 ```bash
 .venv/bin/python reset_data.py
-.venv/bin/python backtest.py --data tests/validation/ltc_parity.csv --symbol LTC/USDT:USDT --balance 3400.0 --bet-size 0.01 --depth-db tests/validation/demo_historian.db
-cp data/historian.db* tests/validation/backtest_historian.db
-cp data/historian.db-wal tests/validation/backtest_historian.db-wal 2>/dev/null || :
-cp data/historian.db-shm tests/validation/backtest_historian.db-shm 2>/dev/null || :
+
+.venv/bin/python utils/data/l2_price_ingestor.py \
+  --symbol LTCUSDT \
+  --download \
+  --start 2024-01-01 \
+  --end 2024-01-02 \
+  --db-path tests/validation/demo_historian.db
+
+.venv/bin/python backtest.py \
+  --depth-db-path tests/validation/demo_historian.db \
+  --symbol LTC/USDT:USDT \
+  --balance 3400.0 \
+  --bet-size 0.01
+
+cp data/historian.db tests/validation/backtest_historian.db
+
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow paritycheck
 ```
 
 ## Phase 4: The Micro/Macro Reconciliation

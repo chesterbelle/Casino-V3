@@ -74,34 +74,37 @@ class BacktestFeed:
         return MockAdapter(self.symbol)
 
     def load_data(self):
-        """Load data from CSV/Parquet."""
-        logger.info(f"📂 Loading backtest data from {self.data_path}...")
-        if self.data_path.endswith(".csv"):
-            self.data = pd.read_csv(self.data_path)
-        elif self.data_path.endswith(".parquet"):
-            self.data = pd.read_parquet(self.data_path)
+        """Load data from CSV/Parquet and optionally from the SQLite depth/price DB."""
+        self.data = pd.DataFrame()
+        if self.data_path:
+            logger.info(f"📂 Loading backtest data from {self.data_path}...")
+            if self.data_path.endswith(".csv"):
+                self.data = pd.read_csv(self.data_path)
+            elif self.data_path.endswith(".parquet"):
+                self.data = pd.read_parquet(self.data_path)
+            else:
+                raise ValueError("Unsupported file format")
+
+            # Detect data format (trades or candles)
+            if all(col in self.data.columns for col in ["timestamp", "price", "volume", "side"]):
+                self.mode = "TRADES"
+                logger.info("✅ Detected Real Trade Data format.")
+            elif all(col in self.data.columns for col in ["timestamp", "open", "high", "low", "close", "volume"]):
+                self.mode = "CANDLES"
+                logger.info("✅ Detected Candle Data format.")
+            else:
+                raise ValueError(f"Data missing required columns. Found: {self.data.columns}")
+
+            # Convert timestamp to epoch seconds if needed
+            if not pd.api.types.is_numeric_dtype(self.data["timestamp"]):
+                self.data["timestamp"] = pd.to_datetime(self.data["timestamp"]).astype(int) // 10**9
+
+            # Add a column to identify event type later
+            self.data["event_type"] = "TICK"
         else:
-            raise ValueError("Unsupported file format")
+            self.mode = "DB_ONLY"
 
-        # Check for Trade Data format
-        if all(col in self.data.columns for col in ["timestamp", "price", "volume", "side"]):
-            self.mode = "TRADES"
-            logger.info("✅ Detected Real Trade Data format.")
-        # Check for Candle Data format
-        elif all(col in self.data.columns for col in ["timestamp", "open", "high", "low", "close", "volume"]):
-            self.mode = "CANDLES"
-            logger.info("✅ Detected Candle Data format.")
-        else:
-            raise ValueError(f"Data missing required columns. Found: {self.data.columns}")
-
-        # Convert timestamp to datetime and then to epoch seconds if needed
-        if not pd.api.types.is_numeric_dtype(self.data["timestamp"]):
-            self.data["timestamp"] = pd.to_datetime(self.data["timestamp"])
-            self.data["timestamp"] = self.data["timestamp"].astype(int) // 10**9
-
-        self.data["event_type"] = "TICK"
-
-        # Phase 1300: Load depth snapshots from SQLite DB if provided
+        # --- Load depth snapshots from SQLite if a DB path is provided ---
         if getattr(self, "depth_db_path", None) and self.depth_db_path is not None:
             import os
             import sqlite3
@@ -115,10 +118,8 @@ class BacktestFeed:
                         conn,
                     )
                     conn.close()
-
                     if not depth_df.empty:
                         depth_df["event_type"] = "DEPTH"
-                        # concat and sort
                         self.data = pd.concat([self.data, depth_df], ignore_index=True)
                         logger.info(f"✅ Loaded {len(depth_df)} depth snapshots.")
                     else:
@@ -128,9 +129,72 @@ class BacktestFeed:
             else:
                 logger.warning(f"⚠️ Depth DB file not found: {self.depth_db_path}")
 
+        # --- Load price candles from SQLite if a DB path is provided ---
+        if getattr(self, "depth_db_path", None) and self.depth_db_path is not None:
+            import os
+            import sqlite3
+
+            if os.path.exists(self.depth_db_path):
+                try:
+                    logger.info(f"📂 Loading price candles from {self.depth_db_path}...")
+                    conn = sqlite3.connect(self.depth_db_path)
+                    price_df = pd.read_sql_query(
+                        f"SELECT timestamp, open, high, low, close, volume FROM price_candles WHERE symbol = '{self.symbol}'",
+                        conn,
+                    )
+                    conn.close()
+                    if not price_df.empty:
+                        price_df["event_type"] = "CANDLE"
+                        self.data = pd.concat([self.data, price_df], ignore_index=True)
+                        logger.info(f"✅ Loaded {len(price_df)} price candles.")
+                    else:
+                        logger.warning("⚠️ No price candles found for symbol in given DB.")
+                except Exception as e:
+                    logger.error(f"❌ Failed to load price candles: {e}")
+            else:
+                logger.warning(f"⚠️ Price DB file not found: {self.depth_db_path}")
+
+        # --- Load market trades from SQLite if a DB path is provided ---
+        if getattr(self, "depth_db_path", None) and self.depth_db_path is not None:
+            import os
+            import sqlite3
+
+            if os.path.exists(self.depth_db_path):
+                try:
+                    logger.info(f"📂 Loading market trades from {self.depth_db_path}...")
+                    conn = sqlite3.connect(self.depth_db_path)
+                    # Check if table exists first to avoid crash on legacy DBs
+                    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'")
+                    if cursor.fetchone():
+                        trades_df = pd.read_sql_query(
+                            f"SELECT timestamp, price, amount as volume, side FROM market_trades WHERE symbol = '{self.symbol}'",
+                            conn,
+                        )
+                        if not trades_df.empty:
+                            trades_df["event_type"] = "TICK"
+                            self.data = pd.concat([self.data, trades_df], ignore_index=True)
+                            self.mode = "TRADES"  # Upgrade mode to TRADES if we found ticks
+                            logger.info(f"✅ Loaded {len(trades_df)} market trades.")
+                        else:
+                            logger.warning("⚠️ No market trades found for symbol in given DB.")
+                    conn.close()
+                except Exception as e:
+                    logger.error(f"❌ Failed to load market trades: {e}")
+
         # Sort combined feed by timestamp
-        self.data = self.data.sort_values("timestamp").reset_index(drop=True)
-        logger.info(f"✅ Total merged feed size: {len(self.data)} rows.")
+        if not self.data.empty:
+            self.data = self.data.sort_values("timestamp").reset_index(drop=True)
+            logger.info(f"✅ Total merged feed size: {len(self.data)} rows.")
+
+            # --- MANDATORY L2 CHECK (High-Fidelity Guard) ---
+            if self.depth_db_path:
+                depth_count = len(self.data[self.data["event_type"] == "DEPTH"])
+                if depth_count == 0:
+                    logger.error("❌ FATAL: High-Fidelity mode enabled but NO depth snapshots found!")
+                    raise ValueError("Casino-V3 requires REAL L2 data. Use l2_processor.py to prepare your dataset.")
+                logger.info(f"🛡️ High-Fidelity Guard: {depth_count} real L2 snapshots verified.")
+        else:
+            logger.error("❌ Final backtest feed is empty! Check data sources.")
 
     async def run(self):
         """Start the replay and wait for completion."""
@@ -167,13 +231,7 @@ class BacktestFeed:
             if event_type == "DEPTH":
                 await self._emit_depth(row["timestamp"], row["bids"], row["asks"])
             elif self.mode == "TRADES":
-                # Shadow Orderbook Synthesizer (Fallback for historical long runs)
-                if not getattr(self, "depth_db_path", None):
-                    if row["timestamp"] - self._last_synth_depth_ts >= 1.0:
-                        await self._synthesize_depth(row["timestamp"], row["price"], row["volume"])
-                        self._last_synth_depth_ts = row["timestamp"]
-
-                # Direct Replay of Real Trades
+                # Direct Replay of Real Trades (Synthetic fallback REMOVED)
                 await self._emit_tick(row["timestamp"], row["price"], row["volume"], row["side"])
 
             elif self.mode == "CANDLES":
@@ -242,39 +300,3 @@ class BacktestFeed:
             await self.engine.dispatch(event)
         except Exception as e:
             logger.error(f"Failed to parse and emit depth event: {e}")
-
-    async def _synthesize_depth(self, timestamp: float, current_price: float, current_vol: float):
-        """Synthesize a probabilistic L2 orderbook snapshot (Shadow Orderbook)."""
-        import random
-
-        from core.events import OrderBookEvent
-
-        price = float(current_price)
-        # Assuming minimal tick size mapping (LTC: 0.01, BTC: 0.1)
-        tick_size = 0.01 if price < 1000 else 0.10
-
-        bids = []
-        asks = []
-
-        # Base synthetic liquidity on recent volume
-        base_liq = max(5.0, float(current_vol) * 1.5)
-
-        for i in range(1, 6):
-            b_price = price - (i * tick_size)
-            a_price = price + (i * tick_size)
-
-            # Stochastic variance around the base liquidity
-            b_qty = base_liq * random.uniform(0.7, 1.3)
-            a_qty = base_liq * random.uniform(0.7, 1.3)
-
-            bids.append([f"{b_price:.2f}", f"{b_qty:.3f}"])
-            asks.append([f"{a_price:.2f}", f"{a_qty:.3f}"])
-
-        event = OrderBookEvent(
-            type=EventType.ORDER_BOOK,
-            timestamp=float(timestamp),
-            symbol=self.symbol,
-            bids=bids,
-            asks=asks,
-        )
-        await self.engine.dispatch(event)

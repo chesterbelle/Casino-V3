@@ -10,7 +10,7 @@ __pycache__/
 .vscode/
 
 # Runtime data
-data/
+/data/
 *.db
 *.db-wal
 *.db-shm

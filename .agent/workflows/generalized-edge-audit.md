@@ -67,14 +67,25 @@ NAMES=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT
 
 for i in "${!SYMBOLS[@]}"; do
   SYM="${SYMBOLS[$i]}"
-  DATA="tests/validation/cross_section/${NAMES[$i]}_24h.csv"
   echo "▶ $SYM..."
+
+  .venv/bin/python utils/data/l2_price_ingestor.py \
+    --symbol "${SYM%%/*}USDT" \
+    --download \
+    --start 2024-01-01 \
+    --end 2024-01-31 \
+    --db-path data/historian.db
+
   .venv/bin/python backtest.py \
-    --data "$DATA" --symbol "$SYM" \
-    --depth-db data/historian.db --audit \
+    --depth-db-path data/historian.db \
+    --symbol "$SYM" \
+    --audit \
     > /dev/null 2>&1 && echo "✅ $SYM" || echo "❌ $SYM"
 done
 echo "🏁 ALL 10 BACKTESTS COMPLETE"
+
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow generalized-edge-audit
 ```
 
 ## Step 3: Verify Data Collection

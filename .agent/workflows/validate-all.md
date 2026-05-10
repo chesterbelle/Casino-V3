@@ -242,7 +242,16 @@ Each layer must pass before proceeding to the next.
 
 ### Layer 3.1: Backtest End-to-End (VirtualExchange)
 ```bash
-.venv/bin/python backtest.py --exchange binance --symbols LTCUSDT --start 2026-04-12 --end 2026-04-13
+.venv/bin/python utils/data/l2_price_ingestor.py \
+  --symbol LTCUSDT \
+  --download \
+  --start 2026-04-12 \
+  --end 2026-04-13 \
+  --db-path data/historian.db
+
+.venv/bin/python backtest.py \
+  --depth-db-path data/historian.db \
+  --symbol LTC/USDT:USDT
 ```
 **Must pass**: Complete backtest produces trades with correct fee accounting.
 - Trades recorded in Historian with total_fee (entry + exit)

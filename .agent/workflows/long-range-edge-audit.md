@@ -108,50 +108,41 @@ done
 
 ### 2A: LTC RANGE (Aug 14-16)
 ```bash
-for f in tests/validation/ltc_range_2024-08-14.csv tests/validation/ltc_range_24h.csv tests/validation/ltc_range_2024-08-16.csv; do
-  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
-    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
-done
+.venv/bin/python utils/data/l2_price_ingestor.py --symbol LTCUSDT --download --start 2024-08-14 --end 2024-08-16 --db-path data/historian.db
+.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol LTC/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ LTC RANGE" || echo "❌ LTC RANGE"
 ```
 
 ### 2B: LTC BEAR (Sep 05-07)
 ```bash
-for f in tests/validation/ltc_bear_2024-09-05.csv tests/validation/ltc_bear_24h.csv tests/validation/ltc_bear_2024-09-07.csv; do
-  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
-    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
-done
+.venv/bin/python utils/data/l2_price_ingestor.py --symbol LTCUSDT --download --start 2024-09-05 --end 2024-09-07 --db-path data/historian.db
+.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol LTC/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ LTC BEAR" || echo "❌ LTC BEAR"
 ```
 
 ### 2C: LTC BULL (Oct 13-15)
 ```bash
-for f in tests/validation/ltc_bull_2024-10-13.csv tests/validation/ltc_bull_24h.csv tests/validation/ltc_bull_2024-10-15.csv; do
-  .venv/bin/python backtest.py --data $f --symbol LTC/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
-    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
-done
+.venv/bin/python utils/data/l2_price_ingestor.py --symbol LTCUSDT --download --start 2024-10-13 --end 2024-10-15 --db-path data/historian.db
+.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol LTC/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ LTC BULL" || echo "❌ LTC BULL"
 ```
 
 ### 2D: DOGE RANGE (May 1-3)
 ```bash
-for f in tests/validation/doge_range_2025-05-01.csv tests/validation/doge_range_2025-05-02.csv tests/validation/doge_range_2025-05-03.csv; do
-  .venv/bin/python backtest.py --data $f --symbol DOGE/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
-    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
-done
+.venv/bin/python utils/data/l2_price_ingestor.py --symbol DOGEUSDT --download --start 2025-05-01 --end 2025-05-03 --db-path data/historian.db
+.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol DOGE/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ DOGE RANGE" || echo "❌ DOGE RANGE"
 ```
 
 ### 2E: DOGE BEAR (May 28-30)
 ```bash
-for f in tests/validation/doge_bear_2025-05-28.csv tests/validation/doge_bear_2025-05-29.csv tests/validation/doge_bear_2025-05-30.csv; do
-  .venv/bin/python backtest.py --data $f --symbol DOGE/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
-    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
-done
+.venv/bin/python utils/data/l2_price_ingestor.py --symbol DOGEUSDT --download --start 2025-05-28 --end 2025-05-30 --db-path data/historian.db
+.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol DOGE/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ DOGE BEAR" || echo "❌ DOGE BEAR"
 ```
 
 ### 2F: DOGE BULL (May 16-18)
 ```bash
-for f in tests/validation/doge_bull_2025-05-16.csv tests/validation/doge_bull_2025-05-17.csv tests/validation/doge_bull_2025-05-18.csv; do
-  .venv/bin/python backtest.py --data $f --symbol DOGE/USDT:USDT --depth-db data/historian.db --audit > /dev/null 2>&1 \
-    && echo "✅ $(basename $f)" || echo "❌ $(basename $f)"
-done
+.venv/bin/python utils/data/l2_price_ingestor.py --symbol DOGEUSDT --download --start 2025-05-16 --end 2025-05-18 --db-path data/historian.db
+.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol DOGE/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ DOGE BULL" || echo "❌ DOGE BULL"
+
+find data/ -type f -name "*.csv*" -delete
+.venv/bin/python utils/update_memory.py --workflow long-range-edge-audit
 ```
 
 ---
