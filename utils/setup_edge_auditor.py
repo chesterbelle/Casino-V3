@@ -64,6 +64,14 @@ class EdgeAuditor:
         conn.close()
         return signals_df, prices_df, traces_df
 
+    # Dynamic window per setup type — reflects actual target horizons
+    SETUP_WINDOWS = {
+        "reversion": 600,  # Mean-reversion to VWAP: fast, 10 min
+        "rotation": 900,  # IN_VALUE rotation to VA boundary: 15 min
+        "continuation": 1800,  # Trend extension 1.5*ATR: slow, 30 min
+    }
+    DEFAULT_WINDOW = 900
+
     def analyze(self, window_seconds=900):
         signals, prices, traces = self.load_data()
 
@@ -71,7 +79,12 @@ class EdgeAuditor:
             print(f"{RED}❌ No signals found in database.{RESET}")
             return
 
-        print(header(f"ANALYZING {len(signals)} SIGNALS (Window: {window_seconds}s)"))
+        print(header(f"ANALYZING {len(signals)} SIGNALS (Dynamic Window per Setup)"))
+        print(
+            f"  Windows: reversion={self.SETUP_WINDOWS['reversion']}s, "
+            f"rotation={self.SETUP_WINDOWS['rotation']}s, "
+            f"continuation={self.SETUP_WINDOWS['continuation']}s"
+        )
 
         results = []
 
@@ -83,6 +96,7 @@ class EdgeAuditor:
             sym = sig["symbol"]
             entry_price = sig["price"]
             side = sig["side"]
+            setup_type = sig["setup_type"]
 
             if entry_price <= 0:
                 continue
@@ -90,8 +104,11 @@ class EdgeAuditor:
             if sym not in prices_by_sym:
                 continue
 
+            # Dynamic window based on setup type
+            win = self.SETUP_WINDOWS.get(setup_type, self.DEFAULT_WINDOW)
+
             # Get price trajectory within the window
-            mask = (prices_by_sym[sym]["timestamp"] >= ts) & (prices_by_sym[sym]["timestamp"] <= ts + window_seconds)
+            mask = (prices_by_sym[sym]["timestamp"] >= ts) & (prices_by_sym[sym]["timestamp"] <= ts + win)
             trajectory = prices_by_sym[sym].loc[mask]
 
             if trajectory.empty:
@@ -109,10 +126,13 @@ class EdgeAuditor:
                 mae_price = np.max(prices_list)
                 mfe_pct = (entry_price - mfe_price) / entry_price * 100
                 mae_pct = (mae_price - entry_price) / entry_price * 100
-            # Phase 850: Real Strategy Performance (Dynamic TP/SL from Metadata)
+
+            # Real Strategy Performance (Dynamic TP/SL from Metadata)
             real_outcome = "TIMEOUT"
             tp_price = 0.0
             sl_price = 0.0
+            tp_pct = 0.0
+            sl_pct = 0.0
             if sig["metadata"]:
                 try:
                     meta = json.loads(sig["metadata"])
@@ -120,6 +140,14 @@ class EdgeAuditor:
                     sl_price = meta.get("sl_price", 0.0)
 
                     if tp_price > 0 and sl_price > 0:
+                        # Calculate actual TP/SL distances as %
+                        if side == "LONG":
+                            tp_pct = (tp_price - entry_price) / entry_price * 100
+                            sl_pct = (entry_price - sl_price) / entry_price * 100
+                        else:
+                            tp_pct = (entry_price - tp_price) / entry_price * 100
+                            sl_pct = (sl_price - entry_price) / entry_price * 100
+
                         for p in prices_list:
                             if side == "LONG":
                                 if p >= tp_price:
@@ -137,7 +165,8 @@ class EdgeAuditor:
                                     break
                 except Exception:
                     pass
-            # Phase 900A: First Touch Win-Rate per TP/SL config
+
+            # First Touch Win-Rate per uniform TP/SL config (diagnostic)
             first_touch = {}
             for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
                 result = "TIMEOUT"
@@ -156,13 +185,17 @@ class EdgeAuditor:
 
             results.append(
                 {
-                    "setup_type": sig["setup_type"],
+                    "setup_type": setup_type,
+                    "symbol": sym,
                     "mfe": mfe_pct,
                     "mae": mae_pct,
                     "ratio": mfe_pct / (mae_pct + 1e-9),
                     "real_outcome": real_outcome,
                     "tp_price": tp_price,
                     "sl_price": sl_price,
+                    "tp_pct": tp_pct,
+                    "sl_pct": sl_pct,
+                    "window": win,
                     **first_touch,
                 }
             )
@@ -174,164 +207,141 @@ class EdgeAuditor:
         if df.empty:
             return
 
-        # Setup Type Breakdown
-        print(f"\n{BOLD}[1] SETUP EDGE BREAKDOWN{RESET}")
-        print(f"{'Setup Type':<25} {'n':<6} {'Avg MFE%':<10} {'Avg MAE%':<10} {'Ratio':<6}")
+        FEE_TAKER_RT = 0.12
+        FEE_MAKER_RT = 0.08
+        FEE_THRESHOLD = 0.36
+
+        # ── [1] SETUP EDGE BREAKDOWN (MFE/MAE raw) ──
+        print(f"\n{BOLD}[1] SETUP EDGE BREAKDOWN (Raw MFE/MAE){RESET}")
+        print(f"{'Setup Type':<20} {'n':<6} {'Avg MFE%':<10} {'Avg MAE%':<10} {'Ratio':<8} {'Window':<8}")
         print("-" * 70)
 
         for setup, group in df.groupby("setup_type"):
             avg_mfe = group["mfe"].mean()
             avg_mae = group["mae"].mean()
             ratio = avg_mfe / (avg_mae + 1e-9)
-
+            avg_win = group["window"].mean()
             color = GREEN if ratio > 1.2 else (YELLOW if ratio > 1.0 else RED)
-            print(f"{setup:<25} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}")
-
-        # NEW: Gross Expectancy Analysis (Pre-Fee Edge)
-        print(f"\n{BOLD}[1B] GROSS EXPECTANCY (Pre-Fee Edge in %){RESET}")
-        print(
-            f"{'Setup Type':<25} {'n':<6} {'WR%':<8} {'Avg Win%':<10} {'Avg Loss%':<10} {'Expectancy%':<12} {'Viable?'}"
-        )
-        print("-" * 95)
-
-        # Fee assumptions (round-trip)
-        FEE_TAKER_RT = 0.12  # 0.06% entry + 0.06% exit (taker/taker)
-        FEE_MAKER_RT = 0.08  # 0.02% entry + 0.06% exit (maker/taker with limit sniper)
-        FEE_THRESHOLD = FEE_TAKER_RT * 3  # Minimum viable edge = 3x fees
-
-        for setup, group in df.groupby("setup_type"):
-            # Calculate using 0.3%/0.3% first touch results
-            ft_col = "ft_0.3_0.3"
-            if ft_col not in group.columns:
-                continue
-
-            wins = (group[ft_col] == "WIN").sum()
-            losses = (group[ft_col] == "LOSS").sum()
-            decided = wins + losses
-
-            if decided == 0:
-                continue
-
-            wr = wins / decided
-            lr = losses / decided
-
-            # Average MFE for winners, MAE for losers
-            winners = group[group[ft_col] == "WIN"]
-            losers = group[group[ft_col] == "LOSS"]
-
-            avg_win_pct = winners["mfe"].mean() if len(winners) > 0 else 0.0
-            avg_loss_pct = losers["mae"].mean() if len(losers) > 0 else 0.0
-
-            # Gross Expectancy = (WR × Avg Win) - (LR × Avg Loss)
-            expectancy = (wr * avg_win_pct) - (lr * avg_loss_pct)
-
-            # Viability check
-            if expectancy > FEE_THRESHOLD:
-                viable = f"{GREEN}YES (>{FEE_THRESHOLD:.2f}%){RESET}"
-            elif expectancy > FEE_TAKER_RT:
-                viable = f"{YELLOW}MARGINAL (>{FEE_TAKER_RT:.2f}%){RESET}"
-            else:
-                viable = f"{RED}NO (<{FEE_TAKER_RT:.2f}%){RESET}"
-
             print(
-                f"{setup:<25} {len(group):<6} {wr*100:>6.1f}%  {avg_win_pct:>8.3f}%  {avg_loss_pct:>9.3f}%  "
-                f"{expectancy:>+10.4f}%  {viable}"
+                f"{setup:<20} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}  {avg_win:>4.0f}s"
             )
 
-        # Phase 900A: First Touch Win-Rate (Correct temporal calculation)
-        print(f"\n{BOLD}[2] THEORETICAL WIN-RATE (First Touch @ Fixed TP/SL){RESET}")
+        # ── [2] PRIMARY: REAL STRATEGY PERFORMANCE (Dynamic TP/SL) ──
+        print(f"\n{BOLD}[2] PRIMARY METRIC: REAL STRATEGY PERFORMANCE (Dynamic TP/SL){RESET}")
         print(
-            f"{'TP/SL':<12} {'Wins':<8} {'Losses':<8} {'Timeout':<8} {'WR%':<8} {'Expectancy%':<12} {'Net (Taker)':<12} {'Net (Maker)'}"
+            f"{'Setup Type':<20} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Verdict'}"
         )
         print("-" * 105)
 
-        FEE_TAKER_RT = 0.12
-        FEE_MAKER_RT = 0.08
+        for setup, group in df.groupby("setup_type"):
+            w = (group["real_outcome"] == "WIN").sum()
+            losses = (group["real_outcome"] == "LOSS").sum()
+            to = (group["real_outcome"] == "TIMEOUT").sum()
+            d = w + losses
+            wr = (w / d * 100) if d > 0 else 0
 
-        configs = [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]
-        for tp, sl in configs:
-            col = f"ft_{tp}_{sl}"
-            if col not in df.columns:
-                continue
-            wins = (df[col] == "WIN").sum()
-            losses = (df[col] == "LOSS").sum()
-            timeouts = (df[col] == "TIMEOUT").sum()
-            decided = wins + losses
-            wr = (wins / decided * 100) if decided > 0 else 0
+            # Average actual TP/SL distances
+            avg_tp = group["tp_pct"].mean()
+            avg_sl = group["sl_pct"].mean()
 
-            # Gross Expectancy (assumes you capture full TP/SL)
-            ev = ((wr / 100) * tp - ((1 - wr / 100) * sl)) if decided > 0 else 0
+            # Gross Expectancy using actual TP/SL distances
+            expectancy = (wr / 100) * avg_tp - ((100 - wr) / 100) * avg_sl if d > 0 else 0
 
-            # Net Expectancy after fees
-            net_taker = ev - FEE_TAKER_RT
-            net_maker = ev - FEE_MAKER_RT
-
-            # Color coding based on WR
-            color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
-
-            # Color for net profitability
-            net_color_taker = GREEN if net_taker > 0 else RED
-            net_color_maker = GREEN if net_maker > 0 else RED
+            if d < 20:
+                verdict = f"{YELLOW}LOW_N{RESET}"
+            elif expectancy > FEE_THRESHOLD and wr > 55:
+                verdict = f"{GREEN}CERTIFIED{RESET}"
+            elif expectancy > FEE_TAKER_RT and wr > 50:
+                verdict = f"{YELLOW}WATCH{RESET}"
+            elif expectancy > 0:
+                verdict = f"{YELLOW}FRAGILE{RESET}"
+            else:
+                verdict = f"{RED}FAILED{RESET}"
 
             print(
-                f"{tp:.1f}%/{sl:.1f}%    {wins:<8} {losses:<8} {timeouts:<8} {color}{wr:>6.1f}%{RESET}  "
-                f"{ev:>+10.4f}%  {net_color_taker}{net_taker:>+10.4f}%{RESET}  {net_color_maker}{net_maker:>+10.4f}%{RESET}"
+                f"{setup:<20} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {verdict}"
             )
 
-        # Phase 850: Real Strategy Performance (Dynamic)
-        print(f"\n{BOLD}[2B] REAL STRATEGY PERFORMANCE (Dynamic TP/SL from SetupEngine){RESET}")
-        if "real_outcome" in df.columns:
-            wins = (df["real_outcome"] == "WIN").sum()
-            losses = (df["real_outcome"] == "LOSS").sum()
-            timeouts = (df["real_outcome"] == "TIMEOUT").sum()
-            decided = wins + losses
-            wr = (wins / decided * 100) if decided > 0 else 0
+        # ── [3] DIAGNOSTIC: UNIFORM TP/SL (Target Calibration) ──
+        print(f"\n{BOLD}[3] DIAGNOSTIC: UNIFORM TP/SL (Target Calibration Guide){RESET}")
+        print(f"{'Setup Type':<20} {'Best TP/SL':<12} {'WR%':<8} {'Exp%':<10} {'vs Real Exp':<12} {'Target Advice'}")
+        print("-" * 100)
 
-            color = GREEN if wr > 50 else RED
-            print(f"{'Total Decided':<15} {'Wins':<8} {'Losses':<8} {'Timeout':<8} {'WR%':<8}")
-            print("-" * 60)
-            print(f"{decided:<15} {wins:<8} {losses:<8} {timeouts:<8} {color}{wr:>6.1f}%{RESET}")
-            print(f"{YELLOW}* Evaluated using the actual tp_price and sl_price injected by the SetupEngine.{RESET}")
-        else:
-            print(f"{RED}❌ No real_outcome data available in signals.{RESET}")
+        for setup, group in df.groupby("setup_type"):
+            best_exp = -999
+            best_config = (0, 0)
+            best_wr = 0
 
-        # Phase 900A: Per-Setup First Touch Breakdown
-        print(f"\n{BOLD}[3] PER-SETUP FIRST TOUCH (0.3%/0.3%) + GROSS EXPECTANCY{RESET}")
-        ft_col = "ft_0.3_0.3"
-        if ft_col in df.columns:
-            print(f"{'Setup Type':<25} {'n':<6} {'Wins':<6} {'WR%':<8} {'Expectancy%':<12} {'Verdict'}")
-            print("-" * 85)
+            for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
+                col = f"ft_{tp_t}_{sl_t}"
+                if col not in group.columns:
+                    continue
+                w = (group[col] == "WIN").sum()
+                losses = (group[col] == "LOSS").sum()
+                d = w + losses
+                if d == 0:
+                    continue
+                wr = w / d * 100
+                ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
+                if ev > best_exp:
+                    best_exp = ev
+                    best_config = (tp_t, sl_t)
+                    best_wr = wr
 
-            FEE_THRESHOLD = 0.36  # 3x taker fees
+            # Compare with real strategy expectancy
+            real_w = (group["real_outcome"] == "WIN").sum()
+            real_l = (group["real_outcome"] == "LOSS").sum()
+            real_d = real_w + real_l
+            real_wr = (real_w / real_d * 100) if real_d > 0 else 0
+            real_avg_tp = group["tp_pct"].mean()
+            real_avg_sl = group["sl_pct"].mean()
+            real_exp = (real_wr / 100) * real_avg_tp - ((100 - real_wr) / 100) * real_avg_sl if real_d > 0 else 0
 
-            for setup, group in df.groupby("setup_type"):
-                w = (group[ft_col] == "WIN").sum()
-                loss_cnt = (group[ft_col] == "LOSS").sum()
-                d = w + loss_cnt
+            delta = real_exp - best_exp
+            if delta >= -0.05:
+                advice = f"{GREEN}Targets OK (within 0.05%){RESET}"
+            elif delta >= -0.15:
+                advice = f"{YELLOW}Targets slightly suboptimal{RESET}"
+            else:
+                advice = f"{RED}Targets need adjustment{RESET}"
+
+            print(
+                f"{setup:<20} {best_config[0]:.1f}/{best_config[1]:.1f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
+            )
+
+        # ── [4] PER-SETUP UNIFORM GRID (Full Detail) ──
+        print(f"\n{BOLD}[4] UNIFORM TP/SL GRID (Full Detail per Setup){RESET}")
+        for setup, group in df.groupby("setup_type"):
+            print(f"\n  {BOLD}{setup}{RESET} (n={len(group)})")
+            print(
+                f"  {'TP/SL':<12} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Exp%':<10} {'Net Taker':<10} {'Net Maker'}"
+            )
+            print("  " + "-" * 80)
+
+            for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
+                col = f"ft_{tp_t}_{sl_t}"
+                if col not in group.columns:
+                    continue
+                w = (group[col] == "WIN").sum()
+                losses = (group[col] == "LOSS").sum()
+                to = (group[col] == "TIMEOUT").sum()
+                d = w + losses
                 wr = (w / d * 100) if d > 0 else 0
+                ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t if d > 0 else 0
+                net_taker = ev - FEE_TAKER_RT
+                net_maker = ev - FEE_MAKER_RT
 
-                # Calculate gross expectancy using actual MFE/MAE
-                winners = group[group[ft_col] == "WIN"]
-                losers = group[group[ft_col] == "LOSS"]
-                avg_win = winners["mfe"].mean() if len(winners) > 0 else 0.0
-                avg_loss = losers["mae"].mean() if len(losers) > 0 else 0.0
-                expectancy = (wr / 100) * avg_win - ((100 - wr) / 100) * avg_loss
+                color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
+                nc_t = GREEN if net_taker > 0 else RED
+                nc_m = GREEN if net_maker > 0 else RED
 
-                # Verdict based on sample size, WR, and expectancy
-                if d < 20:
-                    verdict = f"{YELLOW}INSUFFICIENT{RESET}"
-                elif expectancy > FEE_THRESHOLD and wr > 55:
-                    verdict = f"{GREEN}CERTIFIED{RESET}"
-                elif expectancy > 0.12 and wr > 50:
-                    verdict = f"{YELLOW}WATCH{RESET}"
-                else:
-                    verdict = f"{RED}FAILED{RESET}"
+                print(
+                    f"  {tp_t:.1f}/{sl_t:.1f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
+                )
 
-                print(f"{setup:<25} {len(group):<6} {w:<6} {wr:>6.1f}%  {expectancy:>+10.4f}%  {verdict}")
-
-        # Phase 1850: Decision Trace Audit
+        # ── [5] DECISION TRACE AUDIT ──
         if traces is not None and not traces.empty:
-            print(f"\n{BOLD}[4] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
+            print(f"\n{BOLD}[5] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
             print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
             print("-" * 75)
 
@@ -339,56 +349,50 @@ class EdgeAuditor:
             trace_counts = trace_counts.sort_values("count", ascending=False)
 
             for _, row in trace_counts.iterrows():
-                count = row["count"]
-                gate = row["gate"]
-                # Highlight in red if it's a rejection, though reason tells us. Actually just print cleanly.
-                print(f"{gate:<25} {row['reason']:<40} {count:<6}")
+                print(f"{row['gate']:<25} {row['reason']:<40} {row['count']:<6}")
 
-        # NEW: Overall Edge Summary
-        print(f"\n{BOLD}[5] OVERALL EDGE SUMMARY{RESET}")
+        # ── [6] OVERALL EDGE SUMMARY (Primary = Dynamic Targets) ──
+        print(f"\n{BOLD}[6] OVERALL EDGE SUMMARY{RESET}")
         print("-" * 70)
 
-        # Calculate aggregate metrics using 0.3%/0.3%
-        ft_col = "ft_0.3_0.3"
-        if ft_col in df.columns:
-            total_wins = (df[ft_col] == "WIN").sum()
-            total_losses = (df[ft_col] == "LOSS").sum()
+        # Primary: Real strategy performance
+        if "real_outcome" in df.columns:
+            total_wins = (df["real_outcome"] == "WIN").sum()
+            total_losses = (df["real_outcome"] == "LOSS").sum()
+            total_timeouts = (df["real_outcome"] == "TIMEOUT").sum()
             total_decided = total_wins + total_losses
 
             if total_decided > 0:
                 overall_wr = total_wins / total_decided * 100
+                avg_tp = df["tp_pct"].mean()
+                avg_sl = df["sl_pct"].mean()
+                gross_expectancy = (overall_wr / 100) * avg_tp - ((100 - overall_wr) / 100) * avg_sl
 
-                # Calculate aggregate expectancy
-                winners = df[df[ft_col] == "WIN"]
-                losers = df[df[ft_col] == "LOSS"]
-                avg_win = winners["mfe"].mean() if len(winners) > 0 else 0.0
-                avg_loss = losers["mae"].mean() if len(losers) > 0 else 0.0
-                gross_expectancy = (overall_wr / 100) * avg_win - ((100 - overall_wr) / 100) * avg_loss
-
-                # Net expectancy after fees
-                net_taker = gross_expectancy - 0.12
-                net_maker = gross_expectancy - 0.08
+                net_taker = gross_expectancy - FEE_TAKER_RT
+                net_maker = gross_expectancy - FEE_MAKER_RT
 
                 print(f"Total Signals:        {len(df)}")
-                print(f"Decided (W+L):        {total_decided}")
+                print(f"Decided (W+L):        {total_decided} (Timeouts: {total_timeouts})")
                 print(f"Overall Win Rate:     {overall_wr:.1f}%")
-                print(f"Avg Win (MFE):        {avg_win:.3f}%")
-                print(f"Avg Loss (MAE):       {avg_loss:.3f}%")
+                print(f"Avg TP Distance:      {avg_tp:.3f}%")
+                print(f"Avg SL Distance:      {avg_sl:.3f}%")
                 print(f"")
                 print(f"{BOLD}Gross Expectancy:     {gross_expectancy:+.4f}%{RESET}")
                 print(f"Net (Taker 0.12%):    {net_taker:+.4f}% {'✅' if net_taker > 0 else '❌'}")
                 print(f"Net (Maker 0.08%):    {net_maker:+.4f}% {'✅' if net_maker > 0 else '❌'}")
                 print(f"")
 
-                # Viability assessment
-                if gross_expectancy > 0.36:
+                if gross_expectancy > FEE_THRESHOLD:
                     print(f"{GREEN}✅ EDGE CONFIRMED: Gross expectancy > 3× taker fees (0.36%){RESET}")
                     print(f"{GREEN}   Strategy is viable even with taker orders.{RESET}")
-                elif gross_expectancy > 0.12:
+                elif gross_expectancy > FEE_TAKER_RT:
                     print(f"{YELLOW}⚠️  MARGINAL EDGE: Gross expectancy > fees but < 3× threshold{RESET}")
                     print(f"{YELLOW}   Requires maker orders (limit sniper) to be profitable.{RESET}")
+                elif gross_expectancy > 0:
+                    print(f"{YELLOW}⚠️  THIN EDGE: Gross expectancy positive but below fees{RESET}")
+                    print(f"{YELLOW}   Need fee reduction or target optimization.{RESET}")
                 else:
-                    print(f"{RED}❌ NO EDGE: Gross expectancy < taker fees (0.12%){RESET}")
+                    print(f"{RED}❌ NO EDGE: Gross expectancy negative{RESET}")
                     print(f"{RED}   Strategy is not viable. Rework entry logic or exit management.{RESET}")
 
                 print(f"")
@@ -401,7 +405,24 @@ class EdgeAuditor:
                     print(f"  → Edge is too thin. Consider:")
                     print(f"    • Tighter entry filters (reduce MAE)")
                     print(f"    • Better exit timing (capture more MFE)")
-                    print(f"    • Wider TP targets if MFE supports it")
+                    print(f"    • Target calibration (see Section [3])")
+
+        # Secondary: Best uniform TP/SL for reference
+        print(f"\n{BOLD}Reference: Best Uniform TP/SL{RESET}")
+        for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
+            col = f"ft_{tp_t}_{sl_t}"
+            if col not in df.columns:
+                continue
+            w = (df[col] == "WIN").sum()
+            losses = (df[col] == "LOSS").sum()
+            d = w + losses
+            if d == 0:
+                continue
+            wr = w / d * 100
+            ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
+            net_t = ev - FEE_TAKER_RT
+            nc = GREEN if net_t > 0 else RED
+            print(f"  {tp_t:.1f}/{sl_t:.1f}%: WR={wr:.1f}%, Exp={ev:+.4f}%, Net={nc}{net_t:+.4f}%{RESET}")
 
         print(header("AUDIT COMPLETE"))
 

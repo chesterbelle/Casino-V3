@@ -32,20 +32,15 @@
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
     *   *Resilient Logic*: Fallbacks en `historian.py` y `position_tracker.py` para evitar NULLs y Silent Skips.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [RE-CALIBRACIÓN BEAR 📉]
+### 2. Capa de Cristal (Estrategia / Alpha) — [🔴 CAPA 0 BLOQUEADA]
 *   **Propósito**: Validación de Edge (Expectancia Bruta > 0.12%), Win Rate, MAE/MFE.
-*   **Hito Actual (v7.3.0c)**: **Certificación de Integridad Estructural para BEAR Re-calibration**.
-*   **Tabla Comparativa de Estrategias (Baselines)**:
-
-| Estrategia | Estado | Gross Expectancy | Net (Maker) | WR% | Razón de Cambio |
-|------------|--------|------------------|-------------|-----|-----------------|
-| **V3.4-Crystal**| Obsoleta | +0.1548%| +0.0748%| 56.2%| VWAP Z correcto + Rotation (ATR Targets). |
-| **V3.4c-Integrity**| **BASELINE** | **TBD** | **TBD** | **TBD** | 🚀 **Layer 0-3 CERTIFIED**. Pipeline estructuralmente estable para re-calibración BEAR. |
-
-*   **Lecciones Estratégicas**:
-    *   **Metadatos Estructurales**: `SetupEngineV4` ahora inyecta niveles POC/VAH/VAL correctamente desde el `ContextRegistry`.
-    *   **Paralelismo Real**: Validada la ejecución concurrente de múltiples posiciones sin colisiones de estado en el reactor event-driven.
-    *   **Auto-Healing Proactivo**: `DriftAuditor` sincroniza balance y posiciones via REST fallback si el WebSocket falla (Cooldown=0 para validación).
+*   **Hito Actual**: **CAPA 0 (Data/Math) — L2 requerido para backtest de absorción**.
+*   **Hallazgo Crítico**: Sin datos L2 (order book), el `FootprintRegistry` se reconstruye solo desde trades (L1). La absorción se **infieren** (delta estadístico) en vez de **observarse** (órdenes reposantes grandes). Todos los backtests previos de absorción son inválidos.
+*   **Pipeline Fix Completado**: `AbsorptionReversalGuardian` integrado en `SetupEngineV4` (Phase 2 ACTIVE). Interceptación robusta (`TacticalAbsorptionV2` + `TacticalAbsorption` + `AbsorptionDetector`). TraceBulletMixin con bordes `PHASE2_INTERCEPT` / `PHASE2_CONFIRMED`.
+*   **CAPA 1A-3D Diagnósticos Previos** (con datos L1, inválidos para absorción):
+    *   Rotation/continuation ratio negativo vs random. Solo reversion marginal.
+    *   MFE/MAE decae monótonamente. Solo a 30s ratio > 1.0.
+    *   CAPA 3D pendiente: ¿Z-score es el predictor, no la absorción?
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
@@ -56,19 +51,19 @@
 
 ---
 
-## 📉 Roadmap: BEAR Strategy Re-calibration
-1.  **Analisis de MAE en Downtrend**: Identificar si el SL de 1.0*ATR es suficiente para absorber volatilidad en impulsos bajistas.
-2.  **Ajuste de MFE/MAE Ratio**: Calibrar targets de continuación para capturar rotaciones completas al VAL opuesto.
-3.  **Filtrado de False Positives**: Evaluar impacto de `Inertia Guard` en señales de absorción durante "Dumping" agresivo.
+## 📉 Roadmap: CAPA 0 → Absorption Alpha Validation
+1.  **CAPA 0 (Data/Math) — PRIORIDAD**: Obtener datos L2 (order book) para backtest. Sin L2, la absorción se infiere en vez de observarse. Opciones: (a) recolectar en vivo con `l2_harvester.py`, (b) comprar dataset L2, (c) diseñar backtest con L2 sintético validado.
+2.  **Re-auditar absorción con L2**: Con datos L2 reales, re-ejecutar CAPA 1A-3D para obtener métricas representativas.
+3.  **CAPA 3D**: ¿Z-score (posición estructural) es el predictor, no la absorción? Solo evaluable con datos correctos.
 
 ---
 
 ## 🏛️ Estado de las Capas de Certificación (v7.3.0c)
-1. **Capa 0 (Data/Math)**: **CERTIFICADA ✅** (Flytest + Guardian Math + Exit Math).
+1. **Capa 0 (Data/Math)**: **🔴 BLOQUEADA** — L2 data requerido para backtest de absorción. Flytest Math OK, pero absorción no se puede validar sin order book.
 2. **Capa 1 (Decision)**: **CERTIFICADA ✅** (Setup Metadata Enrichment + Registry Parity).
 3. **Capa 2 (Execution)**: **CERTIFICADA ✅** (Concurrent OCO + Reactor Reactor).
 4. **Capa 3 (Resilience)**: **CERTIFICADA ✅** (Drift Auditor + Connectivity Stress).
-5. **Capa 4 (Strategy)**: **EN CURSO 📉** (BEAR Re-calibration).
+5. **Capa 4 (Strategy)**: **🔴 BLOQUEADA por Capa 0** — Absorption audit requiere L2 data.
 6. **Capa 5 (Risk)**: **PENDIENTE 🛡️**.
 
 ---
@@ -130,3 +125,4 @@
 8. **Footprint Z ≠ VWAP Z**: `reversal_signal["z_score"]` es el FOOTPRINT cross-sectional Z (delta magnitude). El VWAP Z-score viene de `context_registry.get_vwap_zscore()`. NUNCA usar footprint Z para value_position.
 9. **IN_VALUE Rotation Targets**: SL y TP deben ser ATR-relativos al ENTRY PRICE, no a VWAP/VAH/VAL. Si LONG a Z=0.5, VAH está solo 0.5σ arriba (TP muy corto) pero VAL está 1.5σ abajo (SL muy lejos).
 10. **No Bloquear IN_VALUE**: Bloquear trades destruye señal. Mejor routing correcto: IN_VALUE → rotation (continuación) con targets apropiados.
+11. **🔴 L2 Data Required for Absorption Backtest**: Sin order book (L2), el `FootprintRegistry` infiere delta desde trades (L1). La absorción se "adivina" estadísticamente, no se observa directamente. Cualquier backtest de absorción sin L2 es inválido para certificar alpha.

@@ -19,7 +19,9 @@ from core.events import (
     MicrostructureEvent,
     SignalEvent,
 )
+from decision.absorption_reversal_guardian import AbsorptionReversalGuardian
 from decision.guardians import GuardianManager
+from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger("SetupEngine")
 
@@ -37,7 +39,7 @@ class DummyTracker:
         pass
 
 
-class SetupEngineV4:
+class SetupEngineV4(TraceBulletMixin):
     def __init__(self, engine, context_registry=None, fast_track=False):
         self.engine = engine
         self.context_registry = context_registry
@@ -64,7 +66,12 @@ class SetupEngineV4:
 
         self._micro_count = 0
         self.guardian_manager = GuardianManager(self._trace_decision)
-        logger.info("🎯 LTA V4 Setup Engine initialized (Structural Warmup: Dynamic)")
+
+        # Phase 2: Absorption Confirmation Guardian
+        self.absorption_guardian = AbsorptionReversalGuardian(fast_track=self.fast_track)
+        self.engine.subscribe(EventType.CANDLE, self.on_candle)
+
+        logger.info("🎯 LTA V4 Setup Engine initialized (Structural Warmup: Dynamic, Absorption Phase 2: ACTIVE)")
 
     def is_system_warm(self, symbol: str, now: float) -> Tuple[bool, List[str]]:
         """Phase 1800: Checks if the system is ready to trade based purely on structural data availability.
@@ -363,6 +370,29 @@ class SetupEngineV4:
         if event.side not in ["TACTICAL", "LONG", "SHORT", "NEUTRAL"]:
             return
 
+        # Phase 2: Intercept absorption candidates for confirmation
+        TACTICAL_ABSORPTION_IDS = ("TacticalAbsorptionV2", "TacticalAbsorption", "AbsorptionDetector")
+        if event.sensor_id in TACTICAL_ABSORPTION_IDS or (md and md.get("tactical_type") in TACTICAL_ABSORPTION_IDS):
+            candidate = {
+                "symbol": event.symbol,
+                "side": event.side,
+                "direction": md.get("direction", ""),
+                "absorption_level": md.get("absorption_level", 0.0),
+                "level": md.get("absorption_level", 0.0),
+                "delta": md.get("delta", 0.0),
+                "z_score": md.get("z_score", md.get("footprint_z_score", 0.0)),
+                "concentration": md.get("concentration", 0.0),
+                "noise": md.get("noise", 0.0),
+                "trace_id": md.get("trace_id", ""),
+            }
+            self.absorption_guardian.register_candidate(candidate)
+            self.trace(
+                event,
+                "PHASE2_INTERCEPT",
+                {"direction": md.get("direction", ""), "z_score": md.get("z_score", md.get("footprint_z_score", 0.0))},
+            )
+            return  # Don't evaluate yet — wait for Phase 2 confirmation
+
         now = event.timestamp
         sym = event.symbol
 
@@ -415,6 +445,106 @@ class SetupEngineV4:
             await self._dispatch_guarded_signal(
                 sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event, setup_type=setup_type
             )
+
+    async def on_candle(self, event):
+        """Phase 2: Evaluate pending absorption candidates on each candle close."""
+        symbol = event.symbol
+        if symbol not in self.absorption_guardian.pending:
+            return
+
+        confirmed = self.absorption_guardian.on_candle(
+            symbol=symbol,
+            timestamp=event.timestamp,
+            close_price=event.close,
+            open_price=event.open,
+            high_price=event.high,
+            low_price=event.low,
+        )
+
+        if confirmed:
+            # Phase 2 confirmed — process through normal pipeline
+            side = confirmed["side"]
+            price = confirmed["price"]
+            sym = confirmed["symbol"]
+            now = confirmed["timestamp"]
+
+            # Build reversal_signal dict for guardian_manager
+            reversal_signal = {
+                "close": price,
+                "price": price,
+                "z_score": confirmed.get("z_score", 0.0),
+                "footprint_z_score": confirmed.get("z_score", 0.0),
+                "concentration": confirmed.get("concentration", 0.0),
+                "noise": confirmed.get("noise", 0.0),
+                "absorption_level": confirmed.get("absorption_level", 0.0),
+                "direction": confirmed.get("direction", ""),
+                "tactical_type": "TacticalAbsorptionV2",
+            }
+
+            # Run through Order Flow Guardians (regime + location)
+            passed, final_sizing_multiplier, setup_mode, value_position = self.guardian_manager.evaluate_all(
+                sym, side, reversal_signal, self.context_registry, {}, self.fast_track
+            )
+            if not passed:
+                return
+
+            # Calculate Structural Targets
+            tp_price, sl_price, setup_type_name, level_ref = self._calculate_targets(
+                sym, side, price, setup_mode, value_position
+            )
+
+            # Build metadata
+            trigger_meta = {
+                "trigger": "LTA_TacticalAbsorptionV2",
+                "setup_type": setup_type_name,
+                "price": price,
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+                "level_ref": level_ref,
+                "footprint_z_score": confirmed.get("z_score", 0.0),
+                "sizing_multiplier": final_sizing_multiplier * confirmed.get("size_multiplier", 1.0),
+                "v3_mode": setup_mode.value,
+                "confirmations": confirmed.get("confirmations", 0),
+                "confirmation_details": confirmed.get("confirmation_details", {}),
+                "phase": "confirmed",
+            }
+            trigger_meta = self._enrich_metadata(trigger_meta, sym)
+
+            if trigger_meta.get("aborted_by_breakeven_guard"):
+                logger.warning(f"🛡️ [BREAKEVEN_GUARD] Absorption {side} aborted: {trigger_meta.get('cancel_reason')}")
+                return
+
+            # Dispatch
+            self.last_fire_ts[sym] = now
+            logger.warning(
+                f"🎯 [SETUP ENGINE] LTA_Structural_{side} PATTERN CONFIRMED! "
+                f"Firing {side} on {sym} | MarketTime: {now} | SetupType: {setup_type_name} | "
+                f"Confirmations: {confirmed.get('confirmations', 0)}/3"
+            )
+
+            out_evt = AggregatedSignalEvent(
+                type=EventType.AGGREGATED_SIGNAL,
+                timestamp=now,
+                symbol=sym,
+                candle_timestamp=now,
+                selected_sensor="SetupEngine_LTA_Structural",
+                sensor_score=1.0,
+                side=side,
+                confidence=1.0,
+                total_signals=1,
+                metadata=trigger_meta,
+                trace_id=confirmed.get("trace_id"),
+                t0_timestamp=now,
+                t1_decision_ts=now,
+                setup_type=setup_type_name,
+                price=price,
+            )
+            self.trace(
+                out_evt,
+                "PHASE2_CONFIRMED",
+                {"confirmations": confirmed.get("confirmations", 0), "setup_type": setup_type_name},
+            )
+            await self.engine.dispatch(out_evt)
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
         """Processes a batch of real-time microstructural anomalies efficiently."""

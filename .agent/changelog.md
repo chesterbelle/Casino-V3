@@ -8,6 +8,23 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-10: Absorption Pipeline Fix + CAPA 0 L2 Discovery
+*   **Descripción**: Diagnóstico por capas del alpha de absorción reveló que `AbsorptionReversalGuardian` (Phase 2) estaba desconectado del pipeline. Se integró y se descubrió hallazgo fundamental: sin datos L2 en backtest, la absorción se infiere en vez de observarse.
+*   **Detalle Técnico**:
+    *   `decision/setup_engine.py`: Integrado `AbsorptionReversalGuardian` en `SetupEngineV4`. Interceptación de señales `TacticalAbsorptionV2`/`TacticalAbsorption`/`AbsorptionDetector` en `on_signal` → `register_candidate()` + `return`. Agregado `on_candle()` handler para evaluar candidatos pendientes y despachar señales confirmadas. Hereda `TraceBulletMixin` con bordes `PHASE2_INTERCEPT` y `PHASE2_CONFIRMED`.
+    *   `utils/setup_edge_auditor.py`: Refactored para usar dynamic windows por setup type y track actual TP/SL distances. `print_report` usa `real_outcome` como métrica primaria.
+    *   `utils/analysis/per_condition_audit.py`: Actualizado para dynamic windows y real TP/SL outcomes.
+*   **Hallazgos por CAPA**:
+    *   **CAPA 1A**: Sensor funciona — detecta absorción correctamente (footprint delta Z-score extremes).
+    *   **CAPA 1B**: Confirmation sensors no evaluables — guardian estaba desconectado.
+    *   **CAPA 2C**: Rotation/continuation ratio negativo vs random. Solo reversion marginal (+0.17).
+    *   **CAPA 3A**: MFE/MAE decae monótonamente. Solo a 30s ratio > 1.0.
+    *   **CAPA 3D**: Pendiente — ¿Z-score es el predictor, no la absorción?
+    *   **🔴 CAPA 0 (CRÍTICO)**: Sin datos L2 en backtest, el `FootprintRegistry` se reconstruye solo desde trades (L1). Delta se infiere (trades en ask=buying, bid=selling), no se observa. Las órdenes reposantes grandes (el fenómeno de absorción) NO son visibles. La detección es una inferencia estadística, no una observación directa.
+*   **Implicación CAPA 0**: Todos los backtests previos de absorción son inválidos — el sensor está "adivinando" absorción en vez de observarla. La prioridad es obtener datos L2 para backtest antes de cualquier evaluación de alpha.
+*   **TraceBullet**: Verificado que `GuardianManager` emite `GUARDIAN_REJECT` para contra-tendencia (comportamiento correcto). Señales confirmadas que pasan regime filter se despachan correctamente.
+*   **Bug menor**: `SensorV3.emit_signal()` usa `self.__class__.__name__` como `sensor_id` (="AbsorptionDetector"), mientras que el worker path usa `self._name` (="TacticalAbsorptionV2"). Interceptación ahora cubre ambos.
+
 ### 2026-05-08: Structural Integrity & Validator Alignment — V3.4c Certification
 *   **Descripción**: Certificación de la integridad estructural y matemática del pipeline Casino-V3 (V3.4c) para prepararlo para la re-calibración de la estrategia BEAR. Se alinearon los validadores de las Capas 0-3 con la arquitectura reactiva V4 y se corrigieron fallos críticos de metadatos y mocks.
 *   **Detalle Técnico**:
