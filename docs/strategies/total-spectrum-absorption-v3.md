@@ -3,7 +3,7 @@
 **Clasificación**: Estrategia Institucional de Microestructura
 **Mercado**: Futuros de Criptomonedas (24/7, Binance)
 **Horizonte**: Scalping Intradía (5s–15min)
-**Versión**: V4 — Volume Profile Structural Routing
+**Versión**: V9 — ATR-Based SL + Volume Profile Routing
 
 ---
 
@@ -96,67 +96,66 @@ No toda absorción es igual. El sistema aplica filtros de calidad para rechazar 
 El target de cada operación se calcula según el tipo de setup, usando niveles estructurales del Volume Profile (POC/VAH/VAL), no VWAP.
 
 ### 5.1 Reversión (OUT_OF_VALUE en Balance)
-- **Take Profit**: POC (centro de valor — el precio al que el mercado formó consenso).
-- **Stop Loss**: Detrás de VAL + buffer (LONG) o VAH + buffer (SHORT). Si el precio rompe el Área de Valor en contra, la tesis de reversión se invalida.
-- **Buffer**: 0.5× ATR detrás del nivel estructural, mínimo 3 ticks.
+- **Take Profit**: POC (centro de valor) **solo si está del lado correcto del entry** (POC > price para LONG, POC < price para SHORT). Si POC está del lado equivocado, usar 1.0× ATR desde el entry.
+- **Stop Loss**: 1.0× ATR desde el entry, con **mínimo de 0.30%** (alineado con edge-audit calibration). El SL detrás de VAL/VAH era demasiado ancho (avg 1.26% vs MAE 0.194%).
 - **R:R Típico**: Depende de la distancia del entry al POC vs. la distancia al SL.
 
 ### 5.2 Continuación (Trend Alineado)
 - **Take Profit**: 1.5× ATR desde el entry (extensión del trend).
-- **Stop Loss**: POC + buffer (si el precio cruza el centro de valor, el trend se invalida).
+- **Stop Loss**: 1.0× ATR desde el entry, mínimo 0.30%.
 - **R:R Típico**: 1.5:1 a 2:1.
 
 ### 5.3 Rotación (IN_VALUE en Balance)
 - **Take Profit**: El más lejano entre (1.0× ATR desde el entry) y (borde opuesto del Área de Valor: VAH para LONG, VAL para SHORT). Esto asegura suficiente distancia para cubrir fees.
-- **Stop Loss**: Detrás del borde más cercano del Área de Valor + buffer (VAL + buffer para LONG, VAH + buffer para SHORT). Si el precio rompe el VA, la rotación se invalida.
+- **Stop Loss**: 1.0× ATR desde el entry, mínimo 0.30%.
 - **R:R Típico**: 1:1.
 
-**Principio clave**: Los targets son relativos al **precio de entrada** y los **niveles estructurales del Volume Profile**. El ATR actúa como safety net mínimo. Si el VA es demasiado estrecho para cubrir fees, el ATR asegura una distancia mínima.
+**Principio clave (V9)**: SL = max(1.0× ATR, 0.30%) desde el entry. Los niveles VA (POC/VAH/VAL) se usan solo como **referencia direccional para TP**, no como distancia para SL. El SL detrás de VA era demasiado ancho y destruía el edge.
 
 ---
 
-## 6. El Edge Cuantificado (L2 Real, V4 Volume Profile)
+## 6. El Edge Cuantificado (L2 Real, V9 ATR SL)
 
 Todas las métricas fueron generadas con infraestructura L2 de alta fidelidad (Tardis + l2_processor). La absorción se **observa** directamente desde el order book, no se infiere.
 
-### 6.1 Edge Audit V4 — Volume Profile Routing (LTC/USDT, 1 día RANGE)
+### 6.1 Edge Audit V9 — ATR-Based SL + Volume Profile Routing (LTC/USDT, 1 día RANGE)
 
 | Métrica | Valor |
 |---|---|
-| Total Signals | 503 |
-| Decided (W+L) | 300 (Timeouts: 203) |
-| Overall Win Rate | 60.3% |
-| Gross Expectancy | -0.114% |
-| Net (Taker 0.12%) | -0.234% ❌ |
-| Net (Maker 0.08%) | -0.194% ❌ |
+| Total Signals | 178 |
+| Decided (W+L) | 33 (Timeouts: 145) |
+| Overall Win Rate | 66.7% |
+| **Gross Expectancy** | **+0.224%** |
+| **Net (Taker 0.12%)** | **+0.104%** ✅ |
+| **Net (Maker 0.08%)** | **+0.144%** ✅ |
 
 ### 6.2 Desglose por Setup (Dynamic TP/SL)
 
-| Setup | n | WR% | Avg TP% | Avg SL% | MFE% | MAE% | Ratio | Exp% | Verdict |
-|-------|---|-----|---------|---------|------|------|-------|------|---------|
-| continuation | 8 | 62.5% | 0.427% | 1.008% | 0.466% | 0.213% | 2.19 | +0.199% | LOW_N |
-| reversion | 234 | 64.9% | -0.222% | 1.260% | 0.228% | 0.194% | 1.17 | -0.586% | FAILED |
-| rotation | 262 | 43.5% | 1.080% | 0.802% | 0.236% | 0.220% | 1.08 | +0.018% | FRAGILE |
+| Setup | n | W | L | TO | WR% | Avg TP% | Avg SL% | MFE% | MAE% | Ratio | Exp% |
+|-------|---|---|---|----|-----|---------|---------|------|------|-------|------|
+| continuation | 3 | 3 | 0 | 0 | 100.0% | 0.250% | 0.300% | 0.360% | 0.130% | 2.77 | +0.250% |
+| reversion | 105 | 12 | 1 | 92 | 92.3% | 0.485% | 0.300% | 0.153% | 0.104% | 1.48 | +0.425% |
+| rotation | 70 | 7 | 10 | 53 | 41.2% | 0.497% | 0.300% | 0.174% | 0.170% | 1.02 | +0.028% |
 
-### 6.3 Targets Uniformes (Edge Latente)
+### 6.3 Targets Uniformes (Calibración)
 
 | Setup | Best TP/SL | WR% | Exp% | Net Taker | Net Maker |
-|-------|-----------|-----|------|-----------|-----------|
-| continuation | 0.4/0.4% | 80.0% | +0.240% | +0.120% | +0.160% |
-| reversion | 0.4/0.4% | 56.9% | +0.056% | -0.064% | -0.024% |
-| rotation | 0.3/0.3% | 56.4% | +0.039% | -0.081% | -0.041% |
+|-------|-----------|-----|------|-----------|----------|
+| continuation | 0.4/0.4% | 100.0% | +0.400% | +0.280% | +0.320% |
+| reversion | 0.4/0.4% | 81.2% | +0.250% | +0.130% | +0.170% |
+| rotation | 0.4/0.4% | 72.7% | +0.182% | +0.062% | +0.102% |
 
-**Overall uniforme**: 0.3/0.3% → WR 57.6%, Exp +0.046%, Net Taker -0.074%
+**Overall uniforme**: 0.4/0.4% → WR 81.2%, Exp +0.250%, Net Taker +0.130%
 
 ### 6.4 Diagnóstico
 
-1. **El routing V4 funciona**: +26% más señales vs V3 (503 vs 399), WR sube de 33% → 60%. Volume Profile clasifica mejor que VWAP Z.
-2. **El problema sigue siendo targets dinámicos**: Reversion SL promedio = 1.260% (6.5× el MAE de 0.194%). El SL detrás de VAL/VAH es demasiado ancho para el MAE disponible.
-3. **Edge latente existe**: A targets uniformes 0.3/0.3%, WR = 57.6%, Exp = +0.046%. Pero no cubre fees de taker.
-4. **Continuation es prometedor**: Ratio 2.19, WR 62.5%, pero n=8 es insuficiente.
-5. **Rotation: 76% timeouts** (200/262) — los targets VAH/VAL no se alcanzan en el tiempo disponible.
+1. **Edge positivo por primera vez**: Gross +0.224%, Net Taker +0.104%. El SL ATR-based (0.30% min) resolvió el problema de targets dinámicos.
+2. **Reversion domina**: 92.3% WR, +0.425% Exp. Pero 87% timeouts — el TP (POC/ATR) está demasiado lejos. A 0.4/0.4% uniforme, WR=81.2%.
+3. **Rotation frágil**: 41.2% WR, 76% timeouts. VAH/VAL targets no se alcanzan. A 0.4/0.4% uniforme, WR=72.7%.
+4. **Continuation**: n=3 insuficiente, pero Ratio 2.77 y 100% WR sugieren edge real.
+5. **Edge es marginal**: +0.104% net < 3× fee threshold. Un deterioro pequeño en WR lo volvería negativo.
 
-**Siguiente paso**: Calibrar SL tighter (usar ATR en vez de VA completa para SL) y TP más cercanos (POC en vez de VAH/VAL para rotation).
+**Siguiente paso**: Reducir TP de reversion (87% timeouts indica TP demasiado lejano), evaluar rotation TP, y fortalecer edge con Limit Sniper (maker entry → +0.144% net).
 
 ---
 
@@ -177,11 +176,12 @@ La mayoría de los sistemas de trading aplican una sola lógica (reversión o co
 
 ## 8. Riesgos y Limitaciones
 
-1. **Fee Sensitivity**: El edge bruto es negativo con targets dinámicos (-0.114%). Solo a targets uniformes 0.3/0.3% existe edge latente (+0.046%), insuficiente para cubrir fees de taker. La estrategia requiere ejecución maker (Limit Sniper) y/o calibración de targets.
-2. **SL Calibration**: El SL detrás de VAL/VAH es demasiado ancho (avg 1.260% para reversion vs MAE 0.194%). Necesita ajuste — probablemente ATR-based con VA como máximo, no como mínimo.
-3. **RANGE Fragility**: En mercados laterales sin volatilidad, el VA es estrecho y los targets dinámicos generan timeouts masivos (76% en rotation).
+1. **Edge Marginal**: Net Taker +0.104% es < 3× el fee. Un deterioro de ~2% en WR volvería el edge negativo. La estrategia requiere ejecución maker (Limit Sniper → +0.144% net) para mayor robustez.
+2. **Timeout Rate**: 82% de señales son timeout (145/178). Los targets dinámicos (POC/ATR) están demasiado lejos del MAE disponible. TP más cercano reduciría timeouts y aumentaría trades decididos.
+3. **Rotation Fragility**: 41.2% WR con targets dinámicos. VAH/VAL no se alcanzan en 76% de casos. Necesita TP alternativo.
 4. **Volume Profile Warm-up**: El sistema no puede operar hasta que SessionValueArea calcule POC/VAH/VAL. `is_structural_ready()` bloquea señales antes de tener datos.
 5. **Latencia**: La detección de absorción requiere procesamiento de ticks en tiempo real. Latencias > 100ms pueden hacer que la señal llegue tarde, cuando el movimiento ya ocurrió.
+6. **Concentration/Noise Filters**: Filtros estrictos (Conc≥0.70, Noise≤0.20) eliminan señales de alta Z-score que tenían mejor MFE. Los thresholds actuales (Conc≥0.50, Noise≤0.35) son un compromiso empírico.
 
 ---
 
@@ -213,3 +213,13 @@ Eliminación de VWAP Z-score del pipeline de decisiones. Razones:
 - Volume Profile (POC/VAH/VAL) refleja consenso real de la subasta, no un promedio estadístico.
 - StatisticalLocationGuardian eliminado — su función de routing la cumple mejor RegimeGuardian con Volume Profile.
 - Targets cambiados de VWAP-based a Volume Profile-based (TP=POC, SL=detrás de VA + buffer).
+
+### V4 → V9: De VA-Based SL a ATR-Based SL (Bug Fixes + Calibración)
+Cinco bugs críticos corregidos que destruían el edge:
+1. **Config thresholds no conectados**: AbsorptionDetector usaba Z≥1.5/Conc≥0.15/Noise≤0.85 hardcodeados en vez de leer config/absorption.py (Z≥3.0/Conc≥0.50/Noise≤0.35).
+2. **Concentración era proxy de tiempo**: `_concentration()` devolvía 0.90/0.60/0.30 basado en `time_since_update`, no medía concentración real de volumen. Reimplementada como `dominant_vol / total_vol`.
+3. **Noise ratio invertido**: El volumen agresor se clasificaba como "ruido" y el contra-direccional como "señal". Corregido.
+4. **POC TP del lado equivocado**: 67% de señales de reversion tenían TP (POC) en dirección opuesta al trade. Añadida validación `poc_valid`.
+5. **SL detrás de VA demasiado ancho**: Reversion SL avg 1.26% vs MAE 0.194% (6.5×). Reemplazado por SL = max(1.0× ATR, 0.30%) desde el entry.
+
+Resultado: Gross Expectancy de -0.114% (V4) → **+0.224%** (V9). Net Taker de -0.234% → **+0.104%**.
