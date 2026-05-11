@@ -106,40 +106,52 @@ done
 
 ## Step 2: Run Backtests (18 total — 2 assets × 3 conditions × 3 days)
 
-### 2A: LTC RANGE (Aug 14-16)
+### 2A: LTC RANGE (Feb, May, Aug Day 1s)
 ```bash
-.venv/bin/python utils/data/l2_price_ingestor.py --symbol LTCUSDT --download --start 2024-08-14 --end 2024-08-16 --db-path data/historian.db
-.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol LTC/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ LTC RANGE" || echo "❌ LTC RANGE"
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_RANGE_2024-02-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_RANGE_2024-05-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_RANGE_2024-08-01.db --symbol LTC/USDT:USDT --audit
+echo "✅ LTC RANGE COMPLETED"
 ```
 
-### 2B: LTC BEAR (Sep 05-07)
+### 2B: LTC BEAR (Apr, Oct, Feb Day 1s)
 ```bash
-.venv/bin/python utils/data/l2_price_ingestor.py --symbol LTCUSDT --download --start 2024-09-05 --end 2024-09-07 --db-path data/historian.db
-.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol LTC/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ LTC BEAR" || echo "❌ LTC BEAR"
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_BEAR_2024-04-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_BEAR_2024-10-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_BEAR_2025-02-01.db --symbol LTC/USDT:USDT --audit
+echo "✅ LTC BEAR COMPLETED"
 ```
 
-### 2C: LTC BULL (Oct 13-15)
+### 2C: LTC BULL (Mar, Dec, May Day 1s)
 ```bash
-.venv/bin/python utils/data/l2_price_ingestor.py --symbol LTCUSDT --download --start 2024-10-13 --end 2024-10-15 --db-path data/historian.db
-.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol LTC/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ LTC BULL" || echo "❌ LTC BULL"
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_BULL_2024-03-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_BULL_2024-12-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/LTC_BULL_2025-05-01.db --symbol LTC/USDT:USDT --audit
+echo "✅ LTC BULL COMPLETED"
 ```
 
-### 2D: DOGE RANGE (May 1-3)
+### 2D: DOGE RANGE (Feb, Jun, Nov Day 1s)
 ```bash
-.venv/bin/python utils/data/l2_price_ingestor.py --symbol DOGEUSDT --download --start 2025-05-01 --end 2025-05-03 --db-path data/historian.db
-.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol DOGE/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ DOGE RANGE" || echo "❌ DOGE RANGE"
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_RANGE_2024-02-01.db --symbol DOGE/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_RANGE_2024-06-01.db --symbol DOGE/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_RANGE_2024-11-01.db --symbol DOGE/USDT:USDT --audit
+echo "✅ DOGE RANGE COMPLETED"
 ```
 
-### 2E: DOGE BEAR (May 28-30)
+### 2E: DOGE BEAR (Apr, Sep, Feb Day 1s)
 ```bash
-.venv/bin/python utils/data/l2_price_ingestor.py --symbol DOGEUSDT --download --start 2025-05-28 --end 2025-05-30 --db-path data/historian.db
-.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol DOGE/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ DOGE BEAR" || echo "❌ DOGE BEAR"
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_BEAR_2024-04-01.db --symbol DOGE/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_BEAR_2024-09-01.db --symbol DOGE/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_BEAR_2025-02-01.db --symbol DOGE/USDT:USDT --audit
+echo "✅ DOGE BEAR COMPLETED"
 ```
 
-### 2F: DOGE BULL (May 16-18)
+### 2F: DOGE BULL (Mar, Jan, May Day 1s)
 ```bash
-.venv/bin/python utils/data/l2_price_ingestor.py --symbol DOGEUSDT --download --start 2025-05-16 --end 2025-05-18 --db-path data/historian.db
-.venv/bin/python backtest.py --depth-db-path data/historian.db --symbol DOGE/USDT:USDT --audit > /dev/null 2>&1 && echo "✅ DOGE BULL" || echo "❌ DOGE BULL"
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_BULL_2024-03-01.db --symbol DOGE/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_BULL_2025-01-01.db --symbol DOGE/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/certified/DOGE_BULL_2025-05-01.db --symbol DOGE/USDT:USDT --audit
+echo "✅ DOGE BULL COMPLETED"
 
 find data/ -type f -name "*.csv*" -delete
 .venv/bin/python utils/update_memory.py --workflow long-range-edge-audit

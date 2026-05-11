@@ -25,13 +25,14 @@ SETUP_WINDOWS = {
 }
 DEFAULT_WINDOW = 900
 
+# Exact Day 1 Timestamps (Start, End)
 CONDITIONS = {
-    "RANGE (Aug 2024)": (1723593600, 1723852800),
-    "BEAR  (Sep 2024)": (1725494400, 1725753600),
-    "BULL  (Oct 2024)": (1728777600, 1729036800),
-    "DOGE RANGE (May 2025)": (1746057600, 1746316800),
-    "DOGE BEAR  (May 2025)": (1748390400, 1748649600),
-    "DOGE BULL  (May 2025)": (1747353600, 1747612800),
+    "LTC RANGE": [(1706745600, 1706832000), (1714521600, 1714608000), (1722470400, 1722556800)],
+    "LTC BEAR ": [(1711929600, 1712016000), (1727740800, 1727827200), (1738368000, 1738454400)],
+    "LTC BULL ": [(1709251200, 1709337600), (1733011200, 1733097600), (1746057600, 1746144000)],
+    "DOGE RANGE": [(1706745600, 1706832000), (1717200000, 1717286400), (1730419200, 1730505600)],
+    "DOGE BEAR ": [(1711929600, 1712016000), (1725148800, 1725235200), (1738368000, 1738454400)],
+    "DOGE BULL ": [(1709251200, 1709337600), (1735689600, 1735776000), (1746057600, 1746144000)],
 }
 
 
@@ -194,8 +195,11 @@ def main():
     print(f"{'Condition':25s} {'n':>4}  {'RealWR%':>7}  {'AvgTP%':>7}  {'AvgSL%':>7}  {'RealExp%':>9}  {'Verdict':>12}")
     print("-" * 90)
 
-    for cond_name, (ts_start, ts_end) in CONDITIONS.items():
-        cond_signals = signals[(signals["timestamp"] >= ts_start) & (signals["timestamp"] < ts_end)]
+    for cond_name, ranges in CONDITIONS.items():
+        # Combine multiple ranges for this condition
+        cond_signals = pd.concat(
+            [signals[(signals["timestamp"] >= start) & (signals["timestamp"] < end)] for start, end in ranges]
+        )
 
         result = analyze_condition(cond_signals, samples)
 
@@ -215,8 +219,11 @@ def main():
     print(f"{'Condition':25s} {'n':>4}  {'WR%':>6}  {'MFE%':>7}  {'MAE%':>7}  {'Ratio':>6}")
     print("-" * 65)
 
-    for cond_name, (ts_start, ts_end) in CONDITIONS.items():
-        cond_signals = signals[(signals["timestamp"] >= ts_start) & (signals["timestamp"] < ts_end)]
+    for cond_name, ranges in CONDITIONS.items():
+        # Combine multiple ranges for this condition
+        cond_signals = pd.concat(
+            [signals[(signals["timestamp"] >= start) & (signals["timestamp"] < end)] for start, end in ranges]
+        )
 
         result = analyze_condition(cond_signals, samples)
 

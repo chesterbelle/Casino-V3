@@ -8,6 +8,14 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-10: Protocol Restoration & Certified Dataset Population (Phase 1500)
+*   **Descripción**: Se restauraron los protocolos de auditoría para alinearlos con el estándar de alta fidelidad. Se inició la creación de una bodega de datos certificada usando solo los "Días 1" (compatibles con Tardis Free Tier).
+*   **Detalle Técnico**:
+    *   `.agent/workflows/`: Sincronización de `edge-audit` y `long-range-edge-audit` a ventana de **1800s** y nuevas rutas de datasets certificados.
+    *   `utils/analysis/per_condition_audit.py`: Refactorización completa para soportar múltiples rangos de tiempo, permitiendo analizar señales de días no consecutivos.
+    *   `scratch/populate_datasets.py`: Implementación del automatismo de descarga, procesado y nombrado de los 18 días del Audit.
+*   **Estado**: Infraestructura de auditoría de largo alcance RESTAURADA y en proceso de carga.
+
 ### 2026-05-10: Edge Audit Certification & Alpha Discovery (Phase 1400)
 *   **Descripción**: Se certificó el pipeline de auditoría con datos L2 reales. Se descubrió un Alpha masivo en LTC (73% WR) oculto tras una configuración de targets subóptima.
 *   **Detalle Técnico**:
