@@ -17,11 +17,11 @@ ABSORPTION_MIN_Z_SCORE = 3.0  # Baseline: 3.0 (3 std deviations)
 
 # Velocity Filter: Concentration threshold (% of delta in < 30s)
 # Higher = faster absorption required (more institutional)
-ABSORPTION_MIN_CONCENTRATION = 0.70  # Baseline: 70% of delta in < 30s
+ABSORPTION_MIN_CONCENTRATION = 0.50  # 50% dominant volume (was 0.70 too strict for volume-based)
 
 # Noise Filter: Maximum counter-delta allowed
 # Lower = cleaner absorption (less noise)
-ABSORPTION_MAX_NOISE = 0.20  # Baseline: 20% counter-delta
+ABSORPTION_MAX_NOISE = 0.35  # 35% counter-delta (was 0.20 too strict; real absorption has counter-flow)
 
 # Throttling: Minimum time between analysis (ms)
 # Prevents IPC explosion from tick flood

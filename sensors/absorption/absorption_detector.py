@@ -3,6 +3,11 @@ import math
 import uuid
 from typing import Dict, List, Optional, Tuple
 
+from config.absorption import (
+    ABSORPTION_MAX_NOISE,
+    ABSORPTION_MIN_CONCENTRATION,
+    ABSORPTION_MIN_Z_SCORE,
+)
 from core.footprint_registry import footprint_registry
 from sensors.base import SensorV3
 from utils.trace_bullet import TraceBulletMixin
@@ -24,10 +29,10 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
         self._name = "TacticalAbsorptionV2"
         self.timeframes = ["1m"]
 
-        # Filter thresholds
-        self.z_score_min = 1.5
-        self.concentration_min = 0.15
-        self.noise_max = 0.85
+        # Filter thresholds — wired from config/absorption.py
+        self.z_score_min = ABSORPTION_MIN_Z_SCORE  # 3.0 (was 1.5 hardcoded)
+        self.concentration_min = ABSORPTION_MIN_CONCENTRATION  # 0.70 (was 0.15)
+        self.noise_max = ABSORPTION_MAX_NOISE  # 0.20 (was 0.85)
         self.stagnation_max_pct = 0.15
 
         # State tracking
@@ -164,15 +169,28 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
         return (delta - mean) / std_dev if std_dev > 1e-9 else 0.0
 
     def _concentration(self, footprint, level: float, timestamp: float) -> float:
+        """
+        Volume-based concentration: what fraction of the level's total volume
+        comes from the dominant direction (the absorption side).
+
+        High concentration = most volume at this level is one-directional,
+        indicating a concentrated institutional attack (not scattered retail flow).
+
+        For SELL_EXHAUSTION (delta < 0): concentration = bid_vol / total_vol
+        For BUY_EXHAUSTION (delta > 0): concentration = ask_vol / total_vol
+        """
         data = footprint.levels.get(level)
         if not data:
             return 0.0
-        time_since_update = timestamp - data.get("last_update", timestamp)
-        if time_since_update < 30:
-            return 0.90
-        elif time_since_update < 60:
-            return 0.60
-        return 0.30
+        ask_vol = data["ask_volume"]
+        bid_vol = data["bid_volume"]
+        total_vol = ask_vol + bid_vol
+        if total_vol <= 0:
+            return 0.0
+        delta = data["delta"]
+        # Dominant volume = volume in the direction of the delta
+        dominant_vol = ask_vol if delta > 0 else bid_vol
+        return dominant_vol / total_vol
 
     def _check_price_stagnation(self, direction: str, candle: dict) -> bool:
         open_p = candle.get("open", 0)
@@ -189,10 +207,23 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
         return displacement_pct < self.stagnation_max_pct
 
     def _noise_ratio(self, ask_vol: float, bid_vol: float, delta: float) -> float:
+        """
+        Noise ratio: fraction of volume that is COUNTER to the dominant direction.
+
+        For SELL_EXHAUSTION (delta < 0): noise = ask_vol / total_vol
+          (ask_vol = buyers fighting back = noise in a sell absorption)
+        For BUY_EXHAUSTION (delta > 0): noise = bid_vol / total_vol
+          (bid_vol = sellers fighting back = noise in a buy absorption)
+
+        Low noise = clean one-directional absorption.
+        High noise = two-way flow, not true absorption.
+        """
         total_vol = ask_vol + bid_vol
         if total_vol == 0:
             return 1.0
-        return (ask_vol if delta < 0 else bid_vol) / total_vol
+        # Counter-directional volume is the noise
+        counter_vol = ask_vol if delta < 0 else bid_vol
+        return counter_vol / total_vol
 
 
 def get_sensor_class():

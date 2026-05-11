@@ -160,67 +160,78 @@ class SetupEngineV4(TraceBulletMixin):
     def _calculate_targets(
         self, symbol: str, side: str, price: float, setup_mode, value_position: str = "OUT_OF_VALUE"
     ) -> Tuple[float, float, str, str]:
-        """Calculate structural TP/SL based on setup mode and value position.
+        """Calculate structural TP/SL based on Volume Profile (POC/VAH/VAL).
+
+        V7: ATR-based SL with VA as directional reference.
+        - SL = 1.0× ATR from entry (covers 2-3× MAE, per edge audit calibration)
+        - VA levels used for TP direction only, not SL distance
+        - Reversion: TP = POC (if valid) or ATR, SL = ATR
+        - Rotation: TP = opposite VA boundary or ATR, SL = ATR
+        - Continuation: TP = 1.5× ATR extension, SL = ATR
 
         Returns (tp_price, sl_price, setup_type_name, level_ref).
         """
         from decision.guardians.guardian_result import SetupMode
 
-        vwap_data = self.context_registry.vwap_state.get(self.context_registry._norm_key(symbol))
-        vwap_price = vwap_data["vwap"] if vwap_data else 0.0
-        std = vwap_data["std"] if vwap_data else 0.0
-        atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0)
+        # Get Volume Profile structural levels
+        poc, vah, val = 0.0, 0.0, 0.0
+        if self.context_registry:
+            poc, vah, val = self.context_registry.get_structural(symbol)
+
+        atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0) if self.context_registry else 0.0
+        # ATR-based distances (fallback to % of price if ATR unavailable)
+        atr_dist = atr * 1.0 if atr > 0 else (price * 0.003)
+        # SL = max(1.0× ATR, 0.30%) — minimum 0.30% per edge-audit calibration
+        atr_sl = atr * 1.0 if atr > 0 else (price * 0.003)
+        min_sl = price * 0.003  # 0.30% minimum SL (LTA_SL_TICK_BUFFER aligned)
+        atr_sl = max(atr_sl, min_sl)
 
         if setup_mode == SetupMode.CONTINUATION:
             if value_position == "IN_VALUE":
                 # ROTATION: Price inside Value Area → target opposite VA boundary
-                # Key: TP/SL must be relative to ENTRY PRICE, not VWAP.
-                # If LONG at Z=0.5, VAH is only 0.5σ away (too close for TP),
-                # but VAL is 1.5σ away (too far for SL). Fix: use ATR-based targets
-                # with VA as minimum TP distance.
-                atr_dist = atr * 1.0 if atr > 0 else (price * 0.003)
-
+                # LONG near VAL → target VAH, SHORT near VAH → target VAL
+                # ATR as minimum distance safety net
                 if side == "LONG":
-                    # TP: max of (1.0*ATR above entry, VAH) — ensures enough room
                     tp_atr = price + atr_dist
-                    tp_vah = vwap_price + std if std > 0 and vwap_price > 0 else tp_atr
-                    tp_price = max(tp_atr, tp_vah) if vwap_price > 0 else tp_atr
-                    # SL: below entry by 1.0*ATR (not at VAL which can be far below)
-                    sl_price = price - atr_dist
+                    tp_price = max(tp_atr, vah) if vah > 0 else tp_atr
+                    sl_price = price - atr_sl
                 else:
                     tp_atr = price - atr_dist
-                    tp_val = vwap_price - std if std > 0 and vwap_price > 0 else tp_atr
-                    tp_price = min(tp_atr, tp_val) if vwap_price > 0 else tp_atr
-                    sl_price = price + atr_dist
+                    tp_price = min(tp_atr, val) if val > 0 else tp_atr
+                    sl_price = price + atr_sl
                 setup_type_name = "rotation"
                 level_ref = "VA_ROTATION"
             else:
-                # TREND EXTENSION: Target 1.5 * ATR, SL = VWAP
+                # TREND EXTENSION: Target 1.5 * ATR, SL = ATR
                 atr_extension = atr * 1.5 if atr > 0 else (price * 0.005)
                 if side == "LONG":
                     tp_price = price + atr_extension
-                    sl_price = vwap_price if vwap_price > 0 else price * 0.997
+                    sl_price = price - atr_sl
                 else:
                     tp_price = price - atr_extension
-                    sl_price = vwap_price if vwap_price > 0 else price * 1.003
+                    sl_price = price + atr_sl
                 setup_type_name = "continuation"
                 level_ref = "TREND_EXTENSION"
         else:
-            # REVERSION: Target = VWAP (Fair Value), SL = 3.5Z from VWAP
-            tp_price = vwap_price if vwap_price > 0 else price * (1.0025 if side == "LONG" else 0.9975)
-
-            if std > 0 and vwap_price > 0:
-                if side == "LONG":
-                    sl_price = vwap_price - (3.5 * std)
-                    sl_price = min(sl_price, price * 0.996)
-                else:
-                    sl_price = vwap_price + (3.5 * std)
-                    sl_price = max(sl_price, price * 1.004)
+            # REVERSION: Target = POC (center of value) if valid, else ATR
+            # SL = ATR from entry (calibrated to cover 2-3× MAE)
+            poc_valid = poc > 0 and ((side == "LONG" and poc > price) or (side == "SHORT" and poc < price))
+            if poc_valid:
+                tp_price = poc
             else:
-                sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
-                sl_price = price * (1 - sl_buffer) if side == "LONG" else price * (1 + sl_buffer)
+                # POC on wrong side or unavailable — use ATR-based TP
+                if side == "LONG":
+                    tp_price = price + atr_dist
+                else:
+                    tp_price = price - atr_dist
+
+            # SL = ATR from entry (simple, calibrated)
+            if side == "LONG":
+                sl_price = price - atr_sl
+            else:
+                sl_price = price + atr_sl
             setup_type_name = "reversion"
-            level_ref = "VWAP_BAND"
+            level_ref = "VA_REVERSION"
 
         # Safety: Ensure TP is at least 0.20% away to cover fees
         tp_dist = abs(tp_price - price) / price

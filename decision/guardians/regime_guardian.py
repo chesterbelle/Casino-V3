@@ -4,9 +4,10 @@ from .guardian_result import GuardianResult, SetupMode
 
 logger = logging.getLogger("RegimeGuardian")
 
-# V3 Regime: Value Position × Value Acceptance thresholds
-Z_IN_VALUE = 2.0  # |Z| < 2.0 = price inside Value Area
-Z_EXCESS = 3.0  # |Z| >= 3.0 = extreme dislocation (EXCESS)
+# V4 Regime: Value Position via Volume Profile (POC/VAH/VAL)
+# No longer uses VWAP Z-score for value_position.
+# VWAP Z is lagging; Volume Profile reflects actual auction consensus.
+VA_EXCESS_FACTOR = 0.5  # Price beyond VAH/VAL + 50% of VA width = EXCESS
 
 
 def check_regime_alignment(
@@ -45,25 +46,46 @@ def check_regime_alignment(
     absorption_detected = regime_v2_data.get("absorption_detected", False)
     layers = regime_v2_data.get("layers", {})
 
-    # Get VWAP Z-score for Value Position determination
-    # NOTE: reversal_signal["z_score"] is the FOOTPRINT cross-sectional Z (delta magnitude),
-    # NOT the VWAP Z-score. We must compute VWAP Z from context_registry.
+    # V4: Determine Value Position from Volume Profile (POC/VAH/VAL)
+    # Volume Profile reflects where the auction actually formed consensus.
+    # VWAP Z is lagging and assumes gaussian symmetry; VA is empirical.
     price = reversal_signal.get("close", 0.0) or reversal_signal.get("price", 0.0)
+    poc, vah, val = 0.0, 0.0, 0.0
+    if context_registry:
+        poc, vah, val = context_registry.get_structural(symbol)
+
+    # Fallback: if Volume Profile not ready, use VWAP Z (legacy)
     vwap_z_score = 0.0
-    if price > 0 and context_registry:
+    if poc == 0.0 and price > 0 and context_registry:
         vwap_z_score = context_registry.get_vwap_zscore(symbol, price)
-    # Fallback: if VWAP Z not available, use footprint Z (less accurate but better than 0)
-    if vwap_z_score == 0.0:
-        vwap_z_score = reversal_signal.get("z_score", 0.0)
-
-    abs_z = abs(vwap_z_score)
-
-    # Determine Value Position
-    if abs_z >= Z_EXCESS:
-        value_position = "EXCESS"
-    elif abs_z >= Z_IN_VALUE:
-        value_position = "OUT_OF_VALUE"
+        if vwap_z_score == 0.0:
+            vwap_z_score = reversal_signal.get("z_score", 0.0)
+        abs_z = abs(vwap_z_score)
+        if abs_z >= 3.0:
+            value_position = "EXCESS"
+        elif abs_z >= 2.0:
+            value_position = "OUT_OF_VALUE"
+        else:
+            value_position = "IN_VALUE"
+    elif poc > 0 and vah > val:
+        va_width = vah - val
+        if price <= val:
+            # Below Value Area
+            if price < val - (va_width * VA_EXCESS_FACTOR):
+                value_position = "EXCESS"
+            else:
+                value_position = "OUT_OF_VALUE"
+        elif price >= vah:
+            # Above Value Area
+            if price > vah + (va_width * VA_EXCESS_FACTOR):
+                value_position = "EXCESS"
+            else:
+                value_position = "OUT_OF_VALUE"
+        else:
+            # Inside Value Area (between VAL and VAH)
+            value_position = "IN_VALUE"
     else:
+        # No structural data at all — allow with low confidence
         value_position = "IN_VALUE"
 
     # Determine if side is trend-aligned or counter-trend
@@ -77,7 +99,9 @@ def check_regime_alignment(
         "value_position": value_position,
         "value_acceptance": value_acceptance,
         "absorption_detected": absorption_detected,
-        "vwap_z_score": round(vwap_z_score, 2),
+        "poc": round(poc, 4),
+        "vah": round(vah, 4),
+        "val": round(val, 4),
         "footprint_z_score": reversal_signal.get("z_score", 0.0),
         "side": side,
         "layers": {k: v.get("vote") if isinstance(v, dict) else v for k, v in layers.items()},
@@ -89,24 +113,24 @@ def check_regime_alignment(
 
     # --- BALANCE: Reversion is the natural trade, but edge depends on value_position
     if regime_v2 == "BALANCE":
-        # BALANCE + OUT_OF_VALUE: Price at extreme in a range → strong reversion edge
+        # BALANCE + OUT_OF_VALUE: Price outside Value Area → strong reversion edge
         if value_position in ("OUT_OF_VALUE", "EXCESS"):
             return GuardianResult(
                 passed=True,
                 score=1.0,
-                reason=f"BALANCE | Z={vwap_z_score:.1f} ({value_position}) → REVERSION",
+                reason=f"BALANCE | price@{price:.2f} ({value_position}, VA={val:.2f}-{vah:.2f}) → REVERSION",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V3",
                 setup_mode=SetupMode.REVERSION,
             )
         # BALANCE + IN_VALUE: Price inside Value Area → ROTATION (not reversion)
-        # AMT: In balance, price rotates VAL↔VAH. Reversion to VWAP is too close,
+        # AMT: In balance, price rotates VAL↔VAH. Reversion to POC is too close,
         # but rotation to opposite VA boundary IS a valid continuation trade.
         # LONG near VAL → target VAH, SHORT near VAH → target VAL.
         return GuardianResult(
             passed=True,
             score=0.7,
-            reason=f"BALANCE | Z={vwap_z_score:.1f} ({value_position}) → CONTINUATION (rotation)",
+            reason=f"BALANCE | price@{price:.2f} ({value_position}, VA={val:.2f}-{vah:.2f}) → CONTINUATION (rotation)",
             metrics=metrics,
             gate_name="REGIME_ALIGNMENT_V3",
             setup_mode=SetupMode.CONTINUATION,
@@ -121,7 +145,7 @@ def check_regime_alignment(
             return GuardianResult(
                 passed=True,
                 score=1.0,
-                reason=f"IMBALANCE | {regime_v2} dir={direction} side={side} Z={vwap_z_score:.1f} → CONTINUATION",
+                reason=f"IMBALANCE | {regime_v2} dir={direction} side={side} ({value_position}) → CONTINUATION",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V3",
                 setup_mode=SetupMode.CONTINUATION,
@@ -133,7 +157,7 @@ def check_regime_alignment(
             return GuardianResult(
                 passed=True,
                 score=0.7,
-                reason=f"IMBALANCE (weak) | {regime_v2} dir={direction} side={side} Z={vwap_z_score:.1f} → CONTINUATION",
+                reason=f"IMBALANCE (weak) | {regime_v2} dir={direction} side={side} ({value_position}) → CONTINUATION",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V3",
                 setup_mode=SetupMode.CONTINUATION,
@@ -145,7 +169,7 @@ def check_regime_alignment(
             return GuardianResult(
                 passed=True,
                 score=0.8,
-                reason=f"EXCESS | {regime_v2} absorption at Z={vwap_z_score:.1f} → REVERSION",
+                reason=f"EXCESS | {regime_v2} absorption at VA extreme → REVERSION",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V3",
                 setup_mode=SetupMode.REVERSION,
@@ -156,7 +180,7 @@ def check_regime_alignment(
             return GuardianResult(
                 passed=True,
                 score=0.5,
-                reason=f"EXCESS (weak) | {regime_v2} absorption at Z={vwap_z_score:.1f} → REVERSION",
+                reason=f"EXCESS (weak) | {regime_v2} absorption outside VA → REVERSION",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V3",
                 setup_mode=SetupMode.REVERSION,
@@ -200,7 +224,7 @@ def check_regime_alignment(
             return GuardianResult(
                 passed=True,
                 score=0.6,
-                reason=f"IMBALANCE (absorption) | {regime_v2} Z={vwap_z_score:.1f} → CONTINUATION (pullback entry)",
+                reason=f"IMBALANCE (absorption) | {regime_v2} ({value_position}) → CONTINUATION (pullback entry)",
                 metrics=metrics,
                 gate_name="REGIME_ALIGNMENT_V3",
                 setup_mode=SetupMode.CONTINUATION,
@@ -210,7 +234,7 @@ def check_regime_alignment(
     return GuardianResult(
         passed=True,
         score=0.5,
-        reason=f"DEFAULT BALANCE | regime={regime_v2} dir={direction} Z={vwap_z_score:.1f}",
+        reason=f"DEFAULT BALANCE | regime={regime_v2} dir={direction} ({value_position})",
         metrics=metrics,
         gate_name="REGIME_ALIGNMENT_V3",
         setup_mode=SetupMode.REVERSION,

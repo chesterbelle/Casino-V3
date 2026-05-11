@@ -6,7 +6,6 @@ from .guardian_result import GuardianResult, SetupMode
 from .liquidity_guardian import check_liquidity_heatmap
 from .regime_guardian import check_regime_alignment
 from .spread_sanity_guardian import check_spread_sanity
-from .statistical_location_guardian import check_statistical_location
 
 
 class GuardianManager(TraceBulletMixin):
@@ -32,11 +31,13 @@ class GuardianManager(TraceBulletMixin):
         results.append(check_regime_alignment(symbol, side, reversal_signal, context_registry, fast_track))
         results.append(check_spread_sanity(symbol, context_registry, fast_track))
 
-        # Phase 3 & D1: Location Guardians
+        # Phase 3: Liquidity Guardian
         target_price = reversal_signal.get("close") or reversal_signal.get("price", 0.0)
 
         results.append(check_liquidity_heatmap(symbol, side, target_price, context_registry, fast_track))
-        results.append(check_statistical_location(symbol, side, target_price, context_registry, fast_track))
+        # V4: StatisticalLocationGuardian REMOVED — VWAP Z hard gate was killing
+        # valid absorption signals (588/642 rejects). Volume Profile now handles
+        # value_position in RegimeGuardian.
 
         # 2. Hard Gate Evaluation (Interpretability)
         final_mode = SetupMode.REVERSION
@@ -84,7 +85,9 @@ class GuardianManager(TraceBulletMixin):
                     "value_position": res.metrics.get("value_position"),
                     "value_acceptance": res.metrics.get("value_acceptance"),
                     "absorption_detected": res.metrics.get("absorption_detected"),
-                    "vwap_z_score": res.metrics.get("vwap_z_score"),
+                    "poc": res.metrics.get("poc"),
+                    "vah": res.metrics.get("vah"),
+                    "val": res.metrics.get("val"),
                     "footprint_z_score": res.metrics.get("footprint_z_score"),
                 }
                 break
