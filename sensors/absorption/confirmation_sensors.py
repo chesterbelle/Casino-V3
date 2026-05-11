@@ -19,8 +19,6 @@ Architecture:
 """
 
 import logging
-import math
-from typing import Dict, Optional
 
 from core.footprint_registry import footprint_registry
 
@@ -158,7 +156,7 @@ class CVDFlipSensor:
         if not footprint:
             return False
 
-        current_slope = footprint.get_cvd_slope(window_seconds=5)
+        current_slope = footprint.get_cvd_slope(window_seconds=2)
         original_direction = candidate["direction"]
         original_slope = candidate.get("cvd_slope_at_detection", 0.0)
 

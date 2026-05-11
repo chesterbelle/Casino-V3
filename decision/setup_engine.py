@@ -68,11 +68,11 @@ class SetupEngineV4(TraceBulletMixin):
         self._micro_count = 0
         self.guardian_manager = GuardianManager(self._trace_decision)
 
-        # Phase 2: Absorption Confirmation Guardian
+        # Phase 2: Absorption Confirmation Guardian (V10: tick-level, 500ms window)
         self.absorption_guardian = AbsorptionReversalGuardian(fast_track=self.fast_track)
-        self.engine.subscribe(EventType.CANDLE, self.on_candle)
+        self.engine.subscribe(EventType.TICK, self.on_tick)
 
-        logger.info("🎯 LTA V4 Setup Engine initialized (Structural Warmup: Dynamic, Absorption Phase 2: ACTIVE)")
+        logger.info("🎯 LTA V10 Setup Engine initialized (Tick-Level Confirmation: 500ms window, 50ms eval)")
 
     def is_system_warm(self, symbol: str, now: float) -> Tuple[bool, List[str]]:
         """Phase 1800: Checks if the system is ready to trade based purely on structural data availability.
@@ -397,7 +397,7 @@ class SetupEngineV4(TraceBulletMixin):
                 "noise": md.get("noise", 0.0),
                 "trace_id": md.get("trace_id", ""),
             }
-            self.absorption_guardian.register_candidate(candidate)
+            self.absorption_guardian.register_candidate(candidate, timestamp=event.timestamp)
             self.trace(
                 event,
                 "PHASE2_INTERCEPT",
@@ -458,19 +458,16 @@ class SetupEngineV4(TraceBulletMixin):
                 sym, trigger["side"], trigger["setup_name"], trigger["metadata"], event, setup_type=setup_type
             )
 
-    async def on_candle(self, event):
-        """Phase 2: Evaluate pending absorption candidates on each candle close."""
+    async def on_tick(self, event):
+        """Phase 2: Evaluate pending absorption candidates on each tick (V10: 50ms throttled)."""
         symbol = event.symbol
         if symbol not in self.absorption_guardian.pending:
             return
 
-        confirmed = self.absorption_guardian.on_candle(
+        confirmed = self.absorption_guardian.on_tick(
             symbol=symbol,
+            price=event.price,
             timestamp=event.timestamp,
-            close_price=event.close,
-            open_price=event.open,
-            high_price=event.high,
-            low_price=event.low,
         )
 
         if confirmed:
@@ -518,6 +515,7 @@ class SetupEngineV4(TraceBulletMixin):
                 "v3_mode": setup_mode.value,
                 "confirmations": confirmed.get("confirmations", 0),
                 "confirmation_details": confirmed.get("confirmation_details", {}),
+                "confirmation_latency_ms": confirmed.get("confirmation_latency_ms", 0),
                 "phase": "confirmed",
             }
             trigger_meta = self._enrich_metadata(trigger_meta, sym)
