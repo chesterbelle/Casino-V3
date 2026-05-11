@@ -32,10 +32,10 @@
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
     *   *Resilient Logic*: Fallbacks en `historian.py` y `position_tracker.py` para evitar NULLs y Silent Skips.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA ✅]
+### 2. Capa de Cristal (Estrategia / Alpha) — [WATCH 🔄]
 *   **Propósito**: Validación de Edge (Expectancia Bruta > 0.12%), Win Rate, MAE/MFE.
-*   **Estado**: **CERTIFICADA ✅**. Contamos con infraestructura de alta fidelidad y hemos validado el primer dataset (`2024-01-01_LTCUSDT.db`).
-*   **Hito**: Descubierto Edge de **73% WR** en LTC con ventana de 1800s y targets de 0.3%.
+*   **Estado**: **WATCH 🔄**. Edge potencial de 73% WR con targets uniformes (0.3%), pero SL dinámico de 3.5Z lo asfixia. Targets dinámicos del SetupEngine aún no capturan este edge orgánicamente.
+*   **Hito**: Descubierto Edge de **73% WR** en LTC con ventana de 1800s y targets uniformes de 0.3% (NO es con targets dinámicos en producción).
 *   **Próximo Paso**: Optimizar los targets dinámicos en SetupEngine para capturar este Alpha de forma orgánica.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
@@ -59,7 +59,7 @@
 2. **Capa 1 (Decision)**: **CERTIFICADA ✅**.
 3. **Capa 2 (Execution)**: **CERTIFICADA ✅**.
 4. **Capa 3 (Resilience)**: **CERTIFICADA ✅**.
-5. **Capa 4 (Strategy)**: **VALIDANDO... 🔄** — Primer Audit L2 pendiente.
+5. **Capa 4 (Strategy)**: **WATCH 🔄** — Edge potencial 73% WR con targets uniformes, pero SL dinámico asfixia edge. Targets SetupEngine por optimizar.
 6. **Capa 5 (Risk)**: **PENDIENTE 🛡️**.
 
 ---
@@ -102,7 +102,7 @@
 *   **Propósito**: Seguimiento determinístico de eventos en sistemas asíncronos y multiversionados.
 *   **Implementación**: `TraceBulletMixin` inyecta telemetría en `metadata["trace_id"]`.
 *   *Uso*: Activar con `TRACE_BULLET_ACTIVE=1` para capturar la trayectoria exacta de una señal a través de los componentes.
-*   *Bordes Críticos*: `SENSOR_INGEST` -> `GUARDIAN_CHECK` -> `SETUP_GEN` -> `EXEC_SUBMIT` -> `RECON_SYNC`.
+*   *Bordes Críticos*: `SENSOR_INGEST` -> `PHASE2_INTERCEPT` -> `GUARDIAN_CHECK` -> `PHASE2_CONFIRMED` -> `SETUP_GEN` -> `EXEC_SUBMIT` -> `RECON_SYNC`.
 *   **Regla de Oro**: Si una señal desaparece, el TraceBullet debe indicar el último "Borde" alcanzado.
 
 ### Reglas de Operación
@@ -122,4 +122,3 @@
 9. **IN_VALUE Rotation Targets**: SL y TP deben ser ATR-relativos al ENTRY PRICE, no a VWAP/VAH/VAL. Si LONG a Z=0.5, VAH está solo 0.5σ arriba (TP muy corto) pero VAL está 1.5σ abajo (SL muy lejos).
 10. **No Bloquear IN_VALUE**: Bloquear trades destruye señal. Mejor routing correcto: IN_VALUE → rotation (continuación) con targets apropiados.
 11. **🔴 L2 Data Required for Absorption Backtest**: Sin order book (L2), el `FootprintRegistry` infiere delta desde trades (L1). La absorción se "adivina" estadísticamente, no se observa directamente. Cualquier backtest de absorción sin L2 es inválido para certificar alpha.
-- 2026-05-11T03:02:21.284040 | session-close | L2 & price ingest completed, CSVs removed.
