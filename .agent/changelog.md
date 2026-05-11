@@ -80,7 +80,7 @@
     *   **L2 (Execution)**: ✅ CERTIFICADA (Concurrent positions stable).
     *   **L3 (Resilience)**: ✅ CERTIFICADA (Drift Auditor forced sync).
 
-### 2026-05-07: Crystal Layer Refinements — VWAP Z-score Fix + IN_VALUE Rotation + Target Architecture
+### 2026-05-07: Crystal Layer Refinements — VWAP Z-score Fix + IN_VALUE Rotation + Target Architecture ⚠️ PRE-L2
 *   **Descripción**: Refinamiento del RegimeGuardian V3 y SetupEngine basado en análisis de la "Crystal Layer" (arquitectura de visibilidad). Se corrigieron 3 bugs conceptuales críticos: (1) confusión footprint Z vs VWAP Z, (2) IN_VALUE forzado a REVERSION con TP=VWAP (estructuralmente imposible ganar), (3) targets de rotation relativos a VWAP en vez de entry price. Se refactorizó SetupEngine en 4 sub-métodos.
 *   **Detalle Técnico**:
     *   `decision/guardians/regime_guardian.py`: VWAP Z-score ahora se calcula siempre desde `context_registry.get_vwap_zscore()` (no footprint Z). Metadata emite ambos: `vwap_z_score` y `footprint_z_score`. IN_VALUE → CONTINUATION (rotation) en vez de REVERSION.
@@ -112,7 +112,7 @@
         *   OUT_OF_VALUE|continuation: n=13, WR=53.8%, Exp=+0.049%
 *   **Commit**: Pendiente en branch `v7.3.0-total-spectrum-absorption-v3`
 
-### 2026-05-06: RegimeGuardian V3 — Value Position × Value Acceptance
+### 2026-05-06: RegimeGuardian V3 — Value Position × Value Acceptance ⚠️ PRE-L2
 *   **Descripción**: Reemplazo completo del sistema de detección de régimen basado en velocidad por un modelo estructural basado en Auction Market Theory (AMT). El nuevo modelo clasifica el mercado según Posición de Valor (Z-score relativo a VWAP) × Aceptación de Valor (si el mercado acepta o rechaza nuevos precios).
 *   **Detalle Técnico**:
     *   `sensors/regime/market_regime.py`: Nuevo `_synthesize()` elimina TRANSITION state, reemplaza confidence por flags estructurales (`value_acceptance`, `absorption_detected`). Fix del micro layer: absorción ahora tiene dirección (opuesta al CVD agresivo), score > 0, y threshold pv_z < 1.0 (antes < 0.5).
@@ -175,9 +175,9 @@
 *   **Métrica de Estrés**: Loop Lag: **1.01ms** bajo carga de 2,000 eventos/seg.
 *   **Tag de Restauración**: `v7.1.0-reactive-stability-pass`
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA ✅]
+### 2. Capa de Cristal (Estrategia / Alpha) — [WATCH 🔄]
 *   **Propósito**: Validación de Edge (Expectancia Bruta > 0.12%), Win Rate, MAE/MFE.
-*   **Estatus**: Absorption V1 validado como única estrategia activa.
+*   **Estatus**: Pre-L2 metrics invalidados. Edge con L2 real: WR 33%, Gross Exp +0.052% (FRAGILE). Targets dinámicos asfixian edge latente.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Propósito**: Protección de capital, gestión de fees y salidas de emergencia.
@@ -217,6 +217,6 @@
 ---
 
 ## 🎯 Objetivo de la Sesión Actual
-*   **Meta**: V3.4-Crystal validado. Gross +0.155%, Net Maker +0.075%. BULL CERTIFIED.
-*   **Estado de Git**: Sin commit aún en `v7.3.0-total-spectrum-absorption-v3`.
-*   **Siguiente paso**: (1) Investigar RANGE (WR 50%, Ratio 1.34 — mejoró pero aún FAILED), (2) Investigar BEAR (WR 50%, Ratio 1.00), (3) Commit de V3.4, (4) Contrato de metadata TypedDict (baja prioridad).
+*   **Meta**: Análisis desde cero con datos L2 reales. Pre-L2 metrics invalidados.
+*   **Edge L2 Real**: WR 33%, Gross Exp +0.052% (FRAGILE). Edge latente a 0.3/0.3% uniforme (WR 56%).
+*   **Siguiente paso**: (1) Análisis de por qué targets dinámicos asfixian edge, (2) Evaluar VWAP vs Volume Profile para routing, (3) Calibrar SL/SL dinámicos.
