@@ -25,7 +25,7 @@ El edge no viene de predecir dirección. Viene de **saber qué tipo de operació
 
 El mercado se clasifica en tiempo real según dos ejes: **Posición de Valor** (¿dónde está el precio relativa al Área de Valor?) y **Aceptación de Valor** (¿el mercado está aceptando o rechazando nuevos precios?).
 
-La **Posición de Valor** se determina mediante **Volume Profile** (POC/VAH/VAL), no VWAP. Volume Profile refleja dónde la subasta formó consenso real; VWAP es un promedio tiempo-ponderado que asume simetría gaussiana — incompatible con la teoría de subastas.
+La **Posición de Valor** se determina mediante **Volume Profile** (POC/VAH/VAL). Volume Profile refleja dónde la subasta formó consenso real — el rango de precios donde se concentró el 70% del volumen negociado.
 
 ### 2.1 Balance — El Mercado Acepta el Rango
 
@@ -80,7 +80,6 @@ No toda absorción es igual. El sistema aplica filtros de calidad para rechazar 
 ### 4.2 Regime Guardian — Routing por Posición de Valor (Volume Profile)
 - Determina la posición del precio relativa al Área de Valor (IN_VALUE / OUT_OF_VALUE / EXCESS) usando POC/VAH/VAL.
 - Clasifica el setup correcto para cada combinación de régimen × posición × aceptación (ver Sección 2).
-- Reemplaza al antiguo Statistical Location Guard (VWAP Z-score), que rechazaba 91.6% de señales válidas porque VWAP y Market Profile son distribuciones incompatibles.
 
 ### 4.3 Spread Sanity — Protección contra Liquidez Insuficiente
 - Rechaza operaciones cuando el spread bid-ask es anormalmente amplio, indicando falta de liquidez o condiciones de mercado adversas.
@@ -93,7 +92,7 @@ No toda absorción es igual. El sistema aplica filtros de calidad para rechazar 
 
 ## 5. Arquitectura de Targets: Tres Modos de Salida
 
-El target de cada operación se calcula según el tipo de setup, usando niveles estructurales del Volume Profile (POC/VAH/VAL), no VWAP.
+El target de cada operación se calcula según el tipo de setup, usando niveles estructurales del Volume Profile (POC/VAH/VAL) y ATR.
 
 ### 5.1 Reversión (OUT_OF_VALUE en Balance)
 - **Take Profit**: POC (centro de valor) **solo si está del lado correcto del entry** (POC > price para LONG, POC < price para SHORT). Si POC está del lado equivocado, usar 1.0× ATR desde el entry.
@@ -189,10 +188,10 @@ La mayoría de los sistemas de trading aplican una sola lógica (reversión o co
 
 El edge viene de **evitar los trades incorrectos**, no de predecir mejor los correctos. Cada componente del framework existe para rechazar una categoría de operación que destruiría el edge:
 
-- **RegimeGuardian (V4)**: Usa Volume Profile para determinar posición de valor. Rechaza operaciones contra-trend en mercados que aceptan nuevos precios. Reemplazó VWAP Z-score (que rechazaba 91.6% de señales válidas).
+- **RegimeGuardian**: Usa Volume Profile para determinar posición de valor. Rechaza operaciones contra-trend en mercados que aceptan nuevos precios.
 - **Squeeze Guard**: Rechaza entradas en zonas de caos donde el MAE erosiona cualquier ganancia.
 - **Absorción como Gatillo**: Rechaza entradas basadas solo en posición estructural sin confirmación de flujo.
-- **Targets por Régimen**: Targets estructurales basados en Volume Profile (POC/VAH/VAL), no VWAP. Cada setup tiene su propia lógica de TP/SL.
+- **Targets por Régimen**: Targets estructurales basados en Volume Profile (POC/VAH/VAL) para TP y ATR para SL. Cada setup tiene su propia lógica de TP/SL.
 
 La suma de estos rechazos deja un portfolio de operaciones donde cada una tiene probabilidad condicional positiva por construcción.
 
@@ -204,17 +203,12 @@ La suma de estos rechazos deja un portfolio de operaciones donde cada una tiene 
 Reemplazo de RSI/MACD por footprint delta y CVD como señal primaria.
 
 ### V2 → V3: De señal única a routing por régimen
-Introducción de RegimeGuardian con VWAP Z-score para clasificar IN_VALUE/OUT_OF_VALUE. Implementación de tres modos de setup (reversion/continuation/rotation).
+Introducción de RegimeGuardian para clasificar IN_VALUE/OUT_OF_VALUE. Implementación de tres modos de setup (reversion/continuation/rotation).
 
-### V3 → V4: De VWAP a Volume Profile
-Eliminación de VWAP Z-score del pipeline de decisiones. Razones:
-- VWAP y Market Profile son distribuciones incompatibles (tiempo-ponderado vs volumen-ponderado).
-- VWAP Z como hard gate rechazaba 91.6% de señales de absorción válidas.
-- Volume Profile (POC/VAH/VAL) refleja consenso real de la subasta, no un promedio estadístico.
-- StatisticalLocationGuardian eliminado — su función de routing la cumple mejor RegimeGuardian con Volume Profile.
-- Targets cambiados de VWAP-based a Volume Profile-based (TP=POC, SL=detrás de VA + buffer).
+### V3 → V4: Volume Profile Structural Routing
+Migración a Volume Profile (POC/VAH/VAL) como referencia estructural. Eliminación de StatisticalLocationGuardian — su función de routing la cumple mejor RegimeGuardian con Volume Profile.
 
-### V4 → V9: De VA-Based SL a ATR-Based SL (Bug Fixes + Calibración)
+### V4 → V9: ATR-Based SL + Bug Fixes
 Cinco bugs críticos corregidos que destruían el edge:
 1. **Config thresholds no conectados**: AbsorptionDetector usaba Z≥1.5/Conc≥0.15/Noise≤0.85 hardcodeados en vez de leer config/absorption.py (Z≥3.0/Conc≥0.50/Noise≤0.35).
 2. **Concentración era proxy de tiempo**: `_concentration()` devolvía 0.90/0.60/0.30 basado en `time_since_update`, no medía concentración real de volumen. Reimplementada como `dominant_vol / total_vol`.
