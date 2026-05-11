@@ -51,6 +51,9 @@ class PendingCandidate:
             "price_break": False,
             "cvd_flip": False,
         }
+        # Phase A (AMT): Exhaustion metrics computed at registration
+        self.exhaustion = candidate.get("exhaustion", {})
+        self.exhaustion_score = 0  # 0-2: delta_declining + volume_declining
 
     @property
     def confirmation_count(self) -> int:
@@ -109,6 +112,8 @@ class AbsorptionReversalGuardian:
 
         Called by SetupEngine when AbsorptionDetector produces a candidate.
         Starts the 500ms confirmation window using market time.
+
+        Phase A (AMT): Also computes exhaustion metrics at registration time.
         """
         symbol = candidate["symbol"]
 
@@ -116,16 +121,33 @@ class AbsorptionReversalGuardian:
         footprint = footprint_registry.get_footprint(symbol)
         if footprint:
             candidate["cvd_slope_at_detection"] = footprint.get_cvd_slope(window_seconds=2)
+            # Phase A (AMT): Compute exhaustion metrics from pre-signal flow
+            exhaustion = footprint.get_exhaustion_metrics(window_long=10.0, window_short=2.0)
+            candidate["exhaustion"] = exhaustion
+        else:
+            candidate["exhaustion"] = {"delta_ratio": 1.0, "volume_ratio": 1.0, "ready": False}
 
         # Replace any existing pending candidate for this symbol
-        self.pending[symbol] = PendingCandidate(
-            candidate, window_ms=self.confirmation_window_ms, registration_ts=timestamp
-        )
+        pending = PendingCandidate(candidate, window_ms=self.confirmation_window_ms, registration_ts=timestamp)
+
+        # Phase A (AMT): Calculate exhaustion score (0-2)
+        exh = candidate["exhaustion"]
+        score = 0
+        if exh.get("delta_ratio", 1.0) < 0.5:
+            score += 1
+        if exh.get("volume_ratio", 1.0) < 0.6:
+            score += 1
+        pending.exhaustion_score = score
+        pending.exhaustion = exh
+
+        self.pending[symbol] = pending
 
         logger.info(
             f"📋 [GUARDIAN] Candidate registered: {symbol} {candidate['direction']} "
             f"(window={self.confirmation_window_ms}ms, "
-            f"need ≥{self.min_confirmations} confirmations)"
+            f"need ≥{self.min_confirmations} confirmations, "
+            f"exhaustion={score}/2 [δ_ratio={exh.get('delta_ratio', '?')}, "
+            f"v_ratio={exh.get('volume_ratio', '?')}])"
         )
 
     def on_tick(self, symbol: str, price: float, timestamp: float) -> Optional[dict]:
@@ -204,6 +226,9 @@ class AbsorptionReversalGuardian:
             entry_signal = self._generate_entry_signal(
                 candidate, price, timestamp, count, size_mult, is_contra_trend, elapsed
             )
+            # Phase A (AMT): Attach exhaustion data to signal
+            entry_signal["exhaustion"] = pending.exhaustion
+            entry_signal["exhaustion_score"] = pending.exhaustion_score
             # Remove from pending
             del self.pending[symbol]
             return entry_signal

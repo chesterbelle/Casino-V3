@@ -191,6 +191,77 @@ class FootprintData:
 
         return delta_cvd / delta_time
 
+    def get_exhaustion_metrics(self, window_long: float = 10.0, window_short: float = 2.0) -> dict:
+        """Phase A (AMT): Compute delta declining and volume declining metrics.
+
+        Measures whether the aggressive flow is EXHAUSTING (declining) or still active.
+        Uses CVD history to compute:
+        - delta_ratio: |delta_short| / |delta_long| — lower = more exhaustion
+        - volume_ratio: volume_short / volume_long — lower = volume dropping
+
+        Args:
+            window_long: Longer lookback window in seconds (default 10s)
+            window_short: Shorter lookback window in seconds (default 2s)
+
+        Returns:
+            dict with delta_ratio, volume_ratio, delta_long, delta_short, vol_long, vol_short
+        """
+        now = self.last_update
+        if len(self.cvd_history) < 4:
+            return {
+                "delta_ratio": 1.0,
+                "volume_ratio": 1.0,
+                "delta_long": 0,
+                "delta_short": 0,
+                "vol_long": 0,
+                "vol_short": 0,
+                "ready": False,
+            }
+
+        cutoff_long = now - window_long
+        cutoff_short = now - window_short
+
+        # Find CVD values at window boundaries
+        cvd_at_long_start = None
+        cvd_at_short_start = None
+        cvd_now = self.cvd_history[-1][1]
+        n_long = 0
+        n_short = 0
+
+        for ts, cvd in self.cvd_history:
+            if ts >= cutoff_long and cvd_at_long_start is None:
+                cvd_at_long_start = cvd
+            if ts >= cutoff_short and cvd_at_short_start is None:
+                cvd_at_short_start = cvd
+            if ts >= cutoff_long:
+                n_long += 1
+            if ts >= cutoff_short:
+                n_short += 1
+
+        if cvd_at_long_start is None:
+            cvd_at_long_start = self.cvd_history[0][1]
+        if cvd_at_short_start is None:
+            cvd_at_short_start = cvd_at_long_start
+
+        delta_long = cvd_now - cvd_at_long_start
+        delta_short = cvd_now - cvd_at_short_start
+
+        # Delta ratio: is the aggressor exhausting?
+        delta_ratio = abs(delta_short) / abs(delta_long) if abs(delta_long) > 1e-9 else 1.0
+
+        # Volume proxy: number of trades (CVD entries) in each window
+        vol_ratio = n_short / (n_long * (window_short / window_long)) if n_long > 0 else 1.0
+
+        return {
+            "delta_ratio": round(delta_ratio, 3),
+            "volume_ratio": round(vol_ratio, 3),
+            "delta_long": round(delta_long, 2),
+            "delta_short": round(delta_short, 2),
+            "vol_long": n_long,
+            "vol_short": n_short,
+            "ready": True,
+        }
+
 
 class FootprintRegistry:
     """
@@ -320,6 +391,13 @@ class FootprintRegistry:
         """Get CVD slope (rate of change) over a time window."""
         footprint = self.footprints.get(symbol)
         return footprint.get_cvd_slope(window_seconds) if footprint else 0.0
+
+    def get_exhaustion(self, symbol: str, window_long: float = 10.0, window_short: float = 2.0) -> dict:
+        """Get exhaustion metrics for a symbol. See FootprintData.get_exhaustion_metrics()."""
+        footprint = self.footprints.get(symbol)
+        if not footprint:
+            return {"delta_ratio": 1.0, "volume_ratio": 1.0, "ready": False}
+        return footprint.get_exhaustion_metrics(window_long, window_short)
 
     def get_volume_profile(self, symbol: str, price_from: float, price_to: float) -> List[Tuple[float, float, float]]:
         """Get volume profile in a price range."""

@@ -477,6 +477,10 @@ class SetupEngineV4(TraceBulletMixin):
             sym = confirmed["symbol"]
             now = confirmed["timestamp"]
 
+            # Phase A (AMT): Extract exhaustion metrics from confirmation
+            exhaustion = confirmed.get("exhaustion", {})
+            exhaustion_score = confirmed.get("exhaustion_score", 0)
+
             # Build reversal_signal dict for guardian_manager
             reversal_signal = {
                 "close": price,
@@ -502,6 +506,27 @@ class SetupEngineV4(TraceBulletMixin):
                 sym, side, price, setup_mode, value_position
             )
 
+            # Phase A (AMT): Exhaustion Gate — block reversion when aggressor INTENSIFYING
+            # Phase A analysis showed: reversion WINS have delta_ratio=0.52, TIMEOUTS=1.14
+            # Only block when delta_ratio > 1.5 = aggressor clearly gaining strength (not exhausting)
+            delta_ratio = exhaustion.get("delta_ratio", 1.0)
+            if setup_type_name == "reversion" and delta_ratio > 1.5 and not self.fast_track:
+                self._trace_decision(
+                    sym,
+                    "REJECTED",
+                    "EXHAUSTION_GATE",
+                    f"Reversion with intensifying aggression (δ_ratio={delta_ratio}, "
+                    f"v_ratio={exhaustion.get('volume_ratio', '?')})",
+                    {"exhaustion": exhaustion, "exhaustion_score": exhaustion_score},
+                    price=price,
+                    side=side,
+                )
+                logger.info(
+                    f"🔴 [AMT_EXHAUSTION] {sym} {side} reversion BLOCKED — "
+                    f"δ_ratio={delta_ratio:.3f} > 1.5 (aggressor intensifying)"
+                )
+                return
+
             # Build metadata
             trigger_meta = {
                 "trigger": "LTA_TacticalAbsorptionV2",
@@ -517,6 +542,8 @@ class SetupEngineV4(TraceBulletMixin):
                 "confirmation_details": confirmed.get("confirmation_details", {}),
                 "confirmation_latency_ms": confirmed.get("confirmation_latency_ms", 0),
                 "phase": "confirmed",
+                "exhaustion": exhaustion,
+                "exhaustion_score": exhaustion_score,
             }
             trigger_meta = self._enrich_metadata(trigger_meta, sym)
 
@@ -529,7 +556,8 @@ class SetupEngineV4(TraceBulletMixin):
             logger.warning(
                 f"🎯 [SETUP ENGINE] LTA_Structural_{side} PATTERN CONFIRMED! "
                 f"Firing {side} on {sym} | MarketTime: {now} | SetupType: {setup_type_name} | "
-                f"Confirmations: {confirmed.get('confirmations', 0)}/3"
+                f"Confirmations: {confirmed.get('confirmations', 0)}/3 | "
+                f"Exhaustion: {exhaustion_score}/2"
             )
 
             out_evt = AggregatedSignalEvent(
@@ -552,7 +580,11 @@ class SetupEngineV4(TraceBulletMixin):
             self.trace(
                 out_evt,
                 "PHASE2_CONFIRMED",
-                {"confirmations": confirmed.get("confirmations", 0), "setup_type": setup_type_name},
+                {
+                    "confirmations": confirmed.get("confirmations", 0),
+                    "setup_type": setup_type_name,
+                    "exhaustion_score": exhaustion_score,
+                },
             )
             await self.engine.dispatch(out_evt)
 
