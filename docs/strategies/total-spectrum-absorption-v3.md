@@ -1,5 +1,7 @@
 # Total Spectrum Absorption — Manifiesto de Trading
 
+> **🔴 AVISO CRÍTICO (2026-05-11)**: Las métricas de la Sección 6 fueron generadas con backtests **sin datos L2 reales** (FootprintRegistry infería delta desde trades L1). La absorción se "adivinaba" estadísticamente, no se observaba. **Estas métricas son INVÁLIDAS** para decisiones de diseño. El único dataset válido es el long-range con L2 real (9 backtests LTC), que muestra resultados significativamente peores (ver Sección 6.4). El próximo paso es un análisis desde cero usando solo datos L2 reales.
+
 **Clasificación**: Estrategia Institucional de Microestructura
 **Mercado**: Futuros de Criptomonedas (24/7, Binance)
 **Horizonte**: Scalping Intradía (5s–15min)
@@ -108,9 +110,11 @@ El target de cada operación se calcula según el tipo de setup, no de forma gen
 
 ## 6. El Edge Cuantificado
 
+> **⚠️ SECCIONES 6.1–6.3: MÉTRICAS PRE-L2 (INVÁLIDAS)** — Generadas sin datos L2 reales. La absorción se infería, no se observaba. Conservadas como referencia histórica únicamente. Ver Sección 6.4 para métricas válidas.
+
 Validado mediante 9 backtests de estrés (LTC/USDT en condiciones Range, Bear y Bull, 3 días cada una, ventana MFE/MAE de 15 minutos):
 
-### 6.1 Métricas Globales
+### 6.1 Métricas Globales ⚠️ PRE-L2
 
 | Métrica | Valor |
 |---|---|
@@ -138,6 +142,45 @@ Validado mediante 9 backtests de estrés (LTC/USDT en condiciones Range, Bear y 
 | BEAR (Trend Bajista) | 58 | 50.0% | 1.00 | ⚠️ WATCH |
 
 **Observación**: El edge es más fuerte en condiciones de trend (BULL), donde la continuación y la reversión por absorción en extremos son de alta probabilidad. En RANGE, la rotación funciona pero el edge es marginal. En BEAR, el edge es neutro — el sistema no genera señales de alta calidad en trends bajistas débiles.
+
+### 6.4 Métricas con L2 Real (Long-Range Audit, 9 backtests LTC)
+
+**ÚNICO DATASET VÁLIDO** — generado con infraestructura L2 de alta fidelidad (Tardis + l2_processor).
+
+| Métrica | Valor |
+|---|---|
+| Total Signals | 399 |
+| Decided (W+L) | 312 (Timeouts: 87) |
+| Overall Win Rate | 33.0% |
+| Gross Expectancy | +0.052% |
+| Net (Taker 0.12%) | -0.068% ❌ |
+| Net (Maker 0.08%) | -0.028% ❌ |
+
+**Desglose por Setup (Dynamic TP/SL)**:
+
+| Setup | n | WR% | Avg TP% | Avg SL% | Exp% | Verdict |
+|-------|---|-----|---------|---------|------|----------|
+| rotation | 338 | 29.5% | 0.777% | 0.217% | +0.076% | FRAGILE |
+| continuation | 24 | 88.9% | 0.283% | 1.043% | +0.135% | LOW_N |
+| reversion | 37 | 33.3% | 0.740% | 0.450% | -0.053% | LOW_N |
+
+**Desglose por Condición (Dynamic TP/SL)**:
+
+| Condición | n | RealWR% | RealExp% | Verdict |
+|-----------|---|---------|----------|----------|
+| RANGE | 86 | 28.6% | +0.043% | FRAGILE |
+| BEAR | 158 | 37.0% | +0.085% | FRAGILE |
+| BULL | 155 | 31.1% | +0.022% | FRAGILE |
+
+**Referencia Uniforme 0.3/0.3%** (edge latente sin targets dinámicos):
+
+| Condición | n | WR% | MFE% | MAE% | Ratio |
+|-----------|---|-----|------|------|-------|
+| RANGE | 86 | 53.6% | 0.293% | 0.287% | 1.02 |
+| BEAR | 158 | 59.8% | 0.501% | 0.403% | 1.24 |
+| BULL | 155 | 52.9% | 0.568% | 0.431% | 1.32 |
+
+**Diagnóstico**: Edge existe con targets uniformes pero los targets dinámicos lo asfixian. Rotation SL (avg 0.217%) es demasiado apretado para capturar MFE disponible (0.293-0.568%). Reversion tiene 28/37 timeouts. Continuation es prometedor (88.9% WR) pero n=24 es insuficiente.
 
 ---
 
