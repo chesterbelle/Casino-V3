@@ -20,6 +20,11 @@ from core.events import (
     SignalEvent,
 )
 from decision.absorption_reversal_guardian import AbsorptionReversalGuardian
+from decision.amt_scenarios import (
+    FailedBreakoutDetector,
+    LiquidityExhaustionDetector,
+    TrendAcceptanceDetector,
+)
 from decision.guardians import GuardianManager
 from utils.trace_bullet import TraceBulletMixin
 
@@ -72,7 +77,17 @@ class SetupEngineV4(TraceBulletMixin):
         self.absorption_guardian = AbsorptionReversalGuardian(fast_track=self.fast_track)
         self.engine.subscribe(EventType.TICK, self.on_tick)
 
-        logger.info("🎯 LTA V10 Setup Engine initialized (Tick-Level Confirmation: 500ms window, 50ms eval)")
+        # Phase B (AMT): Scenario-based detectors
+        self.failed_breakout = FailedBreakoutDetector()
+        self.liquidity_exhaustion = LiquidityExhaustionDetector()
+        self.trend_acceptance = TrendAcceptanceDetector()
+        self._last_candle_boundary: Dict[str, float] = defaultdict(float)  # Track 60s candle boundaries
+
+        logger.info(
+            "🎯 LTA V10 Setup Engine initialized "
+            "(Tick-Level Confirmation: 500ms window, 50ms eval, "
+            "+3 AMT Scenarios: FailedBreakout, LiquidityExhaustion, TrendAcceptance)"
+        )
 
     def is_system_warm(self, symbol: str, now: float) -> Tuple[bool, List[str]]:
         """Phase 1800: Checks if the system is ready to trade based purely on structural data availability.
@@ -459,8 +474,47 @@ class SetupEngineV4(TraceBulletMixin):
             )
 
     async def on_tick(self, event):
-        """Phase 2: Evaluate pending absorption candidates on each tick (V10: 50ms throttled)."""
+        """Phase 2: Evaluate pending absorption candidates + AMT scenarios on each tick."""
         symbol = event.symbol
+        price = event.price
+        timestamp = event.timestamp
+
+        # Import here to avoid circular imports
+        from core.footprint_registry import footprint_registry
+
+        # === Phase B (AMT): Evaluate scenario detectors ===
+        # These run on every tick regardless of pending absorption candidates
+        amt_signal = None
+
+        # TrendAcceptance needs candle events — synthesize from tick stream
+        candle_boundary = timestamp - (timestamp % 60)  # 60s boundary
+        if candle_boundary > self._last_candle_boundary.get(symbol, 0):
+            self._last_candle_boundary[symbol] = candle_boundary
+            self.trend_acceptance.on_candle(symbol, price, timestamp, self.context_registry, footprint_registry)
+
+        # Scenario ②: Failed Breakout
+        if not amt_signal:
+            amt_signal = self.failed_breakout.on_tick(
+                symbol, price, timestamp, self.context_registry, footprint_registry
+            )
+
+        # Scenario ③: Liquidity Exhaustion
+        if not amt_signal:
+            amt_signal = self.liquidity_exhaustion.on_tick(
+                symbol, price, timestamp, self.context_registry, footprint_registry
+            )
+
+        # Scenario ④: Trend Acceptance
+        if not amt_signal:
+            amt_signal = self.trend_acceptance.on_tick(
+                symbol, price, timestamp, self.context_registry, footprint_registry
+            )
+
+        if amt_signal:
+            await self._dispatch_amt_signal(amt_signal)
+            return  # Don't also evaluate absorption — one signal per tick
+
+        # === Original: Absorption confirmation ===
         if symbol not in self.absorption_guardian.pending:
             return
 
@@ -587,6 +641,110 @@ class SetupEngineV4(TraceBulletMixin):
                 },
             )
             await self.engine.dispatch(out_evt)
+
+    async def _dispatch_amt_signal(self, signal: dict):
+        """
+        Phase B (AMT): Process a signal from an AMT scenario detector.
+
+        Routes through the standard guardian → target → dispatch pipeline,
+        with scenario-specific setup types and metadata.
+        """
+        symbol = signal["symbol"]
+        side = signal["side"]
+        price = signal["price"]
+        now = signal["timestamp"]
+        scenario = signal.get("scenario", "unknown")
+
+        # Cooldown check (shared with absorption signals)
+        if now - self.last_fire_ts[symbol] < self.fire_cooldown:
+            return
+
+        # In-trade check
+        if self.context_registry and self.context_registry.is_in_trade(symbol):
+            return
+
+        # System warmup check
+        warm, missing = self.is_system_warm(symbol, now)
+        if not warm:
+            return
+
+        # Build reversal_signal for guardians
+        reversal_signal = {
+            "close": price,
+            "price": price,
+            "z_score": 0.0,
+            "footprint_z_score": 0.0,
+            "concentration": 0.0,
+            "noise": 0.0,
+            "absorption_level": signal.get("level", 0.0),
+            "direction": "SELL_EXHAUSTION" if side == "LONG" else "BUY_EXHAUSTION",
+            "tactical_type": signal.get("tactical_type", scenario),
+        }
+
+        # Run through guardians
+        passed, multiplier, setup_mode, value_position = self.guardian_manager.evaluate_all(
+            symbol, side, reversal_signal, self.context_registry, {}, self.fast_track
+        )
+        if not passed:
+            return
+
+        # Calculate structural targets
+        tp_price, sl_price, setup_type_name, level_ref = self._calculate_targets(
+            symbol, side, price, setup_mode, value_position
+        )
+
+        # Override setup_type with scenario name for tracking
+        setup_type_name = f"{scenario}"
+
+        # Build metadata
+        trigger_meta = {
+            "trigger": f"AMT_{scenario}",
+            "setup_type": setup_type_name,
+            "price": price,
+            "tp_price": tp_price,
+            "sl_price": sl_price,
+            "level_ref": level_ref,
+            "sizing_multiplier": multiplier,
+            "v3_mode": setup_mode.value,
+            "phase": "amt_confirmed",
+            "scenario": scenario,
+            "scenario_data": {k: v for k, v in signal.items() if k not in ("symbol", "side", "price", "timestamp")},
+        }
+        trigger_meta = self._enrich_metadata(trigger_meta, symbol)
+
+        if trigger_meta.get("aborted_by_breakeven_guard"):
+            return
+
+        # Dispatch
+        self.last_fire_ts[symbol] = now
+        logger.warning(
+            f"🎯 [AMT_{scenario.upper()}] {symbol} {side} CONFIRMED! "
+            f"Price={price:.2f} | TP={tp_price:.2f} | SL={sl_price:.2f}"
+        )
+
+        out_evt = AggregatedSignalEvent(
+            type=EventType.AGGREGATED_SIGNAL,
+            timestamp=now,
+            symbol=symbol,
+            candle_timestamp=now,
+            selected_sensor=f"SetupEngine_AMT_{scenario}",
+            sensor_score=1.0,
+            side=side,
+            confidence=1.0,
+            total_signals=1,
+            metadata=trigger_meta,
+            trace_id=signal.get("trace_id"),
+            t0_timestamp=now,
+            t1_decision_ts=now,
+            setup_type=setup_type_name,
+            price=price,
+        )
+        self.trace(
+            out_evt,
+            "AMT_CONFIRMED",
+            {"scenario": scenario, "setup_type": setup_type_name},
+        )
+        await self.engine.dispatch(out_evt)
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
         """Processes a batch of real-time microstructural anomalies efficiently."""
