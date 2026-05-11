@@ -105,7 +105,7 @@ class EdgeAuditor:
                 continue
 
             # Dynamic window based on setup type
-            win = self.SETUP_WINDOWS.get(setup_type, self.DEFAULT_WINDOW)
+            win = self.SETUP_WINDOWS.get(setup_type, window_seconds)
 
             # Get price trajectory within the window
             mask = (prices_by_sym[sym]["timestamp"] >= ts) & (prices_by_sym[sym]["timestamp"] <= ts + win)

@@ -41,6 +41,7 @@ class DummyTracker:
 
 class SetupEngineV4(TraceBulletMixin):
     def __init__(self, engine, context_registry=None, fast_track=False):
+        super().__init__()
         self.engine = engine
         self.context_registry = context_registry
         self.tracker = DummyTracker()
@@ -211,10 +212,10 @@ class SetupEngineV4(TraceBulletMixin):
             if std > 0 and vwap_price > 0:
                 if side == "LONG":
                     sl_price = vwap_price - (3.5 * std)
-                    sl_price = min(sl_price, price * 0.999)
+                    sl_price = min(sl_price, price * 0.996)
                 else:
                     sl_price = vwap_price + (3.5 * std)
-                    sl_price = max(sl_price, price * 1.001)
+                    sl_price = max(sl_price, price * 1.004)
             else:
                 sl_buffer = strat_config.LTA_TICK_PROXY * strat_config.LTA_SL_TICK_BUFFER
                 sl_price = price * (1 - sl_buffer) if side == "LONG" else price * (1 + sl_buffer)

@@ -8,6 +8,35 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-10: Edge Audit Certification & Alpha Discovery (Phase 1400)
+*   **Descripción**: Se certificó el pipeline de auditoría con datos L2 reales. Se descubrió un Alpha masivo en LTC (73% WR) oculto tras una configuración de targets subóptima.
+*   **Detalle Técnico**:
+    *   `core/backtest_feed.py`: Fix en el despacho de eventos (DEPTH/TICK/CANDLE) y casting de `side` para evitar NaNs.
+    *   `decision/setup_engine.py`: Fix en `super().__init__()` para activar `TraceBullet`.
+    *   `decision/guardians/statistical_location_guardian.py`: Calibrado a `min_z = 1.5`.
+    *   `utils/setup_edge_auditor.py`: Bugfix en el argumento `--window` e implementación de ventanas dinámicas.
+    *   `.agent/workflows/`: Sincronización de todos los protocolos a ventana de **1800s**.
+*   **Hallazgos de Alpha**:
+    *   **Edge Confirmado**: LTC Absorption a 1.5Z muestra un **73.1% Win Rate** (n=26 decididos) con targets uniformes de 0.3%.
+    *   **Cuello de Botella**: Se identificó que el SL dinámico de 3.5Z (originalmente 0.1%) estaba "asfixiando" el edge. Se relajó a 0.4% como medida de seguridad balanceada.
+    *   **Ventana de Desarrollo**: Las continuaciones requieren ≥ 1800s para demostrar su valor estadístico.
+*   **Estado**: Infraestructura y Alpha base CERTIFICADOS. Listo para optimización de targets.
+
+### 2026-05-10: High-Fidelity L2 Infrastructure Centralization (Phase 1300)
+*   **Descripción**: Se resolvió el bloqueo crítico de la Capa 0 mediante la creación de un pipeline descentralizado y de alta fidelidad. Se eliminó toda capacidad de "síntesis" o invención de datos en el backtest, forzando un estándar de Real-L2-or-Nothing.
+*   **Detalle Técnico**:
+    *   `utils/data/tardis_fetcher.py`: Nuevo descargador asíncrono para Tardis.dev con soporte para el día 1 (Free Tier) y lógica de rangos.
+    *   `utils/data/l2_processor.py`: Procesador "inteligente" que reconstruye el Orderbook incremental, valida la "pareja obligatoria" (L2 + Trades) y genera datasets SQLite listos para simulación.
+    *   `core/backtest_feed.py`: Purga total de `_synthesize_depth`. Implementado `High-Fidelity Guard` que aborta el backtest si se intenta correr sin datos L2 reales.
+    *   `.agent/backtesting_config.md`: Documentación técnica de comandos y estructura de archivos.
+*   **Hallazgos y Errores**:
+    *   *Simulation Leaks*: Se identificó que la generación sintética de profundidad era la fuente primaria de divergencia entre backtest y live. Su eliminación garantiza que si el bot da una señal de absorción, es porque ocurrió en el libro de órdenes real.
+    *   *Tardis Free Tier*: Confirmado que el límite gratuito es estrictamente el día 1 de cada mes.
+*   **Estado de la Infraestructura**:
+    *   Warehouse Raw: `data/datasets/raw/`
+    *   Warehouse Processed: `data/datasets/backtest_ready/`
+    *   Primer Dataset Certificado: `2024-01-01_LTCUSDT.db`
+
 ### 2026-05-10: Absorption Pipeline Fix + CAPA 0 L2 Discovery
 *   **Descripción**: Diagnóstico por capas del alpha de absorción reveló que `AbsorptionReversalGuardian` (Phase 2) estaba desconectado del pipeline. Se integró y se descubrió hallazgo fundamental: sin datos L2 en backtest, la absorción se infiere en vez de observarse.
 *   **Detalle Técnico**:

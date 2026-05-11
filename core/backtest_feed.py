@@ -5,8 +5,12 @@ Replays historical data as TickEvents.
 
 import asyncio
 import logging
+import os
+import sqlite3
 
 import pandas as pd
+
+from utils.symbol_norm import normalize_symbol
 
 from .events import EventType, TickEvent
 
@@ -106,15 +110,13 @@ class BacktestFeed:
 
         # --- Load depth snapshots from SQLite if a DB path is provided ---
         if getattr(self, "depth_db_path", None) and self.depth_db_path is not None:
-            import os
-            import sqlite3
-
+            norm_symbol = normalize_symbol(self.symbol)
             if os.path.exists(self.depth_db_path):
                 try:
                     logger.info(f"📂 Loading depth snapshots from {self.depth_db_path}...")
                     conn = sqlite3.connect(self.depth_db_path)
                     depth_df = pd.read_sql_query(
-                        f"SELECT timestamp, symbol, bids, asks FROM depth_snapshots WHERE symbol = '{self.symbol}'",
+                        f"SELECT timestamp, symbol, bids, asks FROM depth_snapshots WHERE symbol = '{norm_symbol}'",
                         conn,
                     )
                     conn.close()
@@ -131,15 +133,12 @@ class BacktestFeed:
 
         # --- Load price candles from SQLite if a DB path is provided ---
         if getattr(self, "depth_db_path", None) and self.depth_db_path is not None:
-            import os
-            import sqlite3
-
             if os.path.exists(self.depth_db_path):
                 try:
                     logger.info(f"📂 Loading price candles from {self.depth_db_path}...")
                     conn = sqlite3.connect(self.depth_db_path)
                     price_df = pd.read_sql_query(
-                        f"SELECT timestamp, open, high, low, close, volume FROM price_candles WHERE symbol = '{self.symbol}'",
+                        f"SELECT timestamp, open, high, low, close, volume FROM price_candles WHERE symbol = '{norm_symbol}'",
                         conn,
                     )
                     conn.close()
@@ -156,9 +155,6 @@ class BacktestFeed:
 
         # --- Load market trades from SQLite if a DB path is provided ---
         if getattr(self, "depth_db_path", None) and self.depth_db_path is not None:
-            import os
-            import sqlite3
-
             if os.path.exists(self.depth_db_path):
                 try:
                     logger.info(f"📂 Loading market trades from {self.depth_db_path}...")
@@ -167,7 +163,7 @@ class BacktestFeed:
                     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'")
                     if cursor.fetchone():
                         trades_df = pd.read_sql_query(
-                            f"SELECT timestamp, price, amount as volume, side FROM market_trades WHERE symbol = '{self.symbol}'",
+                            f"SELECT timestamp, price, amount as volume, side FROM market_trades WHERE symbol = '{norm_symbol}'",
                             conn,
                         )
                         if not trades_df.empty:
@@ -230,11 +226,9 @@ class BacktestFeed:
 
             if event_type == "DEPTH":
                 await self._emit_depth(row["timestamp"], row["bids"], row["asks"])
-            elif self.mode == "TRADES":
-                # Direct Replay of Real Trades (Synthetic fallback REMOVED)
+            elif event_type == "TICK":
                 await self._emit_tick(row["timestamp"], row["price"], row["volume"], row["side"])
-
-            elif self.mode == "CANDLES":
+            elif event_type == "CANDLE" and self.mode == "CANDLES":
                 is_green = row["close"] > row["open"]
                 total_vol = row["volume"]
 
@@ -256,7 +250,7 @@ class BacktestFeed:
     async def _emit_tick(self, timestamp, price, volume, side="UNKNOWN"):
         """Emit a single tick event."""
         # System now expects BUY/SELL (Binance Style) for 100% parity
-        normalized_side = side.upper()
+        normalized_side = str(side).upper()
         if normalized_side == "BID":
             normalized_side = "SELL"
         elif normalized_side == "ASK":

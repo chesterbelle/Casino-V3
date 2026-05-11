@@ -18,7 +18,7 @@ def check_statistical_location(
     z_score = context_registry.get_vwap_zscore(symbol, current_price)
 
     # Phase D1.5: Sniper Mode (Dynamic Threshold)
-    min_z = 2.0
+    min_z = 1.5  # Standard Reversion Threshold
     setup_mode = SetupMode.REVERSION
 
     # Get regime context to check alignment

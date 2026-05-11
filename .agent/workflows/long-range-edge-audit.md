@@ -168,7 +168,7 @@ for sym in ['LTC/USDT:USDT', 'DOGE/USDT:USDT']:
 
 ## Step 4: Statistical Extraction (MFE/MAE Aggregate)
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 900
+.venv/bin/python utils/setup_edge_auditor.py --window 1800
 ```
 
 ---
