@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [7.4.0] - 2026-05-11
+
+### Fixed - Absorption Detector Implementation Bugs (Layer 1 Diagnostic)
+- **Config not wired**: `AbsorptionDetector` hardcoded Z≥1.5, Conc≥0.15, Noise≤0.85 instead of reading from `config/absorption.py` (Z≥3.0, Conc≥0.50, Noise≤0.35). Config now imported directly.
+- **Concentration was time-proxy**: `_concentration()` returned 0.90/0.60/0.30 based on `time_since_update` — not measuring actual volume concentration. Reimplemented as `dominant_vol / total_vol` per level.
+- **Noise ratio inverted**: `_noise_ratio()` returned aggressor volume as "noise" and counter-directional as "signal". Fixed: counter-directional volume is now correctly identified as noise.
+
+### Fixed - Target Calculation Bugs (Layer 2 Diagnostic)
+- **POC TP on wrong side**: 67% of reversion signals had TP (POC) on opposite side of entry. Added `poc_valid` check: POC must be in trade direction, else use ATR-based TP.
+- **SL behind VA too wide**: Reversion SL avg 1.26% vs MAE 0.194% (6.5× too wide). Replaced with ATR-based SL + 0.30% minimum (aligned with edge-audit calibration).
+
+### Changed - Volume Profile Architecture (V4→V9)
+- **RegimeGuardian**: VWAP Z-score → Volume Profile (POC/VAH/VAL) for `value_position` determination.
+- **GuardianManager**: Removed `StatisticalLocationGuardian` from pipeline. Added poc/vah/val to attribution traces.
+- **SetupEngine**: Targets use ATR-based SL with VA as directional reference only (not distance).
+
+### Verified - Edge Audit V9 (LTC/USDT RANGE, 1-day L2 backtest)
+- **Gross Expectancy**: **+0.224%** (first positive with dynamic targets + L2 real data)
+- **Net Taker**: **+0.104%** | **Net Maker**: **+0.144%**
+- **Overall WR**: 66.7% (33 decided, 145 timeouts)
+- **Reversion**: 92.3% WR, +0.425% Exp (105 signals, 92 timeouts)
+- **Rotation**: 41.2% WR, +0.028% Exp (70 signals)
+- **Continuation**: 100% WR, +0.250% Exp (n=3)
+- ⚠️ Edge is marginal: +0.104% net < 3× fee threshold
+
+### Evolution V3→V9
+| Ver | Signals | WR | Gross Exp | Net Taker | Root Cause |
+|-----|---------|-----|-----------|-----------|------------|
+| V3  | 399 | 33.0% | +0.052% | -0.068% ❌ | VWAP baseline |
+| V4  | 503 | 60.3% | -0.114% | -0.234% ❌ | VP routing, broken targets |
+| V5  | 122 | 61.9% | -0.359% | -0.479% ❌ | Strict filters killed high-Z signals |
+| V9  | 178 | 66.7% | +0.224% | +0.104% ✅ | ATR SL + POC validation |
+
+---
+
 ## [7.3.0] - 2026-05-06
 
 ### Added - Total Spectrum Absorption V3.2 (The Inertia Pivot)
