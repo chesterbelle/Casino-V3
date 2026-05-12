@@ -339,7 +339,7 @@ class TrendAcceptanceDetector:
         # Track confirmed breakouts: {symbol: {side, level, break_ts, candles_outside, cvd_at_break}}
         self.active_breakouts: Dict[str, dict] = {}
         self.last_fire_ts: Dict[str, float] = defaultdict(float)
-        self.cooldown = 999999.0  # DISABLED: Phase B audit showed negative edge (-0.064%)
+        self.cooldown = 60.0  # Longer cooldown — trend trades are less frequent (Phase B: needs calibration)
 
         # Candle counter for "outside VA" tracking
         self._candle_count_outside: Dict[str, int] = defaultdict(int)
