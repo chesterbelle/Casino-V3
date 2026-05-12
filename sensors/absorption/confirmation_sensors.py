@@ -38,7 +38,7 @@ class DeltaReversalSensor:
 
     def __init__(self):
         self.name = "DeltaReversalSensor"
-        self.min_flip_ratio = 0.20  # Opposite delta must be ≥20% of original |delta|
+        self.min_flip_ratio = 0.20  # Original strategy value
 
     def check(self, symbol: str, candidate: dict, current_delta: float) -> bool:
         """
@@ -85,7 +85,7 @@ class PriceBreakSensor:
 
     def __init__(self):
         self.name = "PriceBreakSensor"
-        self.min_break_pct = 0.02  # Price must break level by at least 0.02%
+        self.min_break_pct = 0.02  # Original strategy value
 
     def check(self, symbol: str, candidate: dict, current_price: float) -> bool:
         """

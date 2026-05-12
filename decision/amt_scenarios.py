@@ -131,20 +131,18 @@ class FailedBreakoutDetector:
         # === PHASE 3: Confirm delta divergence ===
         cvd_change = current_cvd - pending["cvd_at_break"]
 
-        # For break ABOVE VAH: confirming CVD would be positive (buyers aggressive)
-        # Divergent = CVD flat or negative (no real buying conviction)
+        # Step 1.2 Fix (AMT V10): Compare CVD change against expected change (slope * elapsed)
+        # instead of the total cumulative CVD at break which was leading to false positives.
+        baseline_slope = abs(footprint.get_cvd_slope(window_seconds=10)) if footprint else 0.0
+        expected_change = baseline_slope * elapsed
+        expected_change = max(expected_change, 5.0)  # Minimum expected change for significance
+
         if direction == "ABOVE":
-            # Normalise: a confirming break would show CVD increase
-            # Divergent = CVD didn't increase much, or went negative
-            is_divergent = (
-                cvd_change < 0 or abs(cvd_change) < abs(pending["cvd_at_break"]) * self.cvd_divergence_threshold
-            )
+            # Break above VAH: confirming = CVD positive & significant
+            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
         else:
-            # For break BELOW VAL: confirming CVD would be negative (sellers aggressive)
-            # Divergent = CVD didn't decrease much, or went positive
-            is_divergent = (
-                cvd_change > 0 or abs(cvd_change) < abs(pending["cvd_at_break"]) * self.cvd_divergence_threshold
-            )
+            # Break below VAL: confirming = CVD negative & significant
+            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
 
         if not is_divergent:
             # Delta confirmed the break — it was real, don't fade it
@@ -257,9 +255,10 @@ class LiquidityExhaustionDetector:
             if at_level:
                 # We're at the level — record test if enough time since last
                 if timestamp - self._last_test_ts.get(f"{symbol}_{level_key}", 0) > 5.0:
-                    # Get current delta at this level
-                    current_delta = abs(footprint.get_delta_at_level(price))
-                    cvd_slope = footprint.get_cvd_slope(window_seconds=2)
+                    # Step 1.1 Fix (AMT V10): Use CVD slope as proxy for instant delta (non-accumulated)
+                    # get_delta_at_level(price) was returning cumulative session delta.
+                    cvd_slope = footprint.get_cvd_slope(window_seconds=3)
+                    current_delta = abs(cvd_slope)
 
                     tests.append(
                         {
@@ -279,10 +278,10 @@ class LiquidityExhaustionDetector:
                     # Check if delta is declining across tests
                     is_declining = True
                     for i in range(1, len(tests)):
-                        if tests[i]["delta"] > tests[i - 1]["delta"] * self.declining_threshold:
-                            if tests[i]["delta"] > tests[i - 1]["delta"]:
-                                is_declining = False
-                                break
+                        # Step 1.1 Fix: Stricter declining check using the non-accumulated delta
+                        if tests[i]["delta"] >= tests[i - 1]["delta"] * self.declining_threshold:
+                            is_declining = False
+                            break
 
                     if is_declining:
                         # CONFIRMED: Liquidity Exhaustion
@@ -339,14 +338,16 @@ class TrendAcceptanceDetector:
         # Track confirmed breakouts: {symbol: {side, level, break_ts, candles_outside, cvd_at_break}}
         self.active_breakouts: Dict[str, dict] = {}
         self.last_fire_ts: Dict[str, float] = defaultdict(float)
-        self.cooldown = 60.0  # Longer cooldown — trend trades are less frequent (Phase B: needs calibration)
+        self.cooldown = 60.0  # Longer cooldown
 
-        # Candle counter for "outside VA" tracking
+        # Candle counters for tracking
         self._candle_count_outside: Dict[str, int] = defaultdict(int)
+        self._candle_count_inside: Dict[str, int] = defaultdict(int)  # For tolerant invalidation
         self._last_candle_ts: Dict[str, float] = defaultdict(float)
 
         # Configuration
         self.min_candles_outside = 3  # Must stay outside VA for 3+ candles
+        self.min_invalidation_candles = 2  # Must be inside VA for 2+ candles to invalidate
         self.pullback_tolerance_pct = 0.001  # 0.1% — pullback must come within this of the level
         self.max_pullback_penetration_pct = 0.001  # Can't re-enter VA by more than 0.1%
         self.cvd_confirmation_threshold = 5.0  # CVD slope must be > this to confirm
@@ -369,12 +370,13 @@ class TrendAcceptanceDetector:
         is_outside = is_above or is_below
 
         if is_outside:
+            self._candle_count_inside[symbol] = 0
             self._candle_count_outside[symbol] = self._candle_count_outside.get(symbol, 0) + 1
 
             # After 3 candles outside, check for confirmed breakout
             if self._candle_count_outside[symbol] >= self.min_candles_outside:
                 if symbol not in self.active_breakouts:
-                    # Check CVD confirmation
+                    # Check CVD confirmation (must be positive for above, negative for below)
                     if is_above and cvd_slope > self.cvd_confirmation_threshold:
                         self.active_breakouts[symbol] = {
                             "side": "LONG",  # Trend is UP, pullback entry is LONG
@@ -398,11 +400,18 @@ class TrendAcceptanceDetector:
                             f"({self._candle_count_outside[symbol]} candles, CVD slope={cvd_slope:.1f})"
                         )
         else:
-            # Price returned to VA — reset
+            # Price returned to VA
             self._candle_count_outside[symbol] = 0
-            if symbol in self.active_breakouts:
-                logger.debug(f"[TREND_ACCEPTANCE] {symbol} breakout invalidated — price returned to VA")
-                del self.active_breakouts[symbol]
+            self._candle_count_inside[symbol] = self._candle_count_inside.get(symbol, 0) + 1
+
+            # Only invalidate if it stays inside for 2+ consecutive candles
+            if self._candle_count_inside[symbol] >= self.min_invalidation_candles:
+                if symbol in self.active_breakouts:
+                    logger.info(
+                        f"🚫 [TREND_ACCEPTANCE] {symbol} breakout invalidated — "
+                        f"price returned to VA for {self.min_invalidation_candles} candles"
+                    )
+                    del self.active_breakouts[symbol]
 
     def on_tick(
         self, symbol: str, price: float, timestamp: float, context_registry, footprint_registry

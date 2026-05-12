@@ -563,21 +563,29 @@ class SetupEngineV4(TraceBulletMixin):
             # Phase A (AMT): Exhaustion Gate — block reversion when aggressor INTENSIFYING
             # Phase A analysis showed: reversion WINS have delta_ratio=0.52, TIMEOUTS=1.14
             # Only block when delta_ratio > 1.5 = aggressor clearly gaining strength (not exhausting)
+            # Phase A (AMT) Refined Gate: Block reversion when flow is clearly INTENSIFYING.
+            # Analysis showed that high delta + high volume = 92% chance of trend continuation.
+            # We block reversions if:
+            # 1. Delta surge is massive (> 1.8x baseline)
+            # 2. Both delta and volume are surging (> 1.3x baseline each)
             delta_ratio = exhaustion.get("delta_ratio", 1.0)
-            if setup_type_name == "reversion" and delta_ratio > 1.5 and not self.fast_track:
+            volume_ratio = exhaustion.get("volume_ratio", 1.0)
+
+            is_intensifying = delta_ratio > 1.8 or (delta_ratio > 1.3 and volume_ratio > 1.3)
+
+            if setup_type_name == "reversion" and is_intensifying and not self.fast_track:
                 self._trace_decision(
                     sym,
                     "REJECTED",
                     "EXHAUSTION_GATE",
-                    f"Reversion with intensifying aggression (δ_ratio={delta_ratio}, "
-                    f"v_ratio={exhaustion.get('volume_ratio', '?')})",
+                    f"Flow intensification (δ_ratio={delta_ratio:.2f}, v_ratio={volume_ratio:.2f})",
                     {"exhaustion": exhaustion, "exhaustion_score": exhaustion_score},
                     price=price,
                     side=side,
                 )
                 logger.info(
-                    f"🔴 [AMT_EXHAUSTION] {sym} {side} reversion BLOCKED — "
-                    f"δ_ratio={delta_ratio:.3f} > 1.5 (aggressor intensifying)"
+                    f"🔴 [AMT_EXHAUSTION] {sym} {side} reversion BLOCKED — Flow Intensifying "
+                    f"(δ_ratio={delta_ratio:.2f}, v_ratio={volume_ratio:.2f})"
                 )
                 return
 
@@ -692,6 +700,24 @@ class SetupEngineV4(TraceBulletMixin):
         tp_price, sl_price, setup_type_name, level_ref = self._calculate_targets(
             symbol, side, price, setup_mode, value_position
         )
+
+        # Step 2.2 Fix (AMT V10): Scenario-specific target adjustments
+        # Allows each AMT narrative to have its own exit profile instead of generic targets.
+        if scenario == "failed_breakout":
+            # MFE is historically low (~0.22%) → cap TP to 0.35% to increase WR from 36%
+            max_tp_dist = price * 0.0035
+            tp_dist = abs(tp_price - price)
+            if tp_dist > max_tp_dist:
+                tp_price = price + max_tp_dist if side == "LONG" else price - max_tp_dist
+
+        elif scenario == "trend_acceptance":
+            # Trend trades need wider targets to capture momentum (min 1.5x ATR)
+            atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0) if self.context_registry else 0.0
+            if atr > 0:
+                min_tp_dist = atr * 1.5
+                tp_dist = abs(tp_price - price)
+                if tp_dist < min_tp_dist:
+                    tp_price = price + min_tp_dist if side == "LONG" else price - min_tp_dist
 
         # Override setup_type with scenario name for tracking
         setup_type_name = f"{scenario}"
