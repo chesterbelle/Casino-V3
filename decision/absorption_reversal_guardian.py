@@ -299,15 +299,15 @@ class AbsorptionReversalGuardian:
         )
 
         return {
-            "symbol": candidate["symbol"],
-            "side": candidate["side"],
-            "direction": candidate["direction"],
-            "absorption_level": candidate["absorption_level"],
-            "level": candidate["level"],
-            "delta": candidate["delta"],
-            "z_score": candidate["z_score"],
-            "concentration": candidate["concentration"],
-            "noise": candidate["noise"],
+            "symbol": candidate.get("symbol"),
+            "side": candidate.get("side"),
+            "direction": candidate.get("direction"),
+            "absorption_level": candidate.get("absorption_level"),
+            "level": candidate.get("level"),
+            "delta": candidate.get("delta", 0.0),
+            "z_score": candidate.get("z_score", candidate.get("metadata", {}).get("z_score", 0.0)),
+            "concentration": candidate.get("concentration", candidate.get("metadata", {}).get("concentration", 0.0)),
+            "noise": candidate.get("noise", candidate.get("metadata", {}).get("noise", 0.0)),
             "price": current_price,
             "entry_price": current_price,
             "timestamp": timestamp,
@@ -322,4 +322,6 @@ class AbsorptionReversalGuardian:
             "is_contra_trend": is_contra_trend,
             "phase": "confirmed",
             "strategy": "AbsorptionScalpingV2",
+            "scenario": "absorption_reversal",
+            "tactical_type": "AbsorptionReversal",
         }

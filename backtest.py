@@ -36,6 +36,7 @@ from core.context_registry import ContextRegistry  # noqa: E402
 from core.engine import Engine  # noqa: E402
 from core.events import AggregatedSignalEvent, EventType, TickEvent  # noqa: E402
 from core.execution import OrderManager  # noqa: E402
+from core.footprint_registry import footprint_registry  # noqa: E402
 from core.sensor_manager import SensorManager  # noqa: E402
 from croupier.croupier import Croupier  # noqa: E402
 from decision.setup_engine import SetupEngineV4  # noqa: E402
@@ -151,6 +152,7 @@ async def run_backtest():
         global SIM_TIME
         SIM_TIME = e.timestamp
         context_registry.on_tick(e.symbol, e.price, e.volume, e.side)
+        footprint_registry.on_trade(e.symbol, e.price, e.volume, e.side, e.timestamp)
 
     async def on_candle_context(e):
         context_registry.on_candle(e.symbol, e.high, e.low)

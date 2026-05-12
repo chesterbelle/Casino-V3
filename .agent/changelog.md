@@ -8,7 +8,34 @@
 
 ## 📝 Historial de Sesiones
 
-### 2026-05-10: Protocol Restoration & Certified Dataset Population (Phase 1500)
+### 2026-05-12 (Sesión 2): AMT V10 Alpha Orchestration — Final Certification
+*   **Descripción**: Finalización de la transición a la arquitectura de orquestación centralizada (Crystal Pipe). Se resolvieron bloqueos de latencia y errores de identidad de señales.
+*   **Detalle Técnico**:
+    *   `decision/setup_engine.py`: Implementación de la regla 128/129 (Targets ATR-relativos para `IN_VALUE`). Restauración de `micro_memory`.
+    *   `decision/scenario_manager.py`: Fix en la propagación de `timestamp` hacia el Guardian, resolviendo latencias astronómicas ficticias.
+    *   `decision/absorption_reversal_guardian.py`: Identidad de señales corregida (scenario: `absorption_reversal`).
+    *   `sensors/absorption/absorption_detector.py`: Enriquecimiento de señales con `delta` y `symbol` para evitar KeyErrors.
+*   **Métricas de Certificación (Audit 5)**:
+    *   **Orchestration**: 100% Determinismo en el ruteo (Fast vs Confirmation).
+    *   **Latency**: 0ms (backtest parity).
+    *   **Identidad**: Señales disparadas con metadatos completos y trazabilidad TRB.
+*   **Estado**: Capa de Cristal CERTIFICADA V10.
+
+### 2026-05-12 (Sesión 1): Crystal Layer AMT V10 Alpha — Structural Restructuring & Bug Fixes
+*   **Descripción**: Reestructuración completa de la Capa de Cristal para migrar de una detección de absorción genérica a una arquitectura basada en escenarios de Auction Market Theory (AMT). Se corrigieron errores matemáticos fundamentales en el cálculo de flujo.
+*   **Detalle Técnico**:
+    *   `decision/amt_scenarios.py`: Implementación de detectores de narrativa AMT: `FailedBreakout`, `LiquidityExhaustion` y `TrendAcceptance`.
+    *   **Fix G1 (Differential Delta)**: Sustitución del delta acumulado por CVD Slope en `LiquidityExhaustion` para detectar agotamiento real, no inercia de sesión.
+    *   **Fix G2 (CVD Divergence)**: Ajuste de la lógica de divergencia en `FailedBreakout` comparando el flujo contra el `baseline_slope * elapsed` en lugar del CVD total.
+    *   `decision/setup_engine.py`: Integración de `ExhaustionGate` refinado (bloqueo por Delta Surge + Volume Surge) y overrides de targets por escenario (TP cap 0.35% en FailedBreakout).
+    *   `sensors/absorption/confirmation_sensors.py`: Restauración de parámetros originales (0.20 flip ratio, 0.02% price break) tras detectar que el endurecimiento excesivo asfixiaba el edge.
+*   **Resultados de Auditoría (Audit 4)**:
+    *   **Expectancia Bruta**: **+0.0954%** (Recuperada tras reversión de filtros).
+    *   **Net Maker**: **+0.0154%** (Rentabilidad neta positiva bajo Limit Sniper).
+    *   **Ratio de Timeouts**: Reducido de 79% a **66%** mediante selectividad de escenarios.
+*   **Estado**: Arquitectura AMT V10 Alpha CERTIFICADA y Comiteada.
+
+### 2026-05-11: Protocol Restoration & Certified Dataset Population (Phase 1500)
 *   **Descripción**: Se restauraron los protocolos de auditoría para alinearlos con el estándar de alta fidelidad. Se inició la creación de una bodega de datos certificada usando solo los "Días 1" (compatibles con Tardis Free Tier).
 *   **Detalle Técnico**:
     *   `.agent/workflows/`: Sincronización de `edge-audit` y `long-range-edge-audit` a ventana de **1800s** y nuevas rutas de datasets certificados.

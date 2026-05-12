@@ -36,8 +36,11 @@ class FootprintData:
 
         # Metadata
         self.last_update: float = 0.0
-        self.total_ask_volume: float = 0.0
         self.total_bid_volume: float = 0.0
+        self.total_ask_volume: float = 0.0
+
+        # Performance Cache: {metric_key: (timestamp, value)}
+        self._cache: Dict[str, Tuple[float, any]] = {}
 
     def round_price(self, price: float) -> float:
         """Round price to nearest tick size."""
@@ -166,6 +169,13 @@ class FootprintData:
 
         Used to detect CVD flattening (absorption confirmation).
         """
+        # Check cache first: key = f"slope_{window_seconds}"
+        cache_key = f"slope_{window_seconds}"
+        if cache_key in self._cache:
+            cache_ts, cache_val = self._cache[cache_key]
+            if cache_ts == self.last_update:
+                return cache_val
+
         if len(self.cvd_history) < 2:
             return 0.0
 
@@ -186,10 +196,13 @@ class FootprintData:
         delta_cvd = self.cvd - old_cvd
         delta_time = self.last_update - old_ts
 
-        if delta_time <= 0:
-            return 0.0
+        slope = 0.0
+        if delta_time > 0:
+            slope = delta_cvd / delta_time
 
-        return delta_cvd / delta_time
+        # Update cache
+        self._cache[cache_key] = (self.last_update, slope)
+        return slope
 
     def get_exhaustion_metrics(self, window_long: float = 10.0, window_short: float = 2.0) -> dict:
         """Phase A (AMT): Compute delta declining and volume declining metrics.
@@ -206,9 +219,16 @@ class FootprintData:
         Returns:
             dict with delta_ratio, volume_ratio, delta_long, delta_short, vol_long, vol_short
         """
+        # Check cache first: key = f"exh_{window_long}_{window_short}"
+        cache_key = f"exh_{window_long}_{window_short}"
+        if cache_key in self._cache:
+            cache_ts, cache_val = self._cache[cache_key]
+            if cache_ts == self.last_update:
+                return cache_val
+
         now = self.last_update
         if len(self.cvd_history) < 4:
-            return {
+            res = {
                 "delta_ratio": 1.0,
                 "volume_ratio": 1.0,
                 "delta_long": 0,
@@ -217,6 +237,8 @@ class FootprintData:
                 "vol_short": 0,
                 "ready": False,
             }
+            self._cache[cache_key] = (now, res)
+            return res
 
         cutoff_long = now - window_long
         cutoff_short = now - window_short
@@ -252,7 +274,7 @@ class FootprintData:
         # Volume proxy: number of trades (CVD entries) in each window
         vol_ratio = n_short / (n_long * (window_short / window_long)) if n_long > 0 else 1.0
 
-        return {
+        res = {
             "delta_ratio": round(delta_ratio, 3),
             "volume_ratio": round(vol_ratio, 3),
             "delta_long": round(delta_long, 2),
@@ -261,6 +283,10 @@ class FootprintData:
             "vol_short": n_short,
             "ready": True,
         }
+
+        # Update cache
+        self._cache[cache_key] = (now, res)
+        return res
 
 
 class FootprintRegistry:

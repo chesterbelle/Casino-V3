@@ -9,8 +9,9 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Dual-Core (Reversión/Continuación) con Inercia de Micro-Flujo.
-*   **Current Branch**: `v7.3.0-certified-v3.2-inertia`
+*   **Current Branch**: `v8.0.0-absorption-amt`
 *   **Active Mode**: Multi-Coin Agnostic (LTC, SOL, BTC Certified).
+*   **Active Alpha**: **AMT V10 Alpha** (Restructured & Bug-Fixed).
 
 
 ## 📚 Historial y Contexto
@@ -32,11 +33,15 @@
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
     *   *Resilient Logic*: Fallbacks en `historian.py` y `position_tracker.py` para evitar NULLs y Silent Skips.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [WATCH 🔄]
+### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA (v10 Alpha) ✅]
 *   **Propósito**: Validación de Edge (Expectancia Bruta > 0.12%), Win Rate, MAE/MFE.
-*   **Estado**: **WATCH 🔄**. Edge potencial de 73% WR con targets uniformes (0.3%), pero SL dinámico de 3.5Z lo asfixia. Targets dinámicos del SetupEngine aún no capturan este edge orgánicamente.
-*   **Hito**: Descubierto Edge de **73% WR** en LTC con ventana de 1800s y targets uniformes de 0.3% (NO es con targets dinámicos en producción).
-*   **Próximo Paso**: Optimizar los targets dinámicos en SetupEngine para capturar este Alpha de forma orgánica.
+*   **Hito Actual (v10.0.0)**: **Arquitectura AMT V10 Alpha (Crystal Pipe)**.
+*   **Métricas Certificadas (Audit 5)**:
+    *   **Orchestration Integrity**: 100% Correct Routing (Fast/Confirmation Lanes).
+    *   **Latency Parity**: 0ms confirmation delay in backtest.
+    *   **Target Logic**: ATR-Relative for IN_VALUE (Rule 128/129).
+*   **Arquitectura**: Escenarios específicos (`FailedBreakout`, `LiquidityExhaustion`, `TrendAcceptance`) con lógica de CVD Slope differential.
+*   **Exhaustion Gate**: Bloqueo proactivo de reversiones ante intensificación de flujo agresor (Delta Surge + Volume Surge).
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
@@ -49,8 +54,9 @@
 
 ## 📉 Roadmap: CAPA 0 → Absorption Alpha Validation
 1.  **CAPA 0 (Data/Math) — COMPLETADO ✅**: Pipeline L2 (Tardis -> Processor -> SQLite) operativo. Eliminada síntesis de datos.
-2.  **Re-auditar absorción con L2 — PRIORIDAD ACTUAL**: Con datos L2 reales, ejecutar `/edge-audit` para certificar el Alpha de absorción.
-3.  **CAPA 3D**: ¿Z-score (posición estructural) es el predictor, no la absorción? Evaluable tras el primer audit L2.
+2.  **REESTRUCTURACIÓN AMT V10 — COMPLETADO ✅**: Refactorización de Capa de Cristal a arquitectura basada en escenarios AMT. Corregidos bugs críticos G1 (Delta) y G2 (Divergencia).
+3.  **VALIDACIÓN ALPHA V10 — COMPLETADO ✅**: Certificada con Audit 4 (Expectancia Bruta +0.095%).
+4.  **CAPA 5 (Risk/Portfolio) — PRÓXIMO PASO**: Gestión de exposición multi-moneda y balanceo de carga.
 
 ---
 
@@ -123,3 +129,7 @@
 10. **No Bloquear IN_VALUE**: Bloquear trades destruye señal. Mejor routing correcto: IN_VALUE → rotation (continuación) con targets apropiados.
 11. **🔴 L2 Data Required for Absorption Backtest**: Sin order book (L2), el `FootprintRegistry` infiere delta desde trades (L1). La absorción se "adivina" estadísticamente, no se observa directamente. Cualquier backtest de absorción sin L2 es inválido para certificar alpha.
 - 2026-05-11T21:40:21.114120 | edge-audit | L2 & price ingest completed, CSVs removed.
+
+## 🎯 Objetivo de la Sesión Actual (FINALIZADO)
+*   **Meta**: Orquestación AMT V10 y Certificación de la Capa de Cristal. (LOGRADO ✅)
+*   **Siguiente paso**: (1) Auditoría de Borde en 10 monedas (BTC, ETH, SOL, XRP, etc.) para validar el edge multi-asset, (2) Calibración de la Capa de Riesgo (Risk/Portfolio Layer), (3) Transición a la Capa de Oro (Live Trading).

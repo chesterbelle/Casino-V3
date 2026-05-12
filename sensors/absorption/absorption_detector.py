@@ -106,18 +106,26 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
 
             # Return signal dict for SensorManager to emit
             signal = {
+                "symbol": self.symbol,
                 "side": side,
                 "score": abs(z_score) / 5.0,  # Normalized score
                 "price": candle_1m["close"],
+                "delta": delta,
+                "ask_volume": ask_vol,
+                "bid_volume": bid_vol,
                 "trace_id": trace_id,
                 "metadata": {
                     "tactical_type": self.name,
+                    "symbol": self.symbol,
                     "z_score": z_score,
                     "footprint_z_score": z_score,
                     "concentration": concentration,
                     "noise": noise,
                     "absorption_level": level,
                     "direction": direction,
+                    "delta": delta,
+                    "ask_volume": ask_vol,
+                    "bid_volume": bid_vol,
                     "trace_id": trace_id,
                 },
             }
