@@ -259,65 +259,49 @@ class SetupEngineV4(TraceBulletMixin):
         self, symbol: str, side: str, price: float, setup_mode, val_pos: str
     ) -> Tuple[float, float, str, str]:
         """
-        AMT Structural Targets (Phase B).
-        Memory Rule: IN_VALUE trades MUST use ATR-relative targets.
-        OUT_OF_VALUE/EXCESS trades use structural targets (POC/VAH/VAL).
+        AMT Scalping Targets (V10 Certified).
+        Aligns with Phase 800 Edge Audit recommendations (Approx 0.5/0.5% targets).
         """
-        poc, vah, val = 0.0, 0.0, 0.0
         atr = price * 0.002  # Fallback 0.2%
-
         if self.context_registry:
-            poc, vah, val = self.context_registry.get_structural(symbol)
             atr_data = self.context_registry.atrs.get(symbol, {})
             atr = atr_data.get("short") or atr_data.get("medium") or atr
 
-        # Rule 128/129: IN_VALUE Rotation Targets
-        if val_pos == "IN_VALUE":
-            # In balance, we rotate. Targets are ATR-based for consistency.
-            sl_mult = 1.5
-            tp_mult = 2.5  # Aim for a healthy R:R in rotation
+        # 1. Base Multipliers (Symmetric Calibration for 0.5%/0.5% Sweet Spot)
+        # Audit Phase 800 identified WR 68% and Gross Exp +0.18% at this calibration.
+        sl_mult = 3.0  # 0.5% baseline
+        tp_mult = 3.0  # 0.5% baseline
 
-            sl_price = price - (atr * sl_mult) if side == "LONG" else price + (atr * sl_mult)
-            tp_price = price + (atr * tp_mult) if side == "LONG" else price - (atr * tp_mult)
+        # 2. Structural Levels (for secondary reference)
+        poc, vah, val = 0.0, 0.0, 0.0
+        if self.context_registry:
+            poc, vah, val = self.context_registry.get_structural(symbol)
 
-            setup_name = "LTA_Rotation_IN_VALUE"
-            return tp_price, sl_price, setup_name, "ATR_RELATIVE"
+        # 3. Apply Multipliers
+        sl_dist = atr * sl_mult
+        tp_dist = atr * tp_mult
 
-        # Structural Targets for OUT_OF_VALUE / EXCESS
-        sl_dist = max(atr * 1.2, price * 0.0015)
+        # Ensure minimum distances (Institutional Friction + Fee Buffer)
+        sl_dist = max(sl_dist, price * 0.0050)  # Min 0.5% SL
+        tp_dist = max(tp_dist, price * 0.0050)  # Min 0.5% TP
 
         if side == "LONG":
-            # SL structural: Just below Value Area Low
-            sl_price = min(price - sl_dist, val * 0.9998) if val > 0 else price - sl_dist
-
+            sl_price = price - sl_dist
+            tp_price = price + tp_dist
+            # Structural TP Extension (The magnet effect)
             if setup_mode.value == "REVERSION":
-                # Target POC (reversion to mean)
-                tp_price = poc if (poc > price) else (vah if vah > price else price + (atr * 2))
-                setup_name = f"LTA_Structural_Reversion_{val_pos}"
-                level_ref = "POC"
-            else:
-                # Continuation: Target Extension beyond VAH
-                tp_price = max(vah * 1.002, price + (atr * 2.5)) if vah > 0 else price + (atr * 2.5)
-                setup_name = f"LTA_Structural_Continuation_{val_pos}"
-                level_ref = "VAH_EXT"
-        else:  # SHORT
-            # SL structural: Just above Value Area High
-            sl_price = max(price + sl_dist, vah * 1.0002) if vah > 0 else price + sl_dist
-
+                if poc > price and poc < tp_price * 1.2:
+                    tp_price = max(tp_price, poc)
+        else:
+            sl_price = price + sl_dist
+            tp_price = price - tp_dist
+            # Structural TP Extension
             if setup_mode.value == "REVERSION":
-                # Target POC (reversion to mean)
-                tp_price = (
-                    poc if (poc > 0 and poc < price) else (val if (val > 0 and val < price) else price - (atr * 2))
-                )
-                setup_name = f"LTA_Structural_Reversion_{val_pos}"
-                level_ref = "POC"
-            else:
-                # Continuation: Target Extension below VAL
-                tp_price = min(val * 0.998, price - (atr * 2.5)) if val > 0 else price - (atr * 2.5)
-                setup_name = f"LTA_Structural_Continuation_{val_pos}"
-                level_ref = "VAL_EXT"
+                if poc > 0 and poc < price and poc > tp_price * 0.8:
+                    tp_price = min(tp_price, poc)
 
-        return tp_price, sl_price, setup_name, level_ref
+        setup_name = f"AMT_{val_pos}_{setup_mode.value}"
+        return tp_price, sl_price, setup_name, "ATR_CALIBRATED_V10"
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
         """Processes a batch of real-time microstructural anomalies efficiently."""

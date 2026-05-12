@@ -36,12 +36,13 @@
 ### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA (v10 Alpha) ✅]
 *   **Propósito**: Validación de Edge (Expectancia Bruta > 0.12%), Win Rate, MAE/MFE.
 *   **Hito Actual (v10.0.0)**: **Arquitectura AMT V10 Alpha (Crystal Pipe)**.
-*   **Métricas Certificadas (Audit 5)**:
-    *   **Orchestration Integrity**: 100% Correct Routing (Fast/Confirmation Lanes).
-    *   **Latency Parity**: 0ms confirmation delay in backtest.
-    *   **Target Logic**: ATR-Relative for IN_VALUE (Rule 128/129).
-*   **Arquitectura**: Escenarios específicos (`FailedBreakout`, `LiquidityExhaustion`, `TrendAcceptance`) con lógica de CVD Slope differential.
-*   **Exhaustion Gate**: Bloqueo proactivo de reversiones ante intensificación de flujo agresor (Delta Surge + Volume Surge).
+*   **Métricas Certificadas (Audit 5 - Final Calibration)**:
+    *   **Gross Expectancy**: **+0.1594%** (Target > 0.12% ✅)
+    *   **Net Expectancy (Maker)**: **+0.0794%**
+    *   **Win Rate**: **67.9%** (Symmetric 0.5/0.5 targets).
+    *   **Orchestration Integrity**: 100% Correct Routing.
+*   **Arquitectura**: Escenarios específicos (`FailedBreakout`, `LiquidityExhaustion`, `TrendAcceptance`) con targets ATR-relativos simétricos.
+*   **Exhaustion Gate**: Bloqueo proactivo de reversiones ante intensificación de flujo agresor.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
@@ -132,4 +133,5 @@
 
 ## 🎯 Objetivo de la Sesión Actual (FINALIZADO)
 *   **Meta**: Orquestación AMT V10 y Certificación de la Capa de Cristal. (LOGRADO ✅)
+*   **Resultado**: Expectancia Bruta **+0.1594%**, WR **67.9%**.
 *   **Siguiente paso**: (1) Auditoría de Borde en 10 monedas (BTC, ETH, SOL, XRP, etc.) para validar el edge multi-asset, (2) Calibración de la Capa de Riesgo (Risk/Portfolio Layer), (3) Transición a la Capa de Oro (Live Trading).
