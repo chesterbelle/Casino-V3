@@ -73,6 +73,19 @@ class SetupEngineV4(TraceBulletMixin):
 
         logger.info("🎯 LTA V10 Orchestrator initialized (Crystal Pipe Architecture)")
 
+    def get_scenario_stats(self):
+        """Expose distribution stats from ScenarioManager."""
+        stats = self.scenario_manager.get_stats()
+        dist = stats["scenario_distribution"]
+        total = stats["total_signals"]
+
+        logger.info("📊 --- SCENARIO DISTRIBUTION REPORT ---")
+        for sc, count in dist.items():
+            pct = (count / total * 100) if total > 0 else 0
+            logger.info(f"🔹 {sc:20}: {count:3} ({pct:5.1f}%)")
+        logger.info(f"📈 TOTAL SIGNALS DISPATCHED: {total}")
+        return stats
+
     def is_system_warm(self, symbol: str) -> bool:
         """Structural readiness check."""
         if self.fast_track:
@@ -190,34 +203,18 @@ class SetupEngineV4(TraceBulletMixin):
         if not passed:
             return
 
-        # 2. Exhaustion Gate (AMT Sanity Check)
-        if not self.fast_track and setup_mode.value == "REVERSION":
-            exh = signal.get("exhaustion", {})
-            d_ratio = exh.get("delta_ratio", 1.0)
-            v_ratio = exh.get("volume_ratio", 1.0)
-            if d_ratio > 1.8 or (d_ratio > 1.3 and v_ratio > 1.3):
-                self._trace_decision(symbol, "REJECTED", "EXHAUSTION_GATE", f"Intensifying (d={d_ratio}, v={v_ratio})")
-                return
+        # 2. Target Calculation (Symmetric Variance-Aware Model)
+        tp_price, sl_price, setup_name, level_ref = self._calculate_targets(
+            symbol, side, price, setup_mode, val_pos, scenario, signal
+        )
 
-        # 3. Calculate Targets
-        tp_price, sl_price, setup_name, level_ref = self._calculate_targets(symbol, side, price, setup_mode, val_pos)
-
-        # 4. Scenario-Specific Overrides (The Alpha details)
-        if scenario == "failed_breakout":
-            max_tp = price * 0.0035
-            if abs(tp_price - price) > max_tp:
-                tp_price = price + max_tp if side == "LONG" else price - max_tp
-        elif scenario == "trend_acceptance":
-            atr = self.context_registry.atrs.get(symbol, {}).get("short", 0.0) if self.context_registry else 0.0
-            if atr > 0 and abs(tp_price - price) < (atr * 1.5):
-                tp_price = price + (atr * 1.5) if side == "LONG" else price - (atr * 1.5)
-
-        # 5. Dispatch
-        self.last_fire_ts[symbol] = now
+        # 3. Metadata Enrichment
+        # Consolidated arbitration metadata for full traceability.
+        # This will be picked up by the global Audit Handler in main/backtest.
         trigger_meta = self._enrich_metadata(
             {
-                "trigger": f"AMT_{scenario}" if "scenario" in signal else f"LTA_{scenario}",
-                "setup_type": scenario if "scenario" in signal else setup_name,
+                "trigger": f"AMT_{scenario.upper()}",
+                "setup_name": setup_name,
                 "price": price,
                 "tp_price": tp_price,
                 "sl_price": sl_price,
@@ -225,14 +222,16 @@ class SetupEngineV4(TraceBulletMixin):
                 "sizing_multiplier": multiplier,
                 "v3_mode": setup_mode.value,
                 "scenario": scenario,
+                "is_composite": signal.get("is_composite", False),
+                "conviction_score": signal.get("conviction_score", 0),
+                "contributors": signal.get("contributing_scenarios", []),
                 "footprint_z_score": signal.get("z_score", 0.0),
             },
             symbol,
         )
 
-        if trigger_meta.get("aborted_by_breakeven_guard"):
-            return
-
+        # 4. Dispatch Signal Event
+        self.last_fire_ts[symbol] = now
         out_evt = AggregatedSignalEvent(
             type=EventType.AGGREGATED_SIGNAL,
             timestamp=now,
@@ -251,57 +250,82 @@ class SetupEngineV4(TraceBulletMixin):
             price=price,
         )
         await self.engine.dispatch(out_evt)
+
         logger.warning(
-            f"🎯 [ORCHESTRATOR] Fired {side} {scenario} on {symbol} | Price: {price:.2f} | TP: {tp_price:.2f} | SL: {sl_price:.2f}"
+            f"🎯 [ORCHESTRATOR] Fired {side} {scenario} on {symbol} | Price: {price:.2f} | TP: {tp_price:.2f} | SL: {sl_price:.2f} (Ref: {level_ref})"
         )
 
     def _calculate_targets(
-        self, symbol: str, side: str, price: float, setup_mode, val_pos: str
+        self,
+        symbol: str,
+        side: str,
+        price: float,
+        setup_mode,
+        val_pos: str,
+        scenario: str = "unknown",
+        signal: dict = {},
     ) -> Tuple[float, float, str, str]:
         """
-        AMT Scalping Targets (V10 Certified).
-        Aligns with Phase 800 Edge Audit recommendations (Approx 0.5/0.5% targets).
+        Symmetric Variance-Aware Target Calculator (Professional Standard).
+
+        This model implements a volatility-anchored 'cage' for price action,
+        ensuring that all trades have enough room to breathe above the noise floor
+        while maintaining mathematical symmetry to maximize Win Rate.
+
+        Logic:
+        1. Multiplier Selection:
+           - Reversals (Absorption/FB): 2.5x ATR (Standard mean-reversion).
+           - Trend Acceptance: 4.5x ATR (Scaled room for trend discovery).
+        2. Distance: calculated_dist = ATR * Multiplier.
+        3. Floor: Enforce a minimum distance (0.45%) to stay above the LTC noise floor.
+        4. Symmetry: TP_pct = SL_pct = max(calculated_dist, Floor).
+
+        Returns:
+            Tuple: (tp_price, sl_price, setup_name, level_ref)
         """
-        atr = price * 0.002  # Fallback 0.2%
+        # --- 1. GET CURRENT VOLATILITY (ATR) ---
+        # Baseline volatility (0.2%) used as fallback if registry is unavailable.
+        atr_pct = 0.20
         if self.context_registry:
             atr_data = self.context_registry.atrs.get(symbol, {})
-            atr = atr_data.get("short") or atr_data.get("medium") or atr
+            # Prefer short-term 1m ATR for immediate noise context
+            atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
 
-        # 1. Base Multipliers (Symmetric Calibration for 0.5%/0.5% Sweet Spot)
-        # Audit Phase 800 identified WR 68% and Gross Exp +0.18% at this calibration.
-        sl_mult = 3.0  # 0.5% baseline
-        tp_mult = 3.0  # 0.5% baseline
+        # --- 2. MULTIPLIER CONFIGURATION (Symmetric Scaled) ---
+        # Industry standard: Reversion trades use tighter cages; trends use wider ones.
+        # Everything remains symmetric (1:1 RR) to preserve Win Rate.
+        MULTIPLIERS = {
+            "trend_acceptance": 4.5,  # Wider cage for runners
+            "failed_breakout": 2.5,  # Standard cage for reversals
+            "absorption_reversal": 2.5,  # Standard cage for reversals
+            "liquidity_exhaustion": 2.5,  # Standard cage for reversals
+        }
+        mult = MULTIPLIERS.get(scenario, 2.5)
 
-        # 2. Structural Levels (for secondary reference)
-        poc, vah, val = 0.0, 0.0, 0.0
-        if self.context_registry:
-            poc, vah, val = self.context_registry.get_structural(symbol)
+        # --- 3. CALCULATE DISTANCE & ENFORCE NOISE FLOOR ---
+        # Noise Floor established via MAE Percentile-90 Analysis (LTC Audit May 2024).
+        # Setting targets below this floor results in stochastic stop-outs.
+        NOISE_FLOOR_PCT = 0.45
 
-        # 3. Apply Multipliers
-        sl_dist = atr * sl_mult
-        tp_dist = atr * tp_mult
+        calculated_dist = atr_pct * mult
+        final_dist_pct = max(calculated_dist, NOISE_FLOOR_PCT)
 
-        # Ensure minimum distances (Institutional Friction + Fee Buffer)
-        sl_dist = max(sl_dist, price * 0.0050)  # Min 0.5% SL
-        tp_dist = max(tp_dist, price * 0.0050)  # Min 0.5% TP
+        # --- 4. APPLY SYMMETRY (1:1 Risk/Reward) ---
+        # This is the bedrock of high-frequency absorption strategies.
+        dist_decimal = final_dist_pct / 100.0
 
         if side == "LONG":
-            sl_price = price - sl_dist
-            tp_price = price + tp_dist
-            # Structural TP Extension (The magnet effect)
-            if setup_mode.value == "REVERSION":
-                if poc > price and poc < tp_price * 1.2:
-                    tp_price = max(tp_price, poc)
+            tp_price = price * (1 + dist_decimal)
+            sl_price = price * (1 - dist_decimal)
         else:
-            sl_price = price + sl_dist
-            tp_price = price - tp_dist
-            # Structural TP Extension
-            if setup_mode.value == "REVERSION":
-                if poc > 0 and poc < price and poc > tp_price * 0.8:
-                    tp_price = min(tp_price, poc)
+            tp_price = price * (1 - dist_decimal)
+            sl_price = price * (1 + dist_decimal)
 
-        setup_name = f"AMT_{val_pos}_{setup_mode.value}"
-        return tp_price, sl_price, setup_name, "ATR_CALIBRATED_V10"
+        # --- 5. IDENTITY & TRACEABILITY ---
+        setup_name = f"AMT_{scenario.upper()}_{val_pos}"
+        level_ref = f"VAR_AWARE_{mult}x_ATR"
+
+        return tp_price, sl_price, setup_name, level_ref
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
         """Processes a batch of real-time microstructural anomalies efficiently."""
@@ -368,7 +392,7 @@ class SetupEngineV4(TraceBulletMixin):
 
         import time
 
-        from core.observability.historian import historian
+        from core.observability.historian import historian as hist_local
 
         trace_data = {
             "timestamp": time.time(),
@@ -384,7 +408,7 @@ class SetupEngineV4(TraceBulletMixin):
         if status == "REJECTED":
             logger.info(f"🚫 [GATE] {symbol} {side} {gate} REJECTED: {reason}")
 
-        historian.record_decision_trace(trace_data)
+        hist_local.record_decision_trace(trace_data)
 
     def _check_micro_inertia_guard(self, symbol: str, side: str, now: float) -> Tuple[bool, float]:
         """

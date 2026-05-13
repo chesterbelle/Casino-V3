@@ -183,6 +183,17 @@ class EdgeAuditor:
                         break
                 first_touch[f"ft_{tp_t}_{sl_t}"] = result
 
+            # Arbitrator Data
+            is_composite = False
+            conviction = 0
+            if sig["metadata"]:
+                try:
+                    meta = json.loads(sig["metadata"])
+                    is_composite = meta.get("is_composite", False)
+                    conviction = meta.get("conviction_score", 0)
+                except Exception:
+                    pass
+
             results.append(
                 {
                     "setup_type": setup_type,
@@ -196,6 +207,8 @@ class EdgeAuditor:
                     "tp_pct": tp_pct,
                     "sl_pct": sl_pct,
                     "window": win,
+                    "is_composite": is_composite,
+                    "conviction": conviction,
                     **first_touch,
                 }
             )
@@ -339,9 +352,28 @@ class EdgeAuditor:
                     f"  {tp_t:.1f}/{sl_t:.1f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
                 )
 
-        # ── [5] DECISION TRACE AUDIT ──
+        # ── [5] ALPHA FUSION & CONVICTION AUDIT ──
+        if "is_composite" in df.columns:
+            print(f"\n{BOLD}[5] ALPHA FUSION & CONVICTION AUDIT (Arbitrator Efficacy){RESET}")
+            print(f"{'Signal Class':<20} {'n':<6} {'W':<5} {'L':<5} {'WR%':<8} {'Avg Conviction':<15} {'Verdict'}")
+            print("-" * 75)
+
+            for is_comp, group in df.groupby("is_composite"):
+                label = f"{YELLOW}COMPOSITE (Fused){RESET}" if is_comp else "SOLO (Single)"
+                w = (group["real_outcome"] == "WIN").sum()
+                losses = (group["real_outcome"] == "LOSS").sum()
+                d = w + losses
+                wr = (w / d * 100) if d > 0 else 0
+                avg_conv = group["conviction"].mean()
+
+                v_color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
+                print(
+                    f"{label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
+                )
+
+        # ── [6] DECISION TRACE AUDIT ──
         if traces is not None and not traces.empty:
-            print(f"\n{BOLD}[5] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
+            print(f"\n{BOLD}[6] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
             print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
             print("-" * 75)
 
