@@ -303,6 +303,9 @@ async def run_backtest():
     print(f"  Gross PnL      : ${ledger_gross:+.4f}")
     print(f"  Total Fees     : ${closing_fees:+.4f}")
     print("=" * 60 + "\n")
+    # 9. Crystal Layer Distribution Report (AMT V10 Telemetry)
+    setup_engine.get_scenario_stats()
+
     sys.stdout.flush()
     sys.stderr.flush()
 

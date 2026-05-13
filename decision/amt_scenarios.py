@@ -128,14 +128,24 @@ class FailedBreakoutDetector:
         if not re_entered:
             return None
 
-        # === PHASE 3: Confirm delta divergence ===
+        # === PHASE 3: Confirm delta divergence & Exhaustion Gate ===
         cvd_change = current_cvd - pending["cvd_at_break"]
 
         # Step 1.2 Fix (AMT V10): Compare CVD change against expected change (slope * elapsed)
-        # instead of the total cumulative CVD at break which was leading to false positives.
         baseline_slope = abs(footprint.get_cvd_slope(window_seconds=10)) if footprint else 0.0
         expected_change = baseline_slope * elapsed
         expected_change = max(expected_change, 5.0)  # Minimum expected change for significance
+
+        # Exhaustion Gate (Phase B Audit Point 6):
+        # If CVD change is TOO strong in the direction of the break, don't fade it.
+        # This is the "Intensification" check.
+        if direction == "ABOVE" and cvd_change > expected_change * 1.8:
+            # Delta is intensifying - this is likely Trend Acceptance, not a failed break.
+            del self.pending_breaks[symbol]
+            return None
+        if direction == "BELOW" and cvd_change < -expected_change * 1.8:
+            del self.pending_breaks[symbol]
+            return None
 
         if direction == "ABOVE":
             # Break above VAH: confirming = CVD positive & significant

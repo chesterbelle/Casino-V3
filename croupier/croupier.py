@@ -32,10 +32,10 @@ from core.portfolio.position_tracker import OpenPosition, PositionTracker
 from utils.symbol_norm import normalize_symbol
 
 from .components.drift_auditor import DriftAuditor
-from .components.exit_engine import ExitEngine
 from .components.oco_manager import OCOManager
 from .components.order_executor import OrderExecutor
 from .components.reconciliation_service import ReconciliationService
+from .components.slim_exit_engine import SlimExitEngine
 
 
 class Croupier(TimeIterator):
@@ -97,7 +97,7 @@ class Croupier(TimeIterator):
             exchange_adapter, self.position_tracker, self.oco_manager, croupier=self
         )
 
-        self.exit_manager = ExitEngine(self)
+        self.slim_exit_engine = SlimExitEngine(self)
 
         # Initialize ContextRegistry for execute_order
         self.context_registry = None  # Set externally by main.py
@@ -172,10 +172,9 @@ class Croupier(TimeIterator):
         from core.events import EventType
 
         # 1. Lifecycle Events
-        self.engine.subscribe(EventType.AGGREGATED_SIGNAL, self.exit_manager.on_signal)
-        self.engine.subscribe(EventType.CANDLE, self.exit_manager.on_candle)
-        self.engine.subscribe(EventType.TICK, self.exit_manager.on_tick)
-        self.engine.subscribe(EventType.MICROSTRUCTURE, self.exit_manager.on_microstructure)
+        self.logger.info("⚡ [SLIM-MODE] Activating SlimExitEngine (4-Pillars)")
+        self.engine.subscribe(EventType.CANDLE, self.slim_exit_engine.on_candle)
+        self.engine.subscribe(EventType.TICK, self.slim_exit_engine.on_tick)
 
         # 2. Execution Events (The Pivot)
         self.engine.subscribe(EventType.ORDER_UPDATE, self._on_order_update_event)
@@ -499,6 +498,7 @@ class Croupier(TimeIterator):
         exit_reason: str = "MANUAL",
         position_obj: Optional[Any] = None,
         watchdog: Optional[Any] = None,
+        prefer_maker: bool = False,
     ) -> Dict:
         """
         Close an open position.
@@ -534,6 +534,7 @@ class Croupier(TimeIterator):
                 exit_reason=exit_reason,
                 position_obj=position,
                 watchdog=watchdog,
+                prefer_maker=prefer_maker,
             )
 
             # 3. Post-Execution Accounting

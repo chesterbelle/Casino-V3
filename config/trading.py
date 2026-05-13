@@ -256,45 +256,46 @@ LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
 # 🎯 UNIFIED EXIT ENGINE (Phase 1200 - 5-Layer Stack)
 # =====================================================
 
-# --- SELECTOR MAESTRO DE PERFIL ---
-ACTIVE_EXIT_PROFILE = "EXPRIMIDOR"  # Options: "EXPRIMIDOR", "FRANCOTIRADOR", "ESCALADOR"
+# =====================================================
+# 🎯 SLIM EXIT ENGINE (V10.2 - Asset-Specific 4-Pillars)
+# =====================================================
 
-# Perfiles de ejecución (Previenen "Esquizofrenia Algorítmica" entre capas)
-_EXIT_PROFILES = {
-    "EXPRIMIDOR": {
-        "description": "Micro-Scalping & Trend Surfing (Deja correr ganancias con Trailing Stop)",
-        "LAYER_5_CATASTROPHIC": True,
-        "LAYER_4_INVALIDATION": False,
-        "LAYER_3_SCE": False,
-        "LAYER_2_SHADOW": True,  # <-- Motor Principal
-        "LAYER_1_DRAIN": True,
+# Master Switch for the new Slim Engine
+SLIM_EXIT_ACTIVE = True
+
+ASSET_EXIT_PROFILES = {
+    "BLUE_CHIP": {
+        "assets": ["BTC/USDT", "ETH/USDT"],
+        "scale_out": {"enabled": True, "at_atr": 2.5, "fraction": 0.3},
+        "break_even": {"enabled": True, "at_atr": 2.0, "offset_ticks": 2},
+        "trailing": {"enabled": True, "distance_atr": 4.5, "activation_atr": 3.0},
+        "delta_invalidation": {"enabled": True, "z_score_threshold": 5.5},
+        "execution_strategy": "MAKER_PASSIVE",
     },
-    "FRANCOTIRADOR": {
-        "description": "Reversión Estructural Pura (Sale al primer síntoma de debilidad del flujo)",
-        "LAYER_5_CATASTROPHIC": True,
-        "LAYER_4_INVALIDATION": True,  # <-- Motor Principal
-        "LAYER_3_SCE": True,
-        "LAYER_2_SHADOW": False,
-        "LAYER_1_DRAIN": True,
+    "LIQUID_ALT": {
+        "assets": ["LTC/USDT", "XRP/USDT", "BCH/USDT", "LINK/USDT"],
+        "scale_out": {"enabled": True, "at_atr": 1.2, "fraction": 0.5},
+        "break_even": {"enabled": True, "at_atr": 1.0, "offset_ticks": 1},
+        "trailing": {"enabled": True, "distance_atr": 3.0, "activation_atr": 1.8},
+        "delta_invalidation": {"enabled": True, "z_score_threshold": 4.5},
+        "execution_strategy": "MAKER_JOIN",
     },
-    "ESCALADOR": {
-        "description": "Scale-out Estructural (Asegura 50% de ganancia rápido y deja correr el resto)",
-        "LAYER_5_CATASTROPHIC": True,
-        "LAYER_4_INVALIDATION": False,
-        "LAYER_3_SCE": True,  # <-- Motor Principal
-        "LAYER_2_SHADOW": False,
-        "LAYER_1_DRAIN": True,
+    "HIGH_BETA": {
+        "assets": ["SOL/USDT", "AVAX/USDT", "DOT/USDT"],
+        "scale_out": {"enabled": True, "at_atr": 1.8, "fraction": 0.5},
+        "break_even": {"enabled": True, "at_atr": 1.2, "offset_ticks": 1},
+        "trailing": {"enabled": True, "distance_atr": 3.5, "activation_atr": 2.0},
+        "delta_invalidation": {"enabled": True, "z_score_threshold": 5.0},
+        "execution_strategy": "MAKER_JOIN",
+    },
+    "DEFAULT": {
+        "scale_out": {"enabled": True, "at_atr": 1.5, "fraction": 0.5},
+        "break_even": {"enabled": True, "at_atr": 1.0, "offset_ticks": 1},
+        "trailing": {"enabled": True, "distance_atr": 3.0, "activation_atr": 2.0},
+        "delta_invalidation": {"enabled": True, "z_score_threshold": 4.5},
+        "execution_strategy": "MAKER_JOIN",
     },
 }
-
-# Auto-configuración de Capas (Capa de Hierro)
-_active = _EXIT_PROFILES.get(ACTIVE_EXIT_PROFILE, _EXIT_PROFILES["EXPRIMIDOR"])
-
-EXIT_LAYER_CATASTROPHIC = _active["LAYER_5_CATASTROPHIC"]
-EXIT_LAYER_THESIS_INVALIDATION = _active["LAYER_4_INVALIDATION"]
-EXIT_LAYER_SCE = _active["LAYER_3_SCE"]
-EXIT_LAYER_SHADOW_PROTECTION = _active["LAYER_2_SHADOW"]
-EXIT_LAYER_SESSION_DRAIN = _active["LAYER_1_DRAIN"]
 
 # -----------------------------------------------------
 # GLOBAL EXIT SETTINGS

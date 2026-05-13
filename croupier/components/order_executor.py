@@ -504,6 +504,7 @@ class OrderExecutor:
         exit_reason: Optional[str] = None,
         position_obj: Optional[Any] = None,
         watchdog: Optional[Any] = None,
+        prefer_maker: bool = False,
     ) -> Dict[str, Any]:
         """
         Unified Execution Funnel for closing positions (Phase 2.2).
@@ -547,7 +548,36 @@ class OrderExecutor:
             self.position_tracker.register_alias(client_id, position_obj)
             self.logger.info(f"💾 Pre-Registered Close Alias: {client_id} -> {trade_id}")
 
-        # 4. TIERED EXECUTION (Smart Close)
+        # 4. TIER -1: MAKER-JOIN (Optional but preferred for Slim Engine)
+        if prefer_maker:
+            try:
+                self.logger.info(f"🎯 [TIER-1] Attempting Maker-Join Exit for {symbol}...")
+                ticker = await self.adapter.fetch_ticker(symbol)
+                # Join the side we want to exit on
+                limit_price = ticker["ask"] if close_side == "SELL" else ticker["bid"]
+
+                result = await self.execute_limit_order(
+                    symbol=symbol,
+                    side=close_side,
+                    amount=amount,
+                    price=limit_price,
+                    params={
+                        "reduceOnly": True,
+                        "client_order_id": client_id,
+                        "exit_reason": f"{exit_reason}_MAKER",
+                        "postOnly": True,  # Ensure we are Maker or fail fast
+                    },
+                )
+
+                # If filled immediately or placed successfully, return
+                if result.get("status") in ["closed", "filled", "open"]:
+                    self.logger.info(f"✅ Maker-Join initiated for {symbol} @ {limit_price}")
+                    return result
+
+            except Exception as me:
+                self.logger.warning(f"⚠️ Maker-Join failed/rejected: {me}. Falling back to TIER 0.")
+
+        # 5. TIERED EXECUTION (Legacy Funnel)
         try:
             # Phase 31: Legacy OrderTracker removed
             return await self.execute_market_order(

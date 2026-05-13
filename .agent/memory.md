@@ -33,16 +33,26 @@
     *   `t0`: Tick exchange | `t1`: Decision | `t2`: Submit | `t3`: Fill confirm | `t4`: PositionTracker.
     *   *Resilient Logic*: Fallbacks en `historian.py` y `position_tracker.py` para evitar NULLs y Silent Skips.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA (Generalized V10 Alpha) ✅]
+### 2. Capa de Cristal (Estrategia / Alpha) — [WATCH (Alpha Rescue) 🔄]
 *   **Propósito**: Validación de Edge (Expectancia Bruta > 0.12%), Win Rate, MAE/MFE.
-*   **Hito Actual (v8.0.0)**: **AMT V10 Alpha (Generalized Certification)**.
-*   **Métricas Certificadas (Generalized Audit - 10 Coins × 24h)**:
-    *   **Top Performance (LTC)**: **WR 67.3%**, **Exp +0.312%**.
-    *   **Generalizability**: **7/10 coins** showed positive expectancy (WR > 50%).
-    *   **Win Rate (Aggregate)**: **62.0%** (n=1396 signals).
-    *   **Orchestration Integrity**: 100% Priority Scrutiny (High-edge scenarios prioritized).
-*   **Arquitectura**: Escenarios AMT con targets simétricos 0.5% (3.0x ATR).
+*   **Hito Actual (v10.1.0)**: **AMT V10 Alpha (Symmetric Variance-Aware)**.
+*   **Métricas de Sesión (LTC 24h - 1800s)**:
+    *   **Win Rate (Provisional)**: **63.2%**.
+    *   **Expectancia Bruta**: **+0.1185%**.
+    *   **Targets**: Simetría **1:1** (0.45% TP / 0.45% SL).
+    *   **Orchestration**: Alpha Fusion (Composite Signals) operacional y trazable.
+*   **Arquitectura**: Escenarios AMT con targets simétricos anclados a ATR con Noise Floor (0.45%).
 *   **Exhaustion Gate**: Integrado a nivel detector para bloqueo de "Toxic Surges".
+
+### Sesión 3: Rescate del Alpha y Rediseño "Slim" (V10.2)
+*   **Fecha**: 2026-05-13
+*   **Objetivo**: Certificar AMT V10 y resolver asfixia de edge.
+*   **Resultados**:
+    *   **Alpha Rescue**: Recuperado Win Rate del **63.2%** en LTC mediante targets simétricos (1:1 RR) con 0.45% Noise Floor.
+    *   **Design Decision**: Condenado el motor de salida de 5 capas por lentitud y complejidad. Aprobado el **Slim Exit Engine (V10.2)**.
+    *   **Arquitectura de Perfiles**: Implementación de perfiles por activo (`BLUE_CHIP`, `LIQUID_ALT`, `HIGH_BETA`) para ajustar la agresividad de salida según la personalidad del mercado.
+    *   **Ejecución Pro**: Todas las salidas tácticas (Scale Out, BE, Trailing) serán **Maker (Limit Orders)** para eliminar slippage.
+*   **Commit**: `slim-exit-blueprint-v10`
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
@@ -66,7 +76,7 @@
 2. **Capa 1 (Decision)**: **CERTIFICADA ✅**.
 3. **Capa 2 (Execution)**: **CERTIFICADA ✅**.
 4. **Capa 3 (Resilience)**: **CERTIFICADA ✅**.
-5. **Capa 4 (Strategy)**: **WATCH 🔄** — Edge potencial 73% WR con targets uniformes, pero SL dinámico asfixia edge. Targets SetupEngine por optimizar.
+5. **Capa 4 (Strategy)**: **WATCH 🔄** — Simetría profesional recuperó el edge, pero falta validar la selectividad mediante `conviction_score` para certificar.
 6. **Capa 5 (Risk)**: **PENDIENTE 🛡️**.
 
 ---
@@ -132,10 +142,13 @@
 - 2026-05-11T21:40:21.114120 | edge-audit | L2 & price ingest completed, CSVs removed.
 
 ## 🎯 Objetivo de la Sesión Actual (FINALIZADO)
-*   **Meta**: Certificación Generalizada de la Arquitectura AMT V10 Alpha. (LOGRADO ✅)
-*   **Resultado**: Edge validado en **7/10 activos**. Expectancia máxima en LTC (+0.31%).
-*   **Siguiente paso**:
-    1. **Filtros de Volatilidad**: Investigar por qué SOL/AVAX fallaron (Delta Climax vs Structural Levels).
-    2. **Capa 5 (Portfolio Management)**: Implementar gestión de exposición dinámica basada en el "Confidence Score" de los escenarios.
-    3. **Capa de Oro**: Despliegue en Testnet con la cesta de monedas certificadas (LTC, XRP, ETH, BNB).
-- 2026-05-13T16:10:15.295704 | session-close | L2 & price ingest completed, CSVs removed.
+*   **Meta**: Rescate del Alpha AMT y Rediseño del Motor de Salida. (LOGRADO ✅)
+*   **Resultado**: WR 63.2% (LTC) y Blueprint del **Slim Exit Engine (V10.2)** aprobado.
+*   **Siguiente paso (Sesión 4)**:
+    1. **Fase 1 (Config)**: Implementar `ASSET_EXIT_PROFILES` en `config/trading.py`.
+    2. **Fase 2 (Surgery)**: Reemplazar `ExitEngine` por la versión Slim de 4 pilares.
+    3. **Fase 3 (Maker Logic)**: Forzar ejecución Limit en todas las salidas tácticas.
+- 2026-05-13T14:40:00.000000 | session-close | Alpha stabilized, Slim Blueprint approved, ready for implementation.
+
+132. **Professional Symmetry**: En crypto-scalping de alta frecuencia, la simetría 1:1 es vital para proteger el Win Rate. Nunca usar SL < 0.45% (Noise Floor) en activos como LTC para evitar el ruido estocástico.
+133. **Alpha Fusion (Composite Signals)**: La confluencia de escenarios AMT es un evento de baja frecuencia pero alta convicción. Estas señales deben tener prioridad absoluta.

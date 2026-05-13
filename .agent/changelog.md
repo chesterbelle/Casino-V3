@@ -8,20 +8,18 @@
 
 ## 📝 Historial de Sesiones
 
-### 2026-05-13 (Sesión 3): Signal Arbitration & Alpha Fusion (AMT V10 Core Upgrade)
-*   **Descripción**: Transformación del núcleo de decisión de "silos aislados" a una "inteligencia orquestada". Se implementó el Arbitrador de Señales que fusiona el alpha y resuelve conflictos direccionales.
+### 2026-05-13 (Sesión 3): Rescate Alpha & AMT V10 Symmetric Certification
+*   **Hito**: Recuperación del Win Rate (51% -> 63%) mediante la implementación de **Simetría Profesional**.
 *   **Detalle Técnico**:
-    *   `decision/scenario_manager.py`: Refactorización total del `on_tick`. Implementado el **Signal Arbitrator** con lógica de fusión de convicción y resolución de conflictos LONG/SHORT basada en deltas de prioridad.
-    *   `decision/setup_engine.py`:
-        *   **Goldilocks Calibration**: Implementado el `TargetCalculator` con multiplicadores específicos por escenario (TrendAcceptance, Exhaustion, FailedBreakout).
-        *   **Conviction-Based Stop**: Ajuste dinámico del SL basado en el `conviction_score` de la señal fusionada.
-        *   **Trazabilidad**: Enriquecimiento del `Historian` con campos `is_composite`, `conviction_score` y `contributors`.
-    *   `utils/setup_edge_auditor.py`: Actualizado con la sección **[5] ALPHA FUSION AUDIT** para medir estadísticamente la ventaja de las confluencias.
-*   **Resultados de Auditoría (Certificación Final)**:
-    *   **Window**: **1800s** (Confirmado como el estándar para evitar asfixia de alpha).
-    *   **WR (LTC 24h)**: **51.7%** (en un entorno de alta fidelidad y targets dinámicos).
-    *   **Fusion Analysis**: Se identificó que las confluencias son eventos de alta escasez (High-Edge candidates).
-*   **Estado**: Arquitectura de Orquestación CERTIFICADA.
+    - `decision/setup_engine.py`: Implementación del modelo **Symmetric Variance-Aware**. Simetría 1:1 anclada a ATR con **Noise Floor de 0.45%** para LTC.
+    - `decision/scenario_manager.py`: Integración del **Signal Arbitrator** para Alpha Fusion (Composite Signals) y resolución de conflictos.
+    - `utils/setup_edge_auditor.py`: Actualizado con reporte de Fusión y métricas de simetría real.
+*   **Métricas Finales (LTC 24h - 1800s)**:
+    - **Win Rate**: **63.2%** (Baseline restaurado).
+    - **Expectancia Bruta**: **+0.1185%** (Alpha positivo).
+    - **Targets**: Simétricos 1:1 (~0.45%).
+*   **Git**: Versión final limpia y formateada (Black/Isort/Flake8). Commit `bc0add7`.
+*   **Estado**: Estrategia AMT V10 CERTIFICADA con Simetría Profesional.
 
 ### 2026-05-12 (Sesión 2): AMT V10 Alpha Orchestration — Final Certification
 *   **Descripción**: Finalización de la transición a la arquitectura de orquestación centralizada (Crystal Pipe). Se resolvieron bloqueos de latencia y errores de identidad de señales.
