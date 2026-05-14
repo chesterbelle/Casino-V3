@@ -236,58 +236,59 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None, all_ti
     raw_rows = [dict(r) for r in cur.fetchall()]
     conn.close()
 
-    # Phase 1300: Journey-Based Grouping (Temporal Clustering V2)
-    # Replaces parent_trade_id grouping with a robust 15-minute time window.
-    # This prevents orphaned scale-outs and incorrectly aggregated independent trades.
-    sorted_trades = sorted(raw_rows, key=lambda x: (x["symbol"], x["timestamp"]))
-    journeys = []
-    active_journeys = {}
-    WINDOW_SEC = 900  # 15 minutes clustering window
+    # Phase 1300: Journey-Based Grouping (Parent Lineage Reconciliation)
+    # Groups executions by parent_trade_id. If missing, falls back to symbol + 5s window.
+    journeys_map = {}
     PARTIAL_EXIT_REASONS = {"VIRTUAL_CLOSE", "SO_TARGET_REACHED", "SCALE_OUT"}
 
-    for r in sorted_trades:
-        sym = r["symbol"]
-        # Phase 1301: Robust timestamp parsing (Handles Epoch and ISO format)
+    for r in raw_rows:
+        parent_id = r.get("parent_trade_id")
+        symbol = r["symbol"]
+
+        # Robust timestamp parsing (Epoch or ISO)
         ts_val = r["timestamp"]
         try:
             ts = float(ts_val)
         except (ValueError, TypeError):
             try:
-                # Handle ISO8601 format: 2026-05-13T21:57:26.941321
                 from datetime import datetime
 
                 ts = datetime.fromisoformat(ts_val).timestamp()
             except Exception:
                 ts = 0.0
 
-        # Check if we can append to an existing journey for this symbol
-        if sym in active_journeys:
-            aj = active_journeys[sym]
-            # Proximity check: Is this trade within the window of the last trade in this journey?
-            if (ts - aj["timestamp_end"]) <= WINDOW_SEC:
-                aj["sub_trades"] += 1
-                aj["gross_pnl"] += r["gross_pnl"]
-                aj["net_pnl"] += r["net_pnl"]
-                aj["fee"] += r["fee"]
-                aj["qty"] += r["qty"]
-                aj["timestamp_end"] = ts
-                aj["bars_held"] = (aj["bars_held"] or 0) + (r["bars_held"] or 0)
+        # Grouping Key: parent_trade_id (if available), else a loose temporal key
+        if parent_id:
+            group_key = f"{symbol}_{parent_id}"
+        else:
+            # Fallback temporal key (rounded to 5s)
+            group_key = f"{symbol}_temp_{int(ts // 5)}"
 
-                # Terminal exit priority: SO is partial, TP/SL is terminal.
-                if r["exit_reason"] not in PARTIAL_EXIT_REASONS:
-                    aj["exit_reason"] = r["exit_reason"]
-                continue
+        if group_key not in journeys_map:
+            nj = r.copy()
+            nj["sub_trades"] = 1
+            nj["timestamp_start"] = ts
+            nj["timestamp_end"] = ts
+            # Historian contract: gross_pnl = revenue, fee = cost, net_pnl = revenue - cost
+            journeys_map[group_key] = nj
+        else:
+            aj = journeys_map[group_key]
+            aj["sub_trades"] += 1
+            aj["gross_pnl"] += r["gross_pnl"]
+            aj["net_pnl"] += r.get("net_pnl", 0.0)
+            aj["fee"] += r["fee"]
+            aj["qty"] += r["qty"]
+            aj["timestamp_end"] = max(aj["timestamp_end"], ts)
+            aj["timestamp_start"] = min(aj["timestamp_start"], ts)
+            aj["bars_held"] = (aj["bars_held"] or 0) + (r["bars_held"] or 0)
 
-        # Start new journey
-        nj = r.copy()
-        nj["sub_trades"] = 1
-        nj["timestamp_start"] = ts
-        nj["timestamp_end"] = ts
-        active_journeys[sym] = nj
-        journeys.append(nj)
+            # Terminal exit reason priority: Partial reasons don't override terminal ones
+            if r["exit_reason"] not in PARTIAL_EXIT_REASONS:
+                aj["exit_reason"] = r["exit_reason"]
 
-    # Sort journeys back to descending timestamp for UI consistency
-    journeys.sort(key=lambda x: x["timestamp"], reverse=True)
+    # Convert map back to list and sort
+    journeys = list(journeys_map.values())
+    journeys.sort(key=lambda x: x["timestamp_start"], reverse=True)
     return journeys
 
 

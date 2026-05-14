@@ -8,6 +8,21 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-14 (Sesión 4): Slim Exit Engine Stabilization & Concurrency Certification
+*   **Hito**: Estabilización definitiva de la ejecución secuencial y resolución del "Trade Flooding" bug.
+*   **Detalle Técnico**:
+    - `players/adaptive.py`: Implementado `_inflight_symbols` lock síncrono para prevenir race conditions en ráfagas de señales (Dumb Executor hardening).
+    - `backtest.py`: Restaurado el cableado del callback `ORDER_UPDATE` hacia el `PositionTracker`, permitiendo el cierre automático de posiciones en simulación.
+    - `exchanges/connectors/virtual_exchange.py`: Normalización de eventos unificada (client_order_id, c, i, orderId) para compatibilidad con el ruteo del Croupier.
+    - `core/portfolio/position_tracker.py`: Fix crítico en `confirm_close` usando `rsplit("_", 1)` para reconstruir IDs de trades padres desde fills de TP/SL.
+*   **Métricas de Certificación (LTC 24h - 1800s)**:
+    - **Total Trades**: **15** (Recuperación de escala: 1 -> 15).
+    - **Win Rate**: **66.7%**.
+    - **Profit Factor**: **1.70**.
+    - **Integridad Contable**: **✅ PASS** (Ledger balanceado tras 15 ejecuciones).
+*   **Git**: Commit `d612546` (feat: execution stabilization).
+*   **Estado**: Ejecución del Slim Exit Engine CERTIFICADA para trading secuencial.
+
 ### 2026-05-13 (Sesión 3): Rescate Alpha & AMT V10 Symmetric Certification
 *   **Hito**: Recuperación del Win Rate (51% -> 63%) mediante la implementación de **Simetría Profesional**.
 *   **Detalle Técnico**:

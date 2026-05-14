@@ -39,6 +39,12 @@ class SlimExitEngine:
 
         # Load asset profiles from config
         self.profiles = getattr(config, "ASSET_EXIT_PROFILES", {})
+
+        # Pre-normalize asset lists for robust matching
+        for name, profile in self.profiles.items():
+            if "assets" in profile:
+                profile["normalized_assets"] = [normalize_symbol(a) for a in profile["assets"]]
+
         self.logger.info(f"🚀 SlimExitEngine initialized with {len(self.profiles)} asset profiles.")
 
     def _get_profile(self, symbol: str) -> Dict[str, Any]:
@@ -47,8 +53,13 @@ class SlimExitEngine:
         for name, profile in self.profiles.items():
             if name == "DEFAULT":
                 continue
-            if symbol_norm in profile.get("assets", []):
+            if symbol_norm in profile.get("normalized_assets", []):
                 return profile
+
+        # Fallback to DEFAULT with Error Logging
+        self.logger.error(
+            f"⚠️ [CONFIG-ERROR] Symbol {symbol} ({symbol_norm}) has no matching Exit Profile! Using DISABLED DEFAULT."
+        )
         return self.profiles.get("DEFAULT", {})
 
     async def on_tick(self, event: TickEvent):
@@ -78,7 +89,7 @@ class SlimExitEngine:
             # ---------------------------------------------------------
             # PILAR 1: SCALE OUT (Partial Profit)
             # ---------------------------------------------------------
-            if profile["scale_out"]["enabled"] and not position.scaled_out:
+            if profile["scale_out"]["enabled"] and not getattr(position, "scaled_out", False):
                 if await self._check_scale_out(position, current_price, profile):
                     continue
 
@@ -95,23 +106,44 @@ class SlimExitEngine:
                 await self._check_trailing(position, current_price, profile)
 
     async def _check_delta_invalidation(self, position: OpenPosition, profile: Dict) -> bool:
-        """Exit if toxic flow detected (Z-Score threshold)."""
+        """Exit if toxic flow REVERSAL detected post-entry (Relative Delta Z).
+
+        Design rationale:
+        - Absorption LONG enters when Z is very negative (sellers being absorbed).
+        - Absolute Z check would fire immediately against the entry signal.
+        - Instead, we measure how much Z has CHANGED since entry:
+          - LONG: If Z rises far above entry_z → buyers exhausted, flow reversed to selling.
+          - SHORT: If Z drops far below entry_z → sellers exhausted, flow reversed to buying.
+        """
         if not self.croupier.context_registry:
             return False
 
-        _, _, z = self.croupier.context_registry.get_micro_state(position.symbol)
+        entry_z = getattr(position, "entry_z", None)
+        if entry_z is None or entry_z == 0.0:
+            return False  # No baseline → can't measure delta
+
+        _, _, current_z = self.croupier.context_registry.get_micro_state(position.symbol)
         threshold = profile["delta_invalidation"]["z_score_threshold"]
 
+        # Delta Z = how much the flow state changed since we entered
+        delta_z = current_z - entry_z
+
         triggered = False
-        if position.side == "LONG" and z <= -threshold:
+        if position.side == "LONG" and delta_z > threshold:
+            # Flow was bearish at entry (Z negative), now shifted bullish (Z rising).
+            # Counter-intuitive but correct: absorption LONG profits when selling pressure
+            # continues then exhausts. If Z jumps positive, the absorption thesis is broken.
             triggered = True
-        elif position.side == "SHORT" and z >= threshold:
+        elif position.side == "SHORT" and delta_z < -threshold:
+            # Flow was bullish at entry (Z positive), now shifted bearish.
             triggered = True
 
         if triggered:
-            self.logger.warning(f"🚨 [SLIM-DI] Toxic Flow (Z={z:.1f}) for {position.trade_id} | Closing (LIMIT)")
+            self.logger.warning(
+                f"🚨 [SLIM-DI] Flow Reversal (entry_z={entry_z:.1f}, now={current_z:.1f}, "
+                f"Δ={delta_z:+.1f}, thresh={threshold}) for {position.trade_id} | Closing (LIMIT)"
+            )
             self._pending_terminations.add(position.trade_id)
-            # Tactical Close: Execute as Maker-Join (limit at best bid/ask)
             asyncio.create_task(self._execute_limit_close(position, "DI_TOXIC_FLOW"))
             return True
         return False
@@ -137,7 +169,7 @@ class SlimExitEngine:
 
     async def _check_break_even(self, position: OpenPosition, price: float, profile: Dict):
         """Move SL to entry after reaching target."""
-        if position.be_activated or not position.entry_atr:
+        if getattr(position, "be_activated", False) or not getattr(position, "entry_atr", 0):
             return
 
         dist = abs(price - position.entry_price)
@@ -154,32 +186,51 @@ class SlimExitEngine:
 
     async def _check_trailing(self, position: OpenPosition, price: float, profile: Dict):
         """Dynamic ATR-based trailing stop."""
-        if not position.entry_atr:
+        if not getattr(position, "entry_atr", 0):
             return
 
-        profit_dist = abs(price - position.entry_price)
+        # Phase 1301: Directional profit check (Fix: abs() was causing activation on losses)
+        if position.side == "LONG":
+            profit_dist = price - position.entry_price
+        else:
+            profit_dist = position.entry_price - price
+
         activation_dist = position.entry_atr * profile["trailing"]["activation_atr"]
 
         if profit_dist < activation_dist:
             return
 
         trail_dist = position.entry_atr * profile["trailing"]["distance_atr"]
+        shadow_sl = getattr(position, "shadow_sl_level", None)
 
         if position.side == "LONG":
             new_sl = price - trail_dist
-            if position.shadow_sl_level is None or new_sl > position.shadow_sl_level:
+            # Guard: Never trail backward, and never below entry if risk is off
+            if shadow_sl is not None:
+                new_sl = max(new_sl, shadow_sl)
+            if getattr(position, "be_activated", False) or getattr(position, "scaled_out", False):
+                new_sl = max(new_sl, position.entry_price)
+
+            if shadow_sl is None or new_sl > shadow_sl:
                 position.shadow_sl_level = new_sl
         else:
             new_sl = price + trail_dist
-            if position.shadow_sl_level is None or new_sl < position.shadow_sl_level or position.shadow_sl_level == 0:
+            # Guard: Never trail backward, and never above entry if risk is off
+            if shadow_sl is not None and shadow_sl != 0:
+                new_sl = min(new_sl, shadow_sl)
+            if getattr(position, "be_activated", False) or getattr(position, "scaled_out", False):
+                new_sl = min(new_sl, position.entry_price)
+
+            if shadow_sl is None or new_sl < shadow_sl or shadow_sl == 0:
                 position.shadow_sl_level = new_sl
 
         # If shadow level hit, close with LIMIT
-        if position.shadow_sl_level:
+        shadow_sl = getattr(position, "shadow_sl_level", None)
+        if shadow_sl:
             hit = False
-            if position.side == "LONG" and price <= position.shadow_sl_level:
+            if position.side == "LONG" and price <= shadow_sl:
                 hit = True
-            elif position.side == "SHORT" and price >= position.shadow_sl_level:
+            elif position.side == "SHORT" and price >= shadow_sl:
                 hit = True
 
             if hit:

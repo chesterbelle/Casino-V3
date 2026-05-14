@@ -34,6 +34,7 @@ from sensors.absorption.confirmation_sensors import (
     DeltaReversalSensor,
     PriceBreakSensor,
 )
+from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ class PendingCandidate:
         return self.candidate["symbol"]
 
 
-class AbsorptionReversalGuardian:
+class AbsorptionReversalGuardian(TraceBulletMixin):
     """
     Phase 2 Guardian: Tick-level confirmation for absorption candidates.
 
@@ -82,6 +83,7 @@ class AbsorptionReversalGuardian:
     """
 
     def __init__(self, fast_track: bool = False):
+        super().__init__()
         self.name = "AbsorptionReversalGuardian"
         self.fast_track = fast_track
 
@@ -94,8 +96,8 @@ class AbsorptionReversalGuardian:
         self.pending: Dict[str, PendingCandidate] = {}
 
         # Timing configuration
-        self.confirmation_window_ms = 5000  # Max time to wait for confirmation (5s)
-        self.eval_interval_ms = 100  # Evaluate every 100ms (~10 ticks)
+        self.confirmation_window_ms = 500  # Max time to wait for confirmation (500ms per V10 spec)
+        self.eval_interval_ms = 50  # Evaluate every 50ms (~5 ticks)
         self.min_confirmations = 2  # Standard: 2 of 3
         self.min_confirmations_contra = 3  # Counter-trend: 3 of 3 (strict)
         self.contra_size_multiplier = 0.5  # Counter-trend: 50% size
@@ -141,6 +143,18 @@ class AbsorptionReversalGuardian:
         pending.exhaustion = exh
 
         self.pending[symbol] = pending
+
+        # Trace Phase 2 Interception
+        self.trace(
+            candidate,
+            "PHASE2_INTERCEPT",
+            {
+                "window_ms": self.confirmation_window_ms,
+                "exhaustion_score": score,
+                "delta_ratio": exh.get("delta_ratio"),
+                "volume_ratio": exh.get("volume_ratio"),
+            },
+        )
 
         logger.info(
             f"📋 [GUARDIAN] Candidate registered: {symbol} {candidate['direction']} "
@@ -231,6 +245,12 @@ class AbsorptionReversalGuardian:
             entry_signal["exhaustion_score"] = pending.exhaustion_score
             # Remove from pending
             del self.pending[symbol]
+
+            self.trace(
+                entry_signal,
+                "PHASE2_CONFIRMED",
+                {"latency_ms": elapsed, "confirmations": count, "required": required},
+            )
             return entry_signal
 
         # Check if window expired
@@ -238,6 +258,11 @@ class AbsorptionReversalGuardian:
             logger.info(
                 f"❌ [GUARDIAN] {symbol} confirmation window expired "
                 f"({elapsed:.0f}ms, {count}/{required} confirmations) — discarded"
+            )
+            self.trace(
+                candidate,
+                "PHASE2_REJECTED",
+                {"reason": "TIMEOUT", "elapsed_ms": elapsed, "confirmations": count, "required": required},
             )
             del self.pending[symbol]
 

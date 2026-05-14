@@ -39,6 +39,7 @@ import config.trading
 from core.events import EventType, TradeClosedEvent
 from core.observability.historian import historian
 from utils.symbol_norm import normalize_symbol
+from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger("PositionTracker")
 
@@ -210,7 +211,7 @@ class OpenPosition:
         return None
 
 
-class PositionTracker:
+class PositionTracker(TraceBulletMixin):
     """
     Manages open positions with real-time WebSocket confirmation.
 
@@ -269,6 +270,7 @@ class PositionTracker:
             adapter: ExchangeAdapter para cancelar órdenes OCO (agnóstico del conector)
             session_id: ID de la sesión actual (para Historian)
         """
+        super().__init__()
         self.adapter = adapter
         self.on_close_callback = on_close_callback
         self.session_id = session_id or "default_session"
@@ -1392,6 +1394,13 @@ class PositionTracker:
             )
             await self.engine.dispatch(event)
 
+        # Trace Phase 5: Closure (Successful)
+        self.trace(
+            result,
+            "PHASE5_CLOSED",
+            {"net_pnl": result.get("pnl", 0.0) - result.get("fee", 0.0), "reason": exit_reason},
+        )
+
         return result
 
     def get_stats(self) -> Dict[str, Any]:
@@ -1828,6 +1837,20 @@ class PositionTracker:
         self.recovered_count += 1
 
         logger.info(f"🧬 Adopted position: {position.trade_id} | {position.symbol} {position.side}")
+
+        # Trace Phase 4: Position Adopted/Opened
+        self.trace(
+            {
+                "trace_id": position.trace_id or position.trade_id,
+                "symbol": position.symbol,
+                "side": position.side,
+                "entry_price": position.entry_price,
+                "tp_price": position.tp_level,
+                "sl_price": position.sl_level,
+                "notional": position.notional,
+            },
+            "PHASE4_OPENED",
+        )
 
         # Index Re-hydration (Cures Internal Blindness during Recovery/Adoption)
         if position.tp_order:

@@ -129,6 +129,11 @@ class SetupEngineV4(TraceBulletMixin):
         if not self.is_system_warm(symbol):
             return
         if self.context_registry and self.context_registry.is_in_trade(symbol):
+            # Trace Phase 3: Blocked by active trade
+            self.trace(
+                {"symbol": symbol, "price": price, "reason": "IN_TRADE"},
+                "SIGNAL_BLOCKED",
+            )
             return
         if timestamp - self.last_fire_ts[symbol] < self.fire_cooldown:
             return
@@ -204,13 +209,18 @@ class SetupEngineV4(TraceBulletMixin):
             return
 
         # 2. Target Calculation (Symmetric Variance-Aware Model)
-        tp_price, sl_price, setup_name, level_ref = self._calculate_targets(
+        tp_price, sl_price, setup_name, level_ref, atr_pct = self._calculate_targets(
             symbol, side, price, setup_mode, val_pos, scenario, signal
         )
 
         # 3. Metadata Enrichment
         # Consolidated arbitration metadata for full traceability.
         # This will be picked up by the global Audit Handler in main/backtest.
+        # Get current micro Z-score for DI relative delta baseline
+        _entry_z = 0.0
+        if self.context_registry:
+            _, _, _entry_z = self.context_registry.get_micro_state(symbol)
+
         trigger_meta = self._enrich_metadata(
             {
                 "trigger": f"AMT_{scenario.upper()}",
@@ -226,6 +236,12 @@ class SetupEngineV4(TraceBulletMixin):
                 "conviction_score": signal.get("conviction_score", 0),
                 "contributors": signal.get("contributing_scenarios", []),
                 "footprint_z_score": signal.get("z_score", 0.0),
+                # Phase 710: Propagate ATR so SlimExitEngine pillars have a valid
+                # entry_atr on OpenPosition (Scale Out / Break Even / Trailing).
+                "atr_1m": atr_pct,
+                # Phase 710: Propagate micro Z at entry for Delta Invalidation
+                # relative delta (DI measures change FROM this baseline, not absolute Z).
+                "z_score_entry": _entry_z,
             },
             symbol,
         )
@@ -250,6 +266,13 @@ class SetupEngineV4(TraceBulletMixin):
             price=price,
         )
         await self.engine.dispatch(out_evt)
+
+        # Trace Phase 3: Successful Dispatch
+        self.trace(
+            trigger_meta,
+            "PHASE3_DISPATCHED",
+            {"setup_type": scenario, "atr_pct": atr_pct, "multiplier": multiplier},
+        )
 
         logger.warning(
             f"🎯 [ORCHESTRATOR] Fired {side} {scenario} on {symbol} | Price: {price:.2f} | TP: {tp_price:.2f} | SL: {sl_price:.2f} (Ref: {level_ref})"
@@ -325,7 +348,10 @@ class SetupEngineV4(TraceBulletMixin):
         setup_name = f"AMT_{scenario.upper()}_{val_pos}"
         level_ref = f"VAR_AWARE_{mult}x_ATR"
 
-        return tp_price, sl_price, setup_name, level_ref
+        # Phase 710: Return atr_pct so it can be propagated to entry_atr on OpenPosition.
+        # SlimExitEngine's Scale Out / Break Even / Trailing pillars all guard on
+        # `if not position.entry_atr` — without this they are permanently disabled.
+        return tp_price, sl_price, setup_name, level_ref, atr_pct
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
         """Processes a batch of real-time microstructural anomalies efficiently."""

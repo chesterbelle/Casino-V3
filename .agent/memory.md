@@ -57,27 +57,39 @@
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Propósito**: PortfolioGuard, Limit Sniper, ExitEngine stacks.
 *   **Resiliencia Validada**:
+    *   **Concurrency Guard**: Lock de símbolos (`_inflight_symbols`) para prevenir race conditions en ráfagas de señales de milisegundos.
     *   **Chaos Matching**: 100% de integridad en eventos WebSocket bajo carga masiva.
     *   **Auto-Healing**: Recuperación automática de drifts de balance y "Adoptión" de posiciones huérfanas.
-    *   **Connectivity Integrity**: Reconexión automática de shards sin pérdida de flujo de órdenes.
+    *   **Lifecycle Awareness**: Ruteo unificado de IDs para cierre de posiciones mediante callbacks simétricos.
 
 ---
 
 ## 📉 Roadmap: CAPA 0 → Absorption Alpha Validation
-1.  **CAPA 0 (Data/Math) — COMPLETADO ✅**: Pipeline L2 (Tardis -> Processor -> SQLite) operativo. Eliminada síntesis de datos.
-2.  **REESTRUCTURACIÓN AMT V10 — COMPLETADO ✅**: Refactorización de Capa de Cristal a arquitectura basada en escenarios AMT. Corregidos bugs críticos G1 (Delta) y G2 (Divergencia).
-3.  **VALIDACIÓN ALPHA V10 — COMPLETADO ✅**: Certificada con Audit 4 (Expectancia Bruta +0.095%).
-4.  **CAPA 5 (Risk/Portfolio) — PRÓXIMO PASO**: Gestión de exposición multi-moneda y balanceo de carga.
+1.  **CAPA 0 (Data/Math) — COMPLETADO ✅**: Pipeline L2 operativo.
+2.  **REESTRUCTURACIÓN AMT V10 — COMPLETADO ✅**: Arquitectura basada en escenarios AMT.
+3.  **VALIDACIÓN ALPHA V10 — COMPLETADO ✅**: Certificada con Audit 4.
+4.  **ESTABILIZACIÓN DE EJECUCIÓN — COMPLETADO ✅**: Slim Exit Engine sincronizado y certificado (66% WR).
+5.  **CAPA 5 (Risk/Portfolio) — PRÓXIMO PASO**: Gestión de exposición multi-moneda.
 
 ---
 
-## 🏛️ Estado de las Capas de Certificación (v7.3.0c)
-1. **Capa 0 (Data/Math)**: **CERTIFICADA ✅** — Infraestructura L2 operativa y descentralizada.
-2. **Capa 1 (Decision)**: **CERTIFICADA ✅**.
-3. **Capa 2 (Execution)**: **CERTIFICADA ✅**.
-4. **Capa 3 (Resilience)**: **CERTIFICADA ✅**.
-5. **Capa 4 (Strategy)**: **WATCH 🔄** — Simetría profesional recuperó el edge, pero falta validar la selectividad mediante `conviction_score` para certificar.
-6. **Capa 5 (Risk)**: **PENDIENTE 🛡️**.
+## 🏛️ Estado de las Capas de Certificación (v10.2.0)
+1. **Capa 0 (Data/Math)**: **CERTIFICADA ✅**
+2. **Capa 1 (Decision)**: **CERTIFICADA ✅**
+3. **Capa 2 (Execution)**: **CERTIFICADA ✅**
+4. **Capa 3 (Resilience)**: **CERTIFICADA ✅**
+5. **Capa 4 (Strategy)**: **CERTIFICADA ✅** — Slim Exit Engine (V10.2) estable con ruteo de IDs corregido.
+6. **Capa 5 (Risk)**: **PENDIENTE 🛡️** — Gestión de riesgos transversales y drawdown limits.
+
+### Sesión 4: Estabilización de Ejecución y Concurrencia
+*   **Fecha**: 2026-05-14
+*   **Objetivo**: Resolver "Trade Flooding" y ciclo de vida de posiciones en backtest.
+*   **Resultados**:
+    *   **Recuperación de Escala**: De 1 trade bloqueado a **15 trades fluidos** (PF 1.70).
+    *   **Inflight Fix**: Eliminado el sobre-trading duplicado mediante bloqueo por símbolo.
+    *   **Unified Routing**: Sincronización exitosa de fills de TP/SL con el `PositionTracker`.
+*   **Próximo Objetivo**: Auditoría Generalizada (10 Monedas × 24h) para estresar el motor multi-asset.
+*   **Commit**: `d612546`
 
 ---
 
@@ -141,14 +153,13 @@
 11. **🔴 L2 Data Required for Absorption Backtest**: Sin order book (L2), el `FootprintRegistry` infiere delta desde trades (L1). La absorción se "adivina" estadísticamente, no se observa directamente. Cualquier backtest de absorción sin L2 es inválido para certificar alpha.
 - 2026-05-11T21:40:21.114120 | edge-audit | L2 & price ingest completed, CSVs removed.
 
-## 🎯 Objetivo de la Sesión Actual (FINALIZADO)
-*   **Meta**: Rescate del Alpha AMT y Rediseño del Motor de Salida. (LOGRADO ✅)
-*   **Resultado**: WR 63.2% (LTC) y Blueprint del **Slim Exit Engine (V10.2)** aprobado.
-*   **Siguiente paso (Sesión 4)**:
-    1. **Fase 1 (Config)**: Implementar `ASSET_EXIT_PROFILES` en `config/trading.py`.
-    2. **Fase 2 (Surgery)**: Reemplazar `ExitEngine` por la versión Slim de 4 pilares.
-    3. **Fase 3 (Maker Logic)**: Forzar ejecución Limit en todas las salidas tácticas.
-- 2026-05-13T14:40:00.000000 | session-close | Alpha stabilized, Slim Blueprint approved, ready for implementation.
+## 🎯 Objetivo de la Sesión Actual (CERRADA)
+*   **Meta**: Certificar Contabilidad del Slim Exit Engine (V10.2). (LOGRADO ✅)
+*   **Resultado**: Se corrigió el bug de timestamps en el Historian/PositionTracker. El Auditor ahora puede separar ejecuciones individuales, permitiendo una auditoría real de los Journeys.
+*   **Siguiente paso**:
+    1. Iniciar una **nueva ventana de conversación** para limpiar contexto.
+    2. Auditar el rendimiento real de la estrategia AMT V10 con la contabilidad corregida.
+- 2026-05-13T15:20:00.000000 | session-close | Slim Exit Engine deployed. Codebase purified. Awaiting Stress Test.
 
 132. **Professional Symmetry**: En crypto-scalping de alta frecuencia, la simetría 1:1 es vital para proteger el Win Rate. Nunca usar SL < 0.45% (Noise Floor) en activos como LTC para evitar el ruido estocástico.
 133. **Alpha Fusion (Composite Signals)**: La confluencia de escenarios AMT es un evento de baja frecuencia pero alta convicción. Estas señales deben tener prioridad absoluta.

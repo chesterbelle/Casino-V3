@@ -200,6 +200,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0] - 2025-12-10
 
+### CHANGELOG - Casino V3
+
+## [2026-05-14] - Session 5: Accounting Certification & Telemetry Fix
+
+### Technical Details & Justification
+*   **The Problem**: Strategy audit calculations and trade grouping were completely broken. All trades in the backtest were grouped into a single "Journey" because `historian.py` recorded the system's wall-clock time at the end of the backtest instead of the actual market time, destroying the Win Rate calculation.
+*   **The Surgery**: Modified `position_tracker.py`, `croupier.py`, and `backtest.py` to propagate the exact market `timestamp` to `confirm_close` and `historian.record_trade`.
+*   **Auditor Cleanup**: Removed the hardcoded "Phase 650 Goals (WR > 55%, PF > 1.2)" texts from `strategy_audit.py` to stop confusing the evaluation criteria.
+
+### Files Modified
+*   `core/portfolio/position_tracker.py` (MODIFIED): Added `timestamp` to `confirm_close` and passed it from TP/SL handlers.
+*   `croupier/croupier.py` (MODIFIED): Passed `self.clock.get_time()` to manual closures and scale-outs.
+*   `backtest.py` (MODIFIED): Appended `mkt_ts` to the trade record payload.
+*   `utils/strategy_audit.py` (MODIFIED): Cleansed outdated Phase 650 texts.
+
+### Findings & Metrics
+*   **Accounting Fix**: Se corrigió la agrupación de trades en el Auditor mediante la propagación de timestamps de mercado. Ahora el Auditor puede separar ejecuciones individuales en Journeys.
+*   **Context Loss Mechanism**: Identificado un fallo crítico en el flujo autónomo por truncamiento de ventana de contexto.
+*   **Commit**: `206c529` (fix(telemetry): pass market timestamp to confirm_close and backtest record_trade)
+
+---
+
+## [2026-05-13] - Session 4: Extirpation & Slim Exit Engine (V10.2)
+
+### Technical Details & Justification
+*   **The Problem**: The bot was perceived as slow, and execution suffered from massive slippage during tactical exits because it relied on Market Orders (Taker) in response to noise-level ticks.
+*   **The Surgery**: Condemned and completely extirpated the legacy `ExitEngine` (5-layer theory). Introduced the `SlimExitEngine` focused on a **4-Pillar Pro Model** (Scale-out, Break Even, Trailing, Delta Invalidation).
+*   **Asset-Specific Profiles**: Removed generic 'Aggressive/Conservative' profiles in favor of market-personality profiles (`BLUE_CHIP`, `LIQUID_ALT`, `HIGH_BETA`) in `config/trading.py`.
+*   **Maker-First Execution**: Refactored `OrderExecutor` to introduce a "Tier -1" (`prefer_maker=True`) logic, ensuring that all tactical exits attempt a Limit Order (Maker-Join) at the Best Bid/Ask before falling back to Market execution.
+
+### Files Modified & Deleted
+*   `croupier/components/slim_exit_engine.py` (CREATED): The new lightweight, 100% Maker-oriented exit tactical brain.
+*   `croupier/components/exit_engine.py` (DELETED): Extirpated to prevent legacy technical debt.
+*   `config/trading.py` (MODIFIED): Removed legacy Layer flags, added `ASSET_EXIT_PROFILES`.
+*   `croupier/croupier.py` (MODIFIED): Removed fallback branches, wired exclusively to Slim mode.
+*   `croupier/components/order_executor.py` (MODIFIED): Added `prefer_maker` tier logic.
+
+### Findings & Metrics
+*   **Code Weight Reduction**: Net reduction of 335 lines of code (747 insertions vs 1082 deletions).
+*   **Execution Assumption**: Speed and Maker execution should theoretically add +0.10% to +0.15% to the net PnL per trade by eliminating slippage and capturing rebates.
+*   **Commit**: `36a41d9` (feat(core): replace legacy exit engine with SlimExitEngine)
+
 ### Added - Casino-V3 Rewrite
 - Native Exchange Integration (removed CCXT)
 - WebSocket-First Architecture

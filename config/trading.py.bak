@@ -274,10 +274,10 @@ ASSET_EXIT_PROFILES = {
     },
     "LIQUID_ALT": {
         "assets": ["LTC/USDT", "XRP/USDT", "BCH/USDT", "LINK/USDT"],
-        "scale_out": {"enabled": False, "at_atr": 1.5, "fraction": 0.5},
-        "break_even": {"enabled": False, "at_atr": 2.0, "offset_ticks": 1},
-        "trailing": {"enabled": False, "distance_atr": 4.0, "activation_atr": 3.0},
-        "delta_invalidation": {"enabled": False, "z_score_threshold": 4.5},
+        "scale_out": {"enabled": True, "at_atr": 1.2, "fraction": 0.5},
+        "break_even": {"enabled": True, "at_atr": 2.0, "offset_ticks": 1},
+        "trailing": {"enabled": True, "distance_atr": 4.0, "activation_atr": 3.0},
+        "delta_invalidation": {"enabled": True, "z_score_threshold": 4.5},
         "execution_strategy": "MAKER_JOIN",
     },
     "HIGH_BETA": {
@@ -289,10 +289,10 @@ ASSET_EXIT_PROFILES = {
         "execution_strategy": "MAKER_JOIN",
     },
     "DEFAULT": {
-        "scale_out": {"enabled": False, "at_atr": 1.5, "fraction": 0.5},
-        "break_even": {"enabled": False, "at_atr": 2.0, "offset_ticks": 1},
-        "trailing": {"enabled": False, "distance_atr": 4.0, "activation_atr": 3.0},
-        "delta_invalidation": {"enabled": False, "z_score_threshold": 4.5},
+        "scale_out": {"enabled": True, "at_atr": 1.5, "fraction": 0.5},
+        "break_even": {"enabled": True, "at_atr": 2.0, "offset_ticks": 1},
+        "trailing": {"enabled": True, "distance_atr": 4.0, "activation_atr": 3.0},
+        "delta_invalidation": {"enabled": True, "z_score_threshold": 4.5},
         "execution_strategy": "MAKER_JOIN",
     },
 }

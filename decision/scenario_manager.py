@@ -18,12 +18,14 @@ from decision.amt_scenarios import (
     LiquidityExhaustionDetector,
     TrendAcceptanceDetector,
 )
+from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger("ScenarioManager")
 
 
-class ScenarioManager:
+class ScenarioManager(TraceBulletMixin):
     def __init__(self, footprint_registry, context_registry):
+        super().__init__()
         self.footprint = footprint_registry
         self.context = context_registry
 
@@ -72,6 +74,13 @@ class ScenarioManager:
                 scenario_key = sig.get("scenario", "unknown")
                 sig["_priority"] = self.PRIORITY_MAP.get(scenario_key, 0)
                 candidates.append(sig)
+
+                # Trace Phase 1: Scenario Triggered
+                self.trace(
+                    sig,
+                    "PHASE1_TRIGGERED",
+                    {"scenario": scenario_key, "priority": sig["_priority"]},
+                )
 
         if not candidates:
             return None
