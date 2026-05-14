@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 =============================================================
-🎯 STRATEGY AUDIT — Phase 650 Edge Validation
+🎯 STRATEGY AUDIT — Edge Validation
 =============================================================
 
 Analyses the historian.db to compute:
@@ -236,27 +236,59 @@ def load_trades(db_path: str, session_id: str = None, last_n: int = None, all_ti
     raw_rows = [dict(r) for r in cur.fetchall()]
     conn.close()
 
-    # Phase 1300: Group by parent_trade_id (Journey Logic)
-    # We iterate in reverse (chronological) so the final exit_reason overwrites earlier ones.
-    grouped = {}
-    for r in reversed(raw_rows):
-        pid = r.get("parent_trade_id") or r["trade_id"]
-        if pid not in grouped:
-            grouped[pid] = r.copy()
-            grouped[pid]["sub_trades"] = 1
-        else:
-            g = grouped[pid]
-            g["sub_trades"] += 1
-            g["gross_pnl"] += r["gross_pnl"]
-            g["net_pnl"] += r["net_pnl"]
-            g["fee"] += r["fee"]
-            g["qty"] += r["qty"]
-            # If there's an exit reason progression, keep the final one
-            if r["exit_reason"] != "VIRTUAL_CLOSE":
-                g["exit_reason"] = r["exit_reason"]
+    # Phase 1300: Journey-Based Grouping (Temporal Clustering V2)
+    # Replaces parent_trade_id grouping with a robust 15-minute time window.
+    # This prevents orphaned scale-outs and incorrectly aggregated independent trades.
+    sorted_trades = sorted(raw_rows, key=lambda x: (x["symbol"], x["timestamp"]))
+    journeys = []
+    active_journeys = {}
+    WINDOW_SEC = 900  # 15 minutes clustering window
+    PARTIAL_EXIT_REASONS = {"VIRTUAL_CLOSE", "SO_TARGET_REACHED", "SCALE_OUT"}
 
-    # Return grouped journeys (reversed again to keep DESC order)
-    return list(reversed(list(grouped.values())))
+    for r in sorted_trades:
+        sym = r["symbol"]
+        # Phase 1301: Robust timestamp parsing (Handles Epoch and ISO format)
+        ts_val = r["timestamp"]
+        try:
+            ts = float(ts_val)
+        except (ValueError, TypeError):
+            try:
+                # Handle ISO8601 format: 2026-05-13T21:57:26.941321
+                from datetime import datetime
+
+                ts = datetime.fromisoformat(ts_val).timestamp()
+            except Exception:
+                ts = 0.0
+
+        # Check if we can append to an existing journey for this symbol
+        if sym in active_journeys:
+            aj = active_journeys[sym]
+            # Proximity check: Is this trade within the window of the last trade in this journey?
+            if (ts - aj["timestamp_end"]) <= WINDOW_SEC:
+                aj["sub_trades"] += 1
+                aj["gross_pnl"] += r["gross_pnl"]
+                aj["net_pnl"] += r["net_pnl"]
+                aj["fee"] += r["fee"]
+                aj["qty"] += r["qty"]
+                aj["timestamp_end"] = ts
+                aj["bars_held"] = (aj["bars_held"] or 0) + (r["bars_held"] or 0)
+
+                # Terminal exit priority: SO is partial, TP/SL is terminal.
+                if r["exit_reason"] not in PARTIAL_EXIT_REASONS:
+                    aj["exit_reason"] = r["exit_reason"]
+                continue
+
+        # Start new journey
+        nj = r.copy()
+        nj["sub_trades"] = 1
+        nj["timestamp_start"] = ts
+        nj["timestamp_end"] = ts
+        active_journeys[sym] = nj
+        journeys.append(nj)
+
+    # Sort journeys back to descending timestamp for UI consistency
+    journeys.sort(key=lambda x: x["timestamp"], reverse=True)
+    return journeys
 
 
 def categorize_trades(trades: list) -> tuple[list, list]:
@@ -442,7 +474,7 @@ def print_report(trades, session_id=None, last_n=None):
         label.append(f"last {last_n} trades")
     label_str = " | ".join(label) if label else "ALL TIME"
 
-    print(header(f"STRATEGY AUDIT — Phase 650 ({label_str})"))
+    print(header(f"STRATEGY AUDIT ({label_str})"))
 
     # Separate active strategy trades from drain phase trades
     active_trades, drain_trades = categorize_trades(trades)
@@ -470,7 +502,7 @@ def print_report(trades, session_id=None, last_n=None):
         return 1
 
     # ── 1. Core Edge Metrics (Active Strategy Only) ──────────────────────────────
-    print(f"\n{BOLD}[1] EDGE METRICS{RESET}  (Active Strategy Only | Phase 650 Goals: WR > 55%, PF > 1.2)")
+    print(f"\n{BOLD}[1] EDGE METRICS{RESET}  (Active Strategy Only)")
 
     # NEW: Segmented Metrics by setup_type
     by_setup = defaultdict(list)
@@ -671,7 +703,7 @@ def print_report(trades, session_id=None, last_n=None):
         if not pf_pass:
             issues.append(f"PF {edge['profit_factor']:.3f} < 1.2")
         print(fail(f"EDGE NOT YET ACHIEVED  —  {' | '.join(issues)}"))
-        print(f"  Keep tuning Phase 650 parameters.")
+        print(f"  Keep tuning strategy parameters.")
         verdict = 1
     print(f"{'=' * 70}{RESET}\n")
 
@@ -680,7 +712,7 @@ def print_report(trades, session_id=None, last_n=None):
 
 # ─── CLI ─────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Phase 650 Strategy Audit")
+    parser = argparse.ArgumentParser(description="Strategy Audit")
     parser.add_argument("--db", default="data/historian.db", help="Path to historian SQLite database")
     parser.add_argument("--session", default=None, help="Filter by session_id")
     parser.add_argument(

@@ -264,6 +264,7 @@ async def run_backtest():
                 "funding": 0.0,
                 "qty": ct.get("amount", 0),
                 "exit_reason": exit_reason,
+                "timestamp": mkt_ts,  # Phase 1301: Market time for Auditor grouping
                 "t0_signal_ts": ct.get("t0_signal_ts"),
                 "t1_decision_ts": ct.get("t1_decision_ts"),
                 "t2_submit_ts": ct.get("t2_submit_ts"),

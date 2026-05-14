@@ -554,11 +554,13 @@ class Croupier(TimeIterator):
 
             # Confirm close in tracker (Unlocks and removes)
             await self.position_tracker.confirm_close(
-                trade_id=trade_id,
+                trade_id=f"{trade_id}_MANUAL",
                 exit_price=fill_price,
                 exit_reason=exit_reason,
                 pnl=pnl,
                 fee=position.entry_fee + float((result.get("fee", {}) or {}).get("cost", 0)),
+                parent_trade_id=trade_id,
+                timestamp=self.clock.get_time(),
             )
 
             # 4. Context Unlock
@@ -653,8 +655,9 @@ class Croupier(TimeIterator):
 
         Phase 1300 (SCE Layer 3):
         1. Close `fraction` of the position at market
-        2. Move remaining SL to breakeven
-        3. Update position amount/notional in memory
+        2. Update position amount/notional in memory
+        3. Move remaining SL to breakeven
+        4. Replace TP with reduced qty (prevents qty mismatch on fill)
         """
         position = self.position_tracker.get_position(trade_id)
         if not position or position.status != "OPEN":
@@ -681,15 +684,39 @@ class Croupier(TimeIterator):
         try:
             position.scaled_out = True
 
-            # 2. Execute Partial Market Close
-            await self.order_executor.force_close_position(
+            result = await self.order_executor.force_close_position(
                 symbol=position.symbol,
                 side=position.side,
                 amount=amount_to_close,
                 exit_reason=reason,
             )
 
-            # 3. Update memory
+            # Phase 1200: Record partial exit in historian
+            exit_price = float(result.get("average", 0) or result.get("price", 0))
+            if exit_price <= 0:
+                exit_price = await self.adapter.get_current_price(position.symbol)
+
+            pnl = 0.0
+            if position.entry_price > 0:
+                if position.side == "LONG":
+                    pnl = (exit_price - position.entry_price) * amount_to_close
+                else:
+                    pnl = (position.entry_price - exit_price) * amount_to_close
+
+            fee = float((result.get("fee", {}) or {}).get("cost", 0))
+            partial_id = f"{trade_id}_SO_{int(time.time())}"
+
+            await self.position_tracker.confirm_close(
+                trade_id=partial_id,
+                exit_price=exit_price,
+                exit_reason="SCALE_OUT",
+                pnl=pnl,
+                fee=fee,
+                parent_trade_id=trade_id,
+                timestamp=self.clock.get_time(),
+            )
+
+            # 3. Update memory (BEFORE modifying bracket so modify_bracket reads correct qty)
             remaining_amount = position.amount - amount_to_close
             new_sl_price = position.entry_price
 
@@ -700,7 +727,9 @@ class Croupier(TimeIterator):
             if position.order and "amount" in position.order:
                 position.order["amount"] = remaining_amount
 
+            # 4. Move SL to Breakeven
             self.logger.info(f"🛡️ [SCE] Moving SL to Breakeven (@{new_sl_price}) for {trade_id}")
+            position.be_activated = True
 
             await self.oco_manager.modify_bracket(
                 trade_id=trade_id,
@@ -709,12 +738,21 @@ class Croupier(TimeIterator):
                 timeout=trading_config.GRACEFUL_SL_TIMEOUT,
             )
 
+            # 5. Replace TP with reduced qty (fix: original TP had full qty)
+            self.logger.info(f"🔄 [SCE] Replacing TP with reduced qty ({remaining_amount:.3f}) for {trade_id}")
+
+            await self.oco_manager.modify_bracket(
+                trade_id=trade_id,
+                symbol=position.symbol,
+                new_tp_price=position.tp_level,  # Same price, new qty from position.order["amount"]
+                timeout=trading_config.GRACEFUL_TP_TIMEOUT,
+            )
+
             return {"status": "success", "closed_amount": amount_to_close, "remaining_amount": remaining_amount}
 
         except Exception as e:
             self.logger.error(f"❌ SCE Scale-out Failed for {trade_id}: {e}")
             position.scaled_out = False
-            return {"status": "error", "message": str(e)}
             return {"status": "error", "message": str(e)}
 
     def trigger_reconciliation_task(self, symbol: str):

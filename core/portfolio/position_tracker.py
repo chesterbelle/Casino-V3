@@ -121,6 +121,7 @@ class OpenPosition:
     order: Dict[str, Any] = field(default_factory=dict)
     shadow_sl_level: Optional[float] = None
     entry_atr: float = 0.0  # Phase 710: ATR at time of entry
+    entry_z: float = 0.0  # Phase 710: Micro Z-score at entry (for DI relative delta)
     # Legacy ID fields (for backward compatibility during migration)
     main_order_id: Optional[str] = None
     tp_order_id: Optional[str] = None
@@ -166,6 +167,7 @@ class OpenPosition:
     # Phase 1200: Valentino Scale-Out (ExitEngine Layer 3)
     scaled_out: bool = False  # Already scaled out 50%?
     scale_out_trigger: Optional[float] = None  # Price at which Valentino triggers (70% of TP)
+    be_activated: bool = False  # Phase 10: Break-Even Pillar state
 
     # Phase 102: Lifecycle attribution for reporting
     lifecycle_phase: str = "ACTIVE"
@@ -809,7 +811,13 @@ class PositionTracker:
 
             # Finalize removal and capital release
             await self.confirm_close(
-                trade_id=position.trade_id, exit_price=exit_price, exit_reason="TP", pnl=pnl, fee=fee
+                trade_id=f"{position.trade_id}_TP",
+                exit_price=exit_price,
+                exit_reason="TP",
+                pnl=pnl,
+                fee=fee,
+                parent_trade_id=position.trade_id,
+                timestamp=event.get("timestamp"),
             )
 
             # Cancel SL order
@@ -833,7 +841,13 @@ class PositionTracker:
 
             # Finalize removal and capital release
             await self.confirm_close(
-                trade_id=position.trade_id, exit_price=exit_price, exit_reason="SL", pnl=pnl, fee=fee
+                trade_id=f"{position.trade_id}_SL",
+                exit_price=exit_price,
+                exit_reason="SL",
+                pnl=pnl,
+                fee=fee,
+                parent_trade_id=position.trade_id,
+                timestamp=event.get("timestamp"),
             )
 
             # Cancel TP order
@@ -1190,6 +1204,8 @@ class PositionTracker:
         pnl: float,
         fee: float = 0.0,
         healed: bool = False,
+        parent_trade_id: Optional[str] = None,
+        timestamp: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Confirms position close with real exchange data.
@@ -1202,13 +1218,19 @@ class PositionTracker:
             exit_reason: Confirmed reason ("TP", "SL", "MANUAL", "LIQUIDATION")
             pnl: Real PnL (includes fees, slippage)
             fee: Real trading fee
-            auditor: Optional DecisionAuditor (Phase 103)
+            healed: Whether this was a reconstructed/healed trade
+            parent_trade_id: Optional parent ID for journey grouping (defaults to position.trade_id)
 
         Returns:
             Confirmed close result or None if position not found
         """
         # Buscar posición
         position = self.get_position(trade_id)
+
+        # Fallback: if trade_id is a sub-id (e.g. from scale out), try to find parent
+        if not position and "_" in str(trade_id):
+            parent_id = str(trade_id).split("_")[0]
+            position = self.get_position(parent_id)
 
         if not position:
             logger.warning(f"⚠️ No se encontró posición para confirmar: {trade_id}")
@@ -1222,6 +1244,7 @@ class PositionTracker:
         # Crear resultado CONFIRMADO con datos REALES
         result = {
             "trade_id": trade_id,
+            "parent_trade_id": parent_trade_id or position.trade_id,  # Phase 1300: Link to original setup
             "result": "WIN" if pnl > 0 else "LOSS",
             "pnl": pnl,  # ← PNL REAL
             "pnl_pct": pnl / position.notional if position.notional > 0 else 0.0,
@@ -1232,6 +1255,7 @@ class PositionTracker:
             "trace_id": position.trace_id,
             "liquidated": exit_reason == "LIQUIDATION",
             "margin_used": position.margin_used,
+            "timestamp": timestamp,  # Phase 1301: Market time for Auditor grouping
             "notional": position.notional,
             "leverage": position.leverage,
             "symbol": normalize_symbol(position.symbol),
@@ -1293,16 +1317,22 @@ class PositionTracker:
         # We do NOT remove the position from open_positions here.
         # Instead, we set status to OFF_BOARDING so ReconciliationService can see it.
         # finalize_removal will handle the actual list removal.
-        position.status = "OFF_BOARDING"
-        position.exit_reason = exit_reason
-        position.realized_pnl = pnl
+        # Phase 1300: If this is a SCALE_OUT (partial exit), we keep the position OPEN
+        if exit_reason != "SCALE_OUT":
+            position.status = "OFF_BOARDING"
+            position.exit_reason = exit_reason
+            position.realized_pnl = pnl
 
-        # Note: We still unregister all aliases here to "hide" it from future WS updates
-        self._unregister_all_aliases(position)
+            # Note: We still unregister all aliases here to "hide" it from future WS updates
+            self._unregister_all_aliases(position)
 
-        # Liberar capital bloqueado
-        self.blocked_capital -= position.margin_used
-        self.total_trades_closed += 1
+            # Liberar capital bloqueado
+            self.blocked_capital -= position.margin_used
+            self.total_trades_closed += 1
+        else:
+            # Partial Exit Logic: Update but keep active
+            position.realized_pnl = (position.realized_pnl or 0.0) + pnl
+            logger.info(f"📈 SCALE_OUT recorded for {position.trade_id} | Partial PnL: {pnl:+.4f}")
 
         # Track wins/losses based on PnL (positive = win, negative/zero = loss)
         if exit_reason in ["ERROR", "FORCED_CLOSE", "CLI_FORCE_CLOSE", "SAFETY_CLOSE", "OCO_ABORT"]:
@@ -1681,6 +1711,7 @@ class PositionTracker:
             trigger_level=trigger_level or order_params.get("trigger_level"),
             initial_narrative=initial_narrative or order_params.get("metadata"),
             entry_atr=float(order_params.get("atr_1m", 0.0)),
+            entry_z=float(order_params.get("z_score_entry", 0.0)),
         )
         main_order_state = OrderState(
             client_order_id=client_order_id,
