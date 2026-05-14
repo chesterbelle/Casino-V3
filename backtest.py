@@ -111,6 +111,11 @@ async def run_backtest():
 
     connector.set_balance_update_callback(on_balance_update)
 
+    # Phase 1000: Wire ORDER_UPDATE callback to PositionTracker
+    # Without this, VirtualExchange fills TP/SL but PositionTracker never
+    # removes the position from open_positions, blocking all future entries.
+    connector.set_order_update_callback(croupier.position_tracker.handle_order_update)
+
     # MONKEY-PATCH: Disable real-time services for backtest performance
     # This prevents the bot from trying to sync with a dummy exchange every 60s
     async def no_op_async(*args, **kwargs):

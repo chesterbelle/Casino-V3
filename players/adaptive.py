@@ -84,6 +84,11 @@ class AdaptivePlayer:
         self.context_registry = context_registry
         self.fast_track = fast_track
 
+        # Phase 1000: Synchronous Inflight Lock (Race Condition Fix)
+        # Prevents create_task from allowing duplicate entries on the same symbol.
+        # Marked BEFORE dispatch, cleared AFTER dispatch completes or fails.
+        self._inflight_symbols = set()
+
         # SensorTracker for Kelly calculations
         self.tracker = SensorTracker()
 
@@ -111,13 +116,15 @@ class AdaptivePlayer:
         if event.side == "SKIP":
             return
 
-        # Check position limit
+        # Phase 1000: Synchronous Inflight Lock (first check — fastest)
+        target_symbol_norm = event.symbol.replace("/", "").replace(":USDT", "")
+        if target_symbol_norm in self._inflight_symbols:
+            logger.debug(f"⏭️ Skipping {event.symbol} - Inflight lock active")
+            return
+
         # Check position limit (PER SYMBOL)
-        # Fix: Normalize symbol strings to handle LTCUSDT vs LTC/USDT mismatch
         # Phase 234: Use get_active_positions to ignore CLOSING/OFF_BOARDING
         open_positions = self.croupier.get_active_positions()
-
-        target_symbol_norm = event.symbol.replace("/", "")
         symbol_positions = [p for p in open_positions if p.symbol.replace("/", "") == target_symbol_norm]
 
         if len(symbol_positions) >= self.max_positions:
@@ -127,7 +134,7 @@ class AdaptivePlayer:
             )
             return
 
-        # Check for matching pending intent (Race Condition Fix)
+        # Check for matching pending intent (OCOManager-level debounce)
         if hasattr(self.croupier, "is_pending") and self.croupier.is_pending(event.symbol):
             logger.warning(f"⏭️ Skipping signal for {event.symbol} - Pending Order In-Flight (Debounce)")
             return
@@ -184,20 +191,32 @@ class AdaptivePlayer:
         tp_sl_source = "setup_engine_structural_anchor"
 
         # Phase 650.2: Unfinished Business Exact Targeting (absolute price override)
-
+        # Phase 1000: Friction-Aware UB Targeting
+        # Only override if the UB target provides at least 0.15% (Noise Floor) potential gain.
+        # This prevents "suicide targets" that are too close to the entry price.
         unfinished_targets = event.metadata.get("unfinished_business_targets", [])
+        min_profit_dist = getattr(trading_config, "MIN_TP_DISTANCE_PCT", 0.0015)
+
         if unfinished_targets and current_price and current_price > 0:
             for target in unfinished_targets:
                 if event.side == "LONG" and target.get("side") == "LONG_TARGET":
                     dist_pct = (target["price"] - current_price) / current_price
-                    if dist_pct > 0.0005:  # at least 0.05% away
+                    if dist_pct >= min_profit_dist:
                         tp_price = target["price"]
-                        logger.debug(f"🎯 Unfinished Business TARGET: Override TP to {tp_price:.4f}")
+                        logger.debug(
+                            f"🎯 Unfinished Business TARGET: Override TP to {tp_price:.4f} (Dist: {dist_pct:.2%})"
+                        )
                         tp_sl_source = "unfinished_business"
+                        break  # Take the first valid structural target
                 elif event.side == "SHORT" and target.get("side") == "SHORT_TARGET":
                     dist_pct = (current_price - target["price"]) / current_price
-                    if dist_pct > 0.0005:
+                    if dist_pct >= min_profit_dist:
+                        tp_price = target["price"]
+                        logger.debug(
+                            f"🎯 Unfinished Business TARGET: Override TP to {tp_price:.4f} (Dist: {dist_pct:.2%})"
+                        )
                         tp_sl_source = "unfinished_business"
+                        break
 
         # Phase 700: Structural Validation (replace old clamps with RR + sanity checks)
         if tp_price and sl_price and current_price and current_price > 0:
@@ -213,12 +232,19 @@ class AdaptivePlayer:
                 )
                 return
 
-            # Max distance sanity (> 10% is not scalping)
-            tp_dist = abs(tp_price - current_price) / current_price * 100
-            sl_dist = abs(sl_price - current_price) / current_price * 100
-            if tp_dist > 10.0 or sl_dist > 10.0:
-                logger.warning(f"🚫 REJECTED: Distance too large (TP={tp_dist:.2f}% SL={sl_dist:.2f}%)")
-                return
+            # Phase 1000: Noise Floor Enforcement (Hard Clamp)
+            # Final safety check: Ensure TP provides a minimum net profit margin after costs.
+            min_dist_pct = getattr(trading_config, "MIN_TP_DISTANCE_PCT", 0.0015)
+            actual_tp_dist = abs(tp_price - current_price) / current_price
+
+            if actual_tp_dist < min_dist_pct:
+                logger.info(
+                    f"🛡️ NOISE_FLOOR: Structural TP too tight ({actual_tp_dist:.4%}). Expanding to {min_dist_pct:.2%}"
+                )
+                if event.side == "LONG":
+                    tp_price = current_price * (1 + min_dist_pct)
+                else:
+                    tp_price = current_price * (1 - min_dist_pct)
 
             reward = abs(tp_price - current_price)
             risk = abs(sl_price - current_price)
@@ -226,9 +252,9 @@ class AdaptivePlayer:
                 rr_ratio = reward / risk
 
                 # Phase 700: Simple RR validation — trust the structure
-                if rr_ratio < 1.0:
+                if rr_ratio < 0.8:  # Adjusted floor for high-frequency scalps
                     logger.warning(
-                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 1.0) | "
+                        f"🚫 REJECTED: Low RR Ratio ({rr_ratio:.2f} < 0.8) | "
                         f"Symbol: {event.symbol} | Side: {event.side}"
                     )
                     return
@@ -299,8 +325,17 @@ class AdaptivePlayer:
         decision.shadow_sl_activation = shadow_sl_activation  # Phase 800
 
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")
-        # Use create_task to prevent blocking signal processing loop
-        asyncio.create_task(self.engine.dispatch(decision))
+
+        # Phase 1000: Lock symbol BEFORE dispatch to prevent race condition
+        self._inflight_symbols.add(target_symbol_norm)
+
+        async def _dispatch_and_release():
+            try:
+                await self.engine.dispatch(decision)
+            finally:
+                self._inflight_symbols.discard(target_symbol_norm)
+
+        asyncio.create_task(_dispatch_and_release())
 
     def handle_trade_outcome(self, trade_id: str, won: bool):
         """Handle trade outcome (stateless)."""

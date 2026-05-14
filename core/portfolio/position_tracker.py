@@ -1227,9 +1227,9 @@ class PositionTracker:
         # Buscar posición
         position = self.get_position(trade_id)
 
-        # Fallback: if trade_id is a sub-id (e.g. from scale out), try to find parent
+        # Fallback: if trade_id is a sub-id (e.g. from TP/SL suffix), try to find parent
         if not position and "_" in str(trade_id):
-            parent_id = str(trade_id).split("_")[0]
+            parent_id = str(trade_id).rsplit("_", 1)[0]
             position = self.get_position(parent_id)
 
         if not position:

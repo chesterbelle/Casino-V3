@@ -658,6 +658,7 @@ class VirtualExchangeConnector(BaseConnector):
                 "timestamp": self._current_timestamp,
                 "pnl": gross_pnl,  # Historian contract: pnl=gross, it calculates net
                 "gemini_trade_id": None,
+                "parent_trade_id": pos.get("parent_trade_id"),  # Phase 1300: Link to original setup
                 "entry_price": entry_price,
                 "entry_time": pos["timestamp"],
                 "position_side": side,
@@ -996,9 +997,18 @@ class VirtualExchangeConnector(BaseConnector):
 
         This ensures VirtualExchange returns the same format as real exchanges.
         """
+        # Phase 1000: Unified Parity - Include all ID variants used by PositionTracker
+        order_id = str(order["id"])
+        client_order_id = order.get("client_order_id") or order_id
+
         return {
-            "id": str(order["id"]),
-            "order_id": str(order.get("order_id", order["id"])),  # Alias for Croupier
+            "id": order_id,
+            "order_id": order.get("order_id") or order_id,  # Alias for Croupier
+            "client_order_id": client_order_id,
+            "c": client_order_id,  # Binance shorthand
+            "i": order_id,  # Binance shorthand
+            "orderId": order_id,  # CCXT/Binance variant
+            "clientOrderId": client_order_id,
             "symbol": order["symbol"],
             "status": order["status"],
             "price": float(order.get("price", 0) or 0),
