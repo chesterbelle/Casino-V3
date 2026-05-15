@@ -151,13 +151,20 @@
 9. **IN_VALUE Rotation Targets**: SL y TP deben ser ATR-relativos al ENTRY PRICE, no a VWAP/VAH/VAL. Si LONG a Z=0.5, VAH está solo 0.5σ arriba (TP muy corto) pero VAL está 1.5σ abajo (SL muy lejos).
 10. **No Bloquear IN_VALUE**: Bloquear trades destruye señal. Mejor routing correcto: IN_VALUE → rotation (continuación) con targets apropiados.
 11. **🔴 L2 Data Required for Absorption Backtest**: Sin order book (L2), el `FootprintRegistry` infiere delta desde trades (L1). La absorción se "adivina" estadísticamente, no se observa directamente. Cualquier backtest de absorción sin L2 es inválido para certificar alpha.
+12. **Edge-Audit vs Strategy-Audit**: Edge-audit con `--audit` NO ejecuta trades (zero-interference). Strategy-audit SÍ ejecuta. La diferencia de trades es diseño, no bug.
+13. **Position Limit = 1/symbol**: Por defecto solo se permite 1 posición por símbolo. Esto bloquea señales después del primer trade. Ver logs con `🚫 SIGNAL_REJECTED`.
 - 2026-05-11T21:40:21.114120 | edge-audit | L2 & price ingest completed, CSVs removed.
+- 2026-05-15T02:35:00.000000 | session-close | Debugging session completed. Logging improved.
 
 ## 🎯 Objetivo de la Sesión Actual (CERRADA)
-*   **Meta**: Certificar Contabilidad del Slim Exit Engine (V10.2). (LOGRADO ✅)
-*   **Resultado**: Se corrigió el bug de timestamps en el Historian/PositionTracker. El Auditor ahora puede separar ejecuciones individuales, permitiendo una auditoría real de los Journeys.
+*   **Meta**: Diagnosticar diferencia edge-audit vs strategy-audit y mejorar trazabilidad. (LOGRADO ✅)
+*   **Resultado**:
+    - Edge-audit: 124 señales, 0 trades (diseño zero-interference)
+    - Strategy-audit: 15 trades (position limit bloquea resto)
+    - Logging mejorado: `players/adaptive.py` ahora usa WARNING para rechazos
 *   **Siguiente paso**:
-    1. Iniciar una **nueva ventana de conversación** para limpiar contexto.
+    1. Investigar confirmation timeouts (83.8% de señales no confirman)
+    2. Investigar directional bias (LONG 85.7% WR vs SHORT 50% WR)
     2. Auditar el rendimiento real de la estrategia AMT V10 con la contabilidad corregida.
 - 2026-05-13T15:20:00.000000 | session-close | Slim Exit Engine deployed. Codebase purified. Awaiting Stress Test.
 

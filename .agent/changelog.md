@@ -8,6 +8,21 @@
 
 ## 📝 Historial de Sesiones
 
+### 2026-05-15 (Sesión 5): Debugging Session & Signal Rejection Tracing
+*   **Hito**: Diagnóstico de diferencia de trades entre edge-audit (0 trades) vs strategy-audit (15 trades). Mejora de logging para debugging.
+*   **Detalle Técnico**:
+    - `players/adaptive.py`: Cambiado logging de position limit e inflight lock de DEBUG a WARNING para mejor trazabilidad.
+    - Nuevo formato de log: `🚫 SIGNAL_REJECTED | symbol | REASON | details`
+*   **Hallazgos**:
+    - Edge-audit genera 124 señales pero 0 trades (diseño: zero-interference, no ejecuta trades)
+    - Strategy-audit genera 114 señales pero solo 15 trades debido a position limit (1/1)
+    - Confirmation timeouts: 83.8% de señales en edge-audit no confirman a tiempo
+    - Directional bias: LONG 85.7% WR vs SHORT 50% WR
+*   **Métricas de Certificación (LTC 24h - 1800s)**:
+    - Edge-Audit: 124 signals, 117 audited, Gross Expectancy +0.1185%, WR 63.2%
+    - Strategy-Audit: 15 trades, WR 66.7%, PF 1.84
+*   **Estado**: Investigación completada. El position limit es comportamiento esperado, no bug.
+
 ### 2026-05-14 (Sesión 4): Slim Exit Engine Stabilization & Concurrency Certification
 *   **Hito**: Estabilización definitiva de la ejecución secuencial y resolución del "Trade Flooding" bug.
 *   **Detalle Técnico**:

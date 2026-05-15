@@ -119,7 +119,7 @@ class AdaptivePlayer:
         # Phase 1000: Synchronous Inflight Lock (first check — fastest)
         target_symbol_norm = event.symbol.replace("/", "").replace(":USDT", "")
         if target_symbol_norm in self._inflight_symbols:
-            logger.debug(f"⏭️ Skipping {event.symbol} - Inflight lock active")
+            logger.warning(f"🚫 SIGNAL_REJECTED | {event.symbol} | INFLIGHT_LOCK | Waiting for fill")
             return
 
         # Check position limit (PER SYMBOL)
@@ -128,9 +128,9 @@ class AdaptivePlayer:
         symbol_positions = [p for p in open_positions if p.symbol.replace("/", "") == target_symbol_norm]
 
         if len(symbol_positions) >= self.max_positions:
-            logger.debug(
-                f"⏭️ Skipping signal for {event.symbol} - "
-                f"at symbol position limit ({len(symbol_positions)}/{self.max_positions})"
+            logger.warning(
+                f"🚫 SIGNAL_REJECTED | {event.symbol} | POSITION_LIMIT | "
+                f"Current: {len(symbol_positions)}/{self.max_positions}"
             )
             return
 
