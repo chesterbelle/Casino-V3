@@ -10,9 +10,7 @@ logger = logging.getLogger("RegimeGuardian")
 VA_EXCESS_FACTOR = 0.5  # Price beyond VAH/VAL + 50% of VA width = EXCESS
 
 
-def check_regime_alignment(
-    symbol: str, side: str, reversal_signal: dict, context_registry, fast_track: bool
-) -> GuardianResult:
+def check_regime_alignment(symbol: str, side: str, reversal_signal: dict, context_registry) -> GuardianResult:
     """
     V3 Regime Guardian: Value Position × Value Acceptance model.
 
@@ -30,7 +28,7 @@ def check_regime_alignment(
     - NO TRANSITION state — either conviction exists or it doesn't
     - Counter-trend trades BLOCKED unless absorption detected (REJECTING + OUT_OF_VALUE)
     """
-    if fast_track or not context_registry:
+    if not context_registry:
         return GuardianResult(passed=True, multiplier=1.0, gate_name="REGIME_ALIGNMENT")
 
     # Phase 2100: Read V2 regime data from MarketRegimeSensor

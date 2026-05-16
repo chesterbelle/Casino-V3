@@ -59,7 +59,7 @@ Run the Edge Auditor tool.
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --window 1800
 ```
-Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] THEORETICAL WIN-RATE**, and **[4] DECISION TRACE AUDIT**.
+Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**.
 
 ---
 
@@ -67,12 +67,13 @@ Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] THEORETICAL WIN-RATE**
 
 After running Step 3, the agent MUST:
 
-1. **Present Section [1B]: Gross Expectancy** - The PRIMARY metric for edge validation
-2. **Present Section [5]: Overall Edge Summary** - Aggregate metrics and viability assessment
-3. **Present the Theoretical Win-Rate Matrix** (Section [2]) with Net (Taker) and Net (Maker)
-4. **Assign a Certification Status** for each setup based on the criteria below
-5. **List highly specific observations** (e.g., "Setup X has Expectancy 0.15% but needs Limit Sniper", "MAE too high, tighten entry filters")
-6. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
+1. **Present Section [1B]: Gross Expectancy** - (Inside Section [2/7])
+2. **Present Section [7]: Overall Edge Summary** - Aggregate metrics and viability assessment
+3. **Present the Theoretical Win-Rate Matrix** (Section [2/5]) with Net (Taker) and Net (Maker)
+4. **Present the Decision Trace Audit** (Section [4])
+5. **Assign a Certification Status** for each setup based on the criteria below
+6. **List highly specific observations** (e.g., "Setup X has Expectancy 0.15% but needs Limit Sniper", "MAE too high, tighten entry filters")
+7. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
 
 ### Certification Matrix (Decision Logic) — UPDATED Phase 800B
 

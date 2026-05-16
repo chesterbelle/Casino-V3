@@ -105,11 +105,6 @@ class SensorManager:
         self._micro_buffer = []
         self._last_market_time = 0.0  # Phase 50: Parity - Track latest market time (MarketTime over RealTime)
         self.throttle_ms = 100.0  # Throttled microstructure events
-        import sys
-
-        if "--fast-track" in sys.argv:
-            self.throttle_ms = 0.0  # Zero throttle for high-fidelity parity check
-            logger.info("🚀 SensorManager: Fast-Track detected, throttling disabled (0ms)")
         self._last_tick_dispatch = {}
         self._last_ob_dispatch = {}
         self._tick_count = 0
@@ -629,7 +624,6 @@ class SensorManager:
             sensor_id=sensor_name,
             score=signal_data.get("score", 1.0),
             metadata=metadata,
-            fast_track=bool(metadata.get("fast_track", False)),
             price=metadata.get("price", 0.0),
         )
         # Phase 180: Silent Sensors (Switch to DEBUG to reduce minute-boundary log burst)

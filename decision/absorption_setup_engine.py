@@ -41,17 +41,16 @@ class AbsorptionSetupEngine(TraceBulletMixin):
     - SL: Absorption level ± buffer
     """
 
-    def __init__(self, fast_track: bool = False):
+    def __init__(self):
         super().__init__()
         self.name = "AbsorptionSetupEngine"
-        self.fast_track = fast_track
 
         # Configuration
         self.min_tp_distance_pct = 0.25  # Minimum TP distance (0.25%) to enforce RR > 1.5
         self.max_tp_distance_pct = 0.50  # Maximum TP distance (0.50%)
         self.sl_buffer_pct = 0.15  # SL buffer as % of price  # Tightened SL buffer as % of price (0.12%)
 
-        logger.info(f"✅ {self.name} V2 initialized{' (FAST-TRACK MODE)' if fast_track else ''}")
+        logger.info(f"✅ {self.name} V2 initialized")
 
     def process_confirmed_signal(self, signal: dict) -> Optional[dict]:
         """
@@ -136,12 +135,6 @@ class AbsorptionSetupEngine(TraceBulletMixin):
         """
         Calculate TP based on volume profile (first low-volume node).
         """
-        if self.fast_track:
-            if direction == "SELL_EXHAUSTION":
-                return current_price * 1.002
-            else:
-                return current_price * 0.998
-
         # Search range
         if direction == "SELL_EXHAUSTION":
             price_from = current_price

@@ -11,7 +11,6 @@ import time
 from collections import defaultdict, deque
 from typing import Dict, Tuple
 
-import config.strategies as strat_config
 from core.events import (
     AggregatedSignalEvent,
     EventType,
@@ -19,32 +18,18 @@ from core.events import (
     MicrostructureEvent,
     SignalEvent,
 )
+from core.telemetry import TraceOutcome, black_box
 from decision.guardians import GuardianManager
 from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger("SetupEngine")
 
 
-class DummyTracker:
-    """Provides a compatible interface for OrderManager without doing anything."""
-
-    def get_stats(self):
-        return {}
-
-    def track_signal(self, *args, **kwargs):
-        pass
-
-    def track_result(self, *args, **kwargs):
-        pass
-
-
 class SetupEngineV4(TraceBulletMixin):
-    def __init__(self, engine, context_registry=None, fast_track=False):
+    def __init__(self, engine, context_registry=None):
         super().__init__()
         self.engine = engine
         self.context_registry = context_registry
-        self.tracker = DummyTracker()
-        self.fast_track = fast_track
 
         # Strict Cooldowns per symbol
         self.last_fire_ts = defaultdict(float)
@@ -55,7 +40,6 @@ class SetupEngineV4(TraceBulletMixin):
         self.guardian_manager = GuardianManager(self._trace_decision)
 
         # Memories (5s)
-        self.memory = defaultdict(lambda: deque(maxlen=500))
         self.micro_memory = defaultdict(lambda: deque(maxlen=500))
         self._last_micro_prune_ts = 0.0
         self._prune_interval = 1.0
@@ -88,8 +72,6 @@ class SetupEngineV4(TraceBulletMixin):
 
     def is_system_warm(self, symbol: str) -> bool:
         """Structural readiness check."""
-        if self.fast_track:
-            return True
         if self.context_registry:
             vwap = self.context_registry.vwap_state.get(self.context_registry._norm_key(symbol))
             if not vwap or vwap.get("std", 0) == 0:
@@ -125,31 +107,32 @@ class SetupEngineV4(TraceBulletMixin):
         price = event.price
         timestamp = event.timestamp
 
-        # 1. Warmup & In-Trade Check (Fast Exit)
+        # 1. Warmup & In-Trade Check
         if not self.is_system_warm(symbol):
             return
         if self.context_registry and self.context_registry.is_in_trade(symbol):
-            # Trace Phase 3: Blocked by active trade
-            self.trace(
-                {"symbol": symbol, "price": price, "reason": "IN_TRADE"},
-                "SIGNAL_BLOCKED",
-            )
             return
         if timestamp - self.last_fire_ts[symbol] < self.fire_cooldown:
             return
 
-        # 2. Candle Synthesis (for TrendAcceptance/Structural logic)
-        candle_boundary = timestamp - (timestamp % 60)
-        if candle_boundary > self._last_candle_boundary.get(symbol, 0):
-            self._last_candle_boundary[symbol] = candle_boundary
-            self.scenario_manager.on_candle(symbol, price, timestamp)
-
-        # 3. Evaluate Scenarios via ScenarioManager (Decision Logic)
+        # 2. Evaluate Scenarios via ScenarioManager
         signal = self.scenario_manager.on_tick(symbol, price, timestamp)
 
-        # 4. Process and Dispatch if signal found
+        # 3. Process and Dispatch if signal found
         if signal:
-            await self._process_signal(signal)
+            # Fast-Lane: Signals from AMT Scenarios and TacticalAbsorption (Scalping mode)
+            # All fire immediately without tactical confirmation delay.
+            if signal.get("source") in ["ScenarioManager", "TacticalAbsorptionV2"]:
+                # Guard: Only one position per symbol
+                if self.position_tracker.has_position(signal.get("symbol")):
+                    return
+
+            # UDT: Recover trace if this was a confirmed candidate
+            trace = None
+            if "trace_id" in signal:
+                trace = black_box.get_trace(signal["trace_id"])
+
+            await self._process_signal(signal, trace=trace)
 
     async def on_signal(self, event: SignalEvent):
         """Signal Entry Point: Maneja regímenes y señales tácticas externas."""
@@ -160,18 +143,39 @@ class SetupEngineV4(TraceBulletMixin):
             self._handle_regime_update(event)
             return
 
+        # ⚠️ LEGACY/EXPERIMENTAL: The TacticalConfirmationGate (formerly Guardian)
+        # Reserved for high-noise signals or setups requiring deep conviction confirmation.
+        # Currently bypassed for Absorption Scalping as per Forensic Audit v10.2.
+        if event.side == "TACTICAL_CONFIRMATION_REQUIRED":
+            return
+
         # B. Manejo de Señales Tácticas (Enrutamiento vía ScenarioManager)
         if event.side in ["LONG", "SHORT", "TACTICAL"]:
-            # Ensure signal payload has core fields for orchestrator
             payload = md if md.get("tactical_type") else event.__dict__.copy()
             payload["symbol"] = payload.get("symbol") or event.symbol
             payload["timestamp"] = payload.get("timestamp") or event.timestamp
-            payload["price"] = payload.get("price") or getattr(event, "price", 0.0)
             payload["side"] = payload.get("side") or event.side
 
-            signal = self.scenario_manager.on_signal(payload)
-            if signal:
-                await self._process_signal(signal)
+            # Fast-Lane: TacticalAbsorptionV2 (Scalping) fires immediately
+            if event.sensor_id == "TacticalAbsorptionV2":
+                trace = black_box.create_trace(event.symbol, "TacticalAbsorptionV2", f"SIG_{int(time.time()*1000)}")
+                await self._process_signal(payload, trace=trace)
+                return
+
+            # UDT: Generate DNA for other tactical signals
+            trace = black_box.create_trace(
+                payload["symbol"], payload.get("side", "TACTICAL"), f"SIG_{int(time.time()*1000)}"
+            )
+            trace.add_step("SetupEngine", True, f"Received external signal: {payload.get('tactical_type')}")
+
+            # Route through ScenarioManager
+            orchestrated_signal = self.scenario_manager.on_signal(payload, trace=trace)
+
+            if orchestrated_signal:
+                await self._process_signal(orchestrated_signal, trace=trace)
+            else:
+                # Signal is either discarded or pending confirmation in Guardian
+                pass
 
     def _handle_regime_update(self, event):
         """Actualiza el ContextRegistry con la info del sensor de régimen."""
@@ -187,36 +191,41 @@ class SetupEngineV4(TraceBulletMixin):
 
         logger.info(f"🌐 [REGIME_V2] {event.symbol}: {regime_v2} (conf={md.get('confidence', 0):.2f})")
 
-    async def _process_signal(self, signal: dict):
-        """
-        ORQUESTRADOR CENTRAL: Transforma una señal táctica en una ejecución.
-        1. Valida Guardianes (Regimen/Localización)
-        2. Aplica Exhaustion Gate (AMT)
-        3. Calcula Targets Estructurales
-        4. Despacha Evento
-        """
+    async def _process_signal(self, signal, trace=None):
+        """Orquesta la validación final, cálculo de targets y despacho."""
         symbol = signal["symbol"]
         side = signal["side"]
         price = signal["price"]
         now = signal["timestamp"]
         scenario = signal.get("scenario", signal.get("tactical_type", "unknown"))
 
+        # Phase 240: Unified Decision DNA (UDT) - Use existing trace or create new one
+        if not trace:
+            trace = black_box.create_trace(symbol, side, signal_id=f"SIG_{int(time.time()*1000)}")
+            trace.add_step("SetupEngine", True, f"Processing instant signal: {scenario}")
+
         # 1. Guardian Evaluation
         passed, multiplier, setup_mode, val_pos = self.guardian_manager.evaluate_all(
-            symbol, side, signal, self.context_registry, {}, self.fast_track
+            symbol, side, signal, self.context_registry, {}, trace=trace
         )
         if not passed:
+            trace.finalize(TraceOutcome.DISCARDED, "Rejected by Guardian chain")
+            black_box.archive_trace(trace.trace_id)
             return
 
-        # 2. Target Calculation (Symmetric Variance-Aware Model)
+        # 2. Target Calculation
         tp_price, sl_price, setup_name, level_ref, atr_pct = self._calculate_targets(
             symbol, side, price, setup_mode, val_pos, scenario, signal
         )
 
+        trace.add_step(
+            "SetupEngine",
+            True,
+            "Targets calculated",
+            {"tp": round(tp_price, 4), "sl": round(sl_price, 4), "atr": round(atr_pct, 4)},
+        )
+
         # 3. Metadata Enrichment
-        # Consolidated arbitration metadata for full traceability.
-        # This will be picked up by the global Audit Handler in main/backtest.
-        # Get current micro Z-score for DI relative delta baseline
         _entry_z = 0.0
         if self.context_registry:
             _, _, _entry_z = self.context_registry.get_micro_state(symbol)
@@ -236,12 +245,9 @@ class SetupEngineV4(TraceBulletMixin):
                 "conviction_score": signal.get("conviction_score", 0),
                 "contributors": signal.get("contributing_scenarios", []),
                 "footprint_z_score": signal.get("z_score", 0.0),
-                # Phase 710: Propagate ATR so SlimExitEngine pillars have a valid
-                # entry_atr on OpenPosition (Scale Out / Break Even / Trailing).
                 "atr_1m": atr_pct,
-                # Phase 710: Propagate micro Z at entry for Delta Invalidation
-                # relative delta (DI measures change FROM this baseline, not absolute Z).
                 "z_score_entry": _entry_z,
+                "trace_id": trace.trace_id,
             },
             symbol,
         )
@@ -265,6 +271,11 @@ class SetupEngineV4(TraceBulletMixin):
             setup_type=scenario,
             price=price,
         )
+
+        trace.add_step("SetupEngine", True, "Signal dispatched to AdaptivePlayer")
+        trace.finalize(TraceOutcome.EXECUTED, f"Trade ready: {setup_name}")
+        black_box.archive_trace(trace.trace_id)
+
         await self.engine.dispatch(out_evt)
 
         # Trace Phase 3: Successful Dispatch
@@ -377,10 +388,8 @@ class SetupEngineV4(TraceBulletMixin):
         # Lazy Pruning (Phase 500) - Using Market Time
         if now - self._last_micro_prune_ts > self._prune_interval:
             self._last_micro_prune_ts = now
-            for s in list(self.memory.keys()):
+            for s in list(self.micro_memory.keys()):
                 cutoff = now - 5.0
-                while self.memory[s] and self.memory[s][0][0] < cutoff:
-                    self.memory[s].popleft()
                 while self.micro_memory[s] and self.micro_memory[s][0][0] < cutoff:
                     self.micro_memory[s].popleft()
 
@@ -411,9 +420,7 @@ class SetupEngineV4(TraceBulletMixin):
         """Helper to fire internal decision traces to Historian."""
         import config.trading as trading_config
 
-        if not getattr(strat_config, "ENABLE_DECISION_TRACE", False) and not getattr(
-            trading_config, "ENABLE_DECISION_TRACE", False
-        ):
+        if not getattr(trading_config, "ENABLE_DECISION_TRACE", False):
             return
 
         import time
@@ -435,33 +442,3 @@ class SetupEngineV4(TraceBulletMixin):
             logger.info(f"🚫 [GATE] {symbol} {side} {gate} REJECTED: {reason}")
 
         hist_local.record_decision_trace(trace_data)
-
-    def _check_micro_inertia_guard(self, symbol: str, side: str, now: float) -> Tuple[bool, float]:
-        """
-        Phase V3.2: Inertia Guard.
-        Ensures that aggressive flow (CVD) is moving in our direction
-        within the last 2 seconds before entering a continuation trade.
-
-        Returns (passed, delta_cvd).
-        """
-        memory = self.micro_memory.get(symbol)
-        if not memory or len(memory) < 5:
-            return True, 0.0  # Safe-default: don't block if memory is cold
-
-        # Window: Last 2 seconds
-        cutoff = now - 2.0
-        relevant_events = [evt for ts, wall, evt in memory if ts > cutoff]
-
-        if len(relevant_events) < 3:
-            return True, 0.0
-
-        current_cvd = relevant_events[-1].cvd
-        baseline_cvd = relevant_events[0].cvd
-        delta_cvd = current_cvd - baseline_cvd
-
-        if side == "LONG":
-            # For LONG, we need CVD to be increasing (Aggressive Buyers entering)
-            return delta_cvd > 0, delta_cvd
-        else:
-            # For SHORT, we need CVD to be decreasing (Aggressive Sellers entering)
-            return delta_cvd < 0, delta_cvd

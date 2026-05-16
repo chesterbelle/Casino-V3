@@ -135,12 +135,6 @@ def parse_args():
     parser.add_argument("--max-symbols", type=int, help="Limit number of symbols for MULTI mode (Test)")
 
     parser.add_argument(
-        "--fast-track",
-        action="store_true",
-        help="Bypass LTA Location Gate and structural targets for rapid infrastructure testing",
-    )
-
-    parser.add_argument(
         "--ui",
         action="store_true",
         help="Enable Terminal User Interface (Dashboard)",
@@ -390,24 +384,23 @@ async def main():
     croupier.context_registry = context_registry  # Phase 974: Inject to allow trade status unlocking
 
     # 8. Initialize Setup Engine (Tactical Event Setup Engine -> Decision)
-    setup_engine = SetupEngineV4(
-        engine, context_registry=context_registry, fast_track=getattr(args, "fast_track", False)
-    )
+    from core.telemetry import black_box
+
+    black_box.set_historian(historian)
+
+    setup_engine = SetupEngineV4(engine, context_registry=context_registry)
     tracker = setup_engine.tracker  # Get dummy tracker
 
     # 9. Initialize Player (Aggregated Signal -> Decision)
     from players.adaptive import AdaptivePlayer
 
-    logger.info(
-        f"🎰 Using Adaptive Player (bet_size={args.bet_size:.2%}){' | FAST-TRACK MODE' if getattr(args, 'fast_track', False) else ''}"
-    )
+    logger.info(f"🎰 Using Adaptive Player (bet_size={args.bet_size:.2%})")
     # Initialize Player (bet sizing) - max_positions defaults to 1 per symbol in Player
     player = AdaptivePlayer(
         engine,
         croupier,
         fixed_pct=args.bet_size,
         context_registry=context_registry,
-        fast_track=getattr(args, "fast_track", False),
     )
 
     # 10. Initialize Order Manager (Decision → Execution)

@@ -18,14 +18,12 @@ from decision.amt_scenarios import (
     LiquidityExhaustionDetector,
     TrendAcceptanceDetector,
 )
-from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger("ScenarioManager")
 
 
-class ScenarioManager(TraceBulletMixin):
+class ScenarioManager:
     def __init__(self, footprint_registry, context_registry):
-        super().__init__()
         self.footprint = footprint_registry
         self.context = context_registry
 
@@ -51,7 +49,7 @@ class ScenarioManager(TraceBulletMixin):
         # Confirmation Middleware (Confirmation Lane)
         self.guardian = AbsorptionReversalGuardian()
 
-        logger.info("🏗️ ScenarioManager initialized (AMT V10 Architecture - Priority Scrutiny enabled)")
+        logger.info("🏗️ ScenarioManager initialized (AMT V10 Architecture - UDT Enabled)")
 
     def on_tick(self, symbol: str, price: float, timestamp: float) -> Optional[dict]:
         """
@@ -74,13 +72,6 @@ class ScenarioManager(TraceBulletMixin):
                 scenario_key = sig.get("scenario", "unknown")
                 sig["_priority"] = self.PRIORITY_MAP.get(scenario_key, 0)
                 candidates.append(sig)
-
-                # Trace Phase 1: Scenario Triggered
-                self.trace(
-                    sig,
-                    "PHASE1_TRIGGERED",
-                    {"scenario": scenario_key, "priority": sig["_priority"]},
-                )
 
         if not candidates:
             return None
@@ -145,27 +136,26 @@ class ScenarioManager(TraceBulletMixin):
             if hasattr(scenario, "on_candle"):
                 scenario.on_candle(symbol, close, timestamp, self.context, self.footprint)
 
-    def on_signal(self, signal: dict) -> Optional[dict]:
+    def on_signal(self, signal: dict, trace=None) -> Optional[dict]:
         """
-        Handle signals from external sensors (e.g. AbsorptionDetector worker).
-        Routes signals to the appropriate lane.
+        Routes signals to the appropriate lane with UDT support.
         """
         tactical_type = signal.get("tactical_type")
 
-        # Lógica de Ruteo:
-        # La Absorción REQUIERE confirmación de micro-flujo (Guardian)
+        # UDT: Trace tactical signal arrival
+        if trace:
+            trace.add_step("ScenarioManager", True, f"Routing {tactical_type} signal", {"side": signal.get("side")})
+
+        # Routing Logic:
         ABS_IDS = ("Absorption", "TacticalAbsorptionV2", "TacticalAbsorption", "AbsorptionDetector")
         if tactical_type in ABS_IDS:
-            logger.debug(f"📥 [ROUTING] {tactical_type} signal sent to Confirmation Lane (Guardian)")
-            self.guardian.register_candidate(signal, timestamp=signal.get("timestamp", 0.0))
-            return None  # No se despacha aún
-
-        # El Agotamiento (si viene de sensor externo) también podría requerir confirmación
-        if tactical_type == "LiquidityExhaustion" and signal.get("needs_micro_confirmation", True):
-            self.guardian.register_candidate(signal)
+            self.guardian.register_candidate(signal, timestamp=signal.get("timestamp", 0.0), trace=trace)
             return None
 
-        # El resto son instantáneos
+        if tactical_type == "LiquidityExhaustion" and signal.get("needs_micro_confirmation", True):
+            self.guardian.register_candidate(signal, trace=trace)
+            return None
+
         return signal
 
     def reset(self):

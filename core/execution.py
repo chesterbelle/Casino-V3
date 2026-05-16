@@ -23,11 +23,10 @@ class OrderManager:
     Subscribes to DECISION events (from Paroli).
     """
 
-    def __init__(self, engine, croupier: Croupier, paroli=None, tracker=None):
+    def __init__(self, engine, croupier: Croupier, paroli=None):
         self.engine = engine
         self.croupier = croupier
         self.paroli = paroli
-        self.tracker = tracker  # SensorTracker instance
         self.active = False
         self.pending_trades = {}  # trade_id -> (decision, sensor_id)
         self.processed_decisions = set()  # Track processed decision IDs to prevent duplicates
@@ -132,39 +131,19 @@ class OrderManager:
 
         # Calculate sizing via centralized OrderExecutor logic (Phase 46)
         try:
-            # Phase 230: Fast-Track Pricing (<1ms vs ~300ms)
-            # Priority: estimated_price (DecisionEvent) -> metadata["price"] (AggregatedSignalEvent)
+            # Get current price with cache/REST fallback
             current_price = getattr(event, "estimated_price", None)
             if not current_price or current_price <= 0:
                 metadata = getattr(event, "metadata", None) or {}
                 current_price = metadata.get("price")
 
-            # Phase 240: Hard-bypass REST for fast-tracked HFT signals
-            is_fast_track = getattr(event, "fast_track", False)
-
-            if is_fast_track and current_price and current_price > 0:
-                logger.debug(
-                    f"⚡ FAST-TRACK: Bypassing price cache check for {symbol}, using estimated {current_price}"
-                )
-            else:
                 if (
                     not current_price
                     or current_price <= 0
                     or self.croupier.exchange_adapter.is_cache_stale(symbol, check_order_book=False)
                 ):
-                    if is_fast_track:
-                        logger.warning(
-                            "⚡ FAST-TRACK ALERT: Cache is stale but avoiding REST call to preserve latency. Using last known cached price."
-                        )
-                        current_price = self.croupier.exchange_adapter.get_cached_price(symbol)
-                        if not current_price:
-                            logger.error(
-                                f"❌ FAST-TRACK FALLED: No cached price available for {symbol}, forced to REST."
-                            )
-                            current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
-                    else:
-                        logger.info(f"💾 Cache Miss/Stale for {symbol}, falling back to REST price lookup...")
-                        current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
+                    logger.debug(f"💾 Cache Miss/Stale for {symbol}, falling back to REST price lookup...")
+                    current_price = await self.croupier.exchange_adapter.get_current_price(symbol)
 
             position_value, amount = self.croupier.order_executor.calculate_sizing(
                 symbol=symbol,
@@ -297,7 +276,6 @@ class OrderManager:
             "setup_type": getattr(event, "setup_type", "unknown"),
             "estimated_price": current_price,  # Phase 240: avoid redundant price fetch in OCO
             "atr_1m": getattr(event, "atr_1m", 0.0),
-            "shadow_sl_activation": getattr(event, "shadow_sl_activation", 0.0025),  # Phase 800
             "limit_price": limit_price,  # Phase 1200: Limit Sniper structural level
         }
 
@@ -455,10 +433,9 @@ class OrderManager:
             if self.paroli:
                 self.paroli.handle_trade_outcome(trade_id, won)
 
-            # Update SensorTracker
-            if self.tracker and sensor_id != "Unknown":
-                self.tracker.update_sensor(sensor_id, pnl, won)
-                logger.debug(f"📊 Updated tracker for {sensor_id}: won={won}, pnl={pnl:.4f}")
+            # Phase 850: Historian handles all trade performance tracking
+            # Legacy sensor tracker removed.
+            pass
 
             # Clean up
             del self.pending_trades[trade_id]

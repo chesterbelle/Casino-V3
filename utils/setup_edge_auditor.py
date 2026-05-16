@@ -322,8 +322,20 @@ class EdgeAuditor:
                 f"{setup:<20} {best_config[0]:.1f}/{best_config[1]:.1f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
             )
 
-        # ── [4] PER-SETUP UNIFORM GRID (Full Detail) ──
-        print(f"\n{BOLD}[4] UNIFORM TP/SL GRID (Full Detail per Setup){RESET}")
+        # ── [4] DECISION TRACE AUDIT (SetupEngine Gates) ──
+        if traces is not None and not traces.empty:
+            print(f"\n{BOLD}[4] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
+            print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
+            print("-" * 75)
+
+            trace_counts = traces.groupby(["gate", "reason"]).size().reset_index(name="count")
+            trace_counts = trace_counts.sort_values("count", ascending=False)
+
+            for _, row in trace_counts.iterrows():
+                print(f"{row['gate']:<25} {row['reason']:<40} {row['count']:<6}")
+
+        # ── [5] PER-SETUP UNIFORM GRID (Full Detail) ──
+        print(f"\n{BOLD}[5] UNIFORM TP/SL GRID (Full Detail per Setup){RESET}")
         for setup, group in df.groupby("setup_type"):
             print(f"\n  {BOLD}{setup}{RESET} (n={len(group)})")
             print(
@@ -352,9 +364,9 @@ class EdgeAuditor:
                     f"  {tp_t:.1f}/{sl_t:.1f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
                 )
 
-        # ── [5] ALPHA FUSION & CONVICTION AUDIT ──
+        # ── [6] ALPHA FUSION & CONVICTION AUDIT ──
         if "is_composite" in df.columns:
-            print(f"\n{BOLD}[5] ALPHA FUSION & CONVICTION AUDIT (Arbitrator Efficacy){RESET}")
+            print(f"\n{BOLD}[6] ALPHA FUSION & CONVICTION AUDIT (Arbitrator Efficacy){RESET}")
             print(f"{'Signal Class':<20} {'n':<6} {'W':<5} {'L':<5} {'WR%':<8} {'Avg Conviction':<15} {'Verdict'}")
             print("-" * 75)
 
@@ -371,20 +383,8 @@ class EdgeAuditor:
                     f"{label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
                 )
 
-        # ── [6] DECISION TRACE AUDIT ──
-        if traces is not None and not traces.empty:
-            print(f"\n{BOLD}[6] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
-            print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
-            print("-" * 75)
-
-            trace_counts = traces.groupby(["gate", "reason"]).size().reset_index(name="count")
-            trace_counts = trace_counts.sort_values("count", ascending=False)
-
-            for _, row in trace_counts.iterrows():
-                print(f"{row['gate']:<25} {row['reason']:<40} {row['count']:<6}")
-
-        # ── [6] OVERALL EDGE SUMMARY (Primary = Dynamic Targets) ──
-        print(f"\n{BOLD}[6] OVERALL EDGE SUMMARY{RESET}")
+        # ── [7] OVERALL EDGE SUMMARY (Primary = Dynamic Targets) ──
+        print(f"\n{BOLD}[7] OVERALL EDGE SUMMARY{RESET}")
         print("-" * 70)
 
         # Primary: Real strategy performance

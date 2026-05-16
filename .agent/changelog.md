@@ -1,4 +1,4 @@
-# Casino-V3 Agent Memory — Brújula Estratégica
+# Casino-V3 Session History — Registro de Evolución
 
 > **⚠️ INSTRUCCIONES PARA EL AGENTE:**
 > 1. **Leer este archivo completo al inicio de cada sesión**. Es la verdad absoluta del proyecto.
@@ -7,6 +7,48 @@
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
 ## 📝 Historial de Sesiones
+
+### [2026-05-15] — Unified Decision DNA (UDT) Certification (Branch: v8.1-unified-decision-dna)
+### Summary: Transformación Forense del Alpha
+En esta sesión, hemos reemplazado el sistema de logeo ruidoso por una infraestructura de telemetría de alto rendimiento (UDT) que permite la autopsia granular de cada señal, especialmente las muertes asíncronas en la Fase 2.
+
+#### 1. Logros Técnicos
+*   **UDT Core (`core/telemetry.py`)**: Implementación de la "Caja Negra" y el objeto ADN (`DecisionTrace`).
+*   **Propagación de ADN**: Integración exitosa en `SetupEngineV4`, `ScenarioManager` y `AbsorptionReversalGuardian`.
+*   **Purificación de Necrosis**: Extirpación total de `fast_track`, `tracker` (DummyTracker) y referencias muertas en `RegimeGuardian`.
+*   **Certificación Forense**: Validado con backtest de LTCUSDT (50k eventos). Capturadas autopsias de **Phase 2 Timeout** (630ms) con estado de sensores detallado.
+
+#### 2. Decisiones de Diseño
+*   **Objeto ADN viaja con el Candidato**: El `PendingCandidate` ahora es el portador del `DecisionTrace`, permitiendo trazabilidad a través de estados asíncronos.
+*   **Autopsia Automatizada**: El sistema solo imprime reportes en consola para `EXECUTED` o `ERROR`, manteniendo el silencio operativo pero con capacidad de auditoría profunda.
+
+#### 3. Hallazgos (Alpha Rescue)
+*   **Confirmación del Cuello de Botella**: Las autopsias confirman que muchas señales de absorción mueren con 1/2 confirmaciones en la ventana de 500ms. Tenemos los datos para recalibrar los sensores.
+
+#### 4. Archivos Modificados
+*   `core/telemetry.py`: (Creado) Infraestructura UDT.
+*   `decision/setup_engine.py`: Orquestación de ADN.
+*   `decision/scenario_manager.py`: Ruteo de ADN.
+*   `decision/absorption_reversal_guardian.py`: Tracking asíncrono de ADN.
+*   `core/execution.py` & `backtest.py`: Limpieza de trackers obsoletos.
+*   `decision/guardians/regime_guardian.py`: Remoción final de `fast_track`.
+
+### 2026-05-15 (Sesión 6): Global Necrosis Purge & Systemic Purification
+*   **Hito**: Extirpación total de código muerto y componentes "zombie". Bot 100% Slim.
+*   **Detalle Técnico**:
+    - `config/trading.py`: Eliminadas ~100 líneas de parámetros obsoletos (Layers 2-5).
+    - `croupier.py`: Corregido bug de `exit_manager` fantasma. Refactorizado `DRAIN_MODE`.
+    - `setup_engine.py`: Eliminada clase `DummyTracker`, método `_check_micro_inertia_guard` y memoria redundante.
+    - `players/adaptive.py`: Eliminadas variables zombie `shadow_sl_activation` y `dv_multiplier`.
+    - `archive/`: Creada estructura de archivos para logs de debug y scripts legacy.
+    - **Extirpación Quirúrgica (Fase 2)**: Eliminado flag `fast_track` de `SetupEngine`, `GuardianManager`, `AdaptivePlayer`, `MultiAssetManager`, `SensorManager` y CLI (`main.py`/`backtest.py`).
+    - `core/execution.py`: Eliminado rastro de `is_fast_track` y reparado ruteo de precios REST.
+    - `core/events.py`: Eliminado campo `fast_track` de `DecisionEvent` y `AggregatedSignalEvent`.
+    - `utils/structural_math.py`: Eliminado override de proximidad artificial (1.0% -> 0.35% fijo).
+*   **Hallazgos**:
+    - Identificado timeout de 500ms en `Guardian` como causa raíz del "Alpha Starvation" (83.8% timeouts).
+    - El bypass de `fast_track` en `SensorManager` desactivaba el throttling de 100ms basándose en `sys.argv`, lo cual era una vulnerabilidad de estabilidad.
+*   **Estado**: Código purificado y extirpación completada. Listos para auditoría de sensores de confirmación.
 
 ### 2026-05-15 (Sesión 5): Debugging Session & Signal Rejection Tracing
 *   **Hito**: Diagnóstico de diferencia de trades entre edge-audit (0 trades) vs strategy-audit (15 trades). Mejora de logging para debugging.
@@ -21,7 +63,7 @@
 *   **Métricas de Certificación (LTC 24h - 1800s)**:
     - Edge-Audit: 124 signals, 117 audited, Gross Expectancy +0.1185%, WR 63.2%
     - Strategy-Audit: 15 trades, WR 66.7%, PF 1.84
-*   **Estado**: Investigación completada. El position limit es comportamiento esperado, no bug.
+*   **Estado**: Investigación de la Sesión 5 completada. El position limit es comportamiento esperado. Listos para investigar timeouts y directional bias.
 
 ### 2026-05-14 (Sesión 4): Slim Exit Engine Stabilization & Concurrency Certification
 *   **Hito**: Estabilización definitiva de la ejecución secuencial y resolución del "Trade Flooding" bug.
@@ -259,16 +301,15 @@
     *   Layer 1: **Session Drain** (Salida progresiva al cerrar).
 
 ---
-
 ## 📘 Manual Técnico (Protocolos y Flags)
 
 ### CLI Flags — Propósito Exacto
 *   **`--close-on-exit`**: Sweep de cierre al final. Activa **Drain Phase** defensiva si hay timeout.
-*   **`--fast-track`**: Bypasea gates estructurales para testeo de infraestructura. Miente al `SetupEngine` para forzar OCOs. **NUNCA en producción**.
+*   **`--fast-track`**: [ELIMINADO - SESIÓN 6] Bypaseaba gates estructurales. Eliminado para evitar falsos positivos y confusión del agente.
 *   **`--audit`**: Zero-Interference Mode. Registra señales sin ejecutarlas para validar Edge puro.
 
 ### Protocolos de Validación
-*   **`/fast-track-parity`**: Verifica paridad mecánica Demo vs Backtest (30 min, LTC).
+*   **`/fast-track-parity`**: [DEPRECADO - SESIÓN 6] Reemplazado por auditoría directa sin bypass estructural.
 *   **`/execution-quality-audit`**: Verifica pipeline asíncrono y latencia (15 min, LTC).
 *   **`/edge-audit`**: Certificación de Alpha basada en Expectancia Bruta.
 *   **`/long-range-edge-audit`**: Validación en condiciones Range/Bear/Bull (9 backtests).
@@ -286,7 +327,9 @@
 
 ---
 
-## 🎯 Objetivo de la Sesión Actual
-*   **Meta**: Análisis desde cero con datos L2 reales. Pre-L2 metrics invalidados.
-*   **Edge L2 Real**: WR 33%, Gross Exp +0.052% (FRAGILE). Edge latente a 0.3/0.3% uniforme (WR 56%).
-*   **Siguiente paso**: (1) Análisis de por qué targets dinámicos asfixian edge, (2) Evaluar VWAP vs Volume Profile para routing, (3) Calibrar SL/SL dinámicos.
+## 🎯 Objetivo de la Sesión Actual (SESIÓN 6 - EN CURSO)
+*   **Meta**: Investigar asimetría de Win Rate y Timeouts de Confirmación.
+*   **Siguiente paso**:
+    1. Auditar `confirmation_sensors.py` para entender el 83.8% de timeouts.
+    2. Analizar el sesgo direccional (LONG 85% vs SHORT 50%).
+    3. Calibrar thresholds de absorción para mejorar la selectividad.

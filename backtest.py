@@ -59,7 +59,6 @@ def parse_args():
     parser.add_argument("--bet-size", type=float, default=0.01, help="Fixed bet size fraction")
     parser.add_argument("--delay", type=float, default=0.0, help="Artificial delay between events")
     parser.add_argument("--limit", type=int, default=None, help="Stop after N events")
-    parser.add_argument("--fast-track", action="store_true", help="Bypass warmup and RR limits for mechanical testing")
     parser.add_argument(
         "--depth-db-path", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
     )
@@ -137,19 +136,22 @@ async def run_backtest():
     context_registry = ContextRegistry()  # noqa: E402
     croupier.context_registry = context_registry
     sensor_mgr = SensorManager(engine)
-    setup_engine = SetupEngineV4(engine, context_registry=context_registry, fast_track=args.fast_track)
+    # 4. Telemetry Setup
+    from core.telemetry import black_box
+
+    # 5. Core Decision Engine (SetupEngineV4)
+    setup_engine = SetupEngineV4(engine, context_registry=context_registry)
     player = AdaptivePlayer(  # noqa: E402
         engine,
         croupier,
         fixed_pct=args.bet_size,
         context_registry=context_registry,
-        fast_track=args.fast_track,
     )
 
     # 5.1 Candle Maker (Crucial for Regime Sensors)
     CandleMaker(engine, is_backtest=True)
 
-    om = OrderManager(engine, croupier, player, setup_engine.tracker)
+    om = OrderManager(engine, croupier, player)
     await om.start()
 
     # 6. Subscribe Components
@@ -173,6 +175,8 @@ async def run_backtest():
 
     # 6.5 Setup Audit Handlers
     from core.observability.historian import historian
+
+    black_box.set_historian(historian)
 
     if trading_config.AUDIT_MODE:
 

@@ -6,10 +6,9 @@ The Croupier is the central orchestrator of the trading floor. It manages
 the lifecycle of all positions, from signal dispatch to final settlement.
 
 Philosophical Evolution:
-- Phase 1200: Unified ExitEngine (5-Layer Stack).
-- Combines winner protection + thesis invalidation + Valentino scale-out.
-- Enforces structural integrity of Footprint setups (Invalidation).
-- Manages real-time reactor state and drift auditing.
+- Phase 1200: Unified ExitEngine (5-Layer Stack). [REPLACED BY SLIM V10.2]
+- Phase 2300: SlimExitEngine (Asset-Specific 4-Pillars).
+- Maker-First Tactical Exits for all professional symbols.
 """
 
 import asyncio
@@ -286,31 +285,20 @@ class Croupier(TimeIterator):
         self.portfolio_guard.on_trade_closed(pnl, exit_reason, timestamp=ts)
 
     async def _apply_drain_phase(self, phase: str):
-        """Helper to apply a drain phase to all active positions."""
-        # Fix: PositionTracker uses a list 'open_positions', not a dict
+        """
+        Helper to apply a drain phase to all active positions.
+        In Slim Mode, we directly trigger closures for PANIC phase.
+        """
         active_positions = list(self.position_tracker.open_positions)
         if not active_positions:
             return
 
         self.logger.info(f"⏳ Drain Phase: {phase} | Positions: {len(active_positions)}")
 
-        # Limit concurrency to prevent Circuit Breaker trips (Burst protection)
-        sem = asyncio.Semaphore(2)
-
-        async def _apply_with_limit(pos):
-            async with sem:
-                # Tag position with phase for reporting
-                pos.lifecycle_phase = f"DRAIN_{phase}"
-                try:
-                    await asyncio.wait_for(
-                        self.exit_manager.apply_dynamic_exit(pos, phase),
-                        timeout=15.0,
-                    )
-                except asyncio.TimeoutError:
-                    self.logger.warning(f"⏰ Drain {phase} timeout for {pos.trade_id} ({pos.symbol}) — skipping")
-
-        tasks = [_apply_with_limit(pos) for pos in active_positions]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        if phase == "PANIC":
+            # Force close everything at market for final safety
+            tasks = [self.close_position(pos.trade_id, exit_reason="DRAIN_PANIC") for pos in active_positions]
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def update_drain_status(self, remaining_minutes: float):
         """
@@ -895,8 +883,9 @@ class Croupier(TimeIterator):
             level_price=order.get("level_price", 0.0),
             t0_signal_ts=order.get("t0_signal_ts"),
             t1_decision_ts=order.get("t1_decision_ts"),
-            trace_id=order.get("trace_id"),
-            shadow_sl_activation=order.get("shadow_sl_activation", 0.0025),
+            entry_atr=order.get("atr_1m", 0.0),
+            entry_z=order.get("z_score_entry", 0.0),
+            trace_id=order.get("trace_id", ""),
         )
 
         try:
@@ -1002,7 +991,7 @@ class Croupier(TimeIterator):
         # 3. Dynamic Exits (If needed, can be driven here)
         # Note: In V3, ExitManager was likely driven by external ticks or own loop.
         # In V4, it should be driven here.
-        # await self.exit_manager.tick(timestamp)
+        # await self.slim_exit_engine.tick(timestamp)
 
     def _run_periodic_task(self, coro, name: str, timeout: float):
         """Helper to run a periodic task with strict timeout and pile-up protection."""

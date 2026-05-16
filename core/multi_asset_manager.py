@@ -35,7 +35,6 @@ class MultiAssetManager:
         bet_size: float,
         sizing_mode: str = "FIXED_NOTIONAL",
         stop_loss: float = 0.01,
-        fast_track: bool = False,
     ) -> Tuple[List[str], Dict[str, Dict]]:
         """
         Run pre-flight checks on target symbols and build precision profile.
@@ -50,11 +49,10 @@ class MultiAssetManager:
             bet_size: Bet size as fraction of equity (e.g., 0.01 = 1%)
             sizing_mode: "FIXED_NOTIONAL" or "FIXED_RISK"
             stop_loss: Stop loss fraction (used for FIXED_RISK)
-            fast_track: Bypass REST initialization logic for parity
         Returns:
             Tuple[List[str], Dict]: (valid symbols, precision_profile)
         """
-        logger.info(f"✈️ Starting Flytest for {len(target_symbols)} symbols... (FastTrack: {fast_track})")
+        logger.info(f"✈️ Starting Flytest for {len(target_symbols)} symbols...")
         logger.info(f"💰 Balance: {total_balance:.2f} | Bet Size: {bet_size:.2%}")
 
         valid_symbols = []
@@ -65,23 +63,18 @@ class MultiAssetManager:
         all_tickers = {}
         all_books = {}
 
-        if not fast_track:
-            logger.info("📊 Pre-fetching market data for validation...")
-            try:
-                # Get bulk 24h tickers (Volume)
-                all_tickers = await self.adapter.fetch_tickers()
-                # Get bulk book tickers (Spread)
-                if hasattr(self.adapter, "fetch_book_tickers"):
-                    all_books = await self.adapter.fetch_book_tickers()
+        logger.info("📊 Pre-fetching market data for validation...")
+        try:
+            # Get bulk 24h tickers (Volume)
+            all_tickers = await self.adapter.fetch_tickers()
+            # Get bulk book tickers (Spread)
+            if hasattr(self.adapter, "fetch_book_tickers"):
+                all_books = await self.adapter.fetch_book_tickers()
 
-                logger.info(
-                    f"📊 Market data pre-fetched: {len(all_tickers)} 24h tickers, {len(all_books)} book tickers."
-                )
-            except Exception as e:
-                logger.error(f"❌ Failed to pre-fetch market data: {e}")
-                return [], {}
-        else:
-            logger.info("⏭️ Bypassing bulk market data fetch in FastTrack mode.")
+            logger.info(f"📊 Market data pre-fetched: {len(all_tickers)} 24h tickers, {len(all_books)} book tickers.")
+        except Exception as e:
+            logger.error(f"❌ Failed to pre-fetch market data: {e}")
+            return [], {}
 
         # Calculate actual bet amount based on sizing mode
         if sizing_mode == "FIXED_RISK":
@@ -147,11 +140,6 @@ class MultiAssetManager:
 
                 # C. Liquidity Checks (Hardened)
                 try:
-                    if fast_track:
-                        valid_symbols.append(target_symbol)
-                        precision_profile[target_symbol] = {"step_size": step_size, "tick_size": tick_size}
-                        logger.info(f"✅ Approved {target_symbol} (FastTrack Override)")
-                        continue
 
                     # Use pre-fetched ticker data with normalized symbol
                     ticker = all_tickers.get(symbol, {})
@@ -238,7 +226,7 @@ class MultiAssetManager:
                     # Verify that the symbol actually streams WebSocket data
                     # Some testnet symbols exist in exchangeInfo but don't transmit
                     stream_liveness_timeout = getattr(trading_config, "FLYTEST_STREAM_LIVENESS_TIMEOUT", 10.0)
-                    if not fast_track and stream_liveness_timeout > 0:
+                    if stream_liveness_timeout > 0:
                         is_live = await self._check_stream_liveness(target_symbol, stream_liveness_timeout)
                         if not is_live:
                             reason = "Stream Liveness Failed"

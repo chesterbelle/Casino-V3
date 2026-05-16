@@ -25,10 +25,11 @@ Regime filter:
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from core.context_registry import ContextRegistry
 from core.footprint_registry import footprint_registry
+from core.telemetry import TraceOutcome, black_box
 from sensors.absorption.confirmation_sensors import (
     CVDFlipSensor,
     DeltaReversalSensor,
@@ -42,10 +43,11 @@ logger = logging.getLogger(__name__)
 class PendingCandidate:
     """Tracks a candidate through its tick-level confirmation window."""
 
-    def __init__(self, candidate: dict, window_ms: int = 500, registration_ts: float = 0.0):
+    def __init__(self, candidate: dict, window_ms: int = 500, registration_ts: float = 0.0, trace=None):
         self.candidate = candidate
         self.window_ms = window_ms
         self.registration_ts = registration_ts  # Market time (event.timestamp)
+        self.trace = trace
         self.last_eval_ts = 0.0  # Market time of last evaluation
         self.confirmations = {
             "delta_reversal": False,
@@ -75,17 +77,29 @@ class PendingCandidate:
 
 class AbsorptionReversalGuardian(TraceBulletMixin):
     """
-    Phase 2 Guardian: Tick-level confirmation for absorption candidates.
+    Tactical Confirmation Gate (formerly AbsorptionReversalGuardian).
 
-    Evaluates 3 microstructure sensors every 50ms within a 500ms window.
-    If the aggressor has surrendered (delta flipped, price broke, CVD turned),
-    confirmation is fast — typically 100-300ms after detection.
+    PURPOSE:
+    Provides a multi-sensor confirmation layer for tactical signals.
+    While bypassed for high-speed Institutional Scalping (which requires instant 0ms entry),
+    this gate is designed for "Conviction-Based" setups (Rotations, Swings, or Trend Reversals)
+    where capturing the exact tick is less important than confirming a sustainable shift
+    in market control.
+
+    MECHANISM:
+    1. Holds a candidate signal in a 'Pending' state for a defined window (default 500-1500ms).
+    2. Monitors micro-flow confirmation sensors (Delta Reversal, Price Break, CVD Flip).
+    3. Requires a quorum of confirmations (default 2/3) to promote the candidate to a real Signal.
+
+    SCENARIO USAGE:
+    - SCALPING: Bypass this gate (Phase 1 detection is sufficient).
+    - ROTATION/SWING: Use this gate to filter out 'Noise Wicks' and ensure the institutional
+      counter-attack has enough momentum to sustain a >0.5% move.
     """
 
-    def __init__(self, fast_track: bool = False):
+    def __init__(self):
         super().__init__()
         self.name = "AbsorptionReversalGuardian"
-        self.fast_track = fast_track
 
         # Confirmation sensors
         self.delta_reversal = DeltaReversalSensor()
@@ -102,13 +116,7 @@ class AbsorptionReversalGuardian(TraceBulletMixin):
         self.min_confirmations_contra = 3  # Counter-trend: 3 of 3 (strict)
         self.contra_size_multiplier = 0.5  # Counter-trend: 50% size
 
-        logger.info(
-            f"✅ {self.name} initialized "
-            f"(window={self.confirmation_window_ms}ms, "
-            f"eval_every={self.eval_interval_ms}ms)"
-        )
-
-    def register_candidate(self, candidate: dict, timestamp: float = 0.0):
+    def register_candidate(self, candidate: dict, timestamp: float = 0.0, trace=None):
         """
         Register a new absorption candidate from Phase 1.
 
@@ -130,7 +138,9 @@ class AbsorptionReversalGuardian(TraceBulletMixin):
             candidate["exhaustion"] = {"delta_ratio": 1.0, "volume_ratio": 1.0, "ready": False}
 
         # Replace any existing pending candidate for this symbol
-        pending = PendingCandidate(candidate, window_ms=self.confirmation_window_ms, registration_ts=timestamp)
+        pending = PendingCandidate(
+            candidate, window_ms=self.confirmation_window_ms, registration_ts=timestamp, trace=trace
+        )
 
         # Phase A (AMT): Calculate exhaustion score (0-2)
         exh = candidate["exhaustion"]
@@ -144,17 +154,18 @@ class AbsorptionReversalGuardian(TraceBulletMixin):
 
         self.pending[symbol] = pending
 
-        # Trace Phase 2 Interception
-        self.trace(
-            candidate,
-            "PHASE2_INTERCEPT",
-            {
-                "window_ms": self.confirmation_window_ms,
-                "exhaustion_score": score,
-                "delta_ratio": exh.get("delta_ratio"),
-                "volume_ratio": exh.get("volume_ratio"),
-            },
-        )
+        # UDT: Trace Phase 2 Interception
+        if trace:
+            trace.add_step(
+                "AbsorptionReversalGuardian",
+                True,
+                "Phase 2 Window Started (500ms)",
+                {
+                    "exhaustion_score": score,
+                    "delta_ratio": exh.get("delta_ratio"),
+                    "volume_ratio": exh.get("volume_ratio"),
+                },
+            )
 
         logger.info(
             f"📋 [GUARDIAN] Candidate registered: {symbol} {candidate['direction']} "
@@ -205,7 +216,6 @@ class AbsorptionReversalGuardian(TraceBulletMixin):
                 # Fallback: net delta across all levels
                 current_delta = sum(data["delta"] for data in footprint.levels.values())
 
-        # Check all 3 confirmation sensors
         if not pending.confirmations["delta_reversal"]:
             if self.delta_reversal.check(symbol, candidate, current_delta):
                 pending.confirmations["delta_reversal"] = True
@@ -243,26 +253,42 @@ class AbsorptionReversalGuardian(TraceBulletMixin):
             # Phase A (AMT): Attach exhaustion data to signal
             entry_signal["exhaustion"] = pending.exhaustion
             entry_signal["exhaustion_score"] = pending.exhaustion_score
+
+            # UDT: Trace success
+            if pending.trace:
+                pending.trace.add_step(
+                    "AbsorptionReversalGuardian",
+                    True,
+                    "Phase 2 Confirmed",
+                    {"latency_ms": elapsed, "confirmations": count},
+                )
+                # We don't finalize yet because SetupEngine will continue processing targets
+                entry_signal["trace_id"] = pending.trace.trace_id
+
             # Remove from pending
             del self.pending[symbol]
-
-            self.trace(
-                entry_signal,
-                "PHASE2_CONFIRMED",
-                {"latency_ms": elapsed, "confirmations": count, "required": required},
-            )
             return entry_signal
 
         # Check if window expired
         if pending.expired(timestamp):
+            if pending.trace:
+                pending.trace.add_step(
+                    "AbsorptionReversalGuardian",
+                    False,
+                    "Confirmation Window Timeout",
+                    {
+                        "elapsed_ms": elapsed,
+                        "confirmations": count,
+                        "required": required,
+                        "sensor_state": pending.confirmations,
+                    },
+                )
+                pending.trace.finalize(TraceOutcome.DISCARDED, "Phase 2 Timeout")
+                black_box.archive_trace(pending.trace.trace_id)
+
             logger.info(
                 f"❌ [GUARDIAN] {symbol} confirmation window expired "
                 f"({elapsed:.0f}ms, {count}/{required} confirmations) — discarded"
-            )
-            self.trace(
-                candidate,
-                "PHASE2_REJECTED",
-                {"reason": "TIMEOUT", "elapsed_ms": elapsed, "confirmations": count, "required": required},
             )
             del self.pending[symbol]
 
@@ -271,11 +297,7 @@ class AbsorptionReversalGuardian(TraceBulletMixin):
     def _is_contra_trend(self, symbol: str, side: str) -> bool:
         """
         Check if the entry is counter-trend (against the dominant regime).
-
-        Uses ContextRegistry regime data if available.
         """
-        if self.fast_track:
-            return False
 
         try:
             ctx = ContextRegistry()

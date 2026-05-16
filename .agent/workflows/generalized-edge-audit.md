@@ -62,26 +62,27 @@ fi
 
 ## Step 2: Run Backtests (All 10 Coins)
 ```bash
-SYMBOLS=("ADA/USDT:USDT" "ETH/USDT:USDT" "SOL/USDT:USDT" "BNB/USDT:USDT" "XRP/USDT:USDT" "AVAX/USDT:USDT" "LINK/USDT:USDT" "DOGE/USDT:USDT" "LTC/USDT:USDT" "SUI/USDT:USDT")
-NAMES=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_ADAUSDT.db --symbol ADAUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_AVAXUSDT.db --symbol AVAXUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_BNBUSDT.db --symbol BNBUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_DOGEUSDT.db --symbol DOGEUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_ETHUSDT.db --symbol ETHUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_LINKUSDT.db --symbol LINKUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_LTCUSDT.db --symbol LTCUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_SOLUSDT.db --symbol SOLUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_SUIUSDT.db --symbol SUIUSDT --audit
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_XRPUSDT.db --symbol XRPUSDT --audit
 
-for i in "${!SYMBOLS[@]}"; do
-  SYM="${SYMBOLS[$i]}"
-  echo "▶ $SYM..."
-
-  .venv/bin/python utils/data/l2_price_ingestor.py \
-    --symbol "${SYM%%/*}USDT" \
-    --download \
-    --start 2024-01-01 \
-    --end 2024-01-31 \
-    --db-path data/historian.db
-
-  .venv/bin/python backtest.py \
-    --depth-db-path data/historian.db \
-    --symbol "$SYM" \
-    --audit \
-    > /dev/null 2>&1 && echo "✅ $SYM" || echo "❌ $SYM"
-done
 echo "🏁 ALL 10 BACKTESTS COMPLETE"
 
 find data/ -type f -name "*.csv*" -delete

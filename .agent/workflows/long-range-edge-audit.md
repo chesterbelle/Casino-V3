@@ -74,33 +74,33 @@ done
 ### 2A: LTC RANGE (Feb, May, Aug Day 1s)
 ```bash
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-02-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-02-01.db --symbol LTCUSDT --audit
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-05-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-05-01.db --symbol LTCUSDT --audit
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-08-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-08-01.db --symbol LTCUSDT --audit
 echo "✅ LTC RANGE COMPLETED"
 ```
 
 ### 2B: LTC BEAR (Apr, Oct, Feb Day 1s)
 ```bash
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-04-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-04-01.db --symbol LTCUSDT --audit
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-10-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-10-01.db --symbol LTCUSDT --audit
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2025-02-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2025-02-01.db --symbol LTCUSDT --audit
 echo "✅ LTC BEAR COMPLETED"
 ```
 
 ### 2C: LTC BULL (Mar, Dec, May Day 1s)
 ```bash
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-03-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-03-01.db --symbol LTCUSDT --audit
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-12-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-12-01.db --symbol LTCUSDT --audit
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2025-05-01.db --symbol LTC/USDT:USDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2025-05-01.db --symbol LTCUSDT --audit
 echo "✅ LTC BULL COMPLETED"
 ```
 
@@ -140,12 +140,13 @@ Note: `per_condition_audit.py` uses timestamp ranges derived from the 9 datasets
 
 After Step 5, the agent **MUST STOP COMPLETELY** and present:
 
-1. **Section [5]: Overall Edge Summary** from the auditor (Gross Expectancy, Net Taker/Maker)
-2. **Per-condition table** (Step 5): All 3 conditions (Range, Bear, Bull) with Expectancy% and Verdicts
-3. **Guardian effectiveness**: Compare signal counts across conditions
+1. **Section [7]: Overall Edge Summary** from the auditor (Gross Expectancy, Net Taker/Maker)
+2. **Section [4]: Decision Trace Audit** (Forensic reasons for rejections)
+3. **Per-condition table** (Step 5): All 3 conditions (Range, Bear, Bull) with Expectancy% and Verdicts
+4. **Guardian effectiveness**: Compare signal counts across conditions
    - Range should have the MOST signals (balance = our edge zone)
    - Bear/Bull should have FEWER signals (guardians blocking counter-trend)
-4. **STOP and wait** for user input
+5. **STOP and wait** for user input
 
 ### Certification Matrix
 

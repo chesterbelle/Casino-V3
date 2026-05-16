@@ -54,9 +54,8 @@ def calculate_lvn_target(symbol: str, entry_price: float, side: str) -> Optional
 
 def check_level_proximity(symbol: str, price: float, context_registry, fast_track: bool = False) -> Optional[dict]:
     """
-    Phase 700: Check if price is within proximity of a structural level.
-    Returns the nearest level reference dict or None if price is in open space.
-    Levels checked: POC, VAH, VAL, IBH, IBL.
+    Checks if price is close to a structural level (POC/VAH/VAL/IBH/IBL).
+    Standard proximity threshold: 0.35%.
     """
     if not context_registry or price <= 0:
         return None

@@ -5,8 +5,11 @@ from .guardian_result import GuardianResult
 logger = logging.getLogger("SpreadSanityGuardian")
 
 
-def check_spread_sanity(symbol: str, context_registry, fast_track: bool) -> GuardianResult:
-    if fast_track or not context_registry:
+def check_spread_sanity(symbol: str, context_registry) -> GuardianResult:
+    """
+    Checks if the current spread is within acceptable limits for scalping.
+    """
+    if not context_registry:
         return GuardianResult(passed=True, multiplier=1.0, gate_name="SPREAD_SANITY")
 
     spread_data = getattr(context_registry, "spread_state", {}).get(symbol)
@@ -16,7 +19,7 @@ def check_spread_sanity(symbol: str, context_registry, fast_track: bool) -> Guar
     current = spread_data.get("current", 0.0)
     avg_5m = spread_data.get("avg_5m", 0.0)
     metrics = {"current_spread": round(current, 6), "avg_5m": round(avg_5m, 6)}
-    
+
     passed = True
     score = 1.0
 
@@ -32,7 +35,7 @@ def check_spread_sanity(symbol: str, context_registry, fast_track: bool) -> Guar
             score = 1.0
 
     reason = "Wide spread spike" if not passed else "Spread analyzed"
-    
+
     return GuardianResult(
         passed=passed,
         score=round(score, 3),

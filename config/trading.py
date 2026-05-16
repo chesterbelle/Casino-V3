@@ -253,10 +253,6 @@ LIMIT_SNIPER_CONFIRM_WINDOW_SEC = 0.50
 LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
 
 # =====================================================
-# 🎯 UNIFIED EXIT ENGINE (Phase 1200 - 5-Layer Stack)
-# =====================================================
-
-# =====================================================
 # 🎯 SLIM EXIT ENGINE (V10.2 - Asset-Specific 4-Pillars)
 # =====================================================
 
@@ -304,60 +300,8 @@ ASSET_EXIT_PROFILES = {
 PATIENCE_LOCK_GRACE_PERIOD = 15.0
 # Seconds to wait for SL/TP modification before considering it a failure
 GRACEFUL_SL_TIMEOUT = 10.0
+GRACEFUL_TP_TIMEOUT = 10.0
 
-# -----------------------------------------------------
-# LAYER 5: CATASTROPHIC STOP
-# -----------------------------------------------------
-CATASTROPHIC_STOP_PCT = 0.50  # 50% drawdown = true emergency only
-
-# -----------------------------------------------------
-# LAYER 4: THESIS INVALIDATION
-# -----------------------------------------------------
-# Flow thresholds
-HFT_TOXIC_FLOW_THRESHOLD = 4.5  # Emergency tier: Z > 4.5 (tightened for reversion coherence)
-HFT_WALL_COLLAPSE_THRESHOLD = 0.10  # Skewness < 0.10 means our wall vanished (reduced false positives)
-
-# Stagnation
-STAGNATION_BASE_TIMEOUT = 900.0  # 15min base (Edge-aligned: matches audit window)
-STAGNATION_PROFIT_EXEMPT = True  # Never stagnate profitable trades
-
-# -----------------------------------------------------
-# LAYER 3: STRUCTURAL CONVICTION ENGINE (SCE)
-# -----------------------------------------------------
-SCE_MEX_THRESHOLD = 0.50  # Micro-Exhaustion: Delta momentum decay < 50% (balanced)
-SCE_CFI_ENABLED = True  # Counter-Flow Invalidation (Absorption at target)
-SCE_STS_ENABLED = True  # Structural Trailing Stop (behind volume nodes)
-SCE_MIN_PROFIT_PCT = 0.0005  # Activation floor (0.05%): lowered to capture more trades before reversal
-SCE_SCALE_FRACTION = 0.50  # Amount to scale out on MEX/CFI trigger
-
-# -----------------------------------------------------
-# LAYER 2: SHADOW PROTECTION (Dynamic TP & Trailing)
-# -----------------------------------------------------
-# Dynamic SL that follows price when it moves in favor.
-TRAILING_STOP_ENABLED = True
-# En Footprint scalping, una vez alcanzado el 0.20%, iniciamos el trailing a una distancia de 0.15%
-TRAILING_STOP_ACTIVATION_PCT = 0.0020
-TRAILING_STOP_DISTANCE_PCT = 0.0015
-
-# ATR-Based Exits: Multipliers for dynamic distances (Distance = Multiplier * ATR)
-EXIT_ATR_MULT_TS = 3.5  # Allow breathing room in Defensive Phase
-EXIT_ATR_MULT_BE = 3.0
-
-# "Winner Catcher" Expansion
-# Transitions from Defensive (Phase 0) to Expansion (Phase 1)
-TRAILING_STOP_EXPANSION_THRESHOLD_PCT = 0.0025  # 0.25% for micro-scalping Winner Catcher (more selective)
-TRAILING_STOP_EXPANSION_MULT = 7.5  # Widened for structural trend capture
-EXPANSION_TP_RR = 6.0  # Ambitious 6:1 target for the expansion phase
-
-# Breakeven: Move SL to entry price once a target is reached.
-BREAKEVEN_ENABLED = False
-BREAKEVEN_ACTIVATION_PCT = 0.0025
-
-# Signal Reversal: Close position if strong opposite signal is detected
+# Legacy compatibility (kept for any external references, but ignored by SlimExitEngine)
+HFT_EXIT_MODE = True
 SIGNAL_REVERSAL_ENABLED = False
-SIGNAL_REVERSAL_THRESHOLD = 0.8
-
-# Legacy compatibility (kept for any external references, but ignored by ExitEngine)
-HFT_EXIT_MODE = True  # No longer switches managers — ExitEngine is always active
-AXIA_INVALIDATION_ENABLED = True  # Merged into EXIT_LAYER_THESIS_INVALIDATION
-HFT_AIRBAG_ENABLED = True  # Merged into EXIT_LAYER_THESIS_INVALIDATION

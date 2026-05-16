@@ -36,10 +36,6 @@ class DecisionEvent(Event):
     setup_type: str = "unknown"
     atr_1m: float = 0.0
     # Phase 880: Structural metadata for Auction Invalidation
-    trigger_level: Optional[float] = None
-    trigger_type: Optional[str] = "unknown"
-    initial_narrative: Optional[Dict[str, Any]] = None
-    fast_track: bool = False
 
     def __post_init__(self):
         # Ensure type is always DECISION even if passed otherwise
@@ -64,7 +60,6 @@ class AdaptivePlayer:
         use_kelly: bool = True,
         kelly_max: float = 0.10,
         context_registry=None,
-        fast_track: bool = False,
     ):
         """
         Args:
@@ -82,7 +77,6 @@ class AdaptivePlayer:
         self.use_kelly = use_kelly
         self.kelly_max = kelly_max
         self.context_registry = context_registry
-        self.fast_track = fast_track
 
         # Phase 1000: Synchronous Inflight Lock (Race Condition Fix)
         # Prevents create_task from allowing duplicate entries on the same symbol.
@@ -163,10 +157,6 @@ class AdaptivePlayer:
             bet_size *= 1.25  # Aggressive in trend
         elif regime == "RANGE_WINDOW":
             bet_size *= 0.75  # Defensive in range (mean reversion is noisier)
-
-        # Phase 1600: Delta-Velocity Sizing Lead
-        dv_multiplier = event.metadata.get("dv_multiplier", 1.0)
-        bet_size *= dv_multiplier
 
         # Phase 1300: Placeholder bet_size for later RR-scaling
         base_bet_size = bet_size
@@ -283,15 +273,6 @@ class AdaptivePlayer:
             )
         )
 
-        # Phase 800/870: Adaptive Shadow SL (Shark Breath)
-        # Structural setups need more room to breathe, but high z-scores need tighter exits.
-        base_activation = 0.0075 if setup_type in ["reversion", "fade_extreme"] else 0.0045
-        z_score = abs(event.metadata.get("footprint_z_score") or event.metadata.get("z_score") or 3.0)
-        # Multiplier: as Z increases, activation DECREASES (tighter).
-        # Scale: Z=3.0 -> mult=0.7, Z=5.0 -> mult=0.5, Z=1.0 -> mult=0.9
-        activation_multiplier = max(0.5, min(1.2, 1.0 - (z_score / 10.0)))
-        shadow_sl_activation = base_activation * activation_multiplier
-
         # Emit Decision with unique ID for tracking
         decision_id = f"DEC_{int(time.time()*1000000)}"  # Microsecond precision
 
@@ -319,10 +300,8 @@ class AdaptivePlayer:
                 "val": event.metadata.get("val"),
                 "z_score": event.metadata.get("footprint_z_score") or event.metadata.get("z_score"),
             },
-            fast_track=self.fast_track,
         )
         decision.decision_id = decision_id  # Add unique ID
-        decision.shadow_sl_activation = shadow_sl_activation  # Phase 800
 
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")
 
