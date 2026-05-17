@@ -109,6 +109,22 @@ def check_regime_alignment(symbol: str, side: str, reversal_signal: dict, contex
     # DECISION MATRIX: Value Position × Value Acceptance
     # =========================================================================
 
+    # Phase 10.3 Restructuring: Toxic Flow Hard-Block
+    # Pure reversion setups like TacticalAbsorptionV2 and Failed Breakout fail catastrophically
+    # when attempting to catch falling knives or top-tick breakouts during price discovery.
+    # If price is OUT_OF_VALUE or EXCESS, and the setup is pure reversion, BLOCK IT.
+    tactical_type = reversal_signal.get("tactical_type", reversal_signal.get("setup_type", ""))
+    is_pure_reversion = tactical_type in ("TacticalAbsorptionV2", "failed_breakout")
+
+    if is_pure_reversion and value_position in ("OUT_OF_VALUE", "EXCESS"):
+        return GuardianResult(
+            passed=False,
+            score=0.0,
+            reason=f"BLOCKED (TOXIC FLOW) | {tactical_type} is structurally banned in {value_position}",
+            metrics=metrics,
+            gate_name="REGIME_ALIGNMENT_V3",
+        )
+
     # --- BALANCE: Reversion is the natural trade, but edge depends on value_position
     if regime_v2 == "BALANCE":
         # BALANCE + OUT_OF_VALUE: Price outside Value Area → strong reversion edge

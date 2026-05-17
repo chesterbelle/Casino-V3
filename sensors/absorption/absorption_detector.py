@@ -33,7 +33,8 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
         self.z_score_min = ABSORPTION_MIN_Z_SCORE  # 3.0 (was 1.5 hardcoded)
         self.concentration_min = ABSORPTION_MIN_CONCENTRATION  # 0.70 (was 0.15)
         self.noise_max = ABSORPTION_MAX_NOISE  # 0.20 (was 0.85)
-        self.stagnation_max_pct = 0.15
+        # Stagnation max is now dynamic (ATR-based), this is just the absolute floor
+        self.stagnation_floor_pct = 0.10
 
         # State tracking
         self._last_candle_ts: Dict[str, float] = {}
@@ -68,7 +69,8 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
             return None
 
         # 4. Find candidates and filter
-        candidates = self._find_extreme_deltas(footprint)
+        candle_vol = candle_1m.get("volume", 0)
+        candidates = self._find_extreme_deltas(footprint, candle_vol)
 
         for level, delta, ask_vol, bid_vol in candidates:
             # Filter 1: Magnitude
@@ -156,13 +158,16 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
             float(tick_data["timestamp"]),
         )
 
-    def _find_extreme_deltas(self, footprint) -> List[Tuple[float, float, float, float]]:
+    def _find_extreme_deltas(self, footprint, candle_vol: float = 0.0) -> List[Tuple[float, float, float, float]]:
         deltas = []
+        # Require delta to be at least a fraction of the 1m candle volume to avoid thin-book anomalies
+        min_abs_delta = candle_vol * 0.02 if candle_vol > 0 else 0.0
+
         for level, data in footprint.levels.items():
             delta = data["delta"]
-            if abs(delta) > 0:
+            if abs(delta) > min_abs_delta and abs(delta) > 0:
                 deltas.append((level, delta, data["ask_volume"], data["bid_volume"]))
-        if len(deltas) < 10:
+        if len(deltas) < 3:  # Lowered from 10 to 3 to not break on altcoins, but filtered by min_abs_delta
             return []
         deltas.sort(key=lambda x: abs(x[1]), reverse=True)
         top_n = max(1, min(5, len(deltas) // 10))
@@ -206,6 +211,11 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
         close_p = candle.get("close", 0)
         high_p = candle.get("high", 0)
         low_p = candle.get("low", 0)
+        atr_pct = candle.get("atr", 0.20)
+
+        # Dynamic Stagnation Limit: Volatility-normalized allowing 25% of ATR movement, absolute minimum floor
+        dynamic_stagnation_max = max(atr_pct * 0.25, self.stagnation_floor_pct)
+
         ref_price = open_p if open_p > 0 else close_p
         if ref_price <= 0:
             return True
@@ -213,7 +223,7 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
             displacement_pct = (ref_price - low_p) / ref_price * 100
         else:
             displacement_pct = (high_p - ref_price) / ref_price * 100
-        return displacement_pct < self.stagnation_max_pct
+        return displacement_pct < dynamic_stagnation_max
 
     def _noise_ratio(self, ask_vol: float, bid_vol: float, delta: float) -> float:
         """
