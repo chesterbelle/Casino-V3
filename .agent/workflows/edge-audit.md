@@ -61,6 +61,13 @@ Run the Edge Auditor tool.
 ```
 Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**.
 
+## Step 4: L2 Microstructure Audit (Liquidity Wall)
+Run the L2 Depth Auditor to verify passive liquidity support.
+```bash
+.venv/bin/python utils/l2_depth_auditor.py
+```
+Review the **[L2 DEPTH RATIO AUDIT RESULTS]** to ensure "High Wall" setups have a Ratio > 1.2.
+
 ---
 
 ## ⛔ MANDATORY STOP — Present Results and Certification Status
@@ -71,9 +78,10 @@ After running Step 3, the agent MUST:
 2. **Present Section [7]: Overall Edge Summary** - Aggregate metrics and viability assessment
 3. **Present the Theoretical Win-Rate Matrix** (Section [2/5]) with Net (Taker) and Net (Maker)
 4. **Present the Decision Trace Audit** (Section [4])
-5. **Assign a Certification Status** for each setup based on the criteria below
-6. **List highly specific observations** (e.g., "Setup X has Expectancy 0.15% but needs Limit Sniper", "MAE too high, tighten entry filters")
-7. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
+5. **Present the L2 Microstructure Certification** (Step 4) - Does the High Wall (>2.0) category correlate with higher expectancy?
+6. **Assign a Certification Status** for each setup based on the criteria below
+7. **List highly specific observations** (e.g., "Setup X has Expectancy 0.15% but needs Limit Sniper", "MAE too high, tighten entry filters")
+8. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
 
 ### Certification Matrix (Decision Logic) — UPDATED Phase 800B
 

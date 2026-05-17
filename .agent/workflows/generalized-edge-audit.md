@@ -161,6 +161,12 @@ for sym in sorted(coin_data.keys()):
 "
 ```
 
+## Step 6: L2 Microstructure Audit (Liquidity Wall)
+Verify if the edge is supported by L2 limits across the multiple instruments.
+```bash
+.venv/bin/python utils/l2_depth_auditor.py
+```
+
 ---
 
 ## ⛔ MANDATORY STOP — Present Results
@@ -170,7 +176,8 @@ After Step 5, the agent **MUST STOP** and present:
 1. **Aggregate table** (all 10 coins combined): n, WR%, Gross Expectancy%, Net (Taker), Net (Maker)
 2. **Per-coin breakdown table** with individual Verdicts based on Expectancy
 3. **Generalizability Score**: How many coins CERTIFIED / WATCH / FAILED
-4. **Specific observations** per coin (e.g., "ETH has high MAE, needs tighter filters")
+4. **L2 Correlation Result**: Does the L2 Auditor confirm that "High Wall" setups exhibit MFE/MAE > 1.2 across all assets?
+5. **Specific observations** per coin (e.g., "ETH has high MAE, needs tighter filters")
 
 ### Certification Matrix — UPDATED Phase 800B
 

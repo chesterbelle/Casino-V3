@@ -136,6 +136,14 @@ Note: `per_condition_audit.py` uses timestamp ranges derived from the 9 datasets
 
 ---
 
+## Step 6: L2 Microstructure Audit (Liquidity Wall)
+Run the L2 Depth Auditor to verify passive liquidity support across all 3 market conditions.
+```bash
+.venv/bin/python utils/l2_depth_auditor.py
+```
+
+---
+
 ## ⛔ MANDATORY STOP — Present Results and Certification Status
 
 After Step 5, the agent **MUST STOP COMPLETELY** and present:
@@ -146,7 +154,8 @@ After Step 5, the agent **MUST STOP COMPLETELY** and present:
 4. **Guardian effectiveness**: Compare signal counts across conditions
    - Range should have the MOST signals (balance = our edge zone)
    - Bear/Bull should have FEWER signals (guardians blocking counter-trend)
-5. **STOP and wait** for user input
+5. **L2 Correlation Result**: Present the L2 Depth Ratio Audit results (Step 6).
+6. **STOP and wait** for user input
 
 ### Certification Matrix
 
