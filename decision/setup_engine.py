@@ -311,8 +311,8 @@ class SetupEngineV4(TraceBulletMixin):
            - Reversals (Absorption/FB): 2.5x ATR (Standard mean-reversion).
            - Trend Acceptance: 4.5x ATR (Scaled room for trend discovery).
         2. Distance: calculated_dist = ATR * Multiplier.
-        3. Floor: Enforce a minimum distance (0.45%) to stay above the LTC noise floor.
-        4. Symmetry: TP_pct = SL_pct = max(calculated_dist, Floor).
+        3. Floor: Enforce a minimum distance to stay above the LTC noise floor.
+        4. Asymmetry (Round 2 Tuning): TP captures MFE expansion (1.0x mult), SL cuts MAE (0.8x mult).
 
         Returns:
             Tuple: (tp_price, sl_price, setup_name, level_ref)
@@ -339,21 +339,22 @@ class SetupEngineV4(TraceBulletMixin):
         # --- 3. CALCULATE DISTANCE & ENFORCE NOISE FLOOR ---
         # Noise Floor established via MAE Percentile-90 Analysis (LTC Audit May 2024).
         # Setting targets below this floor results in stochastic stop-outs.
-        NOISE_FLOOR_PCT = 0.45
+        NOISE_FLOOR_TP_PCT = 0.45
+        NOISE_FLOOR_SL_PCT = 0.35
 
-        calculated_dist = atr_pct * mult
-        final_dist_pct = max(calculated_dist, NOISE_FLOOR_PCT)
+        tp_dist_pct = max(atr_pct * mult, NOISE_FLOOR_TP_PCT)
+        sl_dist_pct = max(atr_pct * (mult * 0.8), NOISE_FLOOR_SL_PCT)
 
-        # --- 4. APPLY SYMMETRY (1:1 Risk/Reward) ---
-        # This is the bedrock of high-frequency absorption strategies.
-        dist_decimal = final_dist_pct / 100.0
+        # --- 4. APPLY ASYMMETRY (Round 2 Optimization) ---
+        tp_dist_decimal = tp_dist_pct / 100.0
+        sl_dist_decimal = sl_dist_pct / 100.0
 
         if side == "LONG":
-            tp_price = price * (1 + dist_decimal)
-            sl_price = price * (1 - dist_decimal)
+            tp_price = price * (1 + tp_dist_decimal)
+            sl_price = price * (1 - sl_dist_decimal)
         else:
-            tp_price = price * (1 - dist_decimal)
-            sl_price = price * (1 + dist_decimal)
+            tp_price = price * (1 - tp_dist_decimal)
+            sl_price = price * (1 + sl_dist_decimal)
 
         # --- 5. IDENTITY & TRACEABILITY ---
         setup_name = f"AMT_{scenario.upper()}_{val_pos}"
