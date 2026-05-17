@@ -4,6 +4,7 @@ from .guardian_result import GuardianResult, SetupMode
 from .liquidity_guardian import check_liquidity_heatmap
 from .regime_guardian import check_regime_alignment
 from .spread_sanity_guardian import check_spread_sanity
+from .structure_guardian import check_structure_alignment
 
 
 class GuardianManager:
@@ -24,11 +25,20 @@ class GuardianManager:
         results = []
 
         # 1. Execute all guardians
-        results.append(check_regime_alignment(symbol, side, reversal_signal, context_registry))
+        # Regime alignment determines the base setup mode
+        regime_result = check_regime_alignment(symbol, side, reversal_signal, context_registry)
+        results.append(regime_result)
+
+        target_price = reversal_signal.get("close") or reversal_signal.get("price", 0.0)
+
+        # Structure Guardian enforces the micro-geography rules based on the chosen setup mode
+        results.append(
+            check_structure_alignment(symbol, target_price, side, regime_result.setup_mode, context_registry)
+        )
+
         results.append(check_spread_sanity(symbol, context_registry))
 
         # Phase 3: Liquidity Guardian
-        target_price = reversal_signal.get("close") or reversal_signal.get("price", 0.0)
         results.append(check_liquidity_heatmap(symbol, side, target_price, context_registry))
 
         # 2. Evaluation and UDT Logging
