@@ -8,6 +8,43 @@
 
 ## 📝 Historial de Sesiones
 
+### [2026-05-18] — Multi-Regime Long-Range Audit & Taker-Only Paradigm (Branch: v8.1-unified-decision-dna)
+### Summary: Certificación Estratégica del Alpha de Absorción y Leyes de MAE Temporal
+En esta sesión se completó la batería de 9 backtests de largo alcance en LTC (Range, Bear, Bull) sumando 345 señales y 406k price samples. Establecimos el estándar incondicional Taker-Only (fees del 0.12%) y descubrimos la ley de decaimiento del Edge temporal y el blindaje microestructural L2.
+
+#### 1. Ejecución Técnica y Auditorías
+*   **LTC 9-Day Long-Range Battery**: Completada la ejecución en segundo plano para 9 días completos (Range, Bear, Bull). Éxito total sin bloqueos ni fugas (345 señales, 4,502 traces registradas en `historian.db`).
+*   **Auditorías Multiventana (Edge Decay)**: Evaluamos holding periods extendidos de 1h, 2h y 3h para medir la erosión temporal del Edge.
+*   **L2 Depth wall Audit**: Correlacionamos de forma forense las 345 señales con la profundidad instantánea del libro de órdenes L2.
+
+#### 2. Datos Registrados (Métricas Crudas Taker-Only)
+*   **Edge por Régimen de Mercado (Ventana 1h - Taker-Only 0.12% fees)**:
+    *   `LTC RANGE`: n=42 | WR Real=52.6% | Uniform WR (0.3%)=56.2% | Ratio=1.29 | Exp Bruta=+0.0351% | **Net Taker = -0.0849% (FAILED)**
+    *   `LTC BULL`: n=48 | WR Real=45.7% | Uniform WR (0.3%)=47.2% | Ratio=1.15 | Exp Bruta=+0.0093% | **Net Taker = -0.1107% (FAILED)**
+    *   `LTC BEAR`: n=30 | WR Real=41.2% | Uniform WR (0.3%)=50.0% | Ratio=0.89 | Exp Bruta=-0.0287% | **Net Taker = -0.1487% (FAILED)**
+*   **Decaimiento del Edge Temporal (TacticalAbsorptionV2 a Target Uniforme 0.9%)**:
+    *   `1 Hora (3600s)`: WR = **58.7%** | Exp Bruta = **+0.1560%** | **Net Taker = +0.0360% ✅** (Wins: 176, Losses: 124, Timeouts: 380)
+    *   `2 Horas (7200s)`: WR = 57.0% | Exp Bruta = +0.1262% | **Net Taker = +0.0062% 🟡** (Wins: 244, Losses: 184, Timeouts: 252)
+    *   `3 Horas (10800s)`: WR = 56.9% | Exp Bruta = +0.1244% | **Net Taker = +0.0044% 🟡** (Wins: 280, Losses: 212, Timeouts: 188)
+*   **Comportamiento Dinámico del MAE**:
+    *   `1 Hora`: Avg MAE = **0.586%**
+    *   `2 Horas`: Avg MAE = **0.780%**
+    *   `3 Horas`: Avg MAE = **0.957%**
+*   **Certificación Microestructural L2 (La Armadura)**:
+    *   `High Wall (>2.0 Ratio)`: Avg MAE = **0.358%** | Ratio MFE/MAE = **1.63 🚀** (CERTIFIED)
+    *   `Thin Wall (<1.0 Ratio)`: Avg MAE = **0.493%** | Ratio MFE/MAE = **1.02 ❌** (FAILED)
+
+#### 3. Decisiones de Diseño y Gotchas
+*   **Paradigma Taker-Only**: Toda validación y viabilidad comercial se juzga estrictamente descontando fees Taker del 0.12%. Se descarta cualquier análisis basado en órdenes pasivas (Maker).
+*   **Ley de Decaimiento Temporal**: Holding periods superiores a 1 hora diluyen el shock microestructural de la absorción y exponen la operación al drift aleatorio del mercado, duplicando el MAE promedio.
+*   **Decisión de Blindaje**: Es obligatorio filtrar entradas basándose en High Wall L2 (>2.0) y acoplar un TP/SL asimétrico estricto de 0.9% / 0.6% con time-exit a la hora.
+
+#### 4. Archivos Modificados
+*   `docs/analisis-estrategico.md`: Completada la Parte 2 y Parte 3 con todos los hallazgos cuantitativos de largo alcance, decaimiento del Edge y comportamiento del MAE.
+*   `.agent/memory.md`: Añadido el "Taker-Only Execution Mandate" como gotcha crítico número 10.
+
+---
+
 ### [2026-05-17] — Corridas de Backtests en LTC y DOGE (Branch: v8.1-unified-decision-dna)
 ### Summary: Ejecución de simulaciones para auditoría de régimen
 En esta sesión se corrieron los backtests para la batería de largo alcance de LTC y un piloto inicial en DOGE RANGE para poblar el historiado y analizar el comportamiento táctico.

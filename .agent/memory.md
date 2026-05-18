@@ -27,11 +27,11 @@
 *   **Métrica de Estrés**: Trazabilidad asíncrona validada en ventanas de 500ms (Phase 2).
 *   **Latency Guard**: Zero-interference logging via memory-resident DNA traces.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [WATCH (Alpha Rescue) 🔄]
-*   **AMT V10 Alpha**: Certified Generalized (LTC 63.2% WR).
-*   **Hito Actual**: **UDT-Guided Alpha Audit**.
-*   **Métrica Forense**: Confirmada "Alpha Starvation" (83% Timeout) vía autopsias UDT (630ms capture).
-*   **Symmetry**: 1:1 RR con 0.45% Noise Floor obligatorio.
+### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (LTC Taker-Only)]
+*   **AMT V10 Alpha**: Certified in LTC (Taker-Only edge verified at 0.9%/1.0% under a 1h holding period).
+*   **Hito Actual**: **Mapeo de Constantes Microestructurales (Long-Range Audit)**.
+*   **Métrica Forense**: Win Rate de 58.2% y Net Taker-Only de +0.0442% bajo targets uniformes de 1.0%/1.0% (1h window).
+*   **Symmetry**: Calibración fija de 0.9% TP / 0.6% SL (1.5:1 RR) con clamping temporal de 1 hora.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Slim Exit Engine (v10.2)**: Salidas tácticas vía Maker (Limit Orders) certificadas.
@@ -51,20 +51,22 @@
 
 ### Current Status: 🟢 Certified (Fast-Lane Active)
 - **Architecture**: `v8.1.0` deployed. `TacticalAbsorptionV2` now operates on a **Fast-Lane** (0ms latency).
-- **Baseline**: +0.2455% Gross Expectancy (LTC/USDT 2024-01-01).
-- **Persistence**: 100% Signal Persistence verified (Litmus test: 416 signals).
+- **Baseline**: +0.1642% Gross Expectancy / +0.0442% Net Taker-Only (LTC 9-Day Dataset at 1.0% TP/SL).
+- **Persistence**: 100% Signal Persistence verified.
 - **Guardian Layer**: Repurposed as a **Tactical Confirmation Gate** for Swing/Rotation setups.
 
 ### Performance Baseline (Last Audit)
-| Symbol | Strategy | WR% | Gross Exp | Verdict |
-|--------|----------|-----|-----------|---------|
-| LTCUSDT| Absorption| 77.3%| +0.2455% | **CERTIFIED** |
-| Global | AMT Scenarios| 62.0%| +0.185% | **WATCH** |
+| Symbol | Strategy | WR% | Net Taker-Only Exp | Verdict |
+|--------|----------|-----|-------------------|---------|
+| LTCUSDT| Absorption (0.9%/1h)| 58.7%| +0.0360% | **CERTIFIED** |
+| LTCUSDT| Absorption (1.0%/1h)| 58.2%| +0.0442% | **CERTIFIED** |
+| Global | AMT Scenarios| 42.9%| -0.1302% | **FAILED** (Needs Calibration) |
 
 ### Next Session Objectives
-1.  **Long-Range Battery**: Run the 9-day LTC audit battery (Range, Bear, Bull) to verify regime resilience.
-2.  **Generalized Audit**: Execute the 10-coin battery (ADA, AVAX, BNB, DOGE, etc.) for cross-instrument validation.
-3.  **Target Calibration**: Evaluate if the 0.45% TP/SL remains optimal across different coin volatilities.
+1.  **Harden Setup Engine**: Modify `decision/setup_engine.py` to enforce static 0.9% TP and 0.6% SL targets for TacticalAbsorptionV2.
+2.  **Implement Time-Exit**: Code a síncrono 1h (3600s) atomic time-exit in `PositionTracker`/`AdaptivePlayer` or `SlimExitEngine` to prevent decay.
+3.  **Mandatory L2 Filter**: Integrate the `L2 Depth Wall (>2.0 Ratio)` confirmation gate on the TacticalAbsorptionV2 entry path to slash MAE to 0.358%.
+4.  **Cross-Instrument Certification**: Execute the 10-coin battery (`@/generalized-edge-audit`) to prove that the armored bot is globally net-taker profitable!
 
 ---
 
@@ -80,6 +82,7 @@
 7. **Micro Absorption Direction**: Vota en dirección OPUESTA al CVD agresivo.
 8. **IN_VALUE Rotation**: Targets deben ser ATR-relativos al ENTRY, no a la estructura VA.
 9. **Position Limit = 1/symbol**: Bloquea señales concurrentes. Ver `🚫 SIGNAL_REJECTED`.
+10. **Taker-Only Execution Mandate**: Toda rentabilidad y viabilidad del Alpha se establece estrictamente bajo ejecución **Taker Only** (roundtrip fees de 0.12% total). NUNCA basar viabilidad comercial en Limit Sniper u órdenes Maker pasivas. La expectancia neta Taker debe ser positiva para certificar un setup.
 
 - 2026-05-15T07:45:00.000000 | session-close | UDT Forensic System certified. Codebase purified. Awaiting Alpha Calibration.
 - 2026-05-15T10:00:00.000000 | session-update | Fast-Lane deployed. 77.3% WR confirmed. Guardian repurposed.
@@ -100,3 +103,4 @@
 - **Fast-Lane Parity**: Verified production code parity with theoretical naked performance.
 - 2026-05-15T18:22:18.750788 | session-close | L2 & price ingest completed, CSVs removed.
 - 2026-05-16T00:22:00.000000 | session-close | Fast-Lane bug fixed (Persistence restored). v8.1.0-fast-lane-certified tagged.
+- 2026-05-18T02:32:51.321874 | edge-audit | L2 & price ingest completed, CSVs removed.

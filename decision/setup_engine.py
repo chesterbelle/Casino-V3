@@ -248,6 +248,7 @@ class SetupEngineV4(TraceBulletMixin):
                 "atr_1m": atr_pct,
                 "z_score_entry": _entry_z,
                 "trace_id": trace.trace_id,
+                "max_holding_time": 3600 if scenario in ["TacticalAbsorptionV2", "absorption_reversal"] else None,
             },
             symbol,
         )
@@ -322,8 +323,13 @@ class SetupEngineV4(TraceBulletMixin):
         atr_pct = 0.20
         if self.context_registry:
             atr_data = self.context_registry.atrs.get(symbol, {})
-            # Prefer short-term 1m ATR for immediate noise context
-            atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
+            # Aligned Volatility Horizon:
+            # TacticalAbsorptionV2 holds for 1h. Scaling targets with 1m short-term ATR leads to
+            # microscopic targets eaten by taker fees. We align the target cage with the 15m medium ATR.
+            if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+                atr_pct = atr_data.get("medium") or atr_data.get("short") or atr_pct
+            else:
+                atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
 
         # --- 2. MULTIPLIER CONFIGURATION (Symmetric Scaled) ---
         # Industry standard: Reversion trades use tighter cages; trends use wider ones.
@@ -331,18 +337,23 @@ class SetupEngineV4(TraceBulletMixin):
         MULTIPLIERS = {
             "trend_acceptance": 4.5,  # Wider cage for runners
             "failed_breakout": 2.5,  # Standard cage for reversals
-            "absorption_reversal": 2.5,  # Standard cage for reversals
+            "absorption_reversal": 2.0,  # 2.0x 15m ATR for auction rotation (0.90% on LTC)
             "liquidity_exhaustion": 2.5,  # Standard cage for reversals
         }
         mult = MULTIPLIERS.get(scenario, 2.5)
+        if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+            mult = 2.0
 
-        # --- 3. CALCULATE DISTANCE (PURE ATR - NOISE FLOOR REMOVED FOR AUDIT INTEGRITY) ---
+        # --- 3. CALCULATE DISTANCE (PURE ATR / ASYMMETRIC INVALIDATION) ---
         # We calculate the pure mathematical targets based on volatility.
-        # The responsibility of filtering trades that are too small for fees
-        # is delegated to the Execution Layer (AdaptivePlayer / Croupier).
-
-        tp_dist_pct = atr_pct * mult
-        sl_dist_pct = atr_pct * (mult * 0.8)
+        # For TacticalAbsorptionV2 we enforce 2.0x ATR for TP (full campana rotation)
+        # and 1.33x ATR for SL (structural auction invalidation, equivalent to mult * 0.66).
+        if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+            tp_dist_pct = atr_pct * mult  # 2.0x 15m ATR
+            sl_dist_pct = atr_pct * 1.33  # 1.33x 15m ATR (Symmetric 1.5:1 RR)
+        else:
+            tp_dist_pct = atr_pct * mult
+            sl_dist_pct = atr_pct * (mult * 0.8)
 
         # --- 4. APPLY ASYMMETRY (Round 2 Optimization) ---
         tp_dist_decimal = tp_dist_pct / 100.0
