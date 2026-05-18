@@ -141,13 +141,16 @@ def check_regime_alignment(symbol: str, side: str, reversal_signal: dict, contex
         # AMT: In balance, price rotates VAL↔VAH. Reversion to POC is too close,
         # but rotation to opposite VA boundary IS a valid continuation trade.
         # LONG near VAL → target VAH, SHORT near VAH → target VAL.
+        # Exception: Pure reversion strategies fade the micro-level and should be treated as REVERSION.
+        mode = SetupMode.REVERSION if is_pure_reversion else SetupMode.CONTINUATION
+        reason_str = "PURE REVERSION" if mode == SetupMode.REVERSION else "CONTINUATION (rotation)"
         return GuardianResult(
             passed=True,
             score=0.7,
-            reason=f"BALANCE | price@{price:.2f} ({value_position}, VA={val:.2f}-{vah:.2f}) → CONTINUATION (rotation)",
+            reason=f"BALANCE | price@{price:.2f} ({value_position}, VA={val:.2f}-{vah:.2f}) → {reason_str}",
             metrics=metrics,
             gate_name="REGIME_ALIGNMENT_V3",
-            setup_mode=SetupMode.CONTINUATION,
+            setup_mode=mode,
         )
 
     # --- TREND: Price OUT_OF_VALUE → check Value Acceptance

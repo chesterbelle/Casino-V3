@@ -45,12 +45,25 @@ class AbsorptionSetupEngine(TraceBulletMixin):
         super().__init__()
         self.name = "AbsorptionSetupEngine"
 
-        # Configuration
+        # Configuration (Default fallback, updated dynamically via _update_dynamic_bounds)
         self.min_tp_distance_pct = 0.25  # Minimum TP distance (0.25%) to enforce RR > 1.5
         self.max_tp_distance_pct = 0.50  # Maximum TP distance (0.50%)
         self.sl_buffer_pct = 0.15  # SL buffer as % of price  # Tightened SL buffer as % of price (0.12%)
 
         logger.info(f"✅ {self.name} V2 initialized")
+
+    def _update_dynamic_bounds(self, symbol: str):
+        """Update bounds dynamically based on rolling ATR (volatility-agnostic)."""
+        from core.context_registry import ContextRegistry
+
+        reg = ContextRegistry()
+        atr_data = reg.atrs.get(symbol, {})
+        # Use long-term 1m ATR (100 periods) for stable volatility estimation
+        atr_pct = atr_data.get("long") or atr_data.get("short") or 0.20
+
+        self.min_tp_distance_pct = atr_pct * 3.0  # ~0.60% on LTC (floor to beat taker bleed)
+        self.max_tp_distance_pct = atr_pct * 6.5  # ~1.20% on LTC (macro rotation range limit)
+        self.sl_buffer_pct = atr_pct * 3.33  # ~0.60% on LTC (structural invalidation)
 
     def process_confirmed_signal(self, signal: dict) -> Optional[dict]:
         """
@@ -71,6 +84,7 @@ class AbsorptionSetupEngine(TraceBulletMixin):
         current_price = signal["entry_price"]
         timestamp = signal["timestamp"]
 
+        self._update_dynamic_bounds(symbol)
         self.trace(signal, "SETUP_GEN_START")
 
         # Calculate TP

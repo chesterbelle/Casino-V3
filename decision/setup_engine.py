@@ -337,20 +337,20 @@ class SetupEngineV4(TraceBulletMixin):
         MULTIPLIERS = {
             "trend_acceptance": 4.5,  # Wider cage for runners
             "failed_breakout": 2.5,  # Standard cage for reversals
-            "absorption_reversal": 2.0,  # 2.0x 15m ATR for auction rotation (0.90% on LTC)
+            "absorption_reversal": 5.0,  # 5.0x 15m ATR for macro auction rotation (~0.90% on LTC)
             "liquidity_exhaustion": 2.5,  # Standard cage for reversals
         }
         mult = MULTIPLIERS.get(scenario, 2.5)
         if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
-            mult = 2.0
+            mult = 5.0
 
         # --- 3. CALCULATE DISTANCE (PURE ATR / ASYMMETRIC INVALIDATION) ---
         # We calculate the pure mathematical targets based on volatility.
-        # For TacticalAbsorptionV2 we enforce 2.0x ATR for TP (full campana rotation)
-        # and 1.33x ATR for SL (structural auction invalidation, equivalent to mult * 0.66).
+        # For TacticalAbsorptionV2 we enforce 5.0x ATR for TP (macro campana rotation)
+        # and 3.33x ATR for SL (structural auction invalidation, 1.5:1 RR symmetry).
         if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
-            tp_dist_pct = atr_pct * mult  # 2.0x 15m ATR
-            sl_dist_pct = atr_pct * 1.33  # 1.33x 15m ATR (Symmetric 1.5:1 RR)
+            tp_dist_pct = atr_pct * mult  # 5.0x 15m ATR
+            sl_dist_pct = atr_pct * 3.33  # 3.33x 15m ATR (Symmetric 1.5:1 RR)
         else:
             tp_dist_pct = atr_pct * mult
             sl_dist_pct = atr_pct * (mult * 0.8)

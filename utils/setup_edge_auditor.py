@@ -182,7 +182,19 @@ class EdgeAuditor:
 
             # First Touch Win-Rate per uniform TP/SL config (diagnostic)
             first_touch = {}
-            for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
+            for tp_t, sl_t in [
+                (0.1, 0.1),
+                (0.15, 0.15),
+                (0.2, 0.2),
+                (0.3, 0.3),
+                (0.4, 0.4),
+                (0.5, 0.5),
+                (0.6, 0.6),
+                (0.7, 0.7),
+                (0.8, 0.8),
+                (0.9, 0.9),
+                (1.0, 1.0),
+            ]:
                 result = "TIMEOUT"
                 for p in prices_list:
                     if side == "LONG":
@@ -302,7 +314,19 @@ class EdgeAuditor:
             best_config = (0, 0)
             best_wr = 0
 
-            for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
+            for tp_t, sl_t in [
+                (0.1, 0.1),
+                (0.15, 0.15),
+                (0.2, 0.2),
+                (0.3, 0.3),
+                (0.4, 0.4),
+                (0.5, 0.5),
+                (0.6, 0.6),
+                (0.7, 0.7),
+                (0.8, 0.8),
+                (0.9, 0.9),
+                (1.0, 1.0),
+            ]:
                 col = f"ft_{tp_t}_{sl_t}"
                 if col not in group.columns:
                     continue
@@ -336,7 +360,7 @@ class EdgeAuditor:
                 advice = f"{RED}Targets need adjustment{RESET}"
 
             print(
-                f"{setup:<20} {best_config[0]:.1f}/{best_config[1]:.1f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
+                f"{setup:<20} {best_config[0]:.2f}/{best_config[1]:.2f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
             )
 
         # ── [4] DECISION TRACE AUDIT (SetupEngine Gates) ──
@@ -360,7 +384,19 @@ class EdgeAuditor:
             )
             print("  " + "-" * 80)
 
-            for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
+            for tp_t, sl_t in [
+                (0.1, 0.1),
+                (0.15, 0.15),
+                (0.2, 0.2),
+                (0.3, 0.3),
+                (0.4, 0.4),
+                (0.5, 0.5),
+                (0.6, 0.6),
+                (0.7, 0.7),
+                (0.8, 0.8),
+                (0.9, 0.9),
+                (1.0, 1.0),
+            ]:
                 col = f"ft_{tp_t}_{sl_t}"
                 if col not in group.columns:
                     continue

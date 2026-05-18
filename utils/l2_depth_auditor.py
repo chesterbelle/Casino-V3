@@ -14,7 +14,8 @@ def get_depth_snapshot(symbol, target_ts):
     # We will search for the first matching db for the symbol
     dataset_file = None
     for f in os.listdir(DATASETS_DIR):
-        if symbol in f and f.endswith(".db"):
+        base_asset = symbol.split("/")[0]
+        if base_asset in f and f.endswith(".db"):
             dataset_file = os.path.join(DATASETS_DIR, f)
             break
 

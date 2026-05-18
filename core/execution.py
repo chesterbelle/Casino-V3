@@ -545,6 +545,7 @@ class OrderManager:
             # Create temporary engine instance for TP calculation
             # (We could cache this in __init__ but it's lightweight)
             engine = AbsorptionSetupEngine()
+            engine._update_dynamic_bounds(symbol)
 
             # Recalculate TP using fresh footprint
             new_tp = engine._calculate_tp(symbol, absorption_level, direction, current_price)
