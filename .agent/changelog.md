@@ -8,6 +8,26 @@
 
 ## 📝 Historial de Sesiones
 
+### [2026-05-17] — Corridas de Backtests en LTC y DOGE (Branch: v8.1-unified-decision-dna)
+### Summary: Ejecución de simulaciones para auditoría de régimen
+En esta sesión se corrieron los backtests para la batería de largo alcance de LTC y un piloto inicial en DOGE RANGE para poblar el historiado y analizar el comportamiento táctico.
+
+#### 1. Ejecución Técnica
+*   **LTC Long-Range Battery**: Ejecución de las simulaciones para los 9 días certificados (Range, Bear, Bull) de LTCUSDT.
+*   **DOGE Range Pilot**: Lanzamiento y ejecución parcial de la simulación del día `2024-02-01` en DOGEUSDT usando el modo `--audit` para recolectar datos tácticos en la base de datos `historian.db`.
+*   **Poblado del Historian**: Las señales y los ticks correspondientes a los periodos simulados quedaron registrados con éxito para su posterior análisis con herramientas de auditoría.
+
+#### 2. Datos Registrados (Métricas Crudas)
+*   **LTC Audit**:
+    *   `LTC RANGE`: n=56 | Real WR=51.5% | Avg TP=0.458% | Avg SL=0.357% | Real Exp=+0.0628%
+    *   `LTC BEAR`: n=37 | Real WR=47.6% | Avg MFE=0.513% | Avg MAE=0.405% | Real Exp=+0.0320%
+    *   `LTC BULL`: n=49 | Real WR=61.5% | Avg MFE=0.537% | Avg MAE=0.423% | Real Exp=+0.1679%
+*   **DOGE RANGE (Interim)**:
+    *   `Uniform 0.3%/0.3% Reference`: n=37 | WR=52.4% | Avg MFE=0.272% | Avg MAE=0.232% | Ratio=1.17
+    *   `Real Strategy`: n=37 | Real WR=25.0% | Avg TP=0.450% | Avg SL=0.350% | Real Exp=-0.1500%
+
+---
+
 ### [2026-05-15] — Unified Decision DNA (UDT) Certification (Branch: v8.1-unified-decision-dna)
 ### Summary: Transformación Forense del Alpha
 En esta sesión, hemos reemplazado el sistema de logeo ruidoso por una infraestructura de telemetría de alto rendimiento (UDT) que permite la autopsia granular de cada señal, especialmente las muertes asíncronas en la Fase 2.

@@ -12,17 +12,24 @@ def check_liquidity_heatmap(symbol: str, side: str, target_price: float, context
     if not context_registry:
         return GuardianResult(passed=True, score=1.0, gate_name="LIQUIDITY_HEATMAP")
 
-    # target_price is usually the VAL/VAH or the entry level
     score = context_registry.get_liquidity_score(symbol, target_price, side)
-
     metrics = {
         "target_price": target_price,
         "score": score,
     }
 
-    # This guardian is 'Soft' - it never blocks the trade by itself (passed=True)
-    # unless we decide to make it a Hard Gate in the future.
-    # For now, it just reduces confidence if we are 'trading into air'.
+    l2_ratio = context_registry.get_l2_ratio(symbol, side)
+    metrics["l2_ratio"] = l2_ratio
+
+    if l2_ratio < 1.5:
+        return GuardianResult(
+            passed=False,
+            score=0.0,
+            multiplier=0.0,
+            reason=f"BLOCKED (THIN WALL) | L2 Ratio {l2_ratio:.2f} < 1.5",
+            metrics=metrics,
+            gate_name="LIQUIDITY_HEATMAP",
+        )
 
     return GuardianResult(
         passed=True,

@@ -18,10 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SetupEngine V4.2**: Refactored `on_signal` and `on_tick` to handle multi-path execution (Fast-Lane vs. Confirmation-Gate).
 - **Forensic Auditor**: Updated `setup_edge_auditor.py` to Section [4] (Trace Audit) for streamlined forensic reviews.
 
+### Fixed
+- **Signal Persistence**: Resolved a critical `AttributeError` in `SetupEngine.on_signal` (dict access dot-notation) and corrected event attribute references from `.source` to `.sensor_id`.
+
 ### Verified - "Naked Alpha" Certification (LTC/USDT 24h L2)
 - **Gross Expectancy**: **+0.2455%** (recovered from +0.122% after removing Phase 2 bottleneck) ✅.
 - **Win Rate**: **77.3%** (confirmed that blocked signals had superior 77.7% WR).
 - **Volume Efficiency**: **154% increase** in tradable signals (318 vs 125).
+- **Final Litmus**: Verified persistence with **416 signals** recorded in `historian.db` after the fix.
 - **Verdict**: The `AbsorptionDetector` (Z≥3.0) is sufficiently surgical for instant entry; Phase 2 confirmation was a toxic filter for scalping.
 
 ## [8.0.0] - 2026-05-13

@@ -49,8 +49,20 @@ class EdgeAuditor:
     def load_data(self):
         conn = sqlite3.connect(self.db_path)
 
-        # Load Signals
-        signals_df = pd.read_sql_query("SELECT * FROM signals", conn)
+        # Load Signals but ONLY those that actually passed the guardians
+        # We do this by inner joining with decision_traces where status = 'EXECUTED'
+        query = """
+        SELECT s.*
+        FROM signals s
+        INNER JOIN decision_traces d
+        ON s.timestamp = d.timestamp AND s.symbol = d.symbol
+        WHERE d.status = 'EXECUTED'
+        """
+        try:
+            signals_df = pd.read_sql_query(query, conn)
+        except sqlite3.OperationalError:
+            # Fallback if decision_traces table doesn't exist
+            signals_df = pd.read_sql_query("SELECT * FROM signals", conn)
 
         # Load Price Samples
         prices_df = pd.read_sql_query("SELECT * FROM price_samples", conn)
@@ -260,16 +272,19 @@ class EdgeAuditor:
             # Gross Expectancy using actual TP/SL distances
             expectancy = (wr / 100) * avg_tp - ((100 - wr) / 100) * avg_sl if d > 0 else 0
 
+            # Net metrics for verdict
+            net_taker = expectancy - FEE_TAKER_RT
+
             if d < 20:
                 verdict = f"{YELLOW}LOW_N{RESET}"
             elif expectancy > FEE_THRESHOLD and wr > 55:
                 verdict = f"{GREEN}CERTIFIED{RESET}"
-            elif expectancy > FEE_TAKER_RT and wr > 50:
+            elif net_taker > 0.05:  # Clear profit after fees
                 verdict = f"{YELLOW}WATCH{RESET}"
-            elif expectancy > 0:
-                verdict = f"{YELLOW}FRAGILE{RESET}"
+            elif net_taker > -0.02:  # Near break-even
+                verdict = f"{RED}MARGINAL (NO EDGE){RESET}"
             else:
-                verdict = f"{RED}FAILED{RESET}"
+                verdict = f"{RED}FAILED (BLEEDING){RESET}"
 
             print(
                 f"{setup:<20} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {verdict}"

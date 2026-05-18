@@ -16,6 +16,8 @@ import pandas as pd
 DB_PATH = "data/historian.db"
 TP_PCT = 0.3
 SL_PCT = 0.3
+FEE_TAKER_RT = 0.12
+FEE_THRESHOLD = 0.36
 
 # Dynamic window per setup type
 SETUP_WINDOWS = {
@@ -39,7 +41,15 @@ CONDITIONS = {
 def load_data():
     conn = sqlite3.connect(DB_PATH)
     signals = pd.read_sql(
-        "SELECT timestamp, symbol, side, price, setup_type, metadata FROM signals ORDER BY timestamp", conn
+        """
+        SELECT DISTINCT s.timestamp, s.symbol, s.side, s.price, s.setup_type, s.metadata
+        FROM signals s
+        INNER JOIN decision_traces d
+        ON s.timestamp = d.timestamp AND s.symbol = d.symbol
+        WHERE d.status = 'EXECUTED'
+        ORDER BY s.timestamp
+        """,
+        conn,
     )
     samples = pd.read_sql("SELECT timestamp, symbol, price FROM price_samples ORDER BY timestamp", conn)
     conn.close()
@@ -160,14 +170,16 @@ def analyze_condition(cond_signals: pd.DataFrame, samples: pd.DataFrame) -> dict
     avg_sl = df["sl_pct"].mean()
     real_exp = (real_wr / 100) * avg_tp - ((100 - real_wr) / 100) * avg_sl if real_d > 0 else 0
 
+    net_taker = real_exp - FEE_TAKER_RT
+
     if n < 20:
         verdict = "LOW_N"
-    elif real_exp > 0.36 and real_wr > 55:
+    elif real_exp > FEE_THRESHOLD and real_wr > 55:
         verdict = "CERTIFIED"
-    elif real_exp > 0.12 and real_wr > 50:
+    elif net_taker > 0.05:
         verdict = "WATCH"
-    elif real_exp > 0:
-        verdict = "FRAGILE"
+    elif net_taker > -0.02:
+        verdict = "MARGINAL"
     else:
         verdict = "FAILED"
 
@@ -196,9 +208,17 @@ def main():
     print("-" * 90)
 
     for cond_name, ranges in CONDITIONS.items():
-        # Combine multiple ranges for this condition
+        # Combine multiple ranges for this condition and filter by symbol
+        asset_prefix = cond_name.split()[0]
         cond_signals = pd.concat(
-            [signals[(signals["timestamp"] >= start) & (signals["timestamp"] < end)] for start, end in ranges]
+            [
+                signals[
+                    (signals["symbol"].str.startswith(asset_prefix))
+                    & (signals["timestamp"] >= start)
+                    & (signals["timestamp"] < end)
+                ]
+                for start, end in ranges
+            ]
         )
 
         result = analyze_condition(cond_signals, samples)
@@ -220,9 +240,17 @@ def main():
     print("-" * 65)
 
     for cond_name, ranges in CONDITIONS.items():
-        # Combine multiple ranges for this condition
+        # Combine multiple ranges for this condition and filter by symbol
+        asset_prefix = cond_name.split()[0]
         cond_signals = pd.concat(
-            [signals[(signals["timestamp"] >= start) & (signals["timestamp"] < end)] for start, end in ranges]
+            [
+                signals[
+                    (signals["symbol"].str.startswith(asset_prefix))
+                    & (signals["timestamp"] >= start)
+                    & (signals["timestamp"] < end)
+                ]
+                for start, end in ranges
+            ]
         )
 
         result = analyze_condition(cond_signals, samples)

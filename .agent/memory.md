@@ -49,14 +49,24 @@
 
 ---
 
-## 🎯 Objetivo de la Sesión Actual (SESIÓN 7 - PLANIFICADA)
-*   **Meta**: Resolver "Alpha Starvation" (83% Timeouts) mediante calibración UDT.
-*   **Hitos**:
-    - [x] Implement Fast-Lane routing for Absorption (bypass Guardian).
-    - [x] Repurpose Guardian as a Tactical Confirmation Gate (for Swing/Rotation).
-    - [x] Certify Fast-Lane performance (77.3% WR / +0.2455% Exp).
-    - [ ] Calibrate dynamic targets (0.45% -> Vol-Adjusted).
-    - [ ] **Window Optimization**: Evaluar si 500ms es insuficiente para micro-flujo.
+### Current Status: 🟢 Certified (Fast-Lane Active)
+- **Architecture**: `v8.1.0` deployed. `TacticalAbsorptionV2` now operates on a **Fast-Lane** (0ms latency).
+- **Baseline**: +0.2455% Gross Expectancy (LTC/USDT 2024-01-01).
+- **Persistence**: 100% Signal Persistence verified (Litmus test: 416 signals).
+- **Guardian Layer**: Repurposed as a **Tactical Confirmation Gate** for Swing/Rotation setups.
+
+### Performance Baseline (Last Audit)
+| Symbol | Strategy | WR% | Gross Exp | Verdict |
+|--------|----------|-----|-----------|---------|
+| LTCUSDT| Absorption| 77.3%| +0.2455% | **CERTIFIED** |
+| Global | AMT Scenarios| 62.0%| +0.185% | **WATCH** |
+
+### Next Session Objectives
+1.  **Long-Range Battery**: Run the 9-day LTC audit battery (Range, Bear, Bull) to verify regime resilience.
+2.  **Generalized Audit**: Execute the 10-coin battery (ADA, AVAX, BNB, DOGE, etc.) for cross-instrument validation.
+3.  **Target Calibration**: Evaluate if the 0.45% TP/SL remains optimal across different coin volatilities.
+
+---
 
 ---
 
@@ -73,6 +83,7 @@
 
 - 2026-05-15T07:45:00.000000 | session-close | UDT Forensic System certified. Codebase purified. Awaiting Alpha Calibration.
 - 2026-05-15T10:00:00.000000 | session-update | Fast-Lane deployed. 77.3% WR confirmed. Guardian repurposed.
+- 2026-05-17T21:11:00.000000 | session-close | Ran LTC long-range audits and DOGE pilot backtests. Recorded signals and prices to database.
 
 ### [v8.1-unified-decision-dna] - 2026-05-15
 #### Added
@@ -88,3 +99,4 @@
 - **Naked Edge Audit**: Confirmed 77.3% WR and +0.2455% Gross Exp for Absorption signals when bypassing tactical confirmation.
 - **Fast-Lane Parity**: Verified production code parity with theoretical naked performance.
 - 2026-05-15T18:22:18.750788 | session-close | L2 & price ingest completed, CSVs removed.
+- 2026-05-16T00:22:00.000000 | session-close | Fast-Lane bug fixed (Persistence restored). v8.1.0-fast-lane-certified tagged.

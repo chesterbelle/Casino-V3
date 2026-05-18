@@ -58,6 +58,7 @@ class ContextRegistry:
 
         # Phase C1: Liquidity Heatmap (Location Alpha)
         self.liquidity_walls: Dict[str, Dict[float, float]] = defaultdict(dict)  # symbol -> {price: volume}
+        self.l2_imbalance: Dict[str, float] = defaultdict(lambda: 1.0)  # symbol -> L2 Ratio (Bid/Ask)
 
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
@@ -327,6 +328,16 @@ class ContextRegistry:
         if not all_levels:
             return
 
+        # Calculate L2 Ratio
+        if bids and asks:
+            try:
+                price = float(bids[0][0])
+                bid_vol = sum(float(v) for p, v in bids if float(p) >= price * 0.998)
+                ask_vol = sum(float(v) for p, v in asks if float(p) <= price * 1.002)
+                self.l2_imbalance[key] = max(bid_vol, 0.01) / max(ask_vol, 0.01)
+            except Exception:
+                pass
+
         avg_vol = sum(float(level[1]) for level in all_levels) / len(all_levels)
 
         for price_str, vol_str in all_levels:
@@ -360,6 +371,15 @@ class ContextRegistry:
 
         # If we find walls, the score is 1.0 (Supported)
         return 1.0
+
+    def get_l2_ratio(self, symbol: str, side: str) -> float:
+        """Returns the L2 Depth Ratio. > 1.0 means wall is supporting the trade."""
+        key = self._norm_key(symbol)
+        ratio = self.l2_imbalance[key]
+        if side == "LONG":
+            return ratio
+        else:
+            return 1.0 / ratio if ratio > 0 else 1.0
 
     def update_vwap(self, symbol: str, price: float, volume: float, timestamp: float = None):
         """
