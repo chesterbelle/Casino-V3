@@ -133,13 +133,16 @@ class TraceRegistry:
                 if trace.steps:
                     setup_type = trace.steps[0].component
 
+                metrics = trace.metadata.copy()
+                metrics["trace_id"] = trace.trace_id
+
                 data = {
                     "timestamp": trace.start_time,
                     "symbol": trace.symbol,
                     "status": trace.outcome.value,
                     "gate": setup_type,
                     "reason": trace.final_reason,
-                    "metrics": trace.metadata,
+                    "metrics": metrics,
                     "price": trace.metadata.get("price", 0.0),
                     "side": trace.side,
                 }

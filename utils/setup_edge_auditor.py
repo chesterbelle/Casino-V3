@@ -51,12 +51,14 @@ class EdgeAuditor:
 
         # Load Signals but ONLY those that actually passed the guardians
         # We do this by inner joining with decision_traces where status = 'EXECUTED'
+        # Phase 800: Use UDT trace_id for robust correlation immune to delays
         query = """
         SELECT s.*
         FROM signals s
         INNER JOIN decision_traces d
-        ON s.timestamp = d.timestamp AND s.symbol = d.symbol
+        ON json_extract(s.metadata, '$.trace_id') = json_extract(d.metrics, '$.trace_id')
         WHERE d.status = 'EXECUTED'
+        AND json_extract(s.metadata, '$.trace_id') IS NOT NULL
         """
         try:
             signals_df = pd.read_sql_query(query, conn)

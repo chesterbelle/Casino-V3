@@ -336,14 +336,13 @@ class SetupEngineV4(TraceBulletMixin):
         }
         mult = MULTIPLIERS.get(scenario, 2.5)
 
-        # --- 3. CALCULATE DISTANCE & ENFORCE NOISE FLOOR ---
-        # Noise Floor established via MAE Percentile-90 Analysis (LTC Audit May 2024).
-        # Setting targets below this floor results in stochastic stop-outs.
-        NOISE_FLOOR_TP_PCT = 0.45
-        NOISE_FLOOR_SL_PCT = 0.35
+        # --- 3. CALCULATE DISTANCE (PURE ATR - NOISE FLOOR REMOVED FOR AUDIT INTEGRITY) ---
+        # We calculate the pure mathematical targets based on volatility.
+        # The responsibility of filtering trades that are too small for fees
+        # is delegated to the Execution Layer (AdaptivePlayer / Croupier).
 
-        tp_dist_pct = max(atr_pct * mult, NOISE_FLOOR_TP_PCT)
-        sl_dist_pct = max(atr_pct * (mult * 0.8), NOISE_FLOOR_SL_PCT)
+        tp_dist_pct = atr_pct * mult
+        sl_dist_pct = atr_pct * (mult * 0.8)
 
         # --- 4. APPLY ASYMMETRY (Round 2 Optimization) ---
         tp_dist_decimal = tp_dist_pct / 100.0
