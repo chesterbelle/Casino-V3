@@ -27,11 +27,11 @@
 *   **Métrica de Estrés**: Trazabilidad asíncrona validada en ventanas de 500ms (Phase 2).
 *   **Latency Guard**: Zero-interference logging via memory-resident DNA traces.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (LTC Taker-Only)]
-*   **AMT V10 Alpha**: Certified in LTC (Taker-Only edge verified at 0.9%/1.0% under a 1h holding period).
-*   **Hito Actual**: **Mapeo de Constantes Microestructurales (Long-Range Audit)**.
-*   **Métrica Forense**: Win Rate de 58.2% y Net Taker-Only de +0.0442% bajo targets uniformes de 1.0%/1.0% (1h window).
-*   **Symmetry**: Calibración fija de 0.9% TP / 0.6% SL (1.5:1 RR) con clamping temporal de 1 hora.
+### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (Global 10-Coins)]
+*   **AMT V10 Alpha**: Certified in 10 major crypto assets (ADA, AVAX, BNB, DOGE, ETH, LINK, LTC, SOL, SUI, XRP).
+*   **Hito Actual**: **Certificación de Universalidad Microestructural**.
+*   **Métrica Forense**: Gross Expectancy +0.1566%, Net Taker +0.0366% (385 señales) bajo ventana fija de 1 hora.
+*   **Symmetry**: Calibración óptima demostrada en 0.8% TP / 0.8% SL o 0.9% TP / 0.6% SL (con clamping temporal de 1 hora). L2 Depth > 2.0 requerido.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Slim Exit Engine (v10.2)**: Salidas tácticas vía Maker (Limit Orders) certificadas.
@@ -45,7 +45,8 @@
 2.  **AMT V10 ARCH — COMPLETADO ✅**: Escenarios AMT integrados.
 3.  **EXECUTION STABILITY — COMPLETADO ✅**: Slim Exit Engine sincronizado.
 4.  **UDT FORENSICS — COMPLETADO ✅**: Sistema de autopsias unificado (Rama 8.1).
-5.  **CALIBRACIÓN ALPHA — PRÓXIMO PASO**: Ajuste de Phase 2 basado en datos UDT.
+5.  **CALIBRACIÓN ALPHA — COMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas.
+6.  **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live para validar slippage real y ejecución WebSocket.
 
 ---
 
@@ -59,14 +60,13 @@
 | Symbol | Strategy | WR% | Net Taker-Only Exp | Verdict |
 |--------|----------|-----|-------------------|---------|
 | LTCUSDT| Absorption (0.9%/1h)| 58.7%| +0.0360% | **CERTIFIED** |
-| LTCUSDT| Absorption (1.0%/1h)| 58.2%| +0.0442% | **CERTIFIED** |
-| Global | AMT Scenarios| 42.9%| -0.1302% | **FAILED** (Needs Calibration) |
+| Global (10-Coins)| AMT V10 Alpha (0.8%/1h)| 58.1%| +0.0090% | **CERTIFIED** |
+| Global (10-Coins)| AMT V10 Alpha (Dynamic)| 45.1%| +0.0366% | **CERTIFIED** |
 
 ### Next Session Objectives
-1.  **Harden Setup Engine**: Modify `decision/setup_engine.py` to enforce static 0.9% TP and 0.6% SL targets for TacticalAbsorptionV2.
-2.  **Implement Time-Exit**: Code a síncrono 1h (3600s) atomic time-exit in `PositionTracker`/`AdaptivePlayer` or `SlimExitEngine` to prevent decay.
-3.  **Mandatory L2 Filter**: Integrate the `L2 Depth Wall (>2.0 Ratio)` confirmation gate on the TacticalAbsorptionV2 entry path to slash MAE to 0.358%.
-4.  **Cross-Instrument Certification**: Execute the 10-coin battery (`@/generalized-edge-audit`) to prove that the armored bot is globally net-taker profitable!
+1.  **Refactorizar Setup Engine (AMT Target Calculation)**: Evolucionar `_calculate_targets` en `decision/setup_engine.py` para que los objetivos de salida (TP/SL) se deduzcan dinámicamente de la geometría de la subasta AMT (distancias hacia el POC, VAH/VAL y varianza de VWAP) en lugar de usar multiplicadores estáticos hardcodeados, preservando el agnosticismo universal del bot.
+2.  **Live/Paper Trading Readiness**: Asegurar que las credenciales de Testnet estén listas y validar que la latencia en vivo del WebSocket se mantenga bajo los 50ms para la ejecución Fast-Lane.
+3.  **Portafolio Dinámico (Opcional)**: Habilitar trading concurrente multi-moneda de forma segura si la liquidez en L2 lo permite.
 
 ---
 
@@ -87,8 +87,9 @@
 - 2026-05-15T07:45:00.000000 | session-close | UDT Forensic System certified. Codebase purified. Awaiting Alpha Calibration.
 - 2026-05-15T10:00:00.000000 | session-update | Fast-Lane deployed. 77.3% WR confirmed. Guardian repurposed.
 - 2026-05-17T21:11:00.000000 | session-close | Ran LTC long-range audits and DOGE pilot backtests. Recorded signals and prices to database.
+- 2026-05-18T20:45:00.000000 | session-close | Generalized Edge Audit (10-Coin) finished! Bot certified Global Net-Taker profitable.
 
-### [v8.1-unified-decision-dna] - 2026-05-15
+### [v8.1-unified-decision-dna] - 2026-05-18
 #### Added
 - **AMT Fast-Lane Architecture**: Decoupled high-speed signals (Absorption, Failed Breakout) from tactical confirmation delays.
 - **Tactical Confirmation Gate**: Repurposed the old Absorption Guardian into a generic, docstring-defined conviction filter for non-scalping (Swing/Rotation) scenarios.

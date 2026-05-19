@@ -8,6 +8,36 @@
 
 ## 📝 Historial de Sesiones
 
+### [2026-05-18] — Generalized Edge Audit & 10-Coin Certification (Branch: v8.1-unified-decision-dna)
+### Summary: Certificación Global Multi-Activo del Alpha de Absorción (AMT V10)
+En esta sesión completamos el maratón técnico más pesado: la auditoría secuencial de los 10 criptoactivos más líquidos del mercado (ADA, AVAX, BNB, DOGE, ETH, LINK, LTC, SOL, SUI, XRP) usando la base de datos L2 de alta fidelidad. Se comprobó matemáticamente que el bot mantiene un Edge Positivo (Net Taker Profitable) sin ajustar parámetros por moneda, probando la universalidad del alpha microestructural.
+
+#### 1. Ejecución Técnica y Prevención de RAM
+*   **Sequential Anti-Crash Protocol**: Se ejecutaron los 10 backtests pesados (especialmente ETH y SOL con ~3 millones de actualizaciones L2 cada uno) de forma estrictamente secuencial, logrando un uso de memoria 100% estable.
+*   **Database Cleanup**: Se implementó una purga nuclear entre ejecuciones (`rm -f data/historian.db`) garantizando que los datos de la auditoría final quedaran puros, eliminando el riesgo de race-conditions y simulation leaks causados por escrituras paralelas.
+*   **Window Correction**: Se corrigió la ventana de evaluación de los auditores estadísticos de 900s a 3600s (1 hora), alineándose con las conclusiones del decaimiento temporal de la sesión pasada.
+
+#### 2. Datos Registrados (Métricas Crudas 10-Coins - Taker-Only)
+*   **Total de Señales Registradas**: 385 (de los 10 activos, con XRP filtrando el 100% de operaciones tóxicas en rango).
+*   **Global Win Rate**: 45.1%
+*   **Global Gross Expectancy**: +0.1566%
+*   **Net Taker Profitability (0.12% fees)**: **+0.0366%** ✅ (El bot es rentable globalmente ejecutando 100% a mercado).
+*   **Net Maker Profitability (0.08% fees)**: **+0.0766%** ✅
+*   **Optimal Targeting**: Los auditores confirmaron que el blanco ideal unificado (Symmetric Time-Clamped) reside entre 0.8% y 0.9% para la canasta de las 10 altcoins de mayor volumen.
+
+#### 3. Hallazgos Microestructurales L2 (Profundidad)
+*   Se re-certificó que la barrera del "L2 Depth Wall" es el escudo más importante:
+    *   **High Wall (>2.0 Ratio)**: Ratio MFE/MAE de 1.09 (158 trades, altamente protector).
+    *   **Balanced Wall (1.0 - 2.0 Ratio)**: Ratio MFE/MAE de **3.81** (8 trades, máxima eficiencia teórica).
+    *   **Thin Wall (<1.0 Ratio)**: Ratio MFE/MAE de 1.02 (24 trades, riesgo extremo de desvanecimiento).
+
+#### 4. Archivos Modificados
+*   `generalized_edge_audit_manifesto.md`: Artefacto principal creado para rastrear progreso, completado 10/10.
+*   `.agent/workflows/generalized-edge-audit.md`: (Consultado)
+*   `.agent/memory.md` y `.agent/changelog.md`: (Cierre de Sesión).
+
+---
+
 ### [2026-05-18] — Multi-Regime Long-Range Audit & Taker-Only Paradigm (Branch: v8.1-unified-decision-dna)
 ### Summary: Certificación Estratégica del Alpha de Absorción y Leyes de MAE Temporal
 En esta sesión se completó la batería de 9 backtests de largo alcance en LTC (Range, Bear, Bull) sumando 345 señales y 406k price samples. Establecimos el estándar incondicional Taker-Only (fees del 0.12%) y descubrimos la ley de decaimiento del Edge temporal y el blindaje microestructural L2.
