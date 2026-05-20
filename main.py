@@ -456,6 +456,7 @@ async def main():
         balance_manager=croupier.balance_manager,
         state_dir="./state",
         save_interval=5,
+        session_id=croupier.session_id,
     )
 
     # Define callback for immediate state persistence (Event-Driven)

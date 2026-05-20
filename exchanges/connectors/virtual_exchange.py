@@ -64,6 +64,7 @@ class VirtualExchangeConnector(BaseConnector):
 
         self._connected = False
         self._ready = False
+        self._instance_id = __import__("uuid").uuid4().hex[:6]
 
         # OCO pair tracking: {order_id: sibling_order_id}
         self._oco_pairs: Dict[str, str] = {}
@@ -493,7 +494,7 @@ class VirtualExchangeConnector(BaseConnector):
                 exit_reason = "VIRTUAL_CLOSE"
 
         trade_record = {
-            "id": f"tr_{self._order_seq}",
+            "id": f"tr_{symbol.upper().replace('/', '').replace(':', '')}_{self._instance_id}_{self._order_seq}",
             "order": order.get("id", "unknown"),
             "symbol": symbol,
             "side": side,
@@ -648,8 +649,8 @@ class VirtualExchangeConnector(BaseConnector):
             # Record trade in ledger
             self._order_seq += 1
             trade_record = {
-                "id": f"tr_close_{self._order_seq}",
-                "order": f"v_force_close_{self._order_seq}",
+                "id": f"tr_close_{symbol.upper().replace('/', '').replace(':', '')}_{self._instance_id}_{self._order_seq}",
+                "order": f"v_force_close_{symbol.upper().replace('/', '').replace(':', '')}_{self._instance_id}_{self._order_seq}",
                 "symbol": symbol,
                 "side": "SELL" if side == "LONG" else "BUY",
                 "amount": amount,
@@ -773,7 +774,8 @@ class VirtualExchangeConnector(BaseConnector):
 
         self._order_seq += 1
         client_order_id = (params or {}).get("client_order_id")
-        order_id = client_order_id if client_order_id else f"v_{self._current_timestamp}_{self._order_seq}"
+        symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+        order_id = client_order_id if client_order_id else f"v_{symbol_clean}_{self._instance_id}_{self._order_seq}"
 
         order = {
             "id": order_id,

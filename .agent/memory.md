@@ -83,6 +83,7 @@
 8. **IN_VALUE Rotation**: Targets deben ser ATR-relativos al ENTRY, no a la estructura VA.
 9. **Position Limit = 1/symbol**: Bloquea señales concurrentes. Ver `🚫 SIGNAL_REJECTED`.
 10. **Taker-Only Execution Mandate**: Toda rentabilidad y viabilidad del Alpha se establece estrictamente bajo ejecución **Taker Only** (roundtrip fees de 0.12% total). NUNCA basar viabilidad comercial en Limit Sniper u órdenes Maker pasivas. La expectancia neta Taker debe ser positiva para certificar un setup.
+11. **Historian Cumulative Runs**: Ejecutar múltiples backtests acumula registros en `historian.db`. Al cruzar `signals` y `decision_traces` por `trace_id` (como en `setup_edge_auditor.py`), se producirá un producto cartesiano duplicando o multiplicando las filas analizadas si no se limpia la base de datos con `reset_data.py`. **Gotcha de Colaboración**: Ante cualquier discrepancia numérica o anomalía en los datos, el agente debe preguntar primero al usuario para obtener contexto, en lugar de realizar limpiezas o deduplicaciones autónomas.
 
 - 2026-05-15T07:45:00.000000 | session-close | UDT Forensic System certified. Codebase purified. Awaiting Alpha Calibration.
 - 2026-05-15T10:00:00.000000 | session-update | Fast-Lane deployed. 77.3% WR confirmed. Guardian repurposed.

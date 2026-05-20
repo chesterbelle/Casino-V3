@@ -223,7 +223,7 @@ AUDIT_MODE = False
 ENABLE_DECISION_TRACE = False
 
 # How often (in seconds) to sample price after a signal for MFE/MAE tracking.
-AUDIT_SAMPLING_FREQ = 1.0  # Sample price every 1.0s
+AUDIT_SAMPLING_FREQ = 30.0  # Sample price every 30.0s (30x faster backtests)
 
 # =====================================================
 # 🏹 LIMIT SNIPER (V6-Limit)

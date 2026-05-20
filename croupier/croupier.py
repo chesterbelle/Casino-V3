@@ -68,7 +68,8 @@ class Croupier(TimeIterator):
         # Backward compatibility: some components expect exchange_adapter
         self.exchange_adapter = exchange_adapter
         self.logger = logging.getLogger("Croupier")
-        self.session_id = f"sess_{uuid.uuid4().hex[:8]}"
+        symbol_clean = exchange_adapter.symbol.upper().replace("/", "").replace(":", "")
+        self.session_id = f"sess_{symbol_clean}_{uuid.uuid4().hex[:8]}"
 
         # Initialize core components
         self.error_handler = get_error_handler()

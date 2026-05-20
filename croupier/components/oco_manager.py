@@ -202,7 +202,8 @@ class OCOManager:
 
             # PRE-RESERVE CLIENT ORDER ID (To prevent race conditions with WS Fill Events)
             # Phase 43: Standardize to CASINO_ prefix
-            client_order_id = f"CASINO_ENTRY_{uuid.uuid4().hex[:12]}"
+            symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+            client_order_id = f"CASINO_ENTRY_{symbol_clean}_{uuid.uuid4().hex[:12]}"
 
             # Pre-register future in pending_orders (so if event arrives before new_order returns, we catch it)
             loop = asyncio.get_running_loop()
@@ -427,8 +428,9 @@ class OCOManager:
         self.logger.info(f"[TRADE] 🛡️ Position Fill Confirmed: {position.trade_id}")
 
         # OCO Logic
-        tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
-        sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+        symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+        tp_client_id = f"CASINO_TP_{symbol_clean}_{uuid.uuid4().hex[:12]}"
+        sl_client_id = f"CASINO_SL_{symbol_clean}_{uuid.uuid4().hex[:12]}"
         self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
 
         # Phase 970: Tick-Aware Minimum Distance (Sniper Edition)
@@ -524,8 +526,9 @@ class OCOManager:
         sl_price = float(self.adapter.price_to_precision(symbol, order["sl_price"]))
 
         # 2. Generate Client IDs
-        tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
-        sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+        symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+        tp_client_id = f"CASINO_TP_{symbol_clean}_{uuid.uuid4().hex[:12]}"
+        sl_client_id = f"CASINO_SL_{symbol_clean}_{uuid.uuid4().hex[:12]}"
 
         # 3. Pre-register Bracket in Tracker
         self.tracker.register_inflight_bracket(position, tp_client_id, sl_client_id)
@@ -757,7 +760,8 @@ class OCOManager:
                         await self.cancel_order(position.exchange_tp_id, symbol)
 
                     # Generate new client ID for correlation (Phase 82)
-                    tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
+                    symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+                    tp_client_id = f"CASINO_TP_{symbol_clean}_{uuid.uuid4().hex[:12]}"
 
                     # Phase 52/82: Pre-register ID to prevent "WS Event UNMATCHED" race
                     self.tracker.register_alias(tp_client_id, position, symbol=symbol)
@@ -786,7 +790,8 @@ class OCOManager:
                         await self.cancel_order(position.exchange_sl_id, symbol)
 
                     # Generate new client ID for correlation (Phase 82)
-                    sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+                    symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+                    sl_client_id = f"CASINO_SL_{symbol_clean}_{uuid.uuid4().hex[:12]}"
 
                     # Phase 52/82: Pre-register ID to prevent "WS Event UNMATCHED" race
                     self.tracker.register_alias(sl_client_id, position, symbol=symbol)
@@ -1608,7 +1613,8 @@ class OCOManager:
             if not position.exchange_tp_id:
                 self.logger.info(f"🚑 Restoring TP @ {tp_price} (Intent: {original_tp_pct})")
                 # Create TP with anti-hang timeout
-                tp_client_id = f"CASINO_TP_{uuid.uuid4().hex[:12]}"
+                symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+                tp_client_id = f"CASINO_TP_{symbol_clean}_{uuid.uuid4().hex[:12]}"
                 tp_order = await asyncio.wait_for(
                     self._create_tp_order(symbol, position.side, amount, tp_price, client_order_id=tp_client_id),
                     timeout=timeout,
@@ -1628,7 +1634,8 @@ class OCOManager:
             if not position.exchange_sl_id:
                 self.logger.info(f"🚑 Restoring SL @ {sl_price} (Intent: {original_sl_pct})")
                 # Create SL with anti-hang timeout
-                sl_client_id = f"CASINO_SL_{uuid.uuid4().hex[:12]}"
+                symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+                sl_client_id = f"CASINO_SL_{symbol_clean}_{uuid.uuid4().hex[:12]}"
                 sl_order = await asyncio.wait_for(
                     self._create_sl_order(symbol, position.side, amount, sl_price, client_order_id=sl_client_id),
                     timeout=timeout,

@@ -171,7 +171,7 @@ async def run_backtest():
     engine.subscribe(EventType.TICK, on_tick_context)
     engine.subscribe(EventType.CANDLE, on_candle_context)
     engine.subscribe(EventType.MICROSTRUCTURE_BATCH, on_micro_batch)
-    engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)
+    # engine.subscribe(EventType.SIGNAL, setup_engine.on_signal)  # Removed: Already subscribed inside SetupEngineV4.__init__
 
     # 6.5 Setup Audit Handlers
     from core.observability.historian import historian
@@ -179,6 +179,8 @@ async def run_backtest():
     black_box.set_historian(historian)
 
     if trading_config.AUDIT_MODE:
+        # Clear existing data for this symbol in the database to prevent duplicate accumulation
+        historian.clear_symbol_data(args.symbol)
 
         async def audit_signal_handler(event: AggregatedSignalEvent):
             logger.warning(f"📝 AUDIT SIGNAL HANDLER FIRED: {event.symbol} {event.side}")

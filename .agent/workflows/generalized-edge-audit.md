@@ -111,7 +111,7 @@ for sym, cnt in rows:
 
 ## Step 4: Edge Audit
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 900
+.venv/bin/python utils/setup_edge_auditor.py --window 3600
 ```
 
 ## Step 5: Per-Coin Quality Analysis
@@ -127,7 +127,7 @@ print('-' * 75)
 
 coin_data = {}
 for ts, sym, side, price, meta in signals:
-    ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+900)).fetchall()
+    ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+3600)).fetchall()
     if not ps:
         continue
     max_f = max_a = 0.0

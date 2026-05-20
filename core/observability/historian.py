@@ -385,6 +385,27 @@ class TradeHistorian:
             self._executor.shutdown(wait=True)
             logger.info("🛑 Historian Legacy Executor stopped.")
 
+    def clear_symbol_data(self, symbol: str):
+        """Wipes all records for a specific symbol to prevent duplicate data on backtest runs."""
+        if not symbol:
+            return
+        from utils.symbol_norm import normalize_symbol
+
+        norm_sym = normalize_symbol(symbol)
+        logger.warning(
+            f"🧹 Clearing existing historian database records for {norm_sym} to prevent duplicate accumulation..."
+        )
+        try:
+            with self._get_conn() as conn:
+                conn.execute("DELETE FROM signals WHERE symbol = ? OR symbol = ?", (symbol, norm_sym))
+                conn.execute("DELETE FROM price_samples WHERE symbol = ? OR symbol = ?", (symbol, norm_sym))
+                conn.execute("DELETE FROM decision_traces WHERE symbol = ? OR symbol = ?", (symbol, norm_sym))
+                conn.execute("DELETE FROM trades WHERE symbol = ? OR symbol = ?", (symbol, norm_sym))
+                conn.commit()
+            logger.info(f"✅ Historian data cleared for {norm_sym}.")
+        except Exception as e:
+            logger.error(f"❌ Error clearing historian data for {norm_sym}: {e}")
+
     def record_depth_snapshot(self, timestamp: float, symbol: str, bids: str, asks: str):
         """
         Phase 1300: L2 Simulation. Dispatches depth snapshot to background worker.

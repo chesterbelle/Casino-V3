@@ -958,7 +958,13 @@ class PositionTracker(TraceBulletMixin):
             symbol = normalize_symbol(raw_symbol)
             size_fraction = order.get("size", 0.0)
             leverage = order.get("leverage", 1.0)
-            trade_id = order.get("trade_id", f"pos_{self.total_trades_opened}")
+            symbol_clean = symbol.upper().replace("/", "").replace(":", "")
+            short_sess = (
+                self.session_id.split("_")[-1][:6]
+                if hasattr(self, "session_id")
+                else __import__("uuid").uuid4().hex[:6]
+            )
+            trade_id = order.get("trade_id", f"pos_{symbol_clean}_{short_sess}_{self.total_trades_opened}")
 
             if not side:
                 logger.error(f"Side inválido para abrir posición: {side_raw}")
