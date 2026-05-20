@@ -20,10 +20,14 @@ En esta sesión resolvimos el cuello de botella más grande en el flujo de traba
     *   `/long-range-edge-audit` ahora corre los 9 backtests (LTC x 3 condiciones x 3 días) de forma paralela.
 *   **Zombie Prevention Shield**: Añadimos el escudo de procesos `trap` para matar a todos los sub-procesos hijos en el mismo grupo al recibir una interrupción (`Ctrl+C` / `SIGINT`), eliminando totalmente el riesgo de hilos colgantes o fugas de memoria.
 *   **Path Correction (Step 0)**: Corregimos las llamadas a `reset_data.py` en ambos workflows apuntando a `utils/reset_data.py`, erradicando el fallo que causaba que el paso 0 de las corridas fallara por archivo inexistente.
+*   **Dynamic AMT Geometric Calibration**:
+    *   Implementamos la opción `--calibrate` en el auditor (`utils/setup_edge_auditor.py`). Ahora realiza un barrido de cuadrícula (grid sweep) ultra veloz en memoria simulando más de 140 combinaciones matemáticas en segundos y nos genera la fórmula óptima de Targets con sus coeficientes exactos.
+    *   Modificamos `decision/setup_engine.py` para calcular los objetivos de salida de forma dinámica basándose en la geometría real de la subasta AMT (distancia al POC para TP e invalidación del límite de valor para SL). El motor cuenta con un "Graceful Fallback" al ATR clásico si la estructura de subasta no está disponible, garantizando robustez y determinismo en los tests.
 
 #### 2. Decisiones de Diseño y Gotchas
 *   **Aislar y Fusionar**: Confirmamos que la única forma de eludir los bloqueos de escritura concurrente en SQLite es utilizar archivos temporales separados y consolidarlos al final. Esto mantiene el 100% de la fidelidad sin penalizaciones de performance.
-*   **Git**: Todo el trabajo fue certificado y consolidado bajo el commit `4915649`.
+*   **Geometría AMT > ATR Fijo**: Sustituir targets de volatilidad estáticos por distancias de perfil reales nos permite capturar el comportamiento institucional puro y mitigar drásticamente el timeout de auditoría.
+*   **Git**: Todo el trabajo fue certificado y consolidado bajo los commits `88c1dee` y `12c71d5`.
 
 ---
 
