@@ -64,7 +64,7 @@
 | Global (10-Coins)| AMT V10 Alpha (Dynamic)| 45.1%| +0.0366% | **CERTIFIED** |
 
 ### Next Session Objectives
-1.  **Refactorizar Setup Engine (AMT Target Calculation)**: Evolucionar `_calculate_targets` en `decision/setup_engine.py` para que los objetivos de salida (TP/SL) se deduzcan dinámicamente de la geometría de la subasta AMT (distancias hacia el POC, VAH/VAL y varianza de VWAP) en lugar de usar multiplicadores estáticos hardcodeados, preservando el agnosticismo universal del bot.
+1.  **Calibración de Targets & Multiplicadores (Reducción de Timeouts)**: Resolver el problema de timeouts y la caída artificial de Win Rate calibrando los multiplicadores de ATR y la lógica en `decision/setup_engine.py` (especialmente el actual 5.0x ATR estático).
 2.  **Live/Paper Trading Readiness**: Asegurar que las credenciales de Testnet estén listas y validar que la latencia en vivo del WebSocket se mantenga bajo los 50ms para la ejecución Fast-Lane.
 3.  **Portafolio Dinámico (Opcional)**: Habilitar trading concurrente multi-moneda de forma segura si la liquidez en L2 lo permite.
 
@@ -84,11 +84,13 @@
 9. **Position Limit = 1/symbol**: Bloquea señales concurrentes. Ver `🚫 SIGNAL_REJECTED`.
 10. **Taker-Only Execution Mandate**: Toda rentabilidad y viabilidad del Alpha se establece estrictamente bajo ejecución **Taker Only** (roundtrip fees de 0.12% total). NUNCA basar viabilidad comercial en Limit Sniper u órdenes Maker pasivas. La expectancia neta Taker debe ser positiva para certificar un setup.
 11. **Historian Cumulative Runs**: Ejecutar múltiples backtests acumula registros en `historian.db`. Al cruzar `signals` y `decision_traces` por `trace_id` (como en `setup_edge_auditor.py`), se producirá un producto cartesiano duplicando o multiplicando las filas analizadas si no se limpia la base de datos con `reset_data.py`. **Gotcha de Colaboración**: Ante cualquier discrepancia numérica o anomalía en los datos, el agente debe preguntar primero al usuario para obtener contexto, en lugar de realizar limpiezas o deduplicaciones autónomas.
+12. **Parallel Audit SQLite Write Locks**: Ejecutar múltiples backtests concurrentes escribiendo directamente en la misma base de datos causará bloqueos (`database is locked`). Siempre aísla salidas con `--historian-db` y consolida al final mediante `utils/merge_historian.py`.
 
 - 2026-05-15T07:45:00.000000 | session-close | UDT Forensic System certified. Codebase purified. Awaiting Alpha Calibration.
 - 2026-05-15T10:00:00.000000 | session-update | Fast-Lane deployed. 77.3% WR confirmed. Guardian repurposed.
 - 2026-05-17T21:11:00.000000 | session-close | Ran LTC long-range audits and DOGE pilot backtests. Recorded signals and prices to database.
 - 2026-05-18T20:45:00.000000 | session-close | Generalized Edge Audit (10-Coin) finished! Bot certified Global Net-Taker profitable.
+- 2026-05-19T22:20:00.000000 | session-close | High-speed parallel audit framework deployed. Consolidation merger implemented. Processes zombie-shielded.
 
 ### [v8.1-unified-decision-dna] - 2026-05-18
 #### Added

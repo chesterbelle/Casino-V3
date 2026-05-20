@@ -8,6 +8,25 @@
 
 ## 📝 Historial de Sesiones
 
+### [2026-05-19] — High-Speed Parallel Audit Architecture & Anti-Zombie Integration (Branch: v8.1-unified-decision-dna)
+### Summary: Paralelización Extrema de Auditorías con Aislamiento y Escudo de Procesos
+En esta sesión resolvimos el cuello de botella más grande en el flujo de trabajo del usuario: el tiempo de espera secuencial al correr auditorías de 10 monedas. Rediseñamos la persistencia en backtesting para permitir la ejecución concurrente multimoneda libre de colisiones e implementamos una paralelización total en los flujos principales.
+
+#### 1. Logros Técnicos
+*   **Dynamic Database Isolation**: Implementamos el flag `--historian-db` en `backtest.py` para re-apuntar dinámicamente el singleton global `TradeHistorian` sin tocar la arquitectura de croupier, position_tracker u oco_manager.
+*   **SQL Consolidator Merger (`utils/merge_historian.py`)**: Diseñamos una utilidad de alta velocidad que adjunta (`ATTACH`) los archivos SQLite aislados, los consolida con un volcado `INSERT OR IGNORE` masivo hacia el máster `data/historian.db` y purga limpiamente los temporales.
+*   **Workflow Parallelization**:
+    *   `/generalized-edge-audit` ahora corre los 10 backtests en paralelo en segundo plano (`&`).
+    *   `/long-range-edge-audit` ahora corre los 9 backtests (LTC x 3 condiciones x 3 días) de forma paralela.
+*   **Zombie Prevention Shield**: Añadimos el escudo de procesos `trap` para matar a todos los sub-procesos hijos en el mismo grupo al recibir una interrupción (`Ctrl+C` / `SIGINT`), eliminando totalmente el riesgo de hilos colgantes o fugas de memoria.
+*   **Path Correction (Step 0)**: Corregimos las llamadas a `reset_data.py` en ambos workflows apuntando a `utils/reset_data.py`, erradicando el fallo que causaba que el paso 0 de las corridas fallara por archivo inexistente.
+
+#### 2. Decisiones de Diseño y Gotchas
+*   **Aislar y Fusionar**: Confirmamos que la única forma de eludir los bloqueos de escritura concurrente en SQLite es utilizar archivos temporales separados y consolidarlos al final. Esto mantiene el 100% de la fidelidad sin penalizaciones de performance.
+*   **Git**: Todo el trabajo fue certificado y consolidado bajo el commit `4915649`.
+
+---
+
 ### [2026-05-18] — Generalized Edge Audit & 10-Coin Certification (Branch: v8.1-unified-decision-dna)
 ### Summary: Certificación Global Multi-Activo del Alpha de Absorción (AMT V10)
 En esta sesión completamos el maratón técnico más pesado: la auditoría secuencial de los 10 criptoactivos más líquidos del mercado (ADA, AVAX, BNB, DOGE, ETH, LINK, LTC, SOL, SUI, XRP) usando la base de datos L2 de alta fidelidad. Se comprobó matemáticamente que el bot mantiene un Edge Positivo (Net Taker Profitable) sin ajustar parámetros por moneda, probando la universalidad del alpha microestructural.
