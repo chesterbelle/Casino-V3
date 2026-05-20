@@ -331,44 +331,71 @@ class SetupEngineV4(TraceBulletMixin):
             else:
                 atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
 
-        # --- 2. MULTIPLIER CONFIGURATION (Symmetric Scaled) ---
-        # Industry standard: Reversion trades use tighter cages; trends use wider ones.
-        # Everything remains symmetric (1:1 RR) to preserve Win Rate.
-        MULTIPLIERS = {
-            "trend_acceptance": 4.5,  # Wider cage for runners
-            "failed_breakout": 2.5,  # Standard cage for reversals
-            "absorption_reversal": 5.0,  # 5.0x 15m ATR for macro auction rotation (~0.90% on LTC)
-            "liquidity_exhaustion": 2.5,  # Standard cage for reversals
-        }
-        mult = MULTIPLIERS.get(scenario, 2.5)
-        if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
-            mult = 5.0
+        # --- 2. DYNAMIC AMT GEOMETRIC CALIBRATION (Reversion/Rotation setups) ---
+        # If we have structural context, we apply the champion formula calibrated by the Edge Auditor.
+        # Otherwise we fall back to classical volatility (ATR) targets.
+        applied_dynamic = False
+        if self.context_registry and scenario in ["TacticalAbsorptionV2", "absorption_reversal", "failed_breakout", "liquidity_exhaustion"]:
+            poc, vah, val = self.context_registry.get_structural(symbol)
+            if poc and poc > 0 and vah and vah > 0 and val and val > 0:
+                dist_to_poc = abs(price - poc)
+                dist_to_boundary = (price - val) if side == "LONG" else (vah - price)
+                if dist_to_boundary <= 0:
+                    dist_to_boundary = dist_to_poc * 0.8
 
-        # --- 3. CALCULATE DISTANCE (PURE ATR / ASYMMETRIC INVALIDATION) ---
-        # We calculate the pure mathematical targets based on volatility.
-        # For TacticalAbsorptionV2 we enforce 5.0x ATR for TP (macro campana rotation)
-        # and 3.33x ATR for SL (structural auction invalidation, 1.5:1 RR symmetry).
-        if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
-            tp_dist_pct = atr_pct * mult  # 5.0x 15m ATR
-            sl_dist_pct = atr_pct * 3.33  # 3.33x 15m ATR (Symmetric 1.5:1 RR)
-        else:
-            tp_dist_pct = atr_pct * mult
-            sl_dist_pct = atr_pct * (mult * 0.8)
+                noise_floor_pct = 1.0 * atr_pct
+                # Calibrated Coefficients: k_TP = 1.0 (POC), k_SL = 0.4 (Boundary Invalidation)
+                tp_dist_pct = max(noise_floor_pct, 1.0 * (dist_to_poc / price) * 100.0)
+                sl_dist_pct = max(noise_floor_pct * 0.8, 0.4 * (dist_to_boundary / price) * 100.0)
 
-        # --- 4. APPLY ASYMMETRY (Round 2 Optimization) ---
-        tp_dist_decimal = tp_dist_pct / 100.0
-        sl_dist_decimal = sl_dist_pct / 100.0
+                tp_dist_decimal = tp_dist_pct / 100.0
+                sl_dist_decimal = sl_dist_pct / 100.0
 
-        if side == "LONG":
-            tp_price = price * (1 + tp_dist_decimal)
-            sl_price = price * (1 - sl_dist_decimal)
-        else:
-            tp_price = price * (1 - tp_dist_decimal)
-            sl_price = price * (1 + sl_dist_decimal)
+                if side == "LONG":
+                    tp_price = price * (1 + tp_dist_decimal)
+                    sl_price = price * (1 - sl_dist_decimal)
+                else:
+                    tp_price = price * (1 - tp_dist_decimal)
+                    sl_price = price * (1 + sl_dist_decimal)
 
-        # --- 5. IDENTITY & TRACEABILITY ---
-        setup_name = f"AMT_{scenario.upper()}_{val_pos}"
-        level_ref = f"VAR_AWARE_{mult}x_ATR"
+                setup_name = f"AMT_{scenario.upper()}_{val_pos}"
+                level_ref = f"AMT_DYNAMIC_GEOMETRIC_CALIBRATED"
+                applied_dynamic = True
+
+        if not applied_dynamic:
+            # --- 3. FALLBACK TO VOLATILITY MULTIPLIERS (Classic ATR) ---
+            # Industry standard: Reversion trades use tighter cages; trends use wider ones.
+            # Everything remains symmetric (1:1 RR) to preserve Win Rate.
+            MULTIPLIERS = {
+                "trend_acceptance": 4.5,  # Wider cage for runners
+                "failed_breakout": 2.5,  # Standard cage for reversals
+                "absorption_reversal": 5.0,  # 5.0x 15m ATR for macro auction rotation (~0.90% on LTC)
+                "liquidity_exhaustion": 2.5,  # Standard cage for reversals
+            }
+            mult = MULTIPLIERS.get(scenario, 2.5)
+            if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+                mult = 5.0
+
+            # We calculate the pure mathematical targets based on volatility.
+            if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+                tp_dist_pct = atr_pct * mult  # 5.0x 15m ATR
+                sl_dist_pct = atr_pct * 3.33  # 3.33x 15m ATR (Symmetric 1.5:1 RR)
+            else:
+                tp_dist_pct = atr_pct * mult
+                sl_dist_pct = atr_pct * (mult * 0.8)
+
+            tp_dist_decimal = tp_dist_pct / 100.0
+            sl_dist_decimal = sl_dist_pct / 100.0
+
+            if side == "LONG":
+                tp_price = price * (1 + tp_dist_decimal)
+                sl_price = price * (1 - sl_dist_decimal)
+            else:
+                tp_price = price * (1 - tp_dist_decimal)
+                sl_price = price * (1 + sl_dist_decimal)
+
+            setup_name = f"AMT_{scenario.upper()}_{val_pos}"
+            level_ref = f"VAR_AWARE_{mult}x_ATR"
 
         # Phase 710: Return atr_pct so it can be propagated to entry_atr on OpenPosition.
         # SlimExitEngine's Scale Out / Break Even / Trailing pillars all guard on

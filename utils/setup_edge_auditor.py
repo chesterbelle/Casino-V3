@@ -511,16 +511,226 @@ class EdgeAuditor:
 
         print(header("AUDIT COMPLETE"))
 
+    def calibrate(self, window_seconds=900):
+        signals, prices, traces = self.load_data()
+
+        if signals.empty:
+            print(f"{RED}❌ No signals found in database.{RESET}")
+            return
+
+        print(header("CALIBRATING DYNAMIC GEOMETRIC AMT TARGETS (Reverse-Engineering)"))
+        
+        # Group prices by symbol for faster lookup
+        prices_by_sym = {sym: df.sort_values("timestamp") for sym, df in prices.groupby("symbol")}
+
+        # Prepare path data for fast execution
+        valid_paths = []
+        for _, sig in signals.iterrows():
+            ts = sig["timestamp"]
+            sym = sig["symbol"]
+            entry_price = sig["price"]
+            side = sig["side"]
+            setup_type = sig["setup_type"]
+
+            if entry_price <= 0 or sym not in prices_by_sym or not sig["metadata"]:
+                continue
+
+            try:
+                meta = json.loads(sig["metadata"])
+            except Exception:
+                continue
+
+            poc = meta.get("poc")
+            vah = meta.get("vah")
+            val = meta.get("val")
+            atr_pct = meta.get("atr_1m") or meta.get("atr_pct") or 0.35
+
+            if not poc or not vah or not val:
+                continue  # Skip if AMT levels aren't recorded
+
+            win = self.SETUP_WINDOWS.get(setup_type, window_seconds)
+            mask = (prices_by_sym[sym]["timestamp"] >= ts) & (prices_by_sym[sym]["timestamp"] <= ts + win)
+            trajectory = prices_by_sym[sym].loc[mask]
+
+            if trajectory.empty:
+                continue
+
+            prices_list = trajectory["price"].values
+            valid_paths.append({
+                "entry_price": entry_price,
+                "side": side,
+                "setup_type": setup_type,
+                "poc": poc,
+                "vah": vah,
+                "val": val,
+                "atr_pct": atr_pct,
+                "prices_list": prices_list
+            })
+
+        if not valid_paths:
+            print(f"{RED}❌ No signals with valid AMT metadata (poc, vah, val) and trajectories found.{RESET}")
+            return
+
+        print(f"  Loaded {len(valid_paths)} valid signals with rich AMT structural metrics.")
+
+        # Parameter Grid
+        k_tp_values = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+        k_sl_values = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0]
+
+        sweep_results = []
+
+        print("  ⏳ Sweeping target configurations in memory...")
+        for k_tp in k_tp_values:
+            for k_sl in k_sl_values:
+                wins = 0
+                losses = 0
+                timeouts = 0
+                total_pnl = 0.0
+
+                for path in valid_paths:
+                    entry = path["entry_price"]
+                    side = path["side"]
+                    poc = path["poc"]
+                    vah = path["vah"]
+                    val = path["val"]
+                    atr_pct = path["atr_pct"]
+                    prices_list = path["prices_list"]
+
+                    # Distance to POC
+                    d_poc = abs(entry - poc)
+                    
+                    # Distance to invalidation boundary
+                    if side == "LONG":
+                        d_boundary = entry - val
+                    else:
+                        d_boundary = vah - entry
+
+                    # Safe fallbacks if price is already outside the boundary
+                    if d_boundary <= 0:
+                        d_boundary = d_poc * 0.8
+
+                    # 1. Calculate TP and SL as percentage of entry price
+                    noise_floor_pct = 1.0 * atr_pct
+                    tp_pct = max(noise_floor_pct, k_tp * (d_poc / entry) * 100.0)
+                    sl_pct = max(noise_floor_pct * 0.8, k_sl * (d_boundary / entry) * 100.0)
+
+                    # Apply tp_pct / sl_pct to find the target prices
+                    if side == "LONG":
+                        tp_price = entry * (1.0 + tp_pct / 100.0)
+                        sl_price = entry * (1.0 - sl_pct / 100.0)
+                    else:
+                        tp_price = entry * (1.0 - tp_pct / 100.0)
+                        sl_price = entry * (1.0 + sl_pct / 100.0)
+
+                    # 2. Simulate price trajectory
+                    outcome = "TIMEOUT"
+                    final_pnl = 0.0
+                    for p in prices_list:
+                        if side == "LONG":
+                            if p >= tp_price:
+                                outcome = "WIN"
+                                final_pnl = tp_pct
+                                break
+                            if p <= sl_price:
+                                outcome = "LOSS"
+                                final_pnl = -sl_pct
+                                break
+                        else:  # SHORT
+                            if p <= tp_price:
+                                outcome = "WIN"
+                                final_pnl = tp_pct
+                                break
+                            if p >= sl_price:
+                                outcome = "LOSS"
+                                final_pnl = -sl_pct
+                                break
+
+                    if outcome == "TIMEOUT":
+                        timeouts += 1
+                        # Close at market price
+                        close_price = prices_list[-1]
+                        if side == "LONG":
+                            final_pnl = (close_price - entry) / entry * 100.0
+                        else:
+                            final_pnl = (entry - close_price) / entry * 100.0
+                    elif outcome == "WIN":
+                        wins += 1
+                    else:
+                        losses += 1
+
+                    total_pnl += final_pnl
+
+                total_signals = len(valid_paths)
+                wr = (wins / (wins + losses) * 100.0) if (wins + losses) > 0 else 0.0
+                to_rate = (timeouts / total_signals * 100.0)
+                gross_exp = total_pnl / total_signals
+                net_taker = gross_exp - 0.12
+
+                sweep_results.append({
+                    "k_tp": k_tp,
+                    "k_sl": k_sl,
+                    "wr": wr,
+                    "to": to_rate,
+                    "gross_exp": gross_exp,
+                    "net_taker": net_taker
+                })
+
+        df_sweep = pd.DataFrame(sweep_results)
+        df_sweep = df_sweep.sort_values("gross_exp", ascending=False)
+
+        # Print Top 15 configurations
+        print(f"\n{BOLD}🎯 TOP 15 GEOMETRIC AMT TARGET CONFIGURATIONS (Sorted by Expectancy){RESET}")
+        print(f"{'Rank':<5} {'k_TP (POC)':<12} {'k_SL (Bound)':<12} {'WR%':<8} {'TO%':<8} {'Gross Exp%':<12} {'Net Taker%':<12} {'Status'}")
+        print("-" * 90)
+
+        for i, (_, row) in enumerate(df_sweep.head(15).iterrows(), 1):
+            status = f"{GREEN}CERTIFIED{RESET}" if row["net_taker"] > 0.05 else (f"{YELLOW}WATCH{RESET}" if row["net_taker"] > 0 else f"{RED}FAIL{RESET}")
+            print(
+                f"{i:<5} {row['k_tp']:<12.1f} {row['k_sl']:<12.1f} {row['wr']:>5.1f}% {row['to']:>5.1f}% {row['gross_exp']:>+10.4f}% {row['net_taker']:>+10.4f}% {status}"
+            )
+
+        champion = df_sweep.iloc[0]
+        print(f"\n{BOLD}🏆 CHAMPION CONFIGURATION:{RESET}")
+        print(f"  • {BOLD}k_TP (POC Multiplier):{RESET}  {GREEN}{champion['k_tp']:.2f}{RESET}")
+        print(f"  • {BOLD}k_SL (VAL/VAH Multiplier):{RESET} {GREEN}{champion['k_sl']:.2f}{RESET}")
+        print(f"  • {BOLD}Expected Win Rate:{RESET}          {champion['wr']:.1f}%")
+        print(f"  • {BOLD}Expected Timeout Rate:{RESET}      {champion['to']:.1f}%")
+        print(f"  • {BOLD}Gross Expectancy:{RESET}          {GREEN}{champion['gross_exp']:+.4f}%{RESET}")
+        print(f"  • {BOLD}Net Taker Expectancy:{RESET}      {GREEN}{champion['net_taker']:+.4f}%{RESET}")
+
+        print(f"\n{BOLD}📝 CALIBRATED PRODUCTION CODE FORMULA FOR setup_engine.py:{RESET}")
+        print("```python")
+        print(f"def _calculate_targets(self, entry_price, side, poc, vah, val, atr_pct):")
+        print(f"    # Dynamic AMT Targets Calibrated via Edge Auditor on {datetime.now().strftime('%Y-%m-%d')}")
+        print(f"    dist_to_poc = abs(entry_price - poc)")
+        print(f"    dist_to_boundary = (entry_price - val) if side == 'LONG' else (vah - entry_price)")
+        print(f"    if dist_to_boundary <= 0:")
+        print(f"        dist_to_boundary = dist_to_poc * 0.8")
+        print(f"")
+        print(f"    noise_floor_pct = 1.0 * atr_pct")
+        print(f"    tp_dist_pct = max(noise_floor_pct, {champion['k_tp']:.1f} * (dist_to_poc / entry_price) * 100.0)")
+        print(f"    sl_dist_pct = max(noise_floor_pct * 0.8, {champion['k_sl']:.1f} * (dist_to_boundary / entry_price) * 100.0)")
+        print(f"")
+        print(f"    tp_price = entry_price * (1.0 + tp_dist_pct/100.0) if side == 'LONG' else entry_price * (1.0 - tp_dist_pct/100.0)")
+        print(f"    sl_price = entry_price * (1.0 - sl_dist_pct/100.0) if side == 'LONG' else entry_price * (1.0 + sl_dist_pct/100.0)")
+        print(f"    return tp_price, sl_price")
+        print("```")
+        print(header("CALIBRATION COMPLETE"))
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="data/historian.db")
     parser.add_argument("--window", type=int, default=900, help="Analysis window in seconds")
+    parser.add_argument("--calibrate", action="store_true", help="Run dynamic AMT target calibration sweep")
     args = parser.parse_args()
 
     try:
         auditor = EdgeAuditor(args.db)
-        auditor.analyze(window_seconds=args.window)
+        if args.calibrate:
+            auditor.calibrate(window_seconds=args.window)
+        else:
+            auditor.analyze(window_seconds=args.window)
     except Exception as e:
         print(f"{RED}❌ Error: {e}{RESET}")
 
