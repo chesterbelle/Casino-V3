@@ -227,8 +227,15 @@ class SetupEngineV4(TraceBulletMixin):
 
         # 3. Metadata Enrichment
         _entry_z = 0.0
+        poc_p, vah_p, val_p, va_w = 0.0, 0.0, 0.0, 0.0
         if self.context_registry:
             _, _, _entry_z = self.context_registry.get_micro_state(symbol)
+            _poc, _vah, _val = self.context_registry.get_structural(symbol)
+            poc_p = _poc or 0.0
+            vah_p = _vah or 0.0
+            val_p = _val or 0.0
+            if vah_p > val_p:
+                va_w = vah_p - val_p
 
         trigger_meta = self._enrich_metadata(
             {
@@ -248,6 +255,10 @@ class SetupEngineV4(TraceBulletMixin):
                 "atr_1m": atr_pct,
                 "z_score_entry": _entry_z,
                 "trace_id": trace.trace_id,
+                "poc_price": poc_p,
+                "vah_price": vah_p,
+                "val_price": val_p,
+                "va_width": va_w,
                 "max_holding_time": 3600 if scenario in ["TacticalAbsorptionV2", "absorption_reversal"] else None,
             },
             symbol,
@@ -335,7 +346,12 @@ class SetupEngineV4(TraceBulletMixin):
         # If we have structural context, we apply the champion formula calibrated by the Edge Auditor.
         # Otherwise we fall back to classical volatility (ATR) targets.
         applied_dynamic = False
-        if self.context_registry and scenario in ["TacticalAbsorptionV2", "absorption_reversal", "failed_breakout", "liquidity_exhaustion"]:
+        if self.context_registry and scenario in [
+            "TacticalAbsorptionV2",
+            "absorption_reversal",
+            "failed_breakout",
+            "liquidity_exhaustion",
+        ]:
             poc, vah, val = self.context_registry.get_structural(symbol)
             if poc and poc > 0 and vah and vah > 0 and val and val > 0:
                 dist_to_poc = abs(price - poc)
@@ -343,10 +359,17 @@ class SetupEngineV4(TraceBulletMixin):
                 if dist_to_boundary <= 0:
                     dist_to_boundary = dist_to_poc * 0.8
 
-                noise_floor_pct = 1.0 * atr_pct
-                # Calibrated Coefficients: k_TP = 1.0 (POC), k_SL = 0.4 (Boundary Invalidation)
-                tp_dist_pct = max(noise_floor_pct, 1.0 * (dist_to_poc / price) * 100.0)
-                sl_dist_pct = max(noise_floor_pct * 0.8, 0.4 * (dist_to_boundary / price) * 100.0)
+                # Historical Baseline Noise Floors (Restoring the 0.90% / 0.60% standard)
+                tp_noise_floor_pct = atr_pct * 5.0
+                sl_noise_floor_pct = atr_pct * 3.33
+
+                # Calibrated Geometric Multipliers (from recent grid sweep: k_TP=1.5, k_SL=1.2)
+                geo_tp_pct = 1.5 * (dist_to_poc / price) * 100.0
+                geo_sl_pct = 1.2 * (dist_to_boundary / price) * 100.0
+
+                # Dynamic Expansion: Never drop below historical baseline, but expand if geometry is wider
+                tp_dist_pct = max(tp_noise_floor_pct, geo_tp_pct)
+                sl_dist_pct = max(sl_noise_floor_pct, geo_sl_pct)
 
                 tp_dist_decimal = tp_dist_pct / 100.0
                 sl_dist_decimal = sl_dist_pct / 100.0
@@ -359,7 +382,7 @@ class SetupEngineV4(TraceBulletMixin):
                     sl_price = price * (1 + sl_dist_decimal)
 
                 setup_name = f"AMT_{scenario.upper()}_{val_pos}"
-                level_ref = f"AMT_DYNAMIC_GEOMETRIC_CALIBRATED"
+                level_ref = "AMT_DYNAMIC_GEOMETRIC_CALIBRATED"
                 applied_dynamic = True
 
         if not applied_dynamic:

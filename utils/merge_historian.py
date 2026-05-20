@@ -2,6 +2,7 @@ import glob
 import os
 import sqlite3
 
+
 def merge_databases():
     master_db = "data/historian.db"
     print(f"🔗 Fusing temporary databases into Master: {master_db}...")
@@ -20,7 +21,7 @@ def merge_databases():
 
     # Connect to the master database
     conn = sqlite3.connect(master_db)
-    
+
     # Enable WAL mode for performance
     conn.execute("PRAGMA journal_mode=WAL;")
 
@@ -28,7 +29,7 @@ def merge_databases():
 
     for temp_db in temp_dbs:
         print(f"📦 Processing: {temp_db}...")
-        
+
         # Attach the temporary database
         conn.execute(f"ATTACH DATABASE '{temp_db}' AS temp_db;")
 
@@ -42,16 +43,17 @@ def merge_databases():
 
                 # Get column list of the table in the master DB to avoid mismatched schemas
                 columns_cursor = conn.execute(f"PRAGMA table_info({table})")
-                cols = [col[1] for col in columns_cursor.fetchall() if col[1] != 'id']  # Skip auto-increment ID
+                cols = [col[1] for col in columns_cursor.fetchall() if col[1] != "id"]  # Skip auto-increment ID
                 cols_str = ", ".join(cols)
 
                 # Bulk insert from temporary to master
                 conn.execute(f"INSERT OR IGNORE INTO {table} ({cols_str}) SELECT {cols_str} FROM temp_db.{table}")
                 total_merged[table] += row_count
-            except sqlite3.OperationalError as e:
+            except sqlite3.OperationalError:
                 # Table might not exist in the temp DB (e.g. if no candles were generated)
                 pass
 
+        conn.commit()
         conn.execute("DETACH DATABASE temp_db;")
 
     conn.commit()
@@ -71,6 +73,7 @@ def merge_databases():
     print("\n🏁 CONSOLIDATION COMPLETE")
     for table, count in total_merged.items():
         print(f"  ✅ {table:16s}: Merged {count} rows")
+
 
 if __name__ == "__main__":
     merge_databases()

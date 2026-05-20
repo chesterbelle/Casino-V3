@@ -193,6 +193,8 @@ class EdgeAuditor:
                 (0.7, 0.7),
                 (0.8, 0.8),
                 (0.9, 0.9),
+                (0.9, 0.6),  # Historical Asymmetric Standard
+                (0.9, 1.0),  # Historical Asymmetric Standard
                 (1.0, 1.0),
             ]:
                 result = "TIMEOUT"
@@ -325,6 +327,8 @@ class EdgeAuditor:
                 (0.7, 0.7),
                 (0.8, 0.8),
                 (0.9, 0.9),
+                (0.9, 0.6),  # Historical Asymmetric Standard
+                (0.9, 1.0),  # Historical Asymmetric Standard
                 (1.0, 1.0),
             ]:
                 col = f"ft_{tp_t}_{sl_t}"
@@ -395,6 +399,8 @@ class EdgeAuditor:
                 (0.7, 0.7),
                 (0.8, 0.8),
                 (0.9, 0.9),
+                (0.9, 0.6),  # Historical Asymmetric Standard
+                (0.9, 1.0),  # Historical Asymmetric Standard
                 (1.0, 1.0),
             ]:
                 col = f"ft_{tp_t}_{sl_t}"
@@ -414,7 +420,7 @@ class EdgeAuditor:
                 nc_m = GREEN if net_maker > 0 else RED
 
                 print(
-                    f"  {tp_t:.1f}/{sl_t:.1f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
+                    f"  {tp_t:.2f}/{sl_t:.2f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
                 )
 
         # ── [6] ALPHA FUSION & CONVICTION AUDIT ──
@@ -519,7 +525,7 @@ class EdgeAuditor:
             return
 
         print(header("CALIBRATING DYNAMIC GEOMETRIC AMT TARGETS (Reverse-Engineering)"))
-        
+
         # Group prices by symbol for faster lookup
         prices_by_sym = {sym: df.sort_values("timestamp") for sym, df in prices.groupby("symbol")}
 
@@ -556,16 +562,18 @@ class EdgeAuditor:
                 continue
 
             prices_list = trajectory["price"].values
-            valid_paths.append({
-                "entry_price": entry_price,
-                "side": side,
-                "setup_type": setup_type,
-                "poc": poc,
-                "vah": vah,
-                "val": val,
-                "atr_pct": atr_pct,
-                "prices_list": prices_list
-            })
+            valid_paths.append(
+                {
+                    "entry_price": entry_price,
+                    "side": side,
+                    "setup_type": setup_type,
+                    "poc": poc,
+                    "vah": vah,
+                    "val": val,
+                    "atr_pct": atr_pct,
+                    "prices_list": prices_list,
+                }
+            )
 
         if not valid_paths:
             print(f"{RED}❌ No signals with valid AMT metadata (poc, vah, val) and trajectories found.{RESET}")
@@ -598,7 +606,7 @@ class EdgeAuditor:
 
                     # Distance to POC
                     d_poc = abs(entry - poc)
-                    
+
                     # Distance to invalidation boundary
                     if side == "LONG":
                         d_boundary = entry - val
@@ -662,29 +670,37 @@ class EdgeAuditor:
 
                 total_signals = len(valid_paths)
                 wr = (wins / (wins + losses) * 100.0) if (wins + losses) > 0 else 0.0
-                to_rate = (timeouts / total_signals * 100.0)
+                to_rate = timeouts / total_signals * 100.0
                 gross_exp = total_pnl / total_signals
                 net_taker = gross_exp - 0.12
 
-                sweep_results.append({
-                    "k_tp": k_tp,
-                    "k_sl": k_sl,
-                    "wr": wr,
-                    "to": to_rate,
-                    "gross_exp": gross_exp,
-                    "net_taker": net_taker
-                })
+                sweep_results.append(
+                    {
+                        "k_tp": k_tp,
+                        "k_sl": k_sl,
+                        "wr": wr,
+                        "to": to_rate,
+                        "gross_exp": gross_exp,
+                        "net_taker": net_taker,
+                    }
+                )
 
         df_sweep = pd.DataFrame(sweep_results)
         df_sweep = df_sweep.sort_values("gross_exp", ascending=False)
 
         # Print Top 15 configurations
         print(f"\n{BOLD}🎯 TOP 15 GEOMETRIC AMT TARGET CONFIGURATIONS (Sorted by Expectancy){RESET}")
-        print(f"{'Rank':<5} {'k_TP (POC)':<12} {'k_SL (Bound)':<12} {'WR%':<8} {'TO%':<8} {'Gross Exp%':<12} {'Net Taker%':<12} {'Status'}")
+        print(
+            f"{'Rank':<5} {'k_TP (POC)':<12} {'k_SL (Bound)':<12} {'WR%':<8} {'TO%':<8} {'Gross Exp%':<12} {'Net Taker%':<12} {'Status'}"
+        )
         print("-" * 90)
 
         for i, (_, row) in enumerate(df_sweep.head(15).iterrows(), 1):
-            status = f"{GREEN}CERTIFIED{RESET}" if row["net_taker"] > 0.05 else (f"{YELLOW}WATCH{RESET}" if row["net_taker"] > 0 else f"{RED}FAIL{RESET}")
+            status = (
+                f"{GREEN}CERTIFIED{RESET}"
+                if row["net_taker"] > 0.05
+                else (f"{YELLOW}WATCH{RESET}" if row["net_taker"] > 0 else f"{RED}FAIL{RESET}")
+            )
             print(
                 f"{i:<5} {row['k_tp']:<12.1f} {row['k_sl']:<12.1f} {row['wr']:>5.1f}% {row['to']:>5.1f}% {row['gross_exp']:>+10.4f}% {row['net_taker']:>+10.4f}% {status}"
             )
@@ -709,10 +725,16 @@ class EdgeAuditor:
         print(f"")
         print(f"    noise_floor_pct = 1.0 * atr_pct")
         print(f"    tp_dist_pct = max(noise_floor_pct, {champion['k_tp']:.1f} * (dist_to_poc / entry_price) * 100.0)")
-        print(f"    sl_dist_pct = max(noise_floor_pct * 0.8, {champion['k_sl']:.1f} * (dist_to_boundary / entry_price) * 100.0)")
+        print(
+            f"    sl_dist_pct = max(noise_floor_pct * 0.8, {champion['k_sl']:.1f} * (dist_to_boundary / entry_price) * 100.0)"
+        )
         print(f"")
-        print(f"    tp_price = entry_price * (1.0 + tp_dist_pct/100.0) if side == 'LONG' else entry_price * (1.0 - tp_dist_pct/100.0)")
-        print(f"    sl_price = entry_price * (1.0 - sl_dist_pct/100.0) if side == 'LONG' else entry_price * (1.0 + sl_dist_pct/100.0)")
+        print(
+            f"    tp_price = entry_price * (1.0 + tp_dist_pct/100.0) if side == 'LONG' else entry_price * (1.0 - tp_dist_pct/100.0)"
+        )
+        print(
+            f"    sl_price = entry_price * (1.0 - sl_dist_pct/100.0) if side == 'LONG' else entry_price * (1.0 + sl_dist_pct/100.0)"
+        )
         print(f"    return tp_price, sl_price")
         print("```")
         print(header("CALIBRATION COMPLETE"))
