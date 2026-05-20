@@ -124,9 +124,14 @@ print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
 
 ---
 
-## Step 4: Statistical Extraction (MFE/MAE Aggregate)
+## Step 4: Statistical Extraction & Target Calibration
+Evaluate current strategy performance:
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --window 3600
+```
+Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
+```bash
+.venv/bin/python utils/setup_edge_auditor.py --calibrate
 ```
 
 ---

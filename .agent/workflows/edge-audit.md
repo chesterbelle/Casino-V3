@@ -54,12 +54,16 @@ find data/ -type f -name "*.csv*" -delete
 ```
 **Must output**: Signals >= 80. If fewer, mark as INSUFFICIENT DATA.
 
-## Step 3: Statistical Extraction (MFE/MAE)
-Run the Edge Auditor tool.
+## Step 3: Statistical Extraction & Calibration
+Run the Edge Auditor tool to evaluate current strategy performance.
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --window 3600
 ```
-Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**.
+Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers.
+```bash
+.venv/bin/python utils/setup_edge_auditor.py --calibrate
+```
+Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**, as well as the **🎯 TOP 15 GEOMETRIC AMT TARGET CONFIGURATIONS**.
 
 ## Step 4: L2 Microstructure Audit (Liquidity Wall)
 Run the L2 Depth Auditor to verify passive liquidity support.
