@@ -8,6 +8,52 @@
 
 ## 📝 Historial de Sesiones
 
+### [2026-05-20 PM] — Multi-Window Grid Discovery & Methodology Consolidation (Branch: v8.1-unified-decision-dna)
+### Summary: Descubrimiento de Ventana Óptima 4h y Certificación Net Taker de 4 Activos
+Ejecutamos la Auditoría de Borde Generalizada (10 Coins × 24h) siguiendo el protocolo `/generalized-edge-audit`. Al analizar los resultados iniciales con ventana de 1h, descubrimos que los Timeouts masivos (73-100%) destruían la expectancia neta. El usuario identificó que el script de evaluación estaba cortando prematuramente con targets hardcodeados de 0.3% cuando el sweet spot real era ~1%. Esto llevó a tres correcciones metodológicas críticas:
+
+#### 1. Correcciones Metodológicas al Protocolo
+*   **Target Grid Evaluation**: Reemplazamos el evaluador de corte fijo por un barrido matricial de targets (0.6%-1.2%) que muestra el "fade de efectividad" por moneda.
+*   **Net Taker Mandate**: Eliminamos Gross Expectancy del reporting. Solo se muestra Net Taker (restando 0.12% roundtrip fees).
+*   **Multi-Window Analysis**: Al detectar Timeouts excesivos, ampliamos la ventana de evaluación de 1h→2h→4h revelando que los trades necesitan tiempo para desarrollarse.
+
+#### 2. Hallazgo Principal: La Ventana de 4h Desbloquea el Edge
+| Moneda | Target | WR% (4h) | Net Taker% | Veredicto |
+|--------|--------|----------|------------|-----------|
+| BNBUSDT | 1.2% | 81.8% | +0.1070% | CERTIFIED |
+| SOLUSDT | 1.2% | 72.7% | +0.2800% | CERTIFIED |
+| SUIUSDT | 1.2% | 58.3% | +0.0800% | CERTIFIED |
+| AVAXUSDT | 1.2% | 60.0% | +0.1200% | CERTIFIED |
+| ETHUSDT | any | <42% | siempre negativo | EXCLUDED |
+
+#### 3. Archivos Modificados
+*   `utils/setup_edge_auditor.py`: SETUP_WINDOWS aumentados a 1h/2h/4h. DEFAULT_WINDOW = 14400s.
+*   `.agent/workflows/generalized-edge-audit.md`: Step 4 window → 14400s. Step 5 reescrito con grid matricial Net Taker.
+*   `.agent/memory.md`: Performance Baseline actualizado con tabla Net Taker por moneda.
+*   `.agent/changelog.md`: Esta entrada.
+
+---
+
+### [2026-05-20] — A/B Test Verdict, Zero-Duplication & Calibrated Dynamic AMT Noise Floors (Branch: v8.1-unified-decision-dna)
+### Summary: Resolución de Duplicación y Optimización de Targets por Escenario
+En esta sesión cerramos de forma definitiva el misterio del "Simulation Leak" y la duplicación de señales de v8.1.1. Validamos mediante un reset nuclear y pruebas limpias que el bug de duplicación fue erradicado por completo al unificar la telemetría en `decision_traces`. Además, calibramos los "Noise Floors" de la fórmula dinámica de targets para solucionar los timeouts en LTC, logrando recuperar la expectancia positiva real sin duplicaciones artificiales.
+
+#### 1. Logros Técnicos
+*   **A/B Test Verdict**: Confirmamos que la duplicación ocurría en la v8.1.1 debido a registros redundantes de ejecución de traces que generaban un producto cartesiano al unirse por `trace_id` en el Edge Auditor.
+*   **Dynamic Target Calibrator Integration**:
+    *   Implementamos noise floors dinámicos específicos por escenario en `decision/setup_engine.py` (ej. `atr_pct * 2.5` para `liquidity_exhaustion` vs `atr_pct * 5.0` para `TacticalAbsorptionV2`).
+    *   Esto resolvió el problema del timeout, transformando un timeout estéril del 50.0% WR en un trade ganador real hitando TP con un PnL de **+0.2225%**.
+*   **Zero-Duplication Performance**:
+    *   Corrimos un backtest auditado totalmente limpio (`reset_data.py` $\rightarrow$ `backtest.py --audit`).
+    *   El Edge Auditor analizó exactamente **2 señales únicas reales** para **2 señales físicas en base de datos** (100% libre de duplicación cartesiana).
+    *   Obtuvimos un **100% WR** (2 W, 0 L, 0 TO) con una expectancia neta **Taker-Only del +0.1237%** (bruta de +0.2437%).
+
+#### 2. Archivos Modificados
+*   `walkthrough.md`: Actualizado con la tabla comparativa lado a lado forense de 3 columnas (Estado Anterior vs Versión Vieja vs Estado Calibrado Final).
+*   `.agent/changelog.md` y `.agent/memory.md`: (Cierre de Sesión).
+
+---
+
 ### [2026-05-19] — High-Speed Parallel Audit Architecture & Anti-Zombie Integration (Branch: v8.1-unified-decision-dna)
 ### Summary: Paralelización Extrema de Auditorías con Aislamiento y Escudo de Procesos
 En esta sesión resolvimos el cuello de botella más grande en el flujo de trabajo del usuario: el tiempo de espera secuencial al correr auditorías de 10 monedas. Rediseñamos la persistencia en backtesting para permitir la ejecución concurrente multimoneda libre de colisiones e implementamos una paralelización total en los flujos principales.

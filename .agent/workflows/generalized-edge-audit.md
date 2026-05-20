@@ -121,7 +121,7 @@ for sym, cnt in rows:
 ## Step 4: Edge Audit & Target Calibration
 Evaluate current strategy performance:
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 3600
+.venv/bin/python utils/setup_edge_auditor.py --window 14400
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
 ```bash
@@ -131,47 +131,54 @@ Run the Calibration grid sweeper to discover and verify optimal AMT target multi
 ## Step 5: Per-Coin Quality Analysis
 ```bash
 .venv/bin/python -c "
-import sqlite3, ast, statistics
+import sqlite3, statistics
 conn = sqlite3.connect('data/historian.db')
 signals = conn.execute('SELECT timestamp, symbol, side, price, metadata FROM signals ORDER BY timestamp').fetchall()
 
-print('PER-COIN EDGE BREAKDOWN (0.3%/0.3%)')
-print(f'{\"Coin\":20s} {\"n\":>4}  {\"WR%\":>6}  {\"MFE%\":>7}  {\"MAE%\":>7}  {\"Ratio\":>6}  {\"Verdict\":>10}')
-print('-' * 75)
+windows = [3600, 7200, 14400]
+targets = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
 
-coin_data = {}
-for ts, sym, side, price, meta in signals:
-    ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+3600)).fetchall()
-    if not ps:
-        continue
-    max_f = max_a = 0.0
-    hit_tp = hit_sl = False
-    for (p,) in ps:
-        m = (p - price)/price*100
-        if side == 'SHORT': m = -m
-        if m > max_f: max_f = m
-        if m < 0 and abs(m) > max_a: max_a = abs(m)
-        if not hit_tp and m >= 0.3: hit_tp = True
-        if not hit_sl and m <= -0.3: hit_sl = True
-    if sym not in coin_data:
-        coin_data[sym] = {'mfe': [], 'mae': [], 'wins': 0, 'losses': 0, 'timeouts': 0}
-    coin_data[sym]['mfe'].append(max_f)
-    coin_data[sym]['mae'].append(max_a)
-    if hit_tp and (not hit_sl): coin_data[sym]['wins'] += 1
-    elif hit_sl: coin_data[sym]['losses'] += 1
-    else: coin_data[sym]['timeouts'] += 1
+for window in windows:
+    print(f'\n{\"=\" * 90}')
+    print(f'  WINDOW: {window}s ({window//3600}h)')
+    print(f'{\"=\" * 90}')
 
-for sym in sorted(coin_data.keys()):
-    d = coin_data[sym]
-    n = len(d['mfe'])
-    mfe = statistics.mean(d['mfe'])
-    mae = statistics.mean(d['mae'])
-    ratio = mfe / (mae + 1e-9)
-    resolved = d['wins'] + d['losses']
-    wr = d['wins'] / resolved * 100 if resolved > 0 else 0
-    verdict = 'CERTIFIED' if ratio > 1.2 and wr > 55 else ('WATCH' if ratio > 1.0 else 'FAILED')
-    if n < 10: verdict = 'LOW_N'
-    print(f'{sym:20s} {n:>4}  {wr:>5.1f}%  {mfe:>6.3f}%  {mae:>6.3f}%  {ratio:>6.2f}  {verdict:>10}')
+    coin_signals = {}
+    for ts, sym, side, price, meta in signals:
+        ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+window)).fetchall()
+        if not ps: continue
+        trajectory = []
+        for (p,) in ps:
+            m = (p - price)/price*100
+            if side == 'SHORT': m = -m
+            trajectory.append(m)
+        if sym not in coin_signals:
+            coin_signals[sym] = []
+        coin_signals[sym].append(trajectory)
+
+    for sym in sorted(coin_signals.keys()):
+        n = len(coin_signals[sym])
+        if n < 5: continue  # skip LOW_N
+        print(f'\n  【 {sym} 】 (n={n})')
+        print(f'  {\"Target\":>8}  {\"WR%\":>6}  {\"W\":>3}  {\"L\":>3}  {\"TO\":>4}  {\"TO%\":>5}  {\"Net Taker%\":>12}')
+        print(f'  {\"-\" * 60}')
+        for tgt in targets:
+            wins = losses = timeouts = 0
+            for traj in coin_signals[sym]:
+                hit_tp = hit_sl = False
+                for m in traj:
+                    if not hit_tp and m >= tgt: hit_tp = True
+                    if not hit_sl and m <= -tgt: hit_sl = True
+                if hit_tp and not hit_sl: wins += 1
+                elif hit_sl: losses += 1
+                else: timeouts += 1
+            resolved = wins + losses
+            wr = wins / resolved * 100 if resolved > 0 else 0
+            to_pct = timeouts / n * 100
+            gross_exp = ((wins * tgt) - (losses * tgt)) / n if n > 0 else 0
+            net_taker = gross_exp - 0.12
+            marker = ' ✅' if net_taker > 0 else ''
+            print(f'  {tgt:>7.1f}%  {wr:>5.1f}%  {wins:>3}  {losses:>3}  {timeouts:>4}  {to_pct:>4.0f}%  {net_taker:>11.4f}%{marker}')
 "
 ```
 

@@ -57,7 +57,7 @@ find data/ -type f -name "*.csv*" -delete
 ## Step 3: Statistical Extraction & Calibration
 Run the Edge Auditor tool to evaluate current strategy performance.
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 3600
+.venv/bin/python utils/setup_edge_auditor.py --window 14400
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers.
 ```bash
@@ -65,7 +65,67 @@ Run the Calibration grid sweeper to discover and verify optimal AMT target multi
 ```
 Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**, as well as the **🎯 TOP 15 GEOMETRIC AMT TARGET CONFIGURATIONS**.
 
-## Step 4: L2 Microstructure Audit (Liquidity Wall)
+## Step 4: Multi-Window Target Grid Evaluation
+Run a comprehensive matrix evaluation (1h, 2h, 4h windows across 0.6% to 1.2% targets) to ensure we don't blind ourselves to timeouts on a single window.
+```bash
+.venv/bin/python -c "
+import sqlite3, collections
+conn = sqlite3.connect('data/historian.db')
+signals = conn.execute('SELECT timestamp, symbol, side, price, setup_type FROM signals ORDER BY timestamp').fetchall()
+
+windows = [3600, 7200, 14400]
+targets = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
+
+setup_signals = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
+
+for window in windows:
+    for ts, sym, side, price, setup_type in signals:
+        ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+window)).fetchall()
+        if not ps: continue
+        trajectory = []
+        for (p,) in ps:
+            m = (p - price)/price*100
+            if side == 'SHORT': m = -m
+            trajectory.append(m)
+        setup_signals[window][setup_type][sym].append(trajectory)
+
+for window in windows:
+    print(f'\n{\"=\" * 90}')
+    print(f'  WINDOW: {window}s ({window//3600}h)')
+    print(f'{\"=\" * 90}')
+
+    for setup_type in sorted(setup_signals[window].keys()):
+        total_setup_n = sum(len(trajs) for trajs in setup_signals[window][setup_type].values())
+        if total_setup_n < 2: continue
+
+        print(f'\n  🔹 SETUP: {setup_type} 🔹')
+        for sym in sorted(setup_signals[window][setup_type].keys()):
+            n = len(setup_signals[window][setup_type][sym])
+            if n < 3: continue
+            print(f'\n  【 {sym} 】 (n={n})')
+            print(f'  {\"Target\":>8}  {\"WR%\":>6}  {\"W\":>3}  {\"L\":>3}  {\"TO\":>4}  {\"TO%\":>5}  {\"Net Taker%\":>12}')
+            print(f'  {\"-\" * 60}')
+            for tgt in targets:
+                wins = losses = timeouts = 0
+                for traj in setup_signals[window][setup_type][sym]:
+                    hit_tp = hit_sl = False
+                    for m in traj:
+                        if not hit_tp and m >= tgt: hit_tp = True
+                        if not hit_sl and m <= -tgt: hit_sl = True
+                    if hit_tp and not hit_sl: wins += 1
+                    elif hit_sl: losses += 1
+                    else: timeouts += 1
+                resolved = wins + losses
+                wr = wins / resolved * 100 if resolved > 0 else 0
+                to_pct = timeouts / n * 100
+                gross_exp = ((wins * tgt) - (losses * tgt)) / n if n > 0 else 0
+                net_taker = gross_exp - 0.12
+                marker = ' ✅' if net_taker > 0 else ''
+                print(f'  {tgt:>7.1f}%  {wr:>5.1f}%  {wins:>3}  {losses:>3}  {timeouts:>4}  {to_pct:>4.0f}%  {net_taker:>11.4f}%{marker}')
+"
+```
+
+## Step 5: L2 Microstructure Audit (Liquidity Wall)
 Run the L2 Depth Auditor to verify passive liquidity support.
 ```bash
 .venv/bin/python utils/l2_depth_auditor.py
@@ -82,7 +142,8 @@ After running Step 3, the agent MUST:
 2. **Present Section [7]: Overall Edge Summary** - Aggregate metrics and viability assessment
 3. **Present the Theoretical Win-Rate Matrix** (Section [2/5]) with Net (Taker) and Net (Maker)
 4. **Present the Decision Trace Audit** (Section [4])
-5. **Present the L2 Microstructure Certification** (Step 4) - Does the High Wall (>2.0) category correlate with higher expectancy?
+5. **Present the Multi-Window Target Grid Evaluation** (Step 4) - Verify at which window/target combo Net Taker Expectancy peaks.
+6. **Present the L2 Microstructure Certification** (Step 5) - Does the High Wall (>2.0) category correlate with higher expectancy?
 6. **Assign a Certification Status** for each setup based on the criteria below
 7. **List highly specific observations** (e.g., "Setup X has Expectancy 0.15% but needs Limit Sniper", "MAE too high, tighten entry filters")
 8. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.

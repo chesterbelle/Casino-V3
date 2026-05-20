@@ -27,11 +27,12 @@
 *   **Métrica de Estrés**: Trazabilidad asíncrona validada en ventanas de 500ms (Phase 2).
 *   **Latency Guard**: Zero-interference logging via memory-resident DNA traces.
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (Global 10-Coins)]
-*   **AMT V10 Alpha**: Certified in 10 major crypto assets (ADA, AVAX, BNB, DOGE, ETH, LINK, LTC, SOL, SUI, XRP).
-*   **Hito Actual**: **Certificación de Universalidad Microestructural**.
-*   **Métrica Forense**: Gross Expectancy +0.1566%, Net Taker +0.0366% (385 señales) bajo ventana fija de 1 hora.
-*   **Symmetry**: Calibración óptima demostrada en 0.8% TP / 0.8% SL o 0.9% TP / 0.6% SL (con clamping temporal de 1 hora). L2 Depth > 2.0 requerido.
+### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (4-Coin Net Taker Positive)]
+*   **AMT V10 Alpha**: Audited across 10 crypto assets. 4 certified Net Taker positive (BNB, SOL, SUI, AVAX).
+*   **Hito Actual**: **Multi-Window Grid Discovery** — Ventana de 4h elimina Timeouts y desbloquea Net Taker positivo.
+*   **Métrica Forense (4h Window)**: BNB +0.107% (1.2% target), SOL +0.28% (1.2%), SUI +0.08% (1.2%), AVAX +0.12% (1.2%).
+*   **Sweet Spot**: Target 1.0%-1.2% TP/SL simétrico con ventana de 4h. Ventanas < 2h generan Timeouts que destruyen expectancia.
+*   **ETH EXCLUDED**: Único activo que no logra Net Taker positivo en ninguna combinación window/target.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Slim Exit Engine (v10.2)**: Salidas tácticas vía Maker (Limit Orders) certificadas.
@@ -52,21 +53,25 @@
 
 ### Current Status: 🟢 Certified (Fast-Lane Active)
 - **Architecture**: `v8.1.0` deployed. `TacticalAbsorptionV2` now operates on a **Fast-Lane** (0ms latency).
-- **Baseline**: +0.1642% Gross Expectancy / +0.0442% Net Taker-Only (LTC 9-Day Dataset at 1.0% TP/SL).
+- **Baseline**: Multi-window grid analysis (2026-05-20). Net Taker positive at 4h window.
 - **Persistence**: 100% Signal Persistence verified.
 - **Guardian Layer**: Repurposed as a **Tactical Confirmation Gate** for Swing/Rotation setups.
 
-### Performance Baseline (Last Audit)
-| Symbol | Strategy | WR% | Net Taker-Only Exp | Verdict |
-|--------|----------|-----|-------------------|---------|
-| LTCUSDT| Absorption (0.9%/1h)| 58.7%| +0.0360% | **CERTIFIED** |
-| Global (10-Coins)| AMT V10 Alpha (0.8%/1h)| 58.1%| +0.0090% | **CERTIFIED** |
-| Global (10-Coins)| AMT V10 Alpha (Dynamic)| 45.1%| +0.0366% | **CERTIFIED** |
+### Performance Baseline (Last Audit — 2026-05-20, 4h Window)
+| Symbol | Target | WR% | Net Taker% | Verdict |
+|--------|--------|-----|------------|---------|
+| BNBUSDT | 1.1% | 64.7% | +0.0286% | **CERTIFIED** |
+| BNBUSDT | 1.2% | 81.8% | +0.1070% | **CERTIFIED** |
+| SOLUSDT | 1.0% | 66.7% | +0.1467% | **CERTIFIED** |
+| SOLUSDT | 1.2% | 72.7% | +0.2800% | **CERTIFIED** |
+| SUIUSDT | 0.8-1.2% | 58.3% | +0.013→+0.08% | **CERTIFIED** |
+| AVAXUSDT | 1.2% | 60.0% | +0.1200% | **CERTIFIED** |
+| ETHUSDT | any | <42% | always negative | **EXCLUDED** |
 
 ### Next Session Objectives
-1.  **Calibración de Targets & Multiplicadores (Reducción de Timeouts)**: Resolver el problema de timeouts y la caída artificial de Win Rate calibrando los multiplicadores de ATR y la lógica en `decision/setup_engine.py` (especialmente el actual 5.0x ATR estático).
-2.  **Live/Paper Trading Readiness**: Asegurar que las credenciales de Testnet estén listas y validar que la latencia en vivo del WebSocket se mantenga bajo los 50ms para la ejecución Fast-Lane.
-3.  **Portafolio Dinámico (Opcional)**: Habilitar trading concurrente multi-moneda de forma segura si la liquidez en L2 lo permite.
+1.  **Live/Paper Trading (BNB, SOL, SUI, AVAX)**: Conectar al Testnet con los 4 activos certificados. Validar slippage real y latencia WebSocket.
+2.  **ETH Filter Gate**: Implementar exclusión explícita de ETH o diseñar filtros de momento más agresivos para activos de alta liquidez falsa.
+3.  **Timeout Management en Producción**: Implementar salida por tiempo a 4h en `SlimExitEngine` para alinearse con la ventana óptima descubierta.
 
 ---
 

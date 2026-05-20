@@ -127,7 +127,7 @@ print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
 ## Step 4: Statistical Extraction & Target Calibration
 Evaluate current strategy performance:
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 3600
+.venv/bin/python utils/setup_edge_auditor.py --window 14400
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
 ```bash
@@ -136,7 +136,69 @@ Run the Calibration grid sweeper to discover and verify optimal AMT target multi
 
 ---
 
-## Step 5: Per-Condition Breakdown
+## Step 5: Multi-Window Target Grid Evaluation
+Run a comprehensive matrix evaluation (1h, 2h, 4h windows across 0.6% to 1.2% targets) to ensure we don't blind ourselves to timeouts on a single window.
+```bash
+.venv/bin/python -c "
+import sqlite3, collections
+conn = sqlite3.connect('data/historian.db')
+signals = conn.execute('SELECT timestamp, symbol, side, price, setup_type FROM signals ORDER BY timestamp').fetchall()
+
+windows = [3600, 7200, 14400]
+targets = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
+
+setup_signals = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
+
+for window in windows:
+    for ts, sym, side, price, setup_type in signals:
+        ps = conn.execute('SELECT price FROM price_samples WHERE symbol=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp', (sym, ts, ts+window)).fetchall()
+        if not ps: continue
+        trajectory = []
+        for (p,) in ps:
+            m = (p - price)/price*100
+            if side == 'SHORT': m = -m
+            trajectory.append(m)
+        setup_signals[window][setup_type][sym].append(trajectory)
+
+for window in windows:
+    print(f'\n{\"=\" * 90}')
+    print(f'  WINDOW: {window}s ({window//3600}h)')
+    print(f'{\"=\" * 90}')
+
+    for setup_type in sorted(setup_signals[window].keys()):
+        total_setup_n = sum(len(trajs) for trajs in setup_signals[window][setup_type].values())
+        if total_setup_n < 2: continue
+
+        print(f'\n  🔹 SETUP: {setup_type} 🔹')
+        for sym in sorted(setup_signals[window][setup_type].keys()):
+            n = len(setup_signals[window][setup_type][sym])
+            if n < 3: continue
+            print(f'\n  【 {sym} 】 (n={n})')
+            print(f'  {\"Target\":>8}  {\"WR%\":>6}  {\"W\":>3}  {\"L\":>3}  {\"TO\":>4}  {\"TO%\":>5}  {\"Net Taker%\":>12}')
+            print(f'  {\"-\" * 60}')
+            for tgt in targets:
+                wins = losses = timeouts = 0
+                for traj in setup_signals[window][setup_type][sym]:
+                    hit_tp = hit_sl = False
+                    for m in traj:
+                        if not hit_tp and m >= tgt: hit_tp = True
+                        if not hit_sl and m <= -tgt: hit_sl = True
+                    if hit_tp and not hit_sl: wins += 1
+                    elif hit_sl: losses += 1
+                    else: timeouts += 1
+                resolved = wins + losses
+                wr = wins / resolved * 100 if resolved > 0 else 0
+                to_pct = timeouts / n * 100
+                gross_exp = ((wins * tgt) - (losses * tgt)) / n if n > 0 else 0
+                net_taker = gross_exp - 0.12
+                marker = ' ✅' if net_taker > 0 else ''
+                print(f'  {tgt:>7.1f}%  {wr:>5.1f}%  {wins:>3}  {losses:>3}  {timeouts:>4}  {to_pct:>4.0f}%  {net_taker:>11.4f}%{marker}')
+"
+```
+
+---
+
+## Step 6: Per-Condition Breakdown
 ```bash
 .venv/bin/python utils/analysis/per_condition_audit.py
 ```
@@ -144,7 +206,7 @@ Note: `per_condition_audit.py` uses timestamp ranges derived from the 9 datasets
 
 ---
 
-## Step 6: L2 Microstructure Audit (Liquidity Wall)
+## Step 7: L2 Microstructure Audit (Liquidity Wall)
 Run the L2 Depth Auditor to verify passive liquidity support across all 3 market conditions.
 ```bash
 .venv/bin/python utils/l2_depth_auditor.py
@@ -154,16 +216,17 @@ Run the L2 Depth Auditor to verify passive liquidity support across all 3 market
 
 ## ⛔ MANDATORY STOP — Present Results and Certification Status
 
-After Step 5, the agent **MUST STOP COMPLETELY** and present:
+After Step 6, the agent **MUST STOP COMPLETELY** and present:
 
 1. **Section [7]: Overall Edge Summary** from the auditor (Gross Expectancy, Net Taker/Maker)
 2. **Section [4]: Decision Trace Audit** (Forensic reasons for rejections)
-3. **Per-condition table** (Step 5): All 3 conditions (Range, Bear, Bull) with Expectancy% and Verdicts
-4. **Guardian effectiveness**: Compare signal counts across conditions
+3. **Multi-Window Target Grid Evaluation** (Step 5) - Determine the optimal target and holding window.
+4. **Per-condition table** (Step 6): All 3 conditions (Range, Bear, Bull) with Expectancy% and Verdicts
+5. **Guardian effectiveness**: Compare signal counts across conditions
    - Range should have the MOST signals (balance = our edge zone)
    - Bear/Bull should have FEWER signals (guardians blocking counter-trend)
-5. **L2 Correlation Result**: Present the L2 Depth Ratio Audit results (Step 6).
-6. **STOP and wait** for user input
+6. **L2 Correlation Result**: Present the L2 Depth Ratio Audit results (Step 7).
+7. **STOP and wait** for user input
 
 ### Certification Matrix
 
