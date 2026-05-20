@@ -126,7 +126,7 @@ print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
 
 ## Step 4: Statistical Extraction (MFE/MAE Aggregate)
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 1800
+.venv/bin/python utils/setup_edge_auditor.py --window 3600
 ```
 
 ---

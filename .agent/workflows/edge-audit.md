@@ -57,7 +57,7 @@ find data/ -type f -name "*.csv*" -delete
 ## Step 3: Statistical Extraction (MFE/MAE)
 Run the Edge Auditor tool.
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 1800
+.venv/bin/python utils/setup_edge_auditor.py --window 3600
 ```
 Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**.
 
