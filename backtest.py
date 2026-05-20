@@ -62,12 +62,23 @@ def parse_args():
     parser.add_argument(
         "--depth-db-path", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
     )
+    parser.add_argument("--historian-db", type=str, default=None, help="Custom output path for historian.db")
     parser.add_argument("--audit", action="store_true", help="Enable Zero-Interference Audit Mode (Edge Validation)")
     return parser.parse_args()
 
 
 async def run_backtest():
     args = parse_args()
+
+    if args.historian_db:
+        from core.observability.historian import historian
+        historian.stop()
+        historian.db_path = args.historian_db
+        historian._ensure_data_dir()
+        historian._init_db()
+        historian._worker_process = None
+        historian._queue = None
+        logger.warning(f"💾 Historian: Dynamically redirected output to custom DB: {args.historian_db}")
 
     if args.audit:
         trading_config.AUDIT_MODE = True

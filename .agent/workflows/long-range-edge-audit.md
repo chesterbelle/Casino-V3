@@ -35,7 +35,7 @@ Runs 9 backtests across three distinct conditions (3 days each).
 
 ## Step 0: Nuclear Reset
 ```bash
-.venv/bin/python reset_data.py
+.venv/bin/python utils/reset_data.py
 ```
 **Must output**: `✨ Sistema limpio.`
 
@@ -69,39 +69,42 @@ done
 
 ---
 
-## Step 2: Run Backtests (9 total — LTC × 3 conditions × 3 days)
-
-### 2A: LTC RANGE (Feb, May, Aug Day 1s)
+## Step 2: Run Backtests (9 total in Parallel)
 ```bash
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-02-01.db --symbol LTCUSDT --audit
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-05-01.db --symbol LTCUSDT --audit
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-08-01.db --symbol LTCUSDT --audit
-echo "✅ LTC RANGE COMPLETED"
-```
+# Zombie prevention shield: kill all background jobs on Ctrl+C or termination
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
-### 2B: LTC BEAR (Apr, Oct, Feb Day 1s)
-```bash
+# 2A: LTC RANGE
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-04-01.db --symbol LTCUSDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-02-01.db --symbol LTCUSDT --historian-db data/historian_LTC_RANGE_2024-02-01.db --audit &
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-10-01.db --symbol LTCUSDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-05-01.db --symbol LTCUSDT --historian-db data/historian_LTC_RANGE_2024-05-01.db --audit &
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2025-02-01.db --symbol LTCUSDT --audit
-echo "✅ LTC BEAR COMPLETED"
-```
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_RANGE_2024-08-01.db --symbol LTCUSDT --historian-db data/historian_LTC_RANGE_2024-08-01.db --audit &
 
-### 2C: LTC BULL (Mar, Dec, May Day 1s)
-```bash
+# 2B: LTC BEAR
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-03-01.db --symbol LTCUSDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-04-01.db --symbol LTCUSDT --historian-db data/historian_LTC_BEAR_2024-04-01.db --audit &
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-12-01.db --symbol LTCUSDT --audit
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2024-10-01.db --symbol LTCUSDT --historian-db data/historian_LTC_BEAR_2024-10-01.db --audit &
 // turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2025-05-01.db --symbol LTCUSDT --audit
-echo "✅ LTC BULL COMPLETED"
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BEAR_2025-02-01.db --symbol LTCUSDT --historian-db data/historian_LTC_BEAR_2025-02-01.db --audit &
+
+# 2C: LTC BULL
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-03-01.db --symbol LTCUSDT --historian-db data/historian_LTC_BULL_2024-03-01.db --audit &
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2024-12-01.db --symbol LTCUSDT --historian-db data/historian_LTC_BULL_2024-12-01.db --audit &
+// turbo
+.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/LTC_BULL_2025-05-01.db --symbol LTCUSDT --historian-db data/historian_LTC_BULL_2025-05-01.db --audit &
+
+echo "⏳ Waiting for parallel backtests to complete..."
+wait
+
+echo "🏁 ALL 9 BACKTESTS COMPLETE"
+
+# Consolidate isolated databases into master historian.db
+.venv/bin/python utils/merge_historian.py
 ```
 
 ---
