@@ -359,9 +359,13 @@ class SetupEngineV4(TraceBulletMixin):
                 if dist_to_boundary <= 0:
                     dist_to_boundary = dist_to_poc * 0.8
 
-                # Historical Baseline Noise Floors (Restoring the 0.90% / 0.60% standard)
-                tp_noise_floor_pct = atr_pct * 5.0
-                sl_noise_floor_pct = atr_pct * 3.33
+                # Historical Baseline Noise Floors (Restoring scenario-specific standards)
+                if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+                    tp_noise_floor_pct = atr_pct * 5.0
+                    sl_noise_floor_pct = atr_pct * 3.33
+                else:
+                    tp_noise_floor_pct = atr_pct * 2.5
+                    sl_noise_floor_pct = atr_pct * 2.0
 
                 # Calibrated Geometric Multipliers (from recent grid sweep: k_TP=1.5, k_SL=1.2)
                 geo_tp_pct = 1.5 * (dist_to_poc / price) * 100.0
