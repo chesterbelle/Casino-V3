@@ -21,6 +21,10 @@ def _historian_worker(db_path: str, q: mp.Queue):
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL;")
+        try:
+            conn.execute("ALTER TABLE price_samples ADD COLUMN micro_z REAL")
+        except sqlite3.OperationalError:
+            pass
     except Exception as e:
         worker_logger.error(f"HistorianWorker failed to connect to DB: {e}")
         return
@@ -63,8 +67,8 @@ def _historian_worker(db_path: str, q: mp.Queue):
             elif action == "INSERT_PRICE_SAMPLE":
                 conn.execute(
                     """
-                    INSERT INTO price_samples (timestamp, symbol, price)
-                    VALUES (?, ?, ?)
+                    INSERT INTO price_samples (timestamp, symbol, price, micro_z)
+                    VALUES (?, ?, ?, ?)
                     """,
                     data,
                 )
@@ -333,10 +337,15 @@ class TradeHistorian:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp REAL,
                 symbol TEXT,
-                price REAL
+                price REAL,
+                micro_z REAL
             )
             """
         )
+        try:
+            conn.execute("ALTER TABLE price_samples ADD COLUMN micro_z REAL")
+        except sqlite3.OperationalError:
+            pass
         try:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(timestamp)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_price_ts_sym ON price_samples(timestamp, symbol)")
@@ -428,15 +437,15 @@ class TradeHistorian:
         self._ensure_worker()
         self._queue.put(("INSERT_SIGNAL", (timestamp, symbol, side, setup_type, price, metadata, session_id)))
 
-    def record_price_sample(self, timestamp: float, symbol: str, price: float):
+    def record_price_sample(self, timestamp: float, symbol: str, price: float, micro_z: Optional[float] = None):
         """
-        Phase 800: Edge Auditor. Records high-frequency price snapshots for MFE/MAE analysis.
+        Phase 800: Edge Auditor. Records price snapshots for MFE/MAE and micro_z trajectory analysis.
         """
         if not self._use_mp:
             return
 
         self._ensure_worker()
-        self._queue.put(("INSERT_PRICE_SAMPLE", (timestamp, symbol, price)))
+        self._queue.put(("INSERT_PRICE_SAMPLE", (timestamp, symbol, price, micro_z)))
 
     def record_trade(self, trade_data: Dict[str, Any]):
         """

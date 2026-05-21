@@ -225,6 +225,10 @@ ENABLE_DECISION_TRACE = False
 # How often (in seconds) to sample price after a signal for MFE/MAE tracking.
 AUDIT_SAMPLING_FREQ = 30.0  # Sample price every 30.0s (30x faster backtests)
 
+# Max holding emitted by SetupEngine for absorption scenarios (seconds).
+# Aligned with setup_edge_auditor DEFAULT_WINDOW (4h) and generalized-edge-audit 2026-05-21.
+ABSORPTION_MAX_HOLDING_SEC = 14400
+
 # =====================================================
 # 🏹 LIMIT SNIPER (V6-Limit)
 # =====================================================

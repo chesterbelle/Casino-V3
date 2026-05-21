@@ -72,6 +72,7 @@ async def run_backtest():
 
     if args.historian_db:
         from core.observability.historian import historian
+
         historian.stop()
         historian.db_path = args.historian_db
         historian._ensure_data_dir()
@@ -213,11 +214,12 @@ async def run_backtest():
             now = event.timestamp
             symbol = event.symbol
             if symbol not in last_sample_ts or (now - last_sample_ts[symbol] >= trading_config.AUDIT_SAMPLING_FREQ):
-                historian.record_price_sample(now, symbol, event.price)
+                _, _, micro_z = context_registry.get_micro_state(symbol)
+                historian.record_price_sample(now, symbol, event.price, micro_z=micro_z)
                 last_sample_ts[symbol] = now
 
         engine.subscribe(EventType.TICK, audit_price_handler)
-        logger.info(f"🔍 Audit: Listeners connected (Freq: {trading_config.AUDIT_SAMPLING_FREQ}s)")
+        logger.info(f"🔍 Audit: Price + micro_z sampler (Freq: {trading_config.AUDIT_SAMPLING_FREQ}s)")
 
         # Phase 1850: Decision Trace Infrastructure (Capa de Hierro)
         engine.subscribe(EventType.DECISION_TRACE, historian.on_decision_trace)

@@ -41,13 +41,20 @@ def merge_databases():
                 if row_count == 0:
                     continue
 
-                # Get column list of the table in the master DB to avoid mismatched schemas
                 columns_cursor = conn.execute(f"PRAGMA table_info({table})")
-                cols = [col[1] for col in columns_cursor.fetchall() if col[1] != "id"]  # Skip auto-increment ID
-                cols_str = ", ".join(cols)
-
-                # Bulk insert from temporary to master
-                conn.execute(f"INSERT OR IGNORE INTO {table} ({cols_str}) SELECT {cols_str} FROM temp_db.{table}")
+                master_cols = [col[1] for col in columns_cursor.fetchall() if col[1] != "id"]
+                temp_cols = {
+                    col[1] for col in conn.execute(f"PRAGMA temp_db.table_info({table})").fetchall() if col[1] != "id"
+                }
+                select_exprs = []
+                for col in master_cols:
+                    if col in temp_cols:
+                        select_exprs.append(col)
+                    else:
+                        select_exprs.append(f"NULL AS {col}")
+                cols_str = ", ".join(master_cols)
+                select_str = ", ".join(select_exprs)
+                conn.execute(f"INSERT OR IGNORE INTO {table} ({cols_str}) SELECT {select_str} FROM temp_db.{table}")
                 total_merged[table] += row_count
             except sqlite3.OperationalError:
                 # Table might not exist in the temp DB (e.g. if no candles were generated)

@@ -11,6 +11,7 @@ import time
 from collections import defaultdict, deque
 from typing import Dict, Tuple
 
+from config import trading as config
 from core.events import (
     AggregatedSignalEvent,
     EventType,
@@ -259,7 +260,11 @@ class SetupEngineV4(TraceBulletMixin):
                 "vah_price": vah_p,
                 "val_price": val_p,
                 "va_width": va_w,
-                "max_holding_time": 3600 if scenario in ["TacticalAbsorptionV2", "absorption_reversal"] else None,
+                "max_holding_time": (
+                    config.ABSORPTION_MAX_HOLDING_SEC
+                    if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]
+                    else None
+                ),
             },
             symbol,
         )
@@ -335,20 +340,17 @@ class SetupEngineV4(TraceBulletMixin):
         if self.context_registry:
             atr_data = self.context_registry.atrs.get(symbol, {})
             # Aligned Volatility Horizon:
-            # TacticalAbsorptionV2 holds for 1h. Scaling targets with 1m short-term ATR leads to
-            # microscopic targets eaten by taker fees. We align the target cage with the 15m medium ATR.
+            # TacticalAbsorptionV2 holds up to ABSORPTION_MAX_HOLDING_SEC (4h). Short 1m ATR alone
+            # yields microscopic targets eaten by taker fees; use 15m medium ATR for the target cage.
             if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
                 atr_pct = atr_data.get("medium") or atr_data.get("short") or atr_pct
             else:
                 atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
 
-        # --- 2. DYNAMIC AMT GEOMETRIC CALIBRATION (Reversion/Rotation setups) ---
-        # If we have structural context, we apply the champion formula calibrated by the Edge Auditor.
-        # Otherwise we fall back to classical volatility (ATR) targets.
+        # --- 2. DYNAMIC AMT TARGETING (Reversion/Rotation setups) ---
+        # Implementation of Phase 800 Target Calibrations
         applied_dynamic = False
         if self.context_registry and scenario in [
-            "TacticalAbsorptionV2",
-            "absorption_reversal",
             "failed_breakout",
             "liquidity_exhaustion",
         ]:
@@ -359,21 +361,21 @@ class SetupEngineV4(TraceBulletMixin):
                 if dist_to_boundary <= 0:
                     dist_to_boundary = dist_to_poc * 0.8
 
-                # Historical Baseline Noise Floors (Restoring scenario-specific standards)
-                if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
-                    tp_noise_floor_pct = atr_pct * 5.0
-                    sl_noise_floor_pct = atr_pct * 3.33
+                noise_floor_pct = 1.0 * atr_pct
+
+                if scenario == "failed_breakout":
+                    geo_tp_pct = 8.0 * (dist_to_poc / price) * 100.0
+                    geo_sl_pct = 7.0 * (dist_to_boundary / price) * 100.0
+                    tp_dist_pct = max(noise_floor_pct, geo_tp_pct)
+                    sl_dist_pct = max(noise_floor_pct * 0.8, geo_sl_pct)
+                elif scenario == "liquidity_exhaustion":
+                    geo_tp_pct = 0.5 * (dist_to_poc / price) * 100.0
+                    geo_sl_pct = 1.0 * (dist_to_boundary / price) * 100.0
+                    tp_dist_pct = max(noise_floor_pct, geo_tp_pct)
+                    sl_dist_pct = max(noise_floor_pct * 0.8, geo_sl_pct)
                 else:
-                    tp_noise_floor_pct = atr_pct * 2.5
-                    sl_noise_floor_pct = atr_pct * 2.0
-
-                # Calibrated Geometric Multipliers (from recent grid sweep: k_TP=1.5, k_SL=1.2)
-                geo_tp_pct = 1.5 * (dist_to_poc / price) * 100.0
-                geo_sl_pct = 1.2 * (dist_to_boundary / price) * 100.0
-
-                # Dynamic Expansion: Never drop below historical baseline, but expand if geometry is wider
-                tp_dist_pct = max(tp_noise_floor_pct, geo_tp_pct)
-                sl_dist_pct = max(sl_noise_floor_pct, geo_sl_pct)
+                    tp_dist_pct = noise_floor_pct
+                    sl_dist_pct = noise_floor_pct * 0.8
 
                 tp_dist_decimal = tp_dist_pct / 100.0
                 sl_dist_decimal = sl_dist_pct / 100.0
@@ -391,17 +393,16 @@ class SetupEngineV4(TraceBulletMixin):
 
         if not applied_dynamic:
             # --- 3. FALLBACK TO VOLATILITY MULTIPLIERS (Classic ATR) ---
-            # Industry standard: Reversion trades use tighter cages; trends use wider ones.
-            # Everything remains symmetric (1:1 RR) to preserve Win Rate.
+            # TacticalAbsorptionV2 was mathematically proven to underperform with geometry
+            # and dominate with fixed massive targets (5.0x ATR) under a 4h window.
             MULTIPLIERS = {
-                "trend_acceptance": 4.5,  # Wider cage for runners
-                "failed_breakout": 2.5,  # Standard cage for reversals
-                "absorption_reversal": 5.0,  # 5.0x 15m ATR for macro auction rotation (~0.90% on LTC)
-                "liquidity_exhaustion": 2.5,  # Standard cage for reversals
+                "TacticalAbsorptionV2": 5.0,
+                "absorption_reversal": 5.0,
+                "trend_acceptance": 4.5,
+                "failed_breakout": 2.5,
+                "liquidity_exhaustion": 2.5,
             }
             mult = MULTIPLIERS.get(scenario, 2.5)
-            if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
-                mult = 5.0
 
             # We calculate the pure mathematical targets based on volatility.
             if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:

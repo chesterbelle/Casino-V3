@@ -442,11 +442,14 @@ async def main():
             now = event.timestamp
             symbol = event.symbol
             if symbol not in last_sample_ts or (now - last_sample_ts[symbol] >= trading_config.AUDIT_SAMPLING_FREQ):
-                historian.record_price_sample(now, symbol, event.price)
+                micro_z = None
+                if context_registry:
+                    _, _, micro_z = context_registry.get_micro_state(symbol)
+                historian.record_price_sample(now, symbol, event.price, micro_z=micro_z)
                 last_sample_ts[symbol] = now
 
         engine.subscribe(EventType.TICK, audit_price_handler)
-        logger.info(f"🔍 Audit: Price Sampler linked (Freq: {trading_config.AUDIT_SAMPLING_FREQ}s)")
+        logger.info(f"🔍 Audit: Price + micro_z sampler (Freq: {trading_config.AUDIT_SAMPLING_FREQ}s)")
 
     # 12. Initialize State Manager (for crash recovery)
     from core.state import StateManager

@@ -114,3 +114,4 @@
 - 2026-05-15T18:22:18.750788 | session-close | L2 & price ingest completed, CSVs removed.
 - 2026-05-16T00:22:00.000000 | session-close | Fast-Lane bug fixed (Persistence restored). v8.1.0-fast-lane-certified tagged.
 - 2026-05-18T02:32:51.321874 | edge-audit | L2 & price ingest completed, CSVs removed.
+- 2026-05-21T00:50:48.586692 | generalized-edge-audit | L2 & price ingest completed, CSVs removed.
