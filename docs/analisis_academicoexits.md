@@ -397,7 +397,7 @@ Para que el cambio de Exit Engine esté **académicamente cubierto**:
 
 | # | Experimento | Workflow / herramienta | Criterio de éxito |
 |---|-------------|------------------------|-------------------|
-| D1 | Audit con **`micro_z` cada 30 s** en `price_samples` | ✅ implementado en historian + backtest/main | Validar Pilar 4 delta vs giveback |
+| D1 | Audit con **`micro_z` cada 30 s** en `price_samples` | ✅ implementado — corrida: `docs/plan_corrida_delta_invalidacion.md` | Validar Pilar 4 delta vs giveback |
 | D2 | Recalibrar **`max_holding_time`** en setup (14 400 s) | ✅ `ABSORPTION_MAX_HOLDING_SEC` en `config/trading.py` | Alineado con §2.1 |
 | D3 | Backtest **sin** `--audit` (pilares on) | `strategy-audit.md` | PnL real vs cinemática D1 |
 | D4 | Ablation: DI solo post-impulso vs siempre | flags SlimExit | Reducir cierres prematuros |
