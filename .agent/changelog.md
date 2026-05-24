@@ -8,6 +8,107 @@
 
 ## 📝 Historial de Sesiones
 
+### [2026-05-24] — Slimming Architecture: Pillar Purge & Renaming (Branch: v8.2-exit-edge-auditor)
+### Summary: Eliminación de deuda técnica (Break-Even & Trailing Stop) y purificación del Exit Engine
+Tras analizar la data y confirmar que el Break-Even mataba al 93.75% de los ganadores, decidimos hacer el bot *Slim* de verdad: eliminamos los pilares 2 y 3. Solo mantenemos Scale Out (Pilar 1) y Micro-Z Reversal (Pilar 4).
+
+#### 1. Limpieza de Arquitectura
+*   **Pilar 2 (Break-Even) y Pilar 3 (Trailing Stop)**: Eliminados por completo de `config/trading.py` y `croupier/components/slim_exit_engine.py`.
+*   **Renombrado**: `z_shift_invalidation` ahora es `micro_z_reversal` (configuración y método), reflejando mejor su función como guardia de reversión estructural.
+*   **Simplificación**: `SlimExitEngine` ahora tiene solo 2 pilares activos, reduciendo drásticamente la superficie de ataque y los falsos positivos.
+
+#### 2. Validación
+*   Actualizados `utils/validators/exit_engine_validator.py` y `exit_engine_integration_validator.py` eliminando las pruebas de BE y Trailing y confirmando que la lógica `Micro-Z Reversal` + `Scale Out` sigue siendo determinística.
+
+#### 3. Próximos Pasos
+*   Ya no estamos "diseñando" salidas complejas. Con este sistema Slim, el Alpha de la entrada debe brillar por sí mismo.
+*   Conectar al Testnet/Live para validar slippage y ejecución.
+
+---
+
+### [2026-05-24] — Pillar #4 Replacement: Z-Shift Invalidation (Branch: v8.2-exit-edge-auditor)
+### Summary: Reemplazo de Delta Invalidation por Z-Shift Invalidation (abs ΔZ > threshold)
+Ejecutamos el Exit Edge Auditor (`utils/exit_edge_auditor.py`) sobre la base de datos fusionada de 9 datasets LTC (45 señales, 2644 traces). El auditor identificó `delta_z_absolute` como la mejor regla candidata (Precision: 0.83, Recall: 0.62). Implementamos el nuevo pilar `z_shift_invalidation` en el SlimExitEngine.
+
+#### 1. Ejecución del Exit Edge Auditor
+*   **Dataset**: `data/historian_final_merged.db` (45 señales, 12 con trayectorias válidas)
+*   **Mejor regla**: `delta_z_absolute` — salir cuando `abs(current_z - entry_z) > 4.0`
+    *   Precision: 0.83 (83% de los triggers fueron fracasos reales)
+    *   Recall: 0.62 (capturó 62% de todos los fracasos)
+*   **Segunda mejor**: `z_score_divergence` (Precision: 0.71, Recall: 0.62)
+*   **Regla antigua** (`delta_z_signed_wrong`): Precision: 0.50, Recall: 0.12 — claramente inferior
+
+#### 2. Cambios Técnicos
+*   `config/trading.py`: Agregado `z_shift_invalidation` a los 4 perfiles de activos (threshold=4.0, enabled=True). Se mantiene `delta_invalidation` legacy como transición.
+*   `croupier/components/slim_exit_engine.py`:
+    *   Nuevo método `_check_z_shift_invalidation()` en `on_tick` (Pilar 4a, antes que DI legacy)
+    *   Lógica: `abs(current_z - entry_z) > threshold` → exit `ZS_Z_SHIFT`
+*   `utils/validators/exit_engine_validator.py`: Nuevo test `test_z_shift_invalidation()` (4 casos)
+*   `utils/validators/exit_engine_integration_validator.py`: Nuevo test `test_z_shift_invalidation_triggers_close()`, corregido pillar priority test
+
+#### 3. Archivos Modificados
+*   `config/trading.py` — Agregados z_shift_invalidation en 4 perfiles
+*   `croupier/components/slim_exit_engine.py` — Nuevo método y check en on_tick
+*   `utils/validators/exit_engine_validator.py` — Nuevos tests unitarios
+*   `utils/validators/exit_engine_integration_validator.py` — Nuevos tests de integración
+*   `.agent/changelog.md` — Esta entrada
+
+#### 4. Próximos Pasos
+1. Correr fresh backtests con SlimExitEngine + Z-Shift para los 4 coins certificados (BNB, SOL, SUI, AVAX)
+2. Fusionar historians para n ≥ 500 señales
+3. Re-ejecutar auditor con muestra estadísticamente significativa
+4. Evaluar ensemble rules si la muestra lo permite
+5. Deprecar/remover Delta Invalidation legacy
+
+---
+
+### [2026-05-22] — Exit Edge Auditor Infrastructure Development (Branch: v8.2-exit-edge-auditor)
+### Summary: Desarrollo de infraestructura para diseño automatizado de reglas de salida
+Desarrollamos las herramientas necesarias para el Exit Edge Auditor basado en análisis de trayectoria:
+- Created `utils/trajectory_core.py` - shared utilities for trajectory analysis extracted from setup_edge_auditor.py
+- Refactored `utils/setup_edge_auditor.py` to use trajectory_core (maintaining identical output)
+- Created `utils/exit_edge_auditor.py` - automated discovery of exit rules from trajectory data
+- Analyzed existing 96 signals dataset to understand limitations and data requirements
+- Documented plan for validation with adequate trajectory data (≥300 signals)
+
+#### 1. Arquitectura Desarrollada
+*   **trajectory_core.py**: Módulo compartido que extrae funcionalidades de setup_edge_auditor.py:
+    *   `load_data()` - carga signals, price_samples y decision_traces
+    *   `get_trajectory()` - extrae trayectoria para una señal con cálculo de MFE/MAE
+    *   `calculate_t_stop()` - detección automática de cuando el upside se vuelve muerto
+    *   `extract_trajectory_features()` - extrae features para evaluación de reglas
+    *   Constantes compartidas SETUP_WINDOWS y DEFAULT_WINDOW
+*   **exit_edge_auditor.py**: Sistema automatizado que:
+    *   Analiza todas las trayectorias y calcula t_stop usando algoritmo de upside muerto
+    *   Prueba familias de reglas (delta_z, mfe_threshold, mae_cap, sl_crossed, time_stagnant y combinaciones)
+    *   Evalúa reglas con métricas de precision, recall, hit rate y false positive/negative rates
+    *   Genera reporte comprehensivo con recomendaciones para implementación en SlimExitEngine
+
+#### 2. Hallazgos Técnicos con Dataset Actual (96 señales)
+*   **Limitación de datos**: 0 señales con micro_z disponible en price_samples (solo 1 muestra por señal)
+*   **Distribución de señal por setup**: TacticalAbsorptionV2: 91, failed_breakout: 2, liquidity_exhaustion: 3
+*   **MFE máximo observado**: ~+0.8% en algunas señales (usando aproximación de precio único)
+*   **Regla más prometedora identificada**: delta_z (cambio en z-score desde entrada)
+    *   Precision: 1.00, Recall: 0.50 en dataset limitado
+    *   Ideal para evitar falsos positivos en señales que llegan al target
+
+#### 3. Archivos Modificados
+*   `utils/trajectory_core.py` — Nuevo módulo de análisis de trayectoria compartido
+*   `utils/setup_edge_auditor.py` — Refactorizado para usar trajectory_core (output idéntico)
+*   `utils/exit_edge_auditor.py` — Nuevo sistema de descubrimiento automático de reglas de salida
+*   `docs/EXIT_EDGE_AUDITOR_PLAN.md` — Plan de validación y próximos pasos
+*   `.agent/memory.md` — Actualizado con estado de trabajo y próximos objetivos
+*   `.agent/changelog.md` — Esta entrada
+
+#### 4. Próximos Pasos
+1. Ejecutar corrida de auditoría completa con ≥300 señales y micro_z en price_samples
+2. Validar reglas de salida con Exit Edge Auditor
+3. Implementar pilar recomendado en SlimExitEngine basado en resultados
+4. Ejecutar strategy-audit con SlimExit activo para medir interferencia real
+5. Comparar PnL vs baseline y actualizar memoria
+
+---
+
 ### [2026-05-20 PM] — Multi-Window Grid Discovery & Methodology Consolidation (Branch: v8.1-unified-decision-dna)
 ### Summary: Descubrimiento de Ventana Óptima 4h y Certificación Net Taker de 4 Activos
 Ejecutamos la Auditoría de Borde Generalizada (10 Coins × 24h) siguiendo el protocolo `/generalized-edge-audit`. Al analizar los resultados iniciales con ventana de 1h, descubrimos que los Timeouts masivos (73-100%) destruían la expectancia neta. El usuario identificó que el script de evaluación estaba cortando prematuramente con targets hardcodeados de 0.3% cuando el sweet spot real era ~1%. Esto llevó a tres correcciones metodológicas críticas:

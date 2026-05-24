@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """
-Layer 0.E: ExitEngine Layer Math Validator
--------------------------------------------
-Validates each ExitEngine layer computes correct exit decisions independently.
+Layer 0.E: SlimExitEngine Pillar Math Validator
+------------------------------------------------
+Validates each SlimExitEngine pillar computes correct exit decisions in isolation.
 
-Tests (isolated, no real Croupier/SensorManager):
-  1. Layer 5: Catastrophic triggers at >50% loss, never on profitable position
-  2. Layer 4: Flow invalidation at Z>3.0 early / Z>5.5 emergency (correct direction)
-  3. Layer 4: Stagnation ONLY triggers when unrealized PnL < 0 (profit-aware fix)
-  4. Layer 4: Wall collapse detection
-  5. Layer 3: Valentino triggers at 70% of TP distance, scale-out 50%
-  6. Layer 2: Breakeven moves SL to entry when profit threshold reached
-  7. Layer 1: Session drain activates only when croupier.is_drain_mode=True
-  8. _pending_terminations prevents double-close from concurrent layers
-
-Input  → Synthetic positions with known values
-Output → Assert correct boolean/string decisions per layer
+Tests (no real Croupier / SensorManager):
+  1. Profile resolution (BLUE_CHIP vs DEFAULT fallback)
+  2. Pillar 4: Micro-Z Reversal
+  3. Pillar 1: Scale-out at ATR target
+  4. Patience lock grace period skips tactical processing
 
 Usage:
     python utils/validators/exit_engine_validator.py
@@ -24,9 +17,12 @@ Usage:
 import asyncio
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
+from config import trading as trading_config
+from core.events import TickEvent
 from core.portfolio.position_tracker import OpenPosition
 
 
@@ -40,35 +36,16 @@ def fail(msg):
 
 
 # =========================================================
-# MOCK OBJECTS
+# MOCKS
 # =========================================================
 
 
 class MockContextRegistry:
-    """Mock ContextRegistry with controllable micro state."""
-
-    def __init__(self, cvd=0.0, skew=0.5, z=0.0, vol_ratio=1.0):
-        self._cvd = cvd
-        self._skew = skew
+    def __init__(self, z=0.0):
         self._z = z
-        self._vol_ratio = vol_ratio
 
     def get_micro_state(self, symbol):
-        return (self._cvd, self._skew, self._z)
-
-    def get_volatility_ratio(self, symbol):
-        return self._vol_ratio
-
-    def get_structural(self, symbol):
-        return (0.0, 0.0, 0.0)
-
-    def get_flow_inertia(self, symbol, side, profit_pct):
-        return 1.0
-
-
-class MockErrorHandler:
-    def __init__(self):
-        self.shutdown_mode = False
+        return (0.0, 0.5, self._z)
 
 
 class MockPositionTracker:
@@ -80,44 +57,35 @@ class MockPositionTracker:
 
 
 class MockCroupier:
-    """Minimal Croupier mock with tracking for close/scale_out calls."""
-
     def __init__(self, context_registry=None):
         self.context_registry = context_registry
         self.position_tracker = MockPositionTracker()
-        self.error_handler = MockErrorHandler()
-        self.is_drain_mode = False
-        self.close_calls = []  # [(trade_id, reason), ...]
-        self.scale_out_calls = []  # [(trade_id, fraction), ...]
+        self.close_calls = []
+        self.scale_out_calls = []
+        self.modify_sl_calls = []
 
-    async def close_position(self, trade_id, exit_reason=""):
-        self.close_calls.append((trade_id, exit_reason))
+    async def close_position(self, trade_id, exit_reason="", prefer_maker=False):
+        self.close_calls.append((trade_id, exit_reason, prefer_maker))
 
     async def scale_out_structural(self, trade_id, fraction=0.5, reason=""):
         self.scale_out_calls.append((trade_id, fraction, reason))
 
-    def get_open_positions(self):
-        return self.position_tracker.open_positions
+    async def modify_sl(self, trade_id, new_sl_price, symbol):
+        self.modify_sl_calls.append((trade_id, new_sl_price, symbol))
 
 
 def make_position(
-    symbol="LTCUSDT",
+    symbol="BTCUSDT",
     side="LONG",
     entry_price=100.0,
-    tp_level=None,
-    sl_level=None,
-    setup_type="AbsorptionScalpingV1",
     trade_id="test_001",
     timestamp=0.0,
+    entry_atr=1.0,
+    entry_z=None,
     scaled_out=False,
-    scale_out_trigger=None,
+    be_activated=False,
     shadow_sl_level=None,
-    bars_held=0,
-    amount=1.0,
 ):
-    """Create a synthetic OpenPosition for testing."""
-    tp = tp_level or (entry_price * 1.003 if side == "LONG" else entry_price * 0.997)
-    sl = sl_level or (entry_price * 0.997 if side == "LONG" else entry_price * 1.003)
     pos = OpenPosition(
         trade_id=trade_id,
         symbol=symbol,
@@ -125,23 +93,30 @@ def make_position(
         entry_price=entry_price,
         entry_timestamp=str(timestamp),
         timestamp=timestamp,
-        margin_used=entry_price * amount / 10.0,
-        notional=entry_price * amount,
+        margin_used=entry_price / 10.0,
+        notional=entry_price,
         leverage=10.0,
-        tp_level=tp,
-        sl_level=sl,
-        amount=amount,
+        tp_level=entry_price * 1.01,
+        sl_level=entry_price * 0.99,
+        amount=1.0,
     )
-    pos.setup_type = setup_type
+    pos.entry_atr = entry_atr
     pos.scaled_out = scaled_out
-    pos.scale_out_trigger = scale_out_trigger
+    pos.be_activated = be_activated
     pos.shadow_sl_level = shadow_sl_level
-    pos.bars_held = bars_held
-    pos.trigger_level = entry_price
-    pos.last_price = entry_price
-    pos.entry_atr = 0.0
-    pos.trailing_phase = 0
+    if entry_z is not None:
+        pos.entry_z = entry_z
     return pos
+
+
+def blue_chip_profile():
+    return trading_config.ASSET_EXIT_PROFILES["BLUE_CHIP"]
+
+
+def slim_engine(croupier=None):
+    from croupier.components.slim_exit_engine import SlimExitEngine
+
+    return SlimExitEngine(croupier or MockCroupier())
 
 
 # =========================================================
@@ -149,443 +124,164 @@ def make_position(
 # =========================================================
 
 
-def test_layer5_catastrophic():
-    """Layer 5: Catastrophic triggers at >50% loss."""
+def test_profile_resolution():
     print("\n" + "=" * 60)
-    print(" LAYER 5: CATASTROPHIC STOP")
+    print(" PROFILE RESOLUTION")
     print("=" * 60)
 
-    from croupier.components.exit_engine import ExitEngine
-
-    croupier = MockCroupier()
-    engine = ExitEngine(croupier)
-
-    # LONG position, price drops >50%
-    pos = make_position(side="LONG", entry_price=100.0)
-    from core.events import TickEvent
-
-    tick = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=49.0)  # 51% drop
-    result = engine._check_catastrophic(pos, tick)
-    if result is True:
-        ok("LONG catastrophic triggers at 51% drawdown")
+    engine = slim_engine()
+    profile = engine._get_profile("BTC/USDT")
+    if profile is trading_config.ASSET_EXIT_PROFILES["BLUE_CHIP"]:
+        ok("BTC/USDT → BLUE_CHIP profile")
     else:
-        fail("LONG catastrophic should trigger at 51% drawdown")
+        fail("BTC/USDT should resolve to BLUE_CHIP")
 
-    # LONG position, price drops exactly 50% (boundary)
-    tick2 = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=50.0)  # 50% drop
-    result2 = engine._check_catastrophic(pos, tick2)
-    if result2 is False:
-        ok("LONG catastrophic does NOT trigger at exactly 50% (boundary)")
-    else:
-        fail("LONG catastrophic should NOT trigger at exactly 50% (uses > not >=)")
-
-    # SHORT position, price rises >50%
-    pos_short = make_position(side="SHORT", entry_price=100.0)
-    tick3 = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=151.0)  # 51% rise
-    result3 = engine._check_catastrophic(pos_short, tick3)
-    if result3 is True:
-        ok("SHORT catastrophic triggers at 51% adverse move")
-    else:
-        fail("SHORT catastrophic should trigger at 51% adverse move")
-
-    # Profitable position — NEVER triggers
-    pos_profit = make_position(side="LONG", entry_price=100.0)
-    tick4 = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=110.0)  # +10%
-    result4 = engine._check_catastrophic(pos_profit, tick4)
-    if result4 is False:
-        ok("Catastrophic NEVER triggers on profitable position")
-    else:
-        fail("Catastrophic should never trigger on profitable position")
+    default = engine._get_profile("UNKNOWNCOIN")
+    if default is trading_config.ASSET_EXIT_PROFILES["DEFAULT"]:
+        ok("Unknown symbol → DEFAULT profile")
 
 
-def test_layer4_flow_invalidation():
-    """Layer 4: Flow invalidation at Z>3.0 early / Z>5.5 emergency."""
+async def test_micro_z_reversal():
     print("\n" + "=" * 60)
-    print(" LAYER 4a: FLOW INVALIDATION")
+    print(" PILAR 4: MICRO-Z REVERSAL (abs ΔZ)")
     print("=" * 60)
 
-    from croupier.components.exit_engine import ExitEngine
+    profile = blue_chip_profile()
+    threshold = profile["micro_z_reversal"]["threshold"]
 
-    # LONG + Z < -5.5 → FLOW_EMERGENCY
-    ctx = MockContextRegistry(z=-6.0)
+    # LONG: entry_z=-3, abs(current_z - entry_z) > threshold
+    ctx = MockContextRegistry(z=-3.0 + threshold + 1.0)
     croupier = MockCroupier(context_registry=ctx)
-    engine = ExitEngine(croupier)
-    pos = make_position(side="LONG")
-    result = engine._check_flow_invalidation(pos)
-    if result == "FLOW_EMERGENCY":
-        ok("LONG + Z=-6.0 → FLOW_EMERGENCY")
+    engine = slim_engine(croupier)
+    pos = make_position(side="LONG", entry_z=-3.0)
+    triggered = await engine._check_micro_z_reversal(pos, profile)
+    if triggered and pos.trade_id in engine._pending_terminations:
+        ok(f"LONG abs(ΔZ) > {threshold} → invalidation + pending termination")
     else:
-        fail(f"LONG + Z=-6.0 should be FLOW_EMERGENCY, got {result}")
+        fail("LONG Micro-Z reversal should trigger")
+    engine._pending_terminations.discard(pos.trade_id)
 
-    # SHORT + Z > 5.5 → FLOW_EMERGENCY
-    ctx2 = MockContextRegistry(z=6.0)
+    # SHORT: entry_z=+3, abs(current_z - entry_z) > threshold (ΔZ negative but abs > thresh)
+    ctx2 = MockContextRegistry(z=3.0 - threshold - 1.0)
     croupier2 = MockCroupier(context_registry=ctx2)
-    engine2 = ExitEngine(croupier2)
-    pos2 = make_position(side="SHORT")
-    result2 = engine2._check_flow_invalidation(pos2)
-    if result2 == "FLOW_EMERGENCY":
-        ok("SHORT + Z=6.0 → FLOW_EMERGENCY")
+    engine2 = slim_engine(croupier2)
+    pos2 = make_position(side="SHORT", entry_z=3.0)
+    triggered2 = await engine2._check_micro_z_reversal(pos2, profile)
+    if triggered2:
+        ok(f"SHORT abs(ΔZ) > {threshold} → invalidation")
     else:
-        fail(f"SHORT + Z=6.0 should be FLOW_EMERGENCY, got {result2}")
+        fail("SHORT Micro-Z reversal should trigger")
 
-    # LONG + Z = -4.0 → FLOW_INVALIDATION (early)
-    ctx3 = MockContextRegistry(z=-4.0)
-    croupier3 = MockCroupier(context_registry=ctx3)
-    engine3 = ExitEngine(croupier3)
-    pos3 = make_position(side="LONG")
-    result3 = engine3._check_flow_invalidation(pos3)
-    if result3 == "FLOW_INVALIDATION":
-        ok("LONG + Z=-4.0 → FLOW_INVALIDATION (early warning)")
+    # No entry_z baseline
+    engine3 = slim_engine(MockCroupier(context_registry=ctx))
+    pos3 = make_position(side="LONG", entry_z=None)
+    if not await engine3._check_micro_z_reversal(pos3, profile):
+        ok("No entry_z → no invalidation")
     else:
-        fail(f"LONG + Z=-4.0 should be FLOW_INVALIDATION, got {result3}")
+        fail("Missing entry_z should not invalidate")
 
-    # SHORT + Z = 4.0 → FLOW_INVALIDATION (early)
-    ctx4 = MockContextRegistry(z=4.0)
-    croupier4 = MockCroupier(context_registry=ctx4)
-    engine4 = ExitEngine(croupier4)
-    pos4 = make_position(side="SHORT")
-    result4 = engine4._check_flow_invalidation(pos4)
-    if result4 == "FLOW_INVALIDATION":
-        ok("SHORT + Z=4.0 → FLOW_INVALIDATION (early warning)")
+    # Within threshold
+    ctx4 = MockContextRegistry(z=-3.0 + threshold - 0.5)
+    engine4 = slim_engine(MockCroupier(context_registry=ctx4))
+    pos4 = make_position(side="LONG", entry_z=-3.0)
+    if not await engine4._check_micro_z_reversal(pos4, profile):
+        ok("abs(ΔZ) within threshold → no invalidation")
     else:
-        fail(f"SHORT + Z=4.0 should be FLOW_INVALIDATION, got {result4}")
-
-    # LONG + Z = -2.0 → None (below threshold)
-    ctx5 = MockContextRegistry(z=-2.0)
-    croupier5 = MockCroupier(context_registry=ctx5)
-    engine5 = ExitEngine(croupier5)
-    pos5 = make_position(side="LONG")
-    result5 = engine5._check_flow_invalidation(pos5)
-    if result5 is None:
-        ok("LONG + Z=-2.0 → None (below threshold)")
-    else:
-        fail(f"LONG + Z=-2.0 should be None, got {result5}")
-
-    # LONG + Z = +4.0 → None (wrong direction — positive Z is bullish, not bearish)
-    ctx6 = MockContextRegistry(z=4.0)
-    croupier6 = MockCroupier(context_registry=ctx6)
-    engine6 = ExitEngine(croupier6)
-    pos6 = make_position(side="LONG")
-    result6 = engine6._check_flow_invalidation(pos6)
-    if result6 is None:
-        ok("LONG + Z=+4.0 → None (positive Z is bullish, not against LONG)")
-    else:
-        fail(f"LONG + Z=+4.0 should be None (wrong direction), got {result6}")
-
-    # No context_registry → None
-    croupier7 = MockCroupier(context_registry=None)
-    engine7 = ExitEngine(croupier7)
-    pos7 = make_position(side="LONG")
-    result7 = engine7._check_flow_invalidation(pos7)
-    if result7 is None:
-        ok("No context_registry → None (graceful degradation)")
-    else:
-        fail(f"No context_registry should return None, got {result7}")
+        fail("Small abs(ΔZ) should not invalidate")
 
 
-def test_layer4_stagnation_profit_aware():
-    """Layer 4: Stagnation ONLY triggers when unrealized PnL < 0."""
+async def test_scale_out():
     print("\n" + "=" * 60)
-    print(" LAYER 4c: STAGNATION (PROFIT-AWARE)")
+    print(" PILLAR 1: SCALE OUT")
     print("=" * 60)
 
-    from croupier.components.exit_engine import ExitEngine
-
-    ctx = MockContextRegistry(vol_ratio=1.0)
-    croupier = MockCroupier(context_registry=ctx)
-    engine = ExitEngine(croupier)
-
-    # Position elapsed > timeout, LOSING → stagnation triggers
-    pos_losing = make_position(side="LONG", entry_price=100.0, timestamp=0.0)
-    # 1000s elapsed > 900s base timeout
-    result = engine._check_stagnation(pos_losing, current_price=99.0, elapsed=1000.0)
-    if result == "THESIS_STAGNATION":
-        ok("Stagnation triggers when elapsed > timeout AND losing")
-    else:
-        fail(f"Stagnation should trigger for losing stale position, got {result}")
-
-    # Position elapsed > timeout, WINNING → stagnation does NOT trigger
-    pos_winning = make_position(side="LONG", entry_price=100.0, timestamp=0.0)
-    result2 = engine._check_stagnation(pos_winning, current_price=101.0, elapsed=1000.0)
-    if result2 is None:
-        ok("Stagnation does NOT trigger when position is profitable")
-    else:
-        fail(f"Stagnation should NOT trigger for winning position, got {result2}")
-
-    # Position elapsed < timeout → None
-    pos_fresh = make_position(side="LONG", entry_price=100.0, timestamp=0.0)
-    result3 = engine._check_stagnation(pos_fresh, current_price=99.0, elapsed=100.0)
-    if result3 is None:
-        ok("Stagnation does NOT trigger when elapsed < timeout")
-    else:
-        fail(f"Stagnation should not trigger for fresh position, got {result3}")
-
-
-def test_layer4_wall_collapse():
-    """Layer 4: Wall collapse detection."""
-    print("\n" + "=" * 60)
-    print(" LAYER 4d: WALL COLLAPSE")
-    print("=" * 60)
-
-    from croupier.components.exit_engine import ExitEngine
-
-    # LONG + skew < 0.15 → WALL_COLLAPSE_BID
-    ctx = MockContextRegistry(skew=0.10)
-    croupier = MockCroupier(context_registry=ctx)
-    engine = ExitEngine(croupier)
-    pos = make_position(side="LONG")
-    result = engine._check_wall_collapse(pos)
-    if result == "WALL_COLLAPSE_BID":
-        ok("LONG + skew=0.10 → WALL_COLLAPSE_BID")
-    else:
-        fail(f"LONG + skew=0.10 should be WALL_COLLAPSE_BID, got {result}")
-
-    # SHORT + skew > 0.85 → WALL_COLLAPSE_ASK
-    ctx2 = MockContextRegistry(skew=0.90)
-    croupier2 = MockCroupier(context_registry=ctx2)
-    engine2 = ExitEngine(croupier2)
-    pos2 = make_position(side="SHORT")
-    result2 = engine2._check_wall_collapse(pos2)
-    if result2 == "WALL_COLLAPSE_ASK":
-        ok("SHORT + skew=0.90 → WALL_COLLAPSE_ASK")
-    else:
-        fail(f"SHORT + skew=0.90 should be WALL_COLLAPSE_ASK, got {result2}")
-
-    # Normal skew → None
-    ctx3 = MockContextRegistry(skew=0.50)
-    croupier3 = MockCroupier(context_registry=ctx3)
-    engine3 = ExitEngine(croupier3)
-    pos3 = make_position(side="LONG")
-    result3 = engine3._check_wall_collapse(pos3)
-    if result3 is None:
-        ok("Normal skew=0.50 → None (no collapse)")
-    else:
-        fail(f"Normal skew should return None, got {result3}")
-
-
-async def test_layer3_sce():
-    """Layer 3: SCE (Structural Conviction Engine) — MEX & CFI."""
-    print("\n" + "=" * 60)
-    print(" LAYER 3: SCE (STRUCTURAL CONVICTION ENGINE)")
-    print("=" * 60)
-
-    import config.trading as trading_config
-    from croupier.components.exit_engine import ExitEngine
-
-    # --- 1. MEX: Micro-Exhaustion (Delta Momentum Decay) ---
-    ctx_mex = MockContextRegistry(z=0.20)  # Low Z (neutral)
-    croupier_mex = MockCroupier(context_registry=ctx_mex)
-    engine_mex = ExitEngine(croupier_mex)
-
-    from core.events import TickEvent
-
-    # LONG: in profit (100 -> 101), Z=0.20 < threshold (0.50) → MEX!
-    pos_mex = make_position(side="LONG", entry_price=100.0)
-    TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=101.0)
-
-    # We call the internal check_micro_exhaustion
-    mex_triggered = engine_mex._check_micro_exhaustion(pos_mex)
-    if mex_triggered:
-        ok("MEX triggered: LONG in profit with low Z (decay)")
-    else:
-        fail("MEX should trigger for LONG with Z=0.20")
-
-    # --- 2. CFI: Counter-Flow Invalidation (Absorption) ---
-    # LONG: we see BUY_EXHAUSTION (counter-absorption)
-    # We need a footprint with absorption
-    from core.footprint_registry import footprint_registry
-
-    footprint_registry.reset()
-    footprint_registry.register_symbol("LTCUSDT", 0.01)
-    fp = footprint_registry.get_footprint("LTCUSDT")
-    # 10 levels to pass the guard
-    for i in range(10):
-        fp.levels[100.0 + i * 0.01] = {"delta": 10.0, "ask_volume": 60.0, "bid_volume": 50.0, "last_update": 1000.0}
-    # One counter-absorption level: BUY_EXHAUSTION (large positive delta)
-    fp.levels[101.0] = {"delta": 1000.0, "ask_volume": 1050.0, "bid_volume": 50.0, "last_update": 1000.0}
-
-    ctx_cfi = MockContextRegistry(z=1.5, vol_ratio=1.0)
-    croupier_cfi = MockCroupier(context_registry=ctx_cfi)
-    engine_cfi = ExitEngine(croupier_cfi)
-    pos_cfi = make_position(side="LONG", entry_price=100.0)
-
-    cfi_reason = await engine_cfi._check_counter_flow_invalidation(pos_cfi, 101.0)
-    if cfi_reason == "COUNTER_ABSORPTION_BUY":
-        ok("CFI triggered: LONG sees BUY_EXHAUSTION counter-absorption")
-    else:
-        fail(f"CFI should trigger COUNTER_ABSORPTION_BUY, got {cfi_reason}")
-
-    # --- 3. SCE Activation Gate ---
-    # Price at entry -> No profit -> SCE should NOT trigger scale-out even if MEX is true
-    croupier_gate = MockCroupier(context_registry=ctx_mex)
-    engine_gate = ExitEngine(croupier_gate)
-    pos_gate = make_position(side="LONG", entry_price=100.0)
-    tick_gate = TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=100.0)
-
-    await engine_gate._check_structural_conviction(pos_gate, tick_gate, 100.0)
-    if len(croupier_gate.scale_out_calls) == 0:
-        ok("SCE Gate: Scale-out skipped due to insufficient profit")
-    else:
-        fail("SCE should NOT scale out at zero profit")
-
-
-async def test_layer2_breakeven():
-    """Layer 2: Breakeven moves SL to entry when profit threshold reached."""
-    print("\n" + "=" * 60)
-    print(" LAYER 2: SHADOW BREAKEVEN")
-    print("=" * 60)
-
-    import config.trading as trading_config
-    from croupier.components.exit_engine import ExitEngine
-
+    profile = blue_chip_profile()
+    at_atr = profile["scale_out"]["at_atr"]
     croupier = MockCroupier()
-    engine = ExitEngine(croupier)
+    engine = slim_engine(croupier)
+    pos = make_position(side="LONG", entry_price=100.0, entry_atr=2.0)
 
-    # LONG: entry=100, profit > BREAKEVEN_ACTIVATION_PCT → shadow_sl moves to entry*1.001
-    pos = make_position(side="LONG", entry_price=100.0, sl_level=99.7)
-    activation_pct = getattr(trading_config, "BREAKEVEN_ACTIVATION_PCT", 0.003)
-    profitable_price = 100.0 * (1 + activation_pct + 0.001)  # Slightly above threshold
-
-    await engine._check_shadow_breakeven(pos, profitable_price)
-    if pos.shadow_sl_level is not None and pos.shadow_sl_level >= 100.0:
-        ok(f"LONG breakeven activated: shadow_sl={pos.shadow_sl_level:.4f} >= entry=100.0")
+    target_price = 100.0 + 2.0 * at_atr
+    hit = await engine._check_scale_out(pos, target_price, profile)
+    if hit and pos.scaled_out:
+        ok(f"Scale-out at {at_atr}×ATR marks scaled_out=True")
     else:
-        fail(f"LONG breakeven should move shadow_sl to ~entry*1.001, got {pos.shadow_sl_level}")
+        fail("Scale-out should trigger at ATR distance")
 
-    # SHORT: entry=100, profit > threshold → shadow_sl moves to entry*0.999
-    pos2b = make_position(side="SHORT", entry_price=100.0, sl_level=100.3)
-    profitable_price_short = 100.0 * (1 - activation_pct - 0.001)
-    await engine._check_shadow_breakeven(pos2b, profitable_price_short)
-    if pos2b.shadow_sl_level is not None and pos2b.shadow_sl_level <= 100.0:
-        ok(f"SHORT breakeven activated: shadow_sl={pos2b.shadow_sl_level:.4f} <= entry=100.0")
+    await asyncio.sleep(0.05)
+    if len(croupier.scale_out_calls) == 1:
+        tid, fraction, reason = croupier.scale_out_calls[0]
+        if tid == pos.trade_id and fraction == profile["scale_out"]["fraction"] and reason == "SO_TARGET_REACHED":
+            ok("Scale-out schedules scale_out_structural with correct fraction")
+        else:
+            fail(f"Unexpected scale_out call: {croupier.scale_out_calls}")
     else:
-        fail(f"SHORT breakeven should move shadow_sl to ~entry*0.999, got {pos2b.shadow_sl_level}")
+        fail("Scale-out should enqueue scale_out_structural")
 
-
-async def test_layer1_session_drain():
-    """Layer 1: Session drain activates only when croupier.is_drain_mode=True."""
-    print("\n" + "=" * 60)
-    print(" LAYER 1: SESSION DRAIN")
-    print("=" * 60)
-
-    import config.trading as trading_config
-    from croupier.components.exit_engine import ExitEngine
-
-    croupier = MockCroupier()
-    engine = ExitEngine(croupier)
-
-    max_bars = getattr(trading_config, "MAX_HOLD_BARS", 60)
-
-    # Not in drain mode → soft exit NOT triggered even at MAX_HOLD_BARS
-    pos = make_position(bars_held=max_bars)
-    pos.soft_exit_triggered = False
-    from core.events import CandleEvent
-
-    candle = CandleEvent(
-        type=None,
-        timestamp=100.0,
-        symbol="LTCUSDT",
-        timeframe="1m",
-        open=100.0,
-        high=101.0,
-        low=99.0,
-        close=100.5,
-        volume=1000.0,
+    # Already scaled — on_tick skips pillar (guard is in on_tick, not _check_scale_out)
+    croupier2 = MockCroupier()
+    pos2 = make_position(
+        scaled_out=True,
+        entry_atr=2.0,
+        timestamp=time.time() - 30.0,
+        trade_id="so_repeat",
     )
-    await engine._check_time_exit(pos, candle)
-    if not getattr(pos, "soft_exit_triggered", False):
-        ok("Session drain does NOT trigger when is_drain_mode=False")
+    croupier2.position_tracker.open_positions = [pos2]
+    engine2 = slim_engine(croupier2)
+    tick = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=target_price)
+    await engine2.on_tick(tick)
+    await asyncio.sleep(0.05)
+    if len(croupier2.scale_out_calls) == 0:
+        ok("scaled_out=True → on_tick skips scale-out pillar")
     else:
-        fail("Session drain should not trigger when is_drain_mode=False")
+        fail("Should not scale out twice when scaled_out=True")
 
-    # In drain mode → soft exit triggered at MAX_HOLD_BARS
-    croupier.is_drain_mode = True
-    pos2 = make_position(bars_held=max_bars)
-    pos2.soft_exit_triggered = False
-    await engine._check_time_exit(pos2, candle)
-    if getattr(pos2, "soft_exit_triggered", False) or getattr(pos2, "drain_phase", None) == "OPTIMISTIC":
-        ok("Session drain triggers soft exit when is_drain_mode=True and bars_held >= MAX_HOLD_BARS")
+    pos3 = make_position(entry_atr=0.0)
+    if not await engine._check_scale_out(pos3, target_price, profile):
+        ok("entry_atr=0 → scale-out skipped")
     else:
-        ok("Session drain attempted when is_drain_mode=True (drain_phase may be set)")
-
-    # Double max → hard close
-    pos3 = make_position(bars_held=max_bars * 2)
-    await engine._check_time_exit(pos3, candle)
-    close_found = any(r == "HARD_TIME_EXIT" for _, r in croupier.close_calls)
-    if close_found:
-        ok("Hard time exit triggered at 2x MAX_HOLD_BARS")
-    else:
-        ok("Hard time exit path exercised at 2x MAX_HOLD_BARS")
+        fail("Zero ATR should skip scale-out")
 
 
-def test_pending_terminations():
-    """_pending_terminations prevents double-close from concurrent layers."""
+async def test_on_tick_grace_and_pending():
     print("\n" + "=" * 60)
-    print(" PENDING TERMINATIONS GUARD")
+    print(" ON_TICK: GRACE PERIOD & PENDING GUARD")
     print("=" * 60)
 
-    from croupier.components.exit_engine import ExitEngine
+    grace = getattr(trading_config, "PATIENCE_LOCK_GRACE_PERIOD", 15.0)
 
-    croupier = MockCroupier()
-    engine = ExitEngine(croupier)
-
-    # Add a trade_id to pending terminations
-    engine._pending_terminations.add("test_001")
-
-    # Position with same trade_id should be skipped in on_tick
-    pos = make_position(trade_id="test_001")
-    from core.events import TickEvent
-
-    TickEvent(type=None, timestamp=100.0, symbol="LTCUSDT", price=49.0)  # Catastrophic level
-
-    # Position should be skipped (already in _pending_terminations)
-    # The on_tick loop checks: position.trade_id in self._pending_terminations → continue
-    if pos.trade_id in engine._pending_terminations:
-        ok("Position in _pending_terminations is correctly identified for skip")
+    # Grace period — no tactical action
+    ctx = MockContextRegistry(z=0.0)
+    croupier = MockCroupier(context_registry=ctx)
+    pos = make_position(side="LONG", entry_z=-3.0, timestamp=time.time() - 5.0)
+    croupier.position_tracker.open_positions = [pos]
+    engine = slim_engine(croupier)
+    tick = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=120.0)
+    await engine.on_tick(tick)
+    await asyncio.sleep(0.05)
+    if len(croupier.close_calls) == 0 and len(croupier.scale_out_calls) == 0:
+        ok(f"Elapsed < {grace}s → pillars skipped (patience lock)")
     else:
-        fail("Position should be in _pending_terminations")
+        fail("Patience lock should block tactical exits")
 
-    # Different trade_id should NOT be skipped
-    pos2 = make_position(trade_id="test_002")
-    if pos2.trade_id not in engine._pending_terminations:
-        ok("Different position NOT in _pending_terminations → will be processed")
+    # Pending terminations — position skipped
+    croupier2 = MockCroupier(context_registry=ctx)
+    pos2 = make_position(
+        side="LONG",
+        entry_z=-3.0,
+        timestamp=time.time() - grace - 10.0,
+        trade_id="pending_001",
+    )
+    croupier2.position_tracker.open_positions = [pos2]
+    engine2 = slim_engine(croupier2)
+    engine2._pending_terminations.add("pending_001")
+    tick2 = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=120.0)
+    await engine2.on_tick(tick2)
+    await asyncio.sleep(0.05)
+    if len(croupier2.close_calls) == 0:
+        ok("_pending_terminations → position skipped in on_tick")
     else:
-        fail("Different position should not be in _pending_terminations")
-
-
-def test_calc_pnl_pct():
-    """Helper: _calc_pnl_pct computes correct unrealized PnL percentage."""
-    print("\n" + "=" * 60)
-    print(" HELPER: _calc_pnl_pct")
-    print("=" * 60)
-
-    from croupier.components.exit_engine import ExitEngine
-
-    croupier = MockCroupier()
-    engine = ExitEngine(croupier)
-
-    # LONG: entry=100, current=102 → +2%
-    pos = make_position(side="LONG", entry_price=100.0)
-    pnl = engine._calc_pnl_pct(pos, 102.0)
-    if abs(pnl - 0.02) < 0.0001:
-        ok("LONG PnL: (102-100)/100 = +2%")
-    else:
-        fail(f"LONG PnL should be +2%, got {pnl:.4%}")
-
-    # SHORT: entry=100, current=98 → +2%
-    pos2 = make_position(side="SHORT", entry_price=100.0)
-    pnl2 = engine._calc_pnl_pct(pos2, 98.0)
-    if abs(pnl2 - 0.02) < 0.0001:
-        ok("SHORT PnL: (100-98)/100 = +2%")
-    else:
-        fail(f"SHORT PnL should be +2%, got {pnl2:.4%}")
-
-    # LONG: entry=100, current=98 → -2%
-    pnl3 = engine._calc_pnl_pct(pos, 98.0)
-    if abs(pnl3 - (-0.02)) < 0.0001:
-        ok("LONG losing PnL: (98-100)/100 = -2%")
-    else:
-        fail(f"LONG losing PnL should be -2%, got {pnl3:.4%}")
+        fail("Position in _pending_terminations should not be processed")
 
 
 # =========================================================
@@ -595,22 +291,17 @@ def test_calc_pnl_pct():
 
 async def main():
     print("=" * 60)
-    print(" EXIT ENGINE VALIDATOR (Layer 0.E)")
-    print(" Tests each layer's math independently")
+    print(" SLIM EXIT ENGINE VALIDATOR (Layer 0.E)")
+    print(" Tests each pillar's math independently")
     print("=" * 60)
 
-    test_layer5_catastrophic()
-    test_layer4_flow_invalidation()
-    test_layer4_stagnation_profit_aware()
-    test_layer4_wall_collapse()
-    await test_layer3_sce()
-    await test_layer2_breakeven()
-    await test_layer1_session_drain()
-    test_pending_terminations()
-    test_calc_pnl_pct()
+    test_profile_resolution()
+    await test_micro_z_reversal()
+    await test_scale_out()
+    await test_on_tick_grace_and_pending()
 
     print("\n" + "=" * 60)
-    print(" ✅ ALL EXIT ENGINE TESTS PASSED")
+    print(" ✅ ALL SLIM EXIT ENGINE TESTS PASSED")
     print("=" * 60)
 
 

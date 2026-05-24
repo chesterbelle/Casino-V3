@@ -80,10 +80,10 @@ class SlimExitEngine:
                 continue
 
             # ---------------------------------------------------------
-            # PILAR 4: DELTA INVALIDATION (Toxic Flow)
+            # PILAR 4: MICRO-Z REVERSAL (Flow Invalidation)
             # ---------------------------------------------------------
-            if profile["delta_invalidation"]["enabled"]:
-                if await self._check_delta_invalidation(position, profile):
+            if profile["micro_z_reversal"]["enabled"]:
+                if await self._check_micro_z_reversal(position, profile):
                     continue
 
             # ---------------------------------------------------------
@@ -93,58 +93,23 @@ class SlimExitEngine:
                 if await self._check_scale_out(position, current_price, profile):
                     continue
 
-            # ---------------------------------------------------------
-            # PILAR 2: BREAK EVEN (Risk Neutralization)
-            # ---------------------------------------------------------
-            if profile["break_even"]["enabled"]:
-                await self._check_break_even(position, current_price, profile)
-
-            # ---------------------------------------------------------
-            # PILAR 3: TRAILING STOP (Trend Capture)
-            # ---------------------------------------------------------
-            if profile["trailing"]["enabled"]:
-                await self._check_trailing(position, current_price, profile)
-
-    async def _check_delta_invalidation(self, position: OpenPosition, profile: Dict) -> bool:
-        """Exit if toxic flow REVERSAL detected post-entry (Relative Delta Z).
-
-        Design rationale:
-        - Absorption LONG enters when Z is very negative (sellers being absorbed).
-        - Absolute Z check would fire immediately against the entry signal.
-        - Instead, we measure how much Z has CHANGED since entry:
-          - LONG: If Z rises far above entry_z → buyers exhausted, flow reversed to selling.
-          - SHORT: If Z drops far below entry_z → sellers exhausted, flow reversed to buying.
-        """
-        if not self.croupier.context_registry:
-            return False
-
+    async def _check_micro_z_reversal(self, position: OpenPosition, profile: Dict) -> bool:
         entry_z = getattr(position, "entry_z", None)
         if entry_z is None or entry_z == 0.0:
-            return False  # No baseline → can't measure delta
+            return False
 
         _, _, current_z = self.croupier.context_registry.get_micro_state(position.symbol)
-        threshold = profile["delta_invalidation"]["z_score_threshold"]
+        threshold = profile["micro_z_reversal"]["threshold"]
 
-        # Delta Z = how much the flow state changed since we entered
         delta_z = current_z - entry_z
 
-        triggered = False
-        if position.side == "LONG" and delta_z > threshold:
-            # Flow was bearish at entry (Z negative), now shifted bullish (Z rising).
-            # Counter-intuitive but correct: absorption LONG profits when selling pressure
-            # continues then exhausts. If Z jumps positive, the absorption thesis is broken.
-            triggered = True
-        elif position.side == "SHORT" and delta_z < -threshold:
-            # Flow was bullish at entry (Z positive), now shifted bearish.
-            triggered = True
-
-        if triggered:
+        if abs(delta_z) > threshold:
             self.logger.warning(
-                f"🚨 [SLIM-DI] Flow Reversal (entry_z={entry_z:.1f}, now={current_z:.1f}, "
+                f"🚨 [SLIM-MZ] Micro-Z Reversal (entry_z={entry_z:.1f}, now={current_z:.1f}, "
                 f"Δ={delta_z:+.1f}, thresh={threshold}) for {position.trade_id} | Closing (LIMIT)"
             )
             self._pending_terminations.add(position.trade_id)
-            asyncio.create_task(self._execute_limit_close(position, "DI_TOXIC_FLOW"))
+            asyncio.create_task(self._execute_limit_close(position, "MZ_REVERSAL"))
             return True
         return False
 
@@ -166,77 +131,6 @@ class SlimExitEngine:
             )
             return True
         return False
-
-    async def _check_break_even(self, position: OpenPosition, price: float, profile: Dict):
-        """Move SL to entry after reaching target."""
-        if getattr(position, "be_activated", False) or not getattr(position, "entry_atr", 0):
-            return
-
-        dist = abs(price - position.entry_price)
-        activation_dist = position.entry_atr * profile["break_even"]["at_atr"]
-
-        if dist >= activation_dist:
-            self.logger.info(f"🛡️ [SLIM-BE] Activating Break-Even for {position.trade_id}")
-            position.be_activated = True
-            # New SL is entry price (fees covered by being Maker on exit)
-            new_sl = position.entry_price
-            asyncio.create_task(
-                self.croupier.modify_sl(trade_id=position.trade_id, new_sl_price=new_sl, symbol=position.symbol)
-            )
-
-    async def _check_trailing(self, position: OpenPosition, price: float, profile: Dict):
-        """Dynamic ATR-based trailing stop."""
-        if not getattr(position, "entry_atr", 0):
-            return
-
-        # Phase 1301: Directional profit check (Fix: abs() was causing activation on losses)
-        if position.side == "LONG":
-            profit_dist = price - position.entry_price
-        else:
-            profit_dist = position.entry_price - price
-
-        activation_dist = position.entry_atr * profile["trailing"]["activation_atr"]
-
-        if profit_dist < activation_dist:
-            return
-
-        trail_dist = position.entry_atr * profile["trailing"]["distance_atr"]
-        shadow_sl = getattr(position, "shadow_sl_level", None)
-
-        if position.side == "LONG":
-            new_sl = price - trail_dist
-            # Guard: Never trail backward, and never below entry if risk is off
-            if shadow_sl is not None:
-                new_sl = max(new_sl, shadow_sl)
-            if getattr(position, "be_activated", False) or getattr(position, "scaled_out", False):
-                new_sl = max(new_sl, position.entry_price)
-
-            if shadow_sl is None or new_sl > shadow_sl:
-                position.shadow_sl_level = new_sl
-        else:
-            new_sl = price + trail_dist
-            # Guard: Never trail backward, and never above entry if risk is off
-            if shadow_sl is not None and shadow_sl != 0:
-                new_sl = min(new_sl, shadow_sl)
-            if getattr(position, "be_activated", False) or getattr(position, "scaled_out", False):
-                new_sl = min(new_sl, position.entry_price)
-
-            if shadow_sl is None or new_sl < shadow_sl or shadow_sl == 0:
-                position.shadow_sl_level = new_sl
-
-        # If shadow level hit, close with LIMIT
-        shadow_sl = getattr(position, "shadow_sl_level", None)
-        if shadow_sl:
-            hit = False
-            if position.side == "LONG" and price <= shadow_sl:
-                hit = True
-            elif position.side == "SHORT" and price >= shadow_sl:
-                hit = True
-
-            if hit:
-                self.logger.warning(f"📉 [SLIM-TS] Trailing Stop triggered for {position.trade_id} @ {price}")
-                self._pending_terminations.add(position.trade_id)
-                asyncio.create_task(self._execute_limit_close(position, "TS_DYNAMIC_FOLLOW"))
 
     async def _execute_limit_close(self, position: OpenPosition, reason: str):
         """

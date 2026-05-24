@@ -9,9 +9,10 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Dual-Core (Reversión/Continuación) con Inercia de Micro-Flujo.
-*   **Current Branch**: `v8.1-unified-decision-dna`
+*   **Current Branch**: `v8.2-exit-edge-auditor`
 *   **Active Mode**: Multi-Coin Agnostic (LTC, SOL, BTC Certified).
 *   **Active Alpha**: **AMT V10 Alpha** (Certified Generalized).
+*   **Exit Pillar 4**: **Z-Shift Invalidation** (abs ΔZ > 4.0) — reemplazo de Delta Invalidation.
 
 ## 📚 Historial y Contexto
 *   **Archivo Maestro de Sesiones**: [`.agent/changelog.md`](file:///home/chesterbelle/Casino-V3/.agent/changelog.md)
@@ -51,11 +52,11 @@
 
 ---
 
-### Current Status: 🟢 Certified (Fast-Lane Active)
-- **Architecture**: `v8.1.0` deployed. `TacticalAbsorptionV2` now operates on a **Fast-Lane** (0ms latency).
+### Current Status: 🟢 Slim & Certified (Phase 900+ Optimized)
+- **Architecture**: `v8.2-slim` deployed. 4 pillars reduced to 2 (Scale Out + Micro-Z Reversal).
 - **Baseline**: Multi-window grid analysis (2026-05-20). Net Taker positive at 4h window.
 - **Persistence**: 100% Signal Persistence verified.
-- **Guardian Layer**: Repurposed as a **Tactical Confirmation Gate** for Swing/Rotation setups.
+- **Exit Strategy**: Removed noise (BE, Trailing). Focused on structural exit.
 
 ### Performance Baseline (Last Audit — 2026-05-20, 4h Window)
 | Symbol | Target | WR% | Net Taker% | Verdict |
@@ -69,9 +70,10 @@
 | ETHUSDT | any | <42% | always negative | **EXCLUDED** |
 
 ### Next Session Objectives
-1.  **Live/Paper Trading (BNB, SOL, SUI, AVAX)**: Conectar al Testnet con los 4 activos certificados. Validar slippage real y latencia WebSocket.
-2.  **ETH Filter Gate**: Implementar exclusión explícita de ETH o diseñar filtros de momento más agresivos para activos de alta liquidez falsa.
-3.  **Timeout Management en Producción**: Implementar salida por tiempo a 4h en `SlimExitEngine` para alinearse con la ventana óptima descubierta.
+1.  **Live/Paper Trading (BNB, SOL, SUI, AVAX)**: Conectar al Testnet/Live con los 4 activos certificados. Validar slippage real y ejecución WebSocket.
+2.  **Monitoreo del Alpha de Entrada**: Dado que hemos simplificado la salida a lo mínimo viable, observar si el setup de entrada mantiene su rendimiento sin el ruido de Break-Even o Trailing Stop.
+3.  **Ajuste del Micro-Z Reversal (Pilar 4)**: Si se observa que el re-testeo de la entrada nos saca prematuramente, ajustar el umbral de `micro_z_reversal` (actual 4.0).
+4.  **Confirmar Robustez**: Verificar estabilidad de la nueva arquitectura *Slim* en entornos de alta volatilidad.
 
 ---
 
@@ -115,3 +117,6 @@
 - 2026-05-16T00:22:00.000000 | session-close | Fast-Lane bug fixed (Persistence restored). v8.1.0-fast-lane-certified tagged.
 - 2026-05-18T02:32:51.321874 | edge-audit | L2 & price ingest completed, CSVs removed.
 - 2026-05-21T00:50:48.586692 | generalized-edge-audit | L2 & price ingest completed, CSVs removed.
+- 2026-05-22T19:18:11.808839 | session-close | L2 & price ingest completed, CSVs removed.
+- 2026-05-24T01:08:27.000000 | session-update | Exit Edge Auditor ejecutado. Z-Shift Invalidation implementado.
+- 2026-05-24T09:30:00.000000 | session-close | Purga de pilares: Eliminados Break-Even y Trailing Stop (Basado en data). SlimExitEngine operando solo con Scale Out y Micro-Z Reversal. Todos los tests OK.
