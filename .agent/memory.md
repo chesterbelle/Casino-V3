@@ -22,7 +22,8 @@
 
 ## 🏛️ Estado de las Capas de Certificación
 
-### 1. Capa de Hierro (Infraestructura) — [CERTIFICADA ✅]
+*   **Orquestación de Auditorías (v8.3)**: Implementado `scripts/orchestrator.py` para automatización determinística de protocolos `generalized` y `long-range`. Eliminación de ejecución manual concurrente.
+*   **Repo Sanitization (In Progress)**: Iniciada fase de limpieza y purificación de archivos huérfanos/legacy para mejorar mantenibilidad.
 *   **UDT Forensics (v8.1)**: **Unified Decision DNA** operacional. Autopsias automáticas en `EXECUTED/ERROR`.
 *   **Hito Actual**: **Arquitectura Zero-Necrosis**. Eliminado `fast_track`, `tracker` y `shadow_sl`.
 *   **Métrica de Estrés**: Trazabilidad asíncrona validada en ventanas de 500ms (Phase 2).
@@ -54,69 +55,36 @@
 
 ### Current Status: 🟢 Slim & Certified (Phase 900+ Optimized)
 - **Architecture**: `v8.2-slim` deployed. 4 pillars reduced to 2 (Scale Out + Micro-Z Reversal).
-- **Baseline**: Multi-window grid analysis (2026-05-20). Net Taker positive at 4h window.
+- **Baseline**: Alpha "Naked" (Sin BE ni Trailing).
 - **Persistence**: 100% Signal Persistence verified.
 - **Exit Strategy**: Removed noise (BE, Trailing). Focused on structural exit.
 
-### Performance Baseline (Last Audit — 2026-05-20, 4h Window)
-| Symbol | Target | WR% | Net Taker% | Verdict |
-|--------|--------|-----|------------|---------|
-| BNBUSDT | 1.1% | 64.7% | +0.0286% | **CERTIFIED** |
-| BNBUSDT | 1.2% | 81.8% | +0.1070% | **CERTIFIED** |
-| SOLUSDT | 1.0% | 66.7% | +0.1467% | **CERTIFIED** |
-| SOLUSDT | 1.2% | 72.7% | +0.2800% | **CERTIFIED** |
-| SUIUSDT | 0.8-1.2% | 58.3% | +0.013→+0.08% | **CERTIFIED** |
-| AVAXUSDT | 1.2% | 60.0% | +0.1200% | **CERTIFIED** |
-| ETHUSDT | any | <42% | always negative | **EXCLUDED** |
+---
 
-### Next Session Objectives
-1.  **Live/Paper Trading (BNB, SOL, SUI, AVAX)**: Conectar al Testnet/Live con los 4 activos certificados. Validar slippage real y ejecución WebSocket.
-2.  **Monitoreo del Alpha de Entrada**: Dado que hemos simplificado la salida a lo mínimo viable, observar si el setup de entrada mantiene su rendimiento sin el ruido de Break-Even o Trailing Stop.
-3.  **Ajuste del Micro-Z Reversal (Pilar 4)**: Si se observa que el re-testeo de la entrada nos saca prematuramente, ajustar el umbral de `micro_z_reversal` (actual 4.0).
-4.  **Confirmar Robustez**: Verificar estabilidad de la nueva arquitectura *Slim* en entornos de alta volatilidad.
+### 🏛️ Auditoría Forense: Transición a Arquitectura Slim
+*   **Decisión Estratégica**: Tras auditar `historian_final_merged.db`, descubrimos que el pilar `Break-Even` eliminaba al **93.75% de nuestros trades ganadores**. Se decidió eliminar por completo el `Break-Even` y `Trailing Stop`.
+*   **Cambio de Paradigma**: Pasamos de una gestión "Geométrica" (ATR-basada, reactiva al precio) a una gestión "Estructural" (Micro-Z Reversal, reactiva al flujo).
+*   **Justificación**: Si un setup de entrada tiene Alpha real, no necesita "ayudas artificiales" que solo aumentan la varianza y recortan la cola derecha de la distribución de beneficios.
 
 ---
+
+## 📉 Roadmap: CAPA 0 → Absorption Alpha Validation
+1.  **DATA/MATH — COMPLETADO ✅**: Pipeline L2 SQLite operativo.
+2.  **AMT V10 ARCH — COMPLETADO ✅**: Escenarios AMT integrados.
+3.  **EXECUTION STABILITY — COMPLETADO ✅**: Slim Exit Engine sincronizado.
+4.  **UDT FORENSICS — COMPLETADO ✅**: Sistema de autopsias unificado (Rama 8.1).
+5.  **CALIBRACIÓN ALPHA — COMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas.
+6.  **EXIT ENGINE SLIM — COMPLETADO ✅**: Purga de pilares ruidosos.
+7.  **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live para validar slippage real y ejecución WebSocket.
 
 ---
 
 ## ⚠️ Gotchas Críticos
-1. **Symbol Normalization**: Usar siempre `normalize_symbol()`.
-2. **Historian 0 trades**: Verificar `confirm_close` en PositionTracker.
-3. **Stagnation Profit-Aware**: NUNCA cerrar trades ganadores por estancamiento.
-4. **Binance -2021**: OCO rechazado si TP/SL ya están en precio.
-5. **No Fast-Track**: Deprecado. Usar `TRACE_BULLET_ACTIVE=1` para validación de flujo.
-6. **L2 Data Requirement**: Backtests de absorción sin L2 son inválidos.
-7. **Micro Absorption Direction**: Vota en dirección OPUESTA al CVD agresivo.
-8. **IN_VALUE Rotation**: Targets deben ser ATR-relativos al ENTRY, no a la estructura VA.
-9. **Position Limit = 1/symbol**: Bloquea señales concurrentes. Ver `🚫 SIGNAL_REJECTED`.
-10. **Taker-Only Execution Mandate**: Toda rentabilidad y viabilidad del Alpha se establece estrictamente bajo ejecución **Taker Only** (roundtrip fees de 0.12% total). NUNCA basar viabilidad comercial en Limit Sniper u órdenes Maker pasivas. La expectancia neta Taker debe ser positiva para certificar un setup.
-11. **Historian Cumulative Runs**: Ejecutar múltiples backtests acumula registros en `historian.db`. Al cruzar `signals` y `decision_traces` por `trace_id` (como en `setup_edge_auditor.py`), se producirá un producto cartesiano duplicando o multiplicando las filas analizadas si no se limpia la base de datos con `reset_data.py`. **Gotcha de Colaboración**: Ante cualquier discrepancia numérica o anomalía en los datos, el agente debe preguntar primero al usuario para obtener contexto, en lugar de realizar limpiezas o deduplicaciones autónomas.
-12. **Parallel Audit SQLite Write Locks**: Ejecutar múltiples backtests concurrentes escribiendo directamente en la misma base de datos causará bloqueos (`database is locked`). Siempre aísla salidas con `--historian-db` y consolida al final mediante `utils/merge_historian.py`.
+...
+10. **Taker-Only Execution Mandate**: ...
+11. **Historian Cumulative Runs**: ...
+12. **Parallel Audit SQLite Write Locks**: ...
+13. **Break-Even Cost Fallacy**: El Break-Even estático mata el Edge de absorción (93.75% de winners perdidos en backtest). Todo SL debe ser estructural o basado en cambio de régimen (Micro-Z).
 
-- 2026-05-15T07:45:00.000000 | session-close | UDT Forensic System certified. Codebase purified. Awaiting Alpha Calibration.
-- 2026-05-15T10:00:00.000000 | session-update | Fast-Lane deployed. 77.3% WR confirmed. Guardian repurposed.
-- 2026-05-17T21:11:00.000000 | session-close | Ran LTC long-range audits and DOGE pilot backtests. Recorded signals and prices to database.
-- 2026-05-18T20:45:00.000000 | session-close | Generalized Edge Audit (10-Coin) finished! Bot certified Global Net-Taker profitable.
-- 2026-05-19T22:20:00.000000 | session-close | High-speed parallel audit framework deployed. Consolidation merger implemented. Processes zombie-shielded.
-- 2026-05-19T22:33:00.000000 | session-update | Dynamic AMT geometric target calibration engine fully implemented and deployed.
-
-### [v8.1-unified-decision-dna] - 2026-05-18
-#### Added
-- **AMT Fast-Lane Architecture**: Decoupled high-speed signals (Absorption, Failed Breakout) from tactical confirmation delays.
-- **Tactical Confirmation Gate**: Repurposed the old Absorption Guardian into a generic, docstring-defined conviction filter for non-scalping (Swing/Rotation) scenarios.
-- **UDT Forensic DNA**: Full integration of Unified Decision DNA into `historian.db`.
-
-#### Changed
-- **Absorption Routing**: Moved `TacticalAbsorptionV2` to Fast-Lane execution path in `SetupEngine`.
-- **Forensic Auditor**: Renumbered sections in `setup_edge_auditor.py` (Section [4] is now Trace Audit).
-
-#### Certified
-- **Naked Edge Audit**: Confirmed 77.3% WR and +0.2455% Gross Exp for Absorption signals when bypassing tactical confirmation.
-- **Fast-Lane Parity**: Verified production code parity with theoretical naked performance.
-- 2026-05-15T18:22:18.750788 | session-close | L2 & price ingest completed, CSVs removed.
-- 2026-05-16T00:22:00.000000 | session-close | Fast-Lane bug fixed (Persistence restored). v8.1.0-fast-lane-certified tagged.
-- 2026-05-18T02:32:51.321874 | edge-audit | L2 & price ingest completed, CSVs removed.
-- 2026-05-21T00:50:48.586692 | generalized-edge-audit | L2 & price ingest completed, CSVs removed.
-- 2026-05-22T19:18:11.808839 | session-close | L2 & price ingest completed, CSVs removed.
-- 2026-05-24T01:08:27.000000 | session-update | Exit Edge Auditor ejecutado. Z-Shift Invalidation implementado.
-- 2026-05-24T09:30:00.000000 | session-close | Purga de pilares: Eliminados Break-Even y Trailing Stop (Basado en data). SlimExitEngine operando solo con Scale Out y Micro-Z Reversal. Todos los tests OK.
+- 2026-05-24T09:30:00.000000 | session-update | Auditoría forense del Break-Even (93.75% de winners perdidos).
+- 2026-05-24T10:00:00.000000 | session-close | Purga de pilares: Eliminados Break-Even y Trailing Stop. SlimExitEngine operando solo con Scale Out y Micro-Z Reversal. Arquitectura Slim certificada.

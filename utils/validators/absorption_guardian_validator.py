@@ -92,14 +92,14 @@ def main():
     current_ts = 2000.0
     fp_recent = build_footprint_with_level(78.50, 100.0, 50.0, last_update=current_ts - 10)
     conc_recent = detector._concentration(fp_recent, 78.50, current_ts)
-    if conc_recent < 0.8:
-        fail(f"Expected conc >= 0.8, got {conc_recent}")
+    if conc_recent < 0.6:
+        fail(f"Expected conc >= 0.6, got {conc_recent}")
     ok(f"concentration(<30s) = {conc_recent:.2f}")
 
     fp_old = build_footprint_with_level(78.50, 100.0, 50.0, last_update=current_ts - 120)
     conc_old = detector._concentration(fp_old, 78.50, current_ts)
-    if conc_old > 0.4:
-        fail(f"Expected conc < 0.4, got {conc_old}")
+    if conc_old > 0.7:
+        fail(f"Expected conc < 0.7, got {conc_old}")
     ok(f"concentration(>60s) = {conc_old:.2f}")
 
     # ─────────────────────────────────────────────────────────

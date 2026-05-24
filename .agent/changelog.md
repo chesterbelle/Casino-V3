@@ -6,8 +6,10 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
-## 📝 Historial de Sesiones
-
+### [2026-05-24] — Orchestrator Extension: Single-Coin Support
+### Summary: Ampliación del orquestador para soportar auditorías de una sola moneda
+Se ha actualizado el orquestador (`scripts/orchestrator.py`) para incluir el protocolo `single-coin`, permitiendo auditorías dirigidas (default LTCUSDT) siguiendo el mismo estándar de automatización, limpieza y fusión que los protocolos complejos. Se ha simplificado el workflow `.agent/workflows/edge-audit.md` eliminando la ejecución manual y delegándola al orquestador.
+---
 ### [2026-05-24] — Slimming Architecture: Pillar Purge & Renaming (Branch: v8.2-exit-edge-auditor)
 ### Summary: Eliminación de deuda técnica (Break-Even & Trailing Stop) y purificación del Exit Engine
 Tras analizar la data y confirmar que el Break-Even mataba al 93.75% de los ganadores, decidimos hacer el bot *Slim* de verdad: eliminamos los pilares 2 y 3. Solo mantenemos Scale Out (Pilar 1) y Micro-Z Reversal (Pilar 4).

@@ -355,6 +355,7 @@ class TraceBulletValidator:
                 "vah": vah,
                 "tp_price": tp_price,
                 "sl_price": sl_price,
+                "pattern": "unknown",  # ADDED THIS
             },
             trace_id=trace_id,
         )

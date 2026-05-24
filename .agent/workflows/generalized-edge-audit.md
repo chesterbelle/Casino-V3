@@ -60,43 +60,13 @@ fi
 ```
 **⛔ STOP if any datasets are missing.** Inform the user which files need to be downloaded.
 
-## Step 2: Run Backtests (All 10 Coins in Parallel)
+## Step 2: Run Audit
+Ejecutar la auditoría de borde mediante el orquestador (gestiona la concurrencia y limpieza automáticamente):
+
 ```bash
-# Zombie prevention shield: kill all background jobs on Ctrl+C or termination
-trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
-
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_ADAUSDT.db --symbol ADAUSDT --historian-db data/historian_ADAUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_AVAXUSDT.db --symbol AVAXUSDT --historian-db data/historian_AVAXUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_BNBUSDT.db --symbol BNBUSDT --historian-db data/historian_BNBUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_DOGEUSDT.db --symbol DOGEUSDT --historian-db data/historian_DOGEUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_ETHUSDT.db --symbol ETHUSDT --historian-db data/historian_ETHUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_LINKUSDT.db --symbol LINKUSDT --historian-db data/historian_LINKUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_LTCUSDT.db --symbol LTCUSDT --historian-db data/historian_LTCUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_SOLUSDT.db --symbol SOLUSDT --historian-db data/historian_SOLUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_SUIUSDT.db --symbol SUIUSDT --historian-db data/historian_SUIUSDT.db --audit &
-// turbo
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/2024-01-01_XRPUSDT.db --symbol XRPUSDT --historian-db data/historian_XRPUSDT.db --audit &
-
-echo "⏳ Waiting for parallel backtests to complete..."
-wait
-
-echo "🏁 ALL 10 BACKTESTS COMPLETE"
-
-# Consolidate isolated databases into master historian.db
-.venv/bin/python utils/merge_historian.py
-
-find data/ -type f -name "*.csv*" -delete
-.venv/bin/python utils/update_memory.py --workflow generalized-edge-audit
+python scripts/orchestrator.py --protocol generalized
 ```
+
 
 ## Step 3: Verify Data Collection
 ```bash

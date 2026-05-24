@@ -10,7 +10,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from core.events import AggregatedSignalEvent, Event, EventType
 from decision.sensor_tracker import SensorTracker
@@ -292,16 +292,16 @@ class AdaptivePlayer:
             setup_type=getattr(event, "setup_type", setup_type),
             atr_1m=event.metadata.get("atr_1m", 0.0),
             timestamp=event.timestamp,
-            trigger_level=event.metadata.get("level_price") or event.metadata.get("poc"),
-            trigger_type=event.metadata.get("pattern", "unknown"),
-            initial_narrative={
-                "poc": event.metadata.get("poc"),
-                "vah": event.metadata.get("vah"),
-                "val": event.metadata.get("val"),
-                "z_score": event.metadata.get("footprint_z_score") or event.metadata.get("z_score"),
-            },
         )
         decision.decision_id = decision_id  # Add unique ID
+        decision.trigger_level = event.metadata.get("level_price") or event.metadata.get("poc")
+        decision.trigger_type = event.metadata.get("pattern", "unknown")
+        decision.initial_narrative = {
+            "poc": event.metadata.get("poc"),
+            "vah": event.metadata.get("vah"),
+            "val": event.metadata.get("val"),
+            "z_score": event.metadata.get("footprint_z_score") or event.metadata.get("z_score"),
+        }
 
         logger.debug(f"📤 Emitting DecisionEvent {decision_id} for {event.side}")
 

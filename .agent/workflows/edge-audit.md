@@ -32,21 +32,13 @@ Wipe all databases and states to ensure zero data leakage.
 ```
 **Must output**: `✨ Sistema limpio.`
 
-## Step 1: Run Zero-Interference Backtests
-Run the backtester with the `--audit` flag to record raw signals and price samples.
-We run exclusively on the LTC audit dataset for consistent comparison.
+## Step 1: Run Zero-Interference Backtest
+Ejecutar la auditoría de una sola moneda mediante el orquestador:
 
-### 1A: LTC (Primary Audit Dataset)
 ```bash
-.venv/bin/python backtest.py \
-  --depth-db-path data/datasets/backtest_ready/2024-01-01_LTCUSDT.db \
-  --symbol LTC/USDT:USDT \
-  --audit \
-  2>&1 | tee logs/edge_audit_ltc_$(date +%Y%m%d_%H%M%S).log
-
-find data/ -type f -name "*.csv*" -delete
-.venv/bin/python utils/update_memory.py --workflow edge-audit
+python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
 ```
+
 
 ## Step 2: Verify Data Collection
 ```bash

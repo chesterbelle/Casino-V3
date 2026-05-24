@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from trajectory_core import DEFAULT_WINDOW, SETUP_WINDOWS, get_trajectory, load_data
 
 # ANSI Colors
 CYAN = "\033[96m"
@@ -45,51 +46,16 @@ class EdgeAuditor:
         self.db_path = db_path
         if not Path(db_path).exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
+        # Import SETUP_WINDOWS for use in calibration
+        from trajectory_core import SETUP_WINDOWS
+
+        self.SETUP_WINDOWS = SETUP_WINDOWS
 
     def load_data(self):
-        conn = sqlite3.connect(self.db_path)
+        """Load data using trajectory_core module"""
+        return load_data(self.db_path)
 
-        # Load Signals but ONLY those that actually passed the guardians
-        # We do this by inner joining with decision_traces where status = 'EXECUTED'
-        # Phase 800: Use UDT trace_id for robust correlation immune to delays
-        query = """
-        SELECT s.*
-        FROM signals s
-        INNER JOIN decision_traces d
-        ON json_extract(s.metadata, '$.trace_id') = json_extract(d.metrics, '$.trace_id')
-        WHERE d.status = 'EXECUTED'
-        AND json_extract(s.metadata, '$.trace_id') IS NOT NULL
-        """
-        try:
-            signals_df = pd.read_sql_query(query, conn)
-        except sqlite3.OperationalError:
-            # Fallback if decision_traces table doesn't exist
-            signals_df = pd.read_sql_query("SELECT * FROM signals", conn)
-
-        # Load Price Samples
-        prices_df = pd.read_sql_query("SELECT * FROM price_samples", conn)
-
-        # Load Decision Traces
-        try:
-            traces_df = pd.read_sql_query("SELECT * FROM decision_traces", conn)
-        except sqlite3.OperationalError:
-            traces_df = pd.DataFrame()
-
-        conn.close()
-        return signals_df, prices_df, traces_df
-
-    # Dynamic window per setup type — reflects actual target horizons
-    # 2026-05-20: Windows increased after multi-window grid analysis showed
-    # 1h windows caused excessive timeouts killing Net Taker expectancy.
-    # At 4h, BNB/SOL/SUI/AVAX all achieve positive Net Taker.
-    SETUP_WINDOWS = {
-        "reversion": 3600,  # Mean-reversion to VWAP: 1h
-        "rotation": 7200,  # IN_VALUE rotation to VA boundary: 2h
-        "continuation": 14400,  # Trend extension 1.5*ATR: 4h
-    }
-    DEFAULT_WINDOW = 14400
-
-    def analyze(self, window_seconds=900):
+    def analyze(self, window_seconds=DEFAULT_WINDOW):
         signals, prices, traces = self.load_data()
 
         if signals.empty:
@@ -97,20 +63,24 @@ class EdgeAuditor:
             return
 
         print(header(f"ANALYZING {len(signals)} SIGNALS (Dynamic Window per Setup)"))
-        print(
-            f"  Windows: reversion={self.SETUP_WINDOWS['reversion']}s, "
-            f"rotation={self.SETUP_WINDOWS['rotation']}s, "
-            f"continuation={self.SETUP_WINDOWS['continuation']}s"
-        )
+        # Get the first three setup types for display, or fewer if less exist
+        setup_types = list(SETUP_WINDOWS.keys())
+        display_types = setup_types[:3] if len(setup_types) >= 3 else setup_types
+
+        # Build the window display string dynamically
+        window_parts = []
+        for st in display_types:
+            window_parts.append(f"{st}={SETUP_WINDOWS[st]}s")
+
+        windows_str = ", ".join(window_parts)
+        if len(setup_types) > 3:
+            windows_str += f" (and {len(setup_types)-3} more)"
+
+        print(f"  Windows: {windows_str}")
 
         results = []
 
-        # Group prices by symbol for faster lookup
-        prices_by_sym = {sym: df.sort_values("timestamp") for sym, df in prices.groupby("symbol")}
-
         for _, sig in signals.iterrows():
-            ts = sig["timestamp"]
-            sym = sig["symbol"]
             entry_price = sig["price"]
             side = sig["side"]
             setup_type = sig["setup_type"]
@@ -118,15 +88,11 @@ class EdgeAuditor:
             if entry_price <= 0:
                 continue
 
-            if sym not in prices_by_sym:
-                continue
-
             # Dynamic window based on setup type
-            win = self.SETUP_WINDOWS.get(setup_type, window_seconds)
+            win = SETUP_WINDOWS.get(setup_type, window_seconds)
 
-            # Get price trajectory within the window
-            mask = (prices_by_sym[sym]["timestamp"] >= ts) & (prices_by_sym[sym]["timestamp"] <= ts + win)
-            trajectory = prices_by_sym[sym].loc[mask]
+            # Get trajectory using trajectory_core
+            trajectory = get_trajectory(sig, prices, win)
 
             if trajectory.empty:
                 continue
@@ -144,46 +110,27 @@ class EdgeAuditor:
                 mfe_pct = (entry_price - mfe_price) / entry_price * 100
                 mae_pct = (mae_price - entry_price) / entry_price * 100
 
-            # Real Strategy Performance (Dynamic TP/SL from Metadata)
+            # Real Strategy Performance (Dynamic TP/SL from Metadata already in sig)
             real_outcome = "TIMEOUT"
-            tp_price = 0.0
-            sl_price = 0.0
-            tp_pct = 0.0
-            sl_pct = 0.0
-            if sig["metadata"]:
-                try:
-                    meta = json.loads(sig["metadata"])
-                    tp_price = meta.get("tp_price", 0.0)
-                    sl_price = meta.get("sl_price", 0.0)
+            tp_price = sig.get("tp_price", 0.0)
+            sl_price = sig.get("sl_price", 0.0)
+            tp_pct = sig.get("tp_distance_pct", 0.0)
+            sl_pct = sig.get("sl_distance_pct", 0.0)
 
-                    if tp_price > 0 and sl_price > 0:
-                        # Calculate actual TP/SL distances as %
-                        if side == "LONG":
-                            tp_pct = (tp_price - entry_price) / entry_price * 100
-                            sl_pct = (entry_price - sl_price) / entry_price * 100
-                        else:
-                            tp_pct = (entry_price - tp_price) / entry_price * 100
-                            sl_pct = (sl_price - entry_price) / entry_price * 100
+            # Determine real outcome
+            for p in prices_list:
+                if side == "LONG":
+                    pnl_pct = (p - entry_price) / entry_price * 100
+                else:
+                    pnl_pct = (entry_price - p) / entry_price * 100
+                if pnl_pct >= tp_pct and tp_pct > 0:
+                    real_outcome = "WIN"
+                    break
+                if pnl_pct <= -sl_pct and sl_pct > 0:
+                    real_outcome = "LOSS"
+                    break
 
-                        for p in prices_list:
-                            if side == "LONG":
-                                if p >= tp_price:
-                                    real_outcome = "WIN"
-                                    break
-                                if p <= sl_price:
-                                    real_outcome = "LOSS"
-                                    break
-                            else:  # SHORT
-                                if p <= tp_price:
-                                    real_outcome = "WIN"
-                                    break
-                                if p >= sl_price:
-                                    real_outcome = "LOSS"
-                                    break
-                except Exception:
-                    pass
-
-            # First Touch Win-Rate per uniform TP/SL config (diagnostic)
+            # First Touch Analysis for uniform grids
             first_touch = {}
             for tp_t, sl_t in [
                 (0.1, 0.1),
@@ -214,21 +161,14 @@ class EdgeAuditor:
                         break
                 first_touch[f"ft_{tp_t}_{sl_t}"] = result
 
-            # Arbitrator Data
-            is_composite = False
-            conviction = 0
-            if sig["metadata"]:
-                try:
-                    meta = json.loads(sig["metadata"])
-                    is_composite = meta.get("is_composite", False)
-                    conviction = meta.get("conviction_score", 0)
-                except Exception:
-                    pass
+            # Arbitrator Data (directly from sig)
+            is_composite = sig.get("is_composite", False)
+            conviction = sig.get("conviction_score", 0)
 
             results.append(
                 {
                     "setup_type": setup_type,
-                    "symbol": sym,
+                    "symbol": sig["symbol"],
                     "mfe": mfe_pct,
                     "mae": mae_pct,
                     "ratio": mfe_pct / (mae_pct + 1e-9),
