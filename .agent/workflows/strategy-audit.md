@@ -30,15 +30,21 @@ Present results + possible fixes and **wait for explicit user approval** before 
 **Must output**: `🗑️ DB Reset: N trades removed. Starting clean.`
 
 ## Step 1: Run Backtest
-Use the largest available dataset for maximum statistical power.
-Ensuring the simulation respects the 60-minute warmup period is critical for accurate signal generation.
+
+> **⚠️ REGLA OBLIGATORIA PARA EL AGENTE — NO NEGOCIABLE:**
+> El orquestador **DEBE** correr con output directo a la terminal del usuario.
+> **NUNCA** redirigir la salida solo a un archivo de log (`> archivo.log`).
+> El usuario debe ver el progreso directamente en su terminal.
+> El comando correcto usa `tee` para mostrar Y guardar simultáneamente — sin modificaciones:
 
 ```bash
-.venv/bin/python backtest.py \
-  --depth-db-path data/datasets/backtest_ready/2024-01-01_LTCUSDT.db \
-  --symbol LTC/USDT:USDT \
-  2>&1 | tee logs/strategy_audit_$(date +%Y%m%d_%H%M%S).log
+PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol strategy --symbol LTCUSDT
+```
 
+El agente debe ejecutar este comando y **esperar su finalización** monitoreando en segundo plano.
+Los logs detallados se guardan automáticamente en `logs/orchestrator_LTCUSDT.log`.
+
+```bash
 find data/ -type f -name "*.csv*" -delete
 .venv/bin/python utils/update_memory.py --workflow strategy-audit
 ```

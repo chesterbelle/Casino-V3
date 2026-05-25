@@ -33,11 +33,19 @@ Wipe all databases and states to ensure zero data leakage.
 **Must output**: `✨ Sistema limpio.`
 
 ## Step 1: Run Zero-Interference Backtest
-Ejecutar la auditoría de una sola moneda mediante el orquestador:
+
+> **⚠️ REGLA OBLIGATORIA PARA EL AGENTE — NO NEGOCIABLE:**
+> El orquestador **DEBE** correr con output directo a la terminal del usuario.
+> **NUNCA** redirigir la salida a un archivo de log (`> archivo.log` o `2>&1`).
+> El usuario debe ver el Live Dashboard (Heartbeat de I/O) directamente en su terminal.
+> El comando correcto es exactamente el siguiente — sin modificaciones:
 
 ```bash
-python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
+PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
 ```
+
+El agente debe ejecutar este comando y **esperar su finalización** monitoreando en segundo plano.
+Los logs individuales se guardan automáticamente en `logs/orchestrator_LTCUSDT.log`.
 
 
 ## Step 2: Verify Data Collection
