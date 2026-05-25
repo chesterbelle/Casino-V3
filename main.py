@@ -141,9 +141,11 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--audit",
-        action="store_true",
-        help="Enable Zero-Interference Audit Mode (Edge Validation)",
+        "--run-type",
+        type=str,
+        required=True,
+        choices=["audit", "trade"],
+        help="Define la intención del motor: auditar señales o ejecutar trades.",
     )
 
     return parser.parse_args()
@@ -239,7 +241,7 @@ async def main():
 
     logger.info(f"🚀 Starting Casino-V3 | Exchange: {args.exchange} | Mode: {args.mode}")
 
-    if args.audit:
+    if args.run_type == "audit":
         trading_config.AUDIT_MODE = True
         logger.warning("🔍 AUDIT MODE ENABLED: Signals will be recorded. Proactive exits DISABLED.")
 

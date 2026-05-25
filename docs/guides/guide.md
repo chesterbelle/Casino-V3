@@ -25,7 +25,7 @@ Perfect for validating logic or monitoring stability.
 
 ```bash
 # Run for 2.5 hours (150m) and close everything at the end
-python main.py --mode demo --symbol MULTI --timeout 150 --close-on-exit
+python main.py --run-type trade --mode demo --symbol MULTI --timeout 150 --close-on-exit
 ```
 
 ### 2. Continuous Production
@@ -33,7 +33,7 @@ Run indefinitely. If manual stop is needed (Ctrl+C), it will **preserve** positi
 
 ```bash
 # Live mode, 2% risk per trade
-python main.py --mode live --symbol MULTI --bet-size 0.02
+python main.py --run-type trade --mode live --symbol MULTI --bet-size 0.02
 ```
 
 ### 3. Quick Debugging
@@ -41,7 +41,7 @@ Run locally with a specific symbol to test signal generation.
 
 ```bash
 # Debug BTC specifically
-python main.py --mode testing --symbol BTC/USDT:USDT
+python main.py --run-type trade --mode testing --symbol BTC/USDT:USDT
 ```
 
 ---

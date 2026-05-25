@@ -6,9 +6,9 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
-### [2026-05-24] — Orchestrator Extension: Single-Coin Support
-### Summary: Ampliación del orquestador para soportar auditorías de una sola moneda
-Se ha actualizado el orquestador (`scripts/orchestrator.py`) para incluir el protocolo `single-coin`, permitiendo auditorías dirigidas (default LTCUSDT) siguiendo el mismo estándar de automatización, limpieza y fusión que los protocolos complejos. Se ha simplificado el workflow `.agent/workflows/edge-audit.md` eliminando la ejecución manual y delegándola al orquestador.
+### [2026-05-24] — Exit Edge Auditor Simplification (to Health Monitor)
+### Summary: Transformación del auditor de reglas a monitor de salud
+Siguiendo la arquitectura "Slim", hemos simplificado `utils/exit_edge_auditor.py`. Se eliminó la lógica de descubrimiento de nuevas reglas (ruido) y se mantuvo únicamente como un **Health Monitor** para certificar el rendimiento de los 2 pilares Slim (Scale Out + Micro-Z Reversal).
 ---
 ### [2026-05-24] — Slimming Architecture: Pillar Purge & Renaming (Branch: v8.2-exit-edge-auditor)
 ### Summary: Eliminación de deuda técnica (Break-Even & Trailing Stop) y purificación del Exit Engine
@@ -592,3 +592,18 @@ En esta sesión, hemos reemplazado el sistema de logeo ruidoso por una infraestr
     1. Auditar `confirmation_sensors.py` para entender el 83.8% de timeouts.
     2. Analizar el sesgo direccional (LONG 85% vs SHORT 50%).
     3. Calibrar thresholds de absorción para mejorar la selectividad.
+
+### [2026-05-25] — Repo Sanitization & Workflow Update
+### Summary: Purga de código muerto y actualización de protocolos
+Como parte de la transición a la arquitectura Slim, se eliminaron de forma permanente copias de seguridad obsoletas (.bak) y se borró `utils/exit_edge_auditor.py` (que había sido reducido a un cascarón vacío). Además, se actualizaron los workflows de auditoría (`validate-all.md`) para asegurar que todo el análisis de Edge dependa únicamente del orquestador principal y `setup_edge_auditor.py`, erradicando cualquier confusión en la evaluación de la rentabilidad del sistema.
+
+### [2026-05-25] — CLI Refactor: Run-Type Mandate
+### Summary: Eliminación de ejecución implícita
+Se identificó que el comportamiento implícito (ejecutar trading al omitir el flag `--audit`) era un anti-patrón peligroso que podía resultar en envíos de órdenes accidentales. Se refactorizó la interfaz CLI de `main.py` y `backtest.py` eliminando el flag `--audit` e introduciendo el argumento obligatorio `--run-type` con opciones estrictas (`audit` o `trade`). El bot ahora exige una declaración explícita de intenciones antes de arrancar. Todos los scripts de validación, bash scripts en `utils/scripts` y `scratch/`, así como la documentación técnica, fueron actualizados masivamente para integrar esta nueva capa de seguridad (Fail-safe architecture).
+
+### [2026-05-25] — Smart Orchestrator Refactor
+### Summary: Eliminación de ceguera en testing, strict sourcing y watchdog I/O.
+Se reconstruyó por completo `scripts/orchestrator.py` para solventar problemas críticos de observabilidad en protocolos largos (ej. `generalized-edge-audit`). Las mejoras incluyen:
+1. **Strict Data Sourcing:** El script ya no asume un prefijo de fecha. Realiza un *glob* estricto de los datasets en `data/datasets/backtest_ready/` para las monedas dictadas por el protocolo en curso. Si encuentra ambigüedad (dos DBs para la misma moneda), crashea forzosamente para prevenir ejecución de datos incorrectos.
+2. **Clean Console (Log Isolation):** Se extrajo la salida del `ProcessPoolExecutor` para evitar el "Spaghetti Console" al correr N backtests concurrentes. Los logs de cada moneda viajan aislados a la carpeta `/logs/`.
+3. **Monitor I/O (Anti-Hang):** El orquestador ahora escanea activamente en el bucle principal cada 5s el tamaño en disco de la base de datos temporal en curso (`historian_{coin}.db`), garantizando visibilidad en vivo del avance del *backtest* y evitando la falsa apariencia de un "cuelgue" del sistema.

@@ -47,16 +47,27 @@ Utilizamos `utils/data/l2_processor.py` para convertir los archivos crudos en un
 
 ## 🚀 Paso 3: Ejecución del Backtest
 
-Para correr el backtest usando la base de datos de alta fidelidad:
+**Nota Importante:** Para auditorías de estrategia, **DEBES usar el orquestador** (`scripts/orchestrator.py`).
+El orquestador automatiza el manejo de los datasets `backtest_ready`, la concurrencia, la fusión de historiales y la ejecución del `ExitEdgeAuditor`.
 
-### Comando:
+### Auditoría Automática (Recomendado):
 ```bash
-.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/<NOMBRE>.db --symbol <SYM>
+# Para auditorías de una moneda (ej. LTCUSDT)
+python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
+
+# Para auditorías generalizadas (todos los activos certificados)
+python scripts/orchestrator.py --protocol generalized
 ```
 
-### Flags Importantes:
+### Ejecución Manual (Solo para pruebas aisladas):
+Si necesitas correr una simulación aislada fuera de los protocolos de auditoría:
+
+```bash
+./.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/<NOMBRE>.db --symbol <SYM>
+```
+
+### Flags Importantes (Ejecución Manual):
 *   `--depth-db-path`: Apunta al archivo `.db` en la carpeta `backtest_ready`.
-*   `--data`: **No es necesario.** Si usas `--depth-db-path`, el feed cargará automáticamente los trades y la profundidad desde la SQLite.
 *   `--audit`: (Opcional) Para grabar señales y trazas de decisión en la base de datos temporal `historian.db`.
 
 ---

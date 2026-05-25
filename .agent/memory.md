@@ -88,3 +88,6 @@
 
 - 2026-05-24T09:30:00.000000 | session-update | Auditoría forense del Break-Even (93.75% de winners perdidos).
 - 2026-05-24T10:00:00.000000 | session-close | Purga de pilares: Eliminados Break-Even y Trailing Stop. SlimExitEngine operando solo con Scale Out y Micro-Z Reversal. Arquitectura Slim certificada.
+- 2026-05-25T15:00:00.000000 | session-update | Repo Sanitization: Eliminados archivos .bak y exit_edge_auditor.py. Workflows actualizados para apuntar solo al setup_edge_auditor.
+- 2026-05-25T15:20:00.000000 | session-update | CLI Refactor: Reemplazado flag implícito y --audit por argumento obligatorio --run-type (audit|trade) en main.py y backtest.py para mitigar riesgos de ejecución accidental.
+- 2026-05-25T16:10:00.000000 | session-update | Smart Orchestrator: Refactorizado scripts/orchestrator.py para implementar búsqueda estricta de datasets (evitando fallos silenciosos), aislamiento de logs y un monitor de progreso I/O (Heartbeat) que previene la ceguera durante ejecuciones largas.

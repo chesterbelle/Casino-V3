@@ -42,21 +42,7 @@ tests/validation/cross_section/SUI_USDT_USDT_24h.csv
 ## Step 1: Verify Datasets Exist
 ```bash
 echo "=== Dataset Verification ==="
-COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "XRP_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
-MISSING=0
-for COIN in "${COINS[@]}"; do
-  FILE="tests/validation/cross_section/${COIN}_24h.csv"
-  if [ -f "$FILE" ]; then
-    ROWS=$(wc -l < "$FILE")
-    echo "✅ $COIN: $ROWS rows"
-  else
-    echo "❌ MISSING: $FILE"
-    MISSING=$((MISSING + 1))
-  fi
-done
-if [ $MISSING -gt 0 ]; then
-  echo "⛔ $MISSING datasets missing. Download them before running this protocol."
-fi
+COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "BTC_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
 ```
 **⛔ STOP if any datasets are missing.** Inform the user which files need to be downloaded.
 

@@ -7,7 +7,7 @@ mkdir -p tests/validation/
 START_TS=$(date +%s)
 echo $START_TS > tests/validation/ft_parity_start.txt
 echo "Starting main.py for 15 minutes at $START_TS..."
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track --close-on-exit || true
+.venv/bin/python main.py --run-type trade --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track --close-on-exit || true
 echo "main.py finished."
 
 echo "=== PHASE 2: Data Extraction ==="
@@ -21,7 +21,7 @@ cp data/historian.db-wal tests/validation/ft_demo_historian.db-wal 2>/dev/null |
 
 echo "=== PHASE 3: Simulator Replay ==="
 .venv/bin/python reset_data.py
-.venv/bin/python backtest.py --data tests/validation/ft_parity_data.csv --symbol LTC/USDT:USDT --fast-track --depth-db tests/validation/ft_demo_historian.db
+.venv/bin/python backtest.py --run-type trade --data tests/validation/ft_parity_data.csv --symbol LTC/USDT:USDT --fast-track --depth-db tests/validation/ft_demo_historian.db
 cp data/historian.db tests/validation/ft_backtest_historian.db
 
 echo "=== PHASE 4: Validation ==="

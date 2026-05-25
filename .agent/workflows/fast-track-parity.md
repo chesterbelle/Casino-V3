@@ -22,7 +22,7 @@ echo $START_TS > tests/validation/ft_parity_start.txt
 
 2. Ejecutar sesión corta (30 min) en modo Fast-Track:
 ```bash
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track
+.venv/bin/python main.py --run-type trade --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track
 ```
 
 ## Phase 2: Data Extraction
@@ -52,7 +52,7 @@ cp data/historian.db-wal tests/validation/ft_demo_historian.db-wal 2>/dev/null |
   --end 2024-01-02 \
   --db-path tests/validation/ft_demo_historian.db
 
-.venv/bin/python backtest.py \
+.venv/bin/python backtest.py --run-type trade \
   --depth-db-path tests/validation/ft_demo_historian.db \
   --symbol LTC/USDT:USDT \
   --fast-track

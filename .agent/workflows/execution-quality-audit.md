@@ -13,7 +13,7 @@ Este workflow ejecuta una ronda de Demo y otra de Simulador (Backtest) en period
 ```bash
 mkdir -p logs/
 rm -f logs/demo_exec.log logs/bt_exec.log
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track > logs/demo_exec.log 2>&1
+.venv/bin/python main.py --run-type trade --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track > logs/demo_exec.log 2>&1
 ```
 
 ## Phase 2: Simulator Replay Logging
@@ -28,7 +28,7 @@ rm -f logs/demo_exec.log logs/bt_exec.log
   --end 2024-01-02 \
   --db-path data/historian.db
 
-.venv/bin/python backtest.py \
+.venv/bin/python backtest.py --run-type trade \
   --depth-db-path data/historian.db \
   --symbol LTC/USDT:USDT \
   --limit 5000 \

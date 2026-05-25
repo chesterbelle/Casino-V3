@@ -48,9 +48,9 @@ GRACEFUL_TP_TIMEOUT = 30.0  # Tolerancia para latencias en la API de Binance/Hyp
 # =====================================================
 
 # Algoritmo de cálculo para el tamaño de las posiciones:
-# - "FIXED_NOTIONAL": El bot arriesga un % fijo del Balance Total (Bet Size * Equity).
+# - "FIXED_NOTIONAL": El bot arriesga un % fijo del Balance (Bet Size * Equity).
 # - "FIXED_RISK": El bot calcula el tamaño para que, si toca el Stop Loss, solo pierdas un % fijo del total.
-POSITION_SIZING_MODE = "FIXED_NOTIONAL"  # Modo actual activo
+POSITION_SIZING_MODE = "FIXED_RISK"  # Modo cambiado para pruebas con BTC/ETH
 
 # Porcentaje de riesgo máximo del capital por cada operación individual.
 # En Footprint Scalping (operaciones muy frecuentes), el riesgo por trade se reduce drásticamente.

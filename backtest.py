@@ -63,7 +63,13 @@ def parse_args():
         "--depth-db-path", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
     )
     parser.add_argument("--historian-db", type=str, default=None, help="Custom output path for historian.db")
-    parser.add_argument("--audit", action="store_true", help="Enable Zero-Interference Audit Mode (Edge Validation)")
+    parser.add_argument(
+        "--run-type",
+        type=str,
+        required=True,
+        choices=["audit", "trade"],
+        help="Define la intención del motor: auditar señales o ejecutar trades.",
+    )
     return parser.parse_args()
 
 
@@ -81,7 +87,7 @@ async def run_backtest():
         historian._queue = None
         logger.warning(f"💾 Historian: Dynamically redirected output to custom DB: {args.historian_db}")
 
-    if args.audit:
+    if args.run_type == "audit":
         trading_config.AUDIT_MODE = True
         trading_config.ENABLE_DECISION_TRACE = True
         logger.warning("🔍 AUDIT MODE ENABLED: Simulation will record signals and prices. Proactive exits DISABLED.")

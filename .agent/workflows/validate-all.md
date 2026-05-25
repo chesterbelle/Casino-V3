@@ -69,7 +69,7 @@ Verify that `orchestrator.py` correctly cleans, executes, and merges.
 # Run a dry-run or quick test of the orchestrator
 python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
 ```
-*Success Criterion*: The historian db `data/historian_LTCUSDT.db` exists, is merged to `data/historian.db`, and `exit_edge_auditor.py` executes successfully.
+*Success Criterion*: The historian db `data/historian_LTCUSDT.db` exists, is merged to `data/historian.db`, and the audit executes successfully.
 
 ---
 
@@ -83,7 +83,7 @@ python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
 
 ## LAYER 5: SANITY CHECK
 ### Layer 5.1: Pipeline Sanity (Single Dataset Audit)
-Verify that the complete auditing pipeline (Orchestrator + ExitEdgeAuditor) is functional.
+Verify that the complete auditing pipeline (Orchestrator + SetupEdgeAuditor) is functional.
 ```bash
 # Run one single-coin audit to confirm the entire end-to-end pipeline
 python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT

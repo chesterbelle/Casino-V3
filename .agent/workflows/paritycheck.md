@@ -16,7 +16,7 @@ echo $START_TS > tests/validation/parity_start.txt
 
 2. Lanzar el bot en Demo durante **8 horas** (debe capturar métricas consistentes a lo largo de múltiples sesiones):
 ```bash
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 480 --drain-duration 0
+.venv/bin/python main.py --run-type trade --mode demo --symbol LTC/USDT:USDT --timeout 480 --drain-duration 0
 ```
 
 ## Phase 2: Extracción del Golden Dataset (AggTrades API)
@@ -52,7 +52,7 @@ cp data/historian.db-shm tests/validation/demo_historian.db-shm 2>/dev/null || :
   --end 2024-01-02 \
   --db-path tests/validation/demo_historian.db
 
-.venv/bin/python backtest.py \
+.venv/bin/python backtest.py --run-type trade \
   --depth-db-path tests/validation/demo_historian.db \
   --symbol LTC/USDT:USDT \
   --balance 3400.0 \

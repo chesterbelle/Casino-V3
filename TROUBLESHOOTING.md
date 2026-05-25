@@ -119,7 +119,7 @@ python state_audit.py --symbol MULTI
 **Solution**:
 ```bash
 # Use the bot's built-in emergency sweep
-python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
+python main.py --run-type trade --mode demo --symbol MULTI --timeout 1 --close-on-exit
 ```
 
 ### "Notional too small" (-4164)
@@ -129,10 +129,10 @@ python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
 **Solutions**:
 ```bash
 # Increase bet size
-python main.py --bet-size 0.1  # Was 0.05
+python main.py --run-type trade --bet-size 0.1  # Was 0.05
 
 # Or reduce leverage (increases margin)
-python main.py --leverage 5  # Was 10
+python main.py --run-type trade --leverage 5  # Was 10
 ```
 
 ---
@@ -192,7 +192,7 @@ top -p $(pgrep -f main.py)
 SENSOR_WORKERS=2  # Was 4
 
 # Or reduce active symbols
-python main.py --symbol BTC/USDT  # Single symbol mode
+python main.py --run-type trade --symbol BTC/USDT  # Single symbol mode
 ```
 
 ### High Memory Usage
@@ -275,7 +275,7 @@ INFO:Audit:Summary: Symbols Checked=5, Potential Orphans/Zombies=2
 python reset_data.py
 
 # Or use emergency sweep mode
-python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
+python main.py --run-type trade --mode demo --symbol MULTI --timeout 1 --close-on-exit
 ```
 
 ### Shadow SL Triggered (Frequent)
@@ -430,7 +430,7 @@ tail -n 100 bot.log
 pkill -9 -f main.py
 
 # Clean exchange
-python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
+python main.py --run-type trade --mode demo --symbol MULTI --timeout 1 --close-on-exit
 
 # Restart bot
 ```
@@ -443,7 +443,7 @@ python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
 pkill -9 -f main.py
 
 # 2. Close all positions
-python main.py --mode demo --symbol MULTI --timeout 1 --close-on-exit
+python main.py --run-type trade --mode demo --symbol MULTI --timeout 1 --close-on-exit
 
 # 3. Review session summary in the last log
 tail -50 logs/stress_test_*.log | grep -A 30 "SESSION SUMMARY"

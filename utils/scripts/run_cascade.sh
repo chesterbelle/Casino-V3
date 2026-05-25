@@ -4,7 +4,7 @@ export PYTHONPATH="/home/chesterbelle/Casino-V3/.venv/lib/python3.14/site-packag
 cd /home/chesterbelle/Casino-V3
 
 echo "=== LAYER 1.5: Fast-Track Execution (15m, No Drain Phase) ==="
-.venv/bin/python main.py --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track --close-on-exit
+.venv/bin/python main.py --run-type trade --mode demo --symbol LTC/USDT:USDT --timeout 15 --fast-track --close-on-exit
 
 echo "=== LAYER 2: Multi-Symbol Concurrency ==="
 .venv/bin/python -m utils.validators.multi_symbol_validator --symbols LTCUSDT,DOGEUSDT,ETHUSDT --mode demo --size 500

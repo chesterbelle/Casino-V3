@@ -83,10 +83,10 @@ EXCHANGE_MODE=demo  # or 'live' for production
 ### 4. Run the Bot
 ```bash
 # Single symbol (recommended for testing)
-python main.py --symbol BTC/USDT --mode demo --bet-size 0.05
+python main.py --run-type trade --symbol BTC/USDT --mode demo --bet-size 0.05
 
 # Multi-symbol mode (advanced)
-python main.py --symbol MULTI --mode demo --bet-size 0.05 --timeout 150
+python main.py --run-type trade --symbol MULTI --mode demo --bet-size 0.05 --timeout 150
 ```
 
 ### 5. Monitor Metrics (Optional)
@@ -128,13 +128,13 @@ main.py (Orchestrator & Clock Reactor)
 ### Single Symbol Trading
 ```bash
 # BTC with 0.1 USDT bet size, auto-close on exit
-python main.py --symbol BTC/USDT --mode demo --bet-size 0.1 --close-on-exit
+python main.py --run-type trade --symbol BTC/USDT --mode demo --bet-size 0.1 --close-on-exit
 ```
 
 ### Multi-Symbol with Timeout
 ```bash
 # Trade 50 symbols for 150 minutes, close positions on timeout
-python main.py --symbol MULTI --mode demo --bet-size 0.05 --timeout 150 --close-on-exit
+python main.py --run-type trade --symbol MULTI --mode demo --bet-size 0.05 --timeout 150 --close-on-exit
 ```
 
 ### Validation Pipeline

@@ -98,8 +98,8 @@ TICKER_CACHE_TTL=3
 - `MULTI` - Trade top 50 symbols simultaneously
 
 ```bash
-python main.py --symbol BTC/USDT
-python main.py --symbol MULTI
+python main.py --run-type trade --symbol BTC/USDT
+python main.py --run-type trade --symbol MULTI
 ```
 
 #### --mode
@@ -109,8 +109,8 @@ python main.py --symbol MULTI
 **Default**: `demo`
 
 ```bash
-python main.py --mode demo  # Binance Testnet
-python main.py --mode live  # Binance Production
+python main.py --run-type trade --mode demo  # Binance Testnet
+python main.py --run-type trade --mode live  # Binance Production
 ```
 
 #### --bet-size
@@ -120,7 +120,7 @@ python main.py --mode live  # Binance Production
 **Range**: `0.01` - `1000`
 
 ```bash
-python main.py --bet-size 0.1  # 0.1 USDT per position
+python main.py --run-type trade --bet-size 0.1  # 0.1 USDT per position
 ```
 
 ### Optional Arguments
@@ -131,7 +131,7 @@ python main.py --bet-size 0.1  # 0.1 USDT per position
 **Default**: None (runs indefinitely)
 
 ```bash
-python main.py --timeout 150  # Stop after 150 minutes
+python main.py --run-type trade --timeout 150  # Stop after 150 minutes
 ```
 
 #### --close-on-exit
@@ -150,7 +150,7 @@ python main.py --timeout 150  # Stop after 150 minutes
 **Default**: False
 
 ```bash
-python main.py --mode demo --close-on-exit --timeout 30
+python main.py --run-type trade --mode demo --close-on-exit --timeout 30
 ```
 
 > **Note**: The drain phase is automatically skipped when `--fast-track` is active (see below), since fast-track test windows are too short for progressive drain stages to be meaningful.
@@ -181,21 +181,21 @@ python main.py --mode demo --close-on-exit --timeout 30
 **Default**: False
 
 ```bash
-python main.py --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track --close-on-exit
+python main.py --run-type trade --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track --close-on-exit
 ```
 
 > **Warning**: Do not use `--fast-track` in production. It is exclusively for infrastructure validation protocols (`/fast-track-parity`, `/execution-quality-audit`).
 
 ---
 
-#### --audit
+#### --run-type audit
 **Description**: Enable Zero-Interference Audit Mode (Edge Validation)
 **Type**: Flag (no value needed)
 **Default**: False
 
 ```bash
-python main.py --audit
-python backtest.py --data history.csv --audit
+python main.py --run-type audit
+python backtest.py --data history.csv --run-type audit
 ```
 
 ---
