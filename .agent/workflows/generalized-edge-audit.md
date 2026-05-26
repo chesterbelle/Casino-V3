@@ -7,7 +7,7 @@ description: Auditoría de Borde Generalizada (10 Coins × 24h)
 // turbo-all
 
 ## Overview
-Tests whether the LTA V4 Structural Reversion edge **generalizes across instruments**.
+Tests whether estrategy edge **generalizes across instruments**.
 A reversion strategy based on Auction Market Theory should work on ANY liquid instrument.
 If the edge only exists on a subset, it's likely overfitting, not a real market property.
 
@@ -39,8 +39,9 @@ tests/validation/cross_section/SUI_USDT_USDT_24h.csv
 ```
 **Must output**: `✨ Sistema limpio.`
 
-## Step 1: Verify Datasets Exist
+## Step 1: Setup Environment & Verify Datasets
 ```bash
+mkdir -p logs
 echo "=== Dataset Verification ==="
 COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "BTC_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
 ```
@@ -48,18 +49,17 @@ COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "BTC_USDT
 
 ## Step 2: Run Audit
 
-> **⚠️ REGLA OBLIGATORIA PARA EL AGENTE — NO NEGOCIABLE:**
-> El orquestador **DEBE** correr con output directo a la terminal del usuario.
-> **NUNCA** redirigir la salida a un archivo de log (`> archivo.log` o `2>&1`).
-> El usuario debe ver el Live Dashboard (Heartbeat de I/O) directamente en su terminal.
-> El comando correcto es exactamente el siguiente — sin modificaciones:
-
-```bash
-PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol generalized
-```
-
-El agente debe ejecutar este comando y **esperar su finalización** monitoreando en segundo plano.
-Los logs individuales por moneda se guardan automáticamente en `logs/orchestrator_{COIN}.log`.
+> **🤖 REGLA DE EJECUCIÓN AUTÓNOMA PARA EL AGENTE (No Negociable):**
+> Como este proceso puede durar horas procesando Gigabytes de datos, el agente **DEBE** actuar de manera 100% autónoma y reportar el progreso periódicamente al usuario, sin que este deba pedirlo o ejecutar comandos manualmente.
+>
+> Sigue EXACTAMENTE esta secuencia:
+> 1. Lanza el orquestador en **segundo plano** redirigiendo la salida para poder monitorearla:
+>    ```bash
+>    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol generalized > logs/orchestrator_run.log 2>&1
+>    ```
+> 2. Implementa un mecanismo de monitoreo en segundo plano (ej. un script de loop, tarea programada o revisión periódica) para leer el log cada 5 minutos.
+> 3. En cada revisión, haz `tail -n 20 logs/orchestrator_run.log`, extrae qué dataset está procesándose y su tamaño, e **imprime un reporte en el chat para el usuario** (Ej: "📊 Progreso: ETHUSDT - 2/10 completados. DB Size: 45MB").
+> 4. Cuando el log indique que el proceso ha finalizado, detén tu monitoreo y continúa al Step 3.
 
 
 ## Step 3: Verify Data Collection

@@ -29,20 +29,22 @@ Present results + possible fixes and **wait for explicit user approval** before 
 ```
 **Must output**: `🗑️ DB Reset: N trades removed. Starting clean.`
 
-## Step 1: Run Backtest
-
-> **⚠️ REGLA OBLIGATORIA PARA EL AGENTE — NO NEGOCIABLE:**
-> El orquestador **DEBE** correr con output directo a la terminal del usuario.
-> **NUNCA** redirigir la salida solo a un archivo de log (`> archivo.log`).
-> El usuario debe ver el progreso directamente en su terminal.
-> El comando correcto usa `tee` para mostrar Y guardar simultáneamente — sin modificaciones:
+## Step 1: Setup Environment & Run Backtest
 
 ```bash
-PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol strategy --symbol LTCUSDT
+mkdir -p logs
 ```
-
-El agente debe ejecutar este comando y **esperar su finalización** monitoreando en segundo plano.
-Los logs detallados se guardan automáticamente en `logs/orchestrator_LTCUSDT.log`.
+> **🤖 REGLA DE EJECUCIÓN AUTÓNOMA PARA EL AGENTE (No Negociable):**
+> Como este proceso puede durar horas, el agente **DEBE** actuar de manera 100% autónoma y reportar el progreso periódicamente al usuario, sin que este deba pedirlo o ejecutar comandos manualmente.
+>
+> Sigue EXACTAMENTE esta secuencia:
+> 1. Lanza el orquestador en **segundo plano** redirigiendo la salida para poder monitorearla:
+>    ```bash
+>    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol strategy --symbol LTCUSDT > logs/orchestrator_run.log 2>&1
+>    ```
+> 2. Implementa un mecanismo de monitoreo en segundo plano (ej. un script de loop, tarea programada o revisión periódica) para leer el log cada 5 minutos.
+> 3. En cada revisión, haz `tail -n 20 logs/orchestrator_run.log`, extrae el progreso de la ejecución e **imprime un reporte en el chat para el usuario**.
+> 4. Cuando el log indique que el proceso ha finalizado, detén tu monitoreo y continúa con los siguientes comandos de limpieza:
 
 ```bash
 find data/ -type f -name "*.csv*" -delete

@@ -32,20 +32,22 @@ Wipe all databases and states to ensure zero data leakage.
 ```
 **Must output**: `✨ Sistema limpio.`
 
-## Step 1: Run Zero-Interference Backtest
-
-> **⚠️ REGLA OBLIGATORIA PARA EL AGENTE — NO NEGOCIABLE:**
-> El orquestador **DEBE** correr con output directo a la terminal del usuario.
-> **NUNCA** redirigir la salida a un archivo de log (`> archivo.log` o `2>&1`).
-> El usuario debe ver el Live Dashboard (Heartbeat de I/O) directamente en su terminal.
-> El comando correcto es exactamente el siguiente — sin modificaciones:
+## Step 1: Setup Environment & Run Zero-Interference Backtest
 
 ```bash
-PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
+mkdir -p logs
 ```
-
-El agente debe ejecutar este comando y **esperar su finalización** monitoreando en segundo plano.
-Los logs individuales se guardan automáticamente en `logs/orchestrator_LTCUSDT.log`.
+> **🤖 REGLA DE EJECUCIÓN AUTÓNOMA PARA EL AGENTE (No Negociable):**
+> Como este proceso puede durar horas, el agente **DEBE** actuar de manera 100% autónoma y reportar el progreso periódicamente al usuario, sin que este deba pedirlo o ejecutar comandos manualmente.
+>
+> Sigue EXACTAMENTE esta secuencia:
+> 1. Lanza el orquestador en **segundo plano** redirigiendo la salida para poder monitorearla:
+>    ```bash
+>    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT > logs/orchestrator_run.log 2>&1
+>    ```
+> 2. Implementa un mecanismo de monitoreo en segundo plano (ej. un script de loop, tarea programada o revisión periódica) para leer el log cada 5 minutos.
+> 3. En cada revisión, haz `tail -n 20 logs/orchestrator_run.log`, extrae el progreso actual y **reporta el estado al usuario** en el chat.
+> 4. Cuando el log indique que el proceso ha finalizado, detén tu monitoreo y continúa al Step 2.
 
 
 ## Step 2: Verify Data Collection

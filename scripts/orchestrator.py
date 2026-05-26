@@ -1,134 +1,66 @@
 import argparse
 import glob
 import os
+import signal
 import subprocess
 import sys
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
-# Protocol Configurations
-PROTOCOLS = {
-    "generalized": {
-        "assets": [
-            "ADAUSDT",
-            "ETHUSDT",
-            "SOLUSDT",
-            "BNBUSDT",
-            "BTCUSDT",
-            "AVAXUSDT",
-            "LINKUSDT",
-            "DOGEUSDT",
-            "LTCUSDT",
-            "SUIUSDT",
-        ],
-        "run_type": "audit",
-        "max_workers": 4,
-    },
-    "long-range": {
-        # Explicit files required by the workflow
-        "datasets": [
-            "LTC_RANGE_2024-02-01.db",
-            "LTC_RANGE_2024-05-01.db",
-            "LTC_RANGE_2024-08-01.db",
-            "LTC_BEAR_2024-04-01.db",
-            "LTC_BEAR_2024-10-01.db",
-            "LTC_BEAR_2025-02-01.db",
-            "LTC_BULL_2024-03-01.db",
-            "LTC_BULL_2024-12-01.db",
-            "LTC_BULL_2025-05-01.db",
-        ],
-        "symbol": "LTC/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-    },
-    "strategy": {
-        # The user will pass the symbol via --symbol
-        "run_type": "trade",
-        "max_workers": 1,
-    },
-    "single-coin": {
-        # The user will pass the symbol via --symbol
-        "run_type": "audit",
-        "max_workers": 1,
-    },
-}
-
-DB_DIR = "data/datasets/backtest_ready"
-LOG_DIR = "logs"
+# Semaphore to control I/O-intensive initialization
+io_semaphore = threading.Semaphore(2)
 
 
-def clean_temp_data():
-    print("🧹 Cleaning temporary historian databases...")
-    for f in glob.glob("data/historian_*.db"):
-        try:
-            os.remove(f)
-        except OSError:
-            pass
-    if not os.path.exists(LOG_DIR):
-        os.makedirs(LOG_DIR)
+def handle_exit(signum, frame):
+    print(f"\n🛑 Signal {signum} received. Cleaning up processes...")
+    # In ProcessPoolExecutor, subprocesses are spawned as children.
+    # For now, we rely on the executor to handle shutdown, but we can force exit here.
+    os._exit(1)
 
 
-def strict_find_db(asset_or_db):
-    if asset_or_db.endswith(".db"):
-        path = os.path.join(DB_DIR, asset_or_db)
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Missing required dataset: {path}")
-        return path
-
-    # It's an asset like BTCUSDT
-    pattern = os.path.join(DB_DIR, f"*{asset_or_db}*.db")
-    matches = glob.glob(pattern)
-    if len(matches) == 0:
-        raise FileNotFoundError(f"No DB found for {asset_or_db} in {DB_DIR}")
-    elif len(matches) > 1:
-        raise ValueError(
-            f"AMBIGUOUS: Found {len(matches)} DBs for {asset_or_db} in {DB_DIR}. Keep exactly 1 to avoid executing the wrong data."
-        )
-    return matches[0]
+signal.signal(signal.SIGINT, handle_exit)
+signal.signal(signal.SIGTERM, handle_exit)
 
 
-def format_ccxt_symbol(sym):
-    if "/" in sym:
-        return sym
-    if sym.endswith("USDT"):
-        base = sym[:-4]
-        return f"{base}/USDT:USDT"
-    return sym
-
-
+# ... (rest of code)
 def run_backtest_task(task_config):
-    db_path = task_config["db_path"]
-    symbol = task_config["symbol"]
-    run_type = task_config["run_type"]
-    task_id = task_config["task_id"]
+    # Acquire semaphore to throttle DB initialization phase
+    with io_semaphore:
+        db_path = task_config["db_path"]
+        symbol = task_config["symbol"]
+        run_type = task_config["run_type"]
+        task_id = task_config["task_id"]
 
-    historian_db = f"data/historian_{task_id}.db"
-    log_file = os.path.join(LOG_DIR, f"orchestrator_{task_id}.log")
+        historian_db = f"data/historian_{task_id}.db"
+        log_file = os.path.join(LOG_DIR, f"orchestrator_{task_id}.log")
 
-    cmd = [
-        sys.executable,
-        "backtest.py",
-        "--depth-db-path",
-        db_path,
-        "--run-type",
-        run_type,
-        "--symbol",
-        symbol,
-        "--historian-db",
-        historian_db,
-    ]
+        cmd = [
+            sys.executable,
+            "backtest.py",
+            "--depth-db-path",
+            db_path,
+            "--run-type",
+            run_type,
+            "--symbol",
+            symbol,
+            "--historian-db",
+            historian_db,
+        ]
 
-    with open(log_file, "w") as f:
-        process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT)
-        task_config["process"] = process
-        task_config["historian_db"] = historian_db
-        task_config["log_file"] = log_file
+        with open(log_file, "w") as f:
+            env = os.environ.copy()
+            env["CASINO_HISTORIAN_DB"] = historian_db
+            process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env)
+            task_config["process"] = process
+            task_config["historian_db"] = historian_db
+            task_config["log_file"] = log_file
 
-        # Guardamos timestamps para el deadlock watchdog
-        task_config["last_size"] = 0
-        task_config["last_progress_time"] = time.time()
+            # Guardamos timestamps para el deadlock watchdog
+            task_config["last_size"] = 0
+            task_config["last_progress_time"] = time.time()
 
-        process.wait()
+            process.wait()
 
     return process.returncode == 0
 
@@ -176,7 +108,7 @@ def run_protocol(protocol_name, symbol=None):
             )
 
     futures_map = {}
-    with ThreadPoolExecutor(max_workers=config["max_workers"]) as executor:
+    with ProcessPoolExecutor(max_workers=config["max_workers"]) as executor:
         for t in tasks:
             future = executor.submit(run_backtest_task, t)
             futures_map[future] = t
