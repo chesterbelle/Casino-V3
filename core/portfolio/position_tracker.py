@@ -95,7 +95,7 @@ class OrderState:
         return old_status != self.status
 
 
-@dataclass
+@dataclass(slots=True)
 class OpenPosition:
     """
     Institutional Grade Open Position Tracking.
@@ -179,6 +179,11 @@ class OpenPosition:
     # CLOSING: In process of closing (Audit should wait)
     # SETTLED: Position is closed and PnL recorded
     status: str = "OPEN"
+
+    # v8.3: Dynamic attributes promoted to slots for __slots__ compatibility
+    exit_reason: Optional[str] = None
+    realized_pnl: float = 0.0
+    _closure_recorded: bool = False
 
     def on_order_update(self, event: Dict[str, Any]) -> Optional[str]:
         """
@@ -523,8 +528,8 @@ class PositionTracker(TraceBulletMixin):
 
             # Wait for the lock to be released by whoever holds it
             try:
-                # We use a shorter timeout for the hot path
-                async with asyncio.timeout(2.0):
+                # v8.3: Reduced from 2.0s to 0.1s — 2s is an eternity in HFT
+                async with asyncio.timeout(0.1):
                     async with position._lock:
                         # Once released, re-check status
                         return position.status != "CLOSING"

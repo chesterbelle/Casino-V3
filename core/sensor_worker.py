@@ -4,13 +4,32 @@ Run sensors in a long-lived separate process to preserve state (actors).
 """
 
 import logging
+import logging.handlers
 import multiprocessing
+import os
+import queue
 import traceback
 from typing import Any, Dict, List, Type
 
-# We need to import the base sensor class type for type hinting if possible,
-# but to avoid circular imports we might skip it or use TYPE_CHECKING
-# from sensors.sensor_base import V3SensorBase
+# v8.3: Non-blocking logging via QueueHandler + QueueListener
+_log_queue: queue.Queue = queue.Queue(-1)  # Unlimited size
+_log_qh: logging.handlers.QueueHandler = logging.handlers.QueueHandler(_log_queue)
+_listener: logging.handlers.QueueListener = None  # Started after logger is configured
+
+
+def _setup_async_logging(logger: logging.Logger):
+    """Configure logger with QueueHandler for non-blocking file I/O."""
+    global _listener
+    if _listener is not None:
+        return  # Already configured
+
+    os.makedirs("logs", exist_ok=True)
+    fh = logging.FileHandler("logs/sensors_worker.log", mode="a")
+    fh.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+
+    _listener = logging.handlers.QueueListener(_log_queue, fh, respect_handler_level=True)
+    _listener.start()
+    logger.addHandler(_log_qh)
 
 
 # Configure minimal logging for the worker
@@ -20,13 +39,7 @@ if not logger.handlers:
     ch = logging.StreamHandler()
     ch.setFormatter(logging.Formatter("%(asctime)s | WORKER:%(process)d:%(name)s | %(levelname)s | %(message)s"))
     logger.addHandler(ch)
-    # Dedicated debug file
-    import os
-
-    os.makedirs("logs", exist_ok=True)
-    fh = logging.FileHandler("logs/sensors_worker.log", mode="a")
-    fh.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
-    logger.addHandler(fh)
+    _setup_async_logging(logger)
 
 
 class SensorWorker(multiprocessing.Process):
@@ -62,7 +75,7 @@ class SensorWorker(multiprocessing.Process):
         # Multi-Asset: Key by symbol -> List[Sensor]
         self.sensors: Dict[str, List[Any]] = {}
         self._running = True
-        print(f"📦 [DEBUG] SensorWorker-{self.worker_id} initialized in parent (PID: {os.getpid()})")
+        logger.debug(f"📦 [DEBUG] SensorWorker-{self.worker_id} initialized in parent (PID: {os.getpid()})")
 
     def run(self):
         """Main loop of the worker process."""
@@ -73,7 +86,7 @@ class SensorWorker(multiprocessing.Process):
         logger = logging.getLogger(f"SensorWorker-{self.worker_id}")
 
         try:
-            print(f"🚀 [DEBUG] SensorWorker-{self.worker_id} starting (PID: {os.getpid()})")
+            logger.debug(f"🚀 [DEBUG] SensorWorker-{self.worker_id} starting (PID: {os.getpid()})")
             logger.info(f"🚀 Worker started. Ready to process {len(self.sensor_classes)} sensor types.")
 
             # Main Loop

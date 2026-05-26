@@ -23,6 +23,31 @@ class OrderManager:
     Subscribes to DECISION events (from Paroli).
     """
 
+    # v8.3: Pre-allocated template to reduce GC pressure. Shallow copy + update per decision.
+    _ORDER_TEMPLATE = {
+        "size": None,
+        "amount": None,
+        "tp_price": None,
+        "sl_price": None,
+        "timestamp": None,
+        "t0_signal_ts": None,
+        "t1_decision_ts": None,
+        "ghost": False,
+        "contributors": None,
+        "trace_id": None,
+        "setup_type": "unknown",
+        "estimated_price": None,
+        "atr_1m": 0.0,
+        "limit_price": None,
+        "params": {
+            "setup_type": "unknown",
+            "trace_id": None,
+            "t0_signal_ts": None,
+            "t1_decision_ts": None,
+            "t2_submit_ts": None,
+        },
+    }
+
     def __init__(self, engine, croupier: Croupier, paroli=None):
         self.engine = engine
         self.croupier = croupier
@@ -259,34 +284,35 @@ class OrderManager:
                 elif side == "SHORT" and vah and vah > 0:
                     limit_price = vah
 
-        order_payload = {
-            "trade_id": trade_id,
-            "symbol": symbol,
-            "side": side,  # LONG/SHORT (AdaptivePlayer provides this)
-            "size": bet_size,
-            "amount": amount,
-            "tp_price": tp_price,  # Phase 800: Absolute price
-            "sl_price": sl_price,  # Phase 800: Absolute price
-            "timestamp": str(event.timestamp),
-            "t0_signal_ts": getattr(event, "t0_timestamp", None),  # Phase 85: Signal Latency
-            "t1_decision_ts": getattr(event, "t1_decision_ts", None),  # Phase 10: Decision Latency
-            "ghost": False,
-            "contributors": [getattr(event, "selected_sensor", "Unknown")],
-            "trace_id": getattr(event, "trace_id", None),
-            "setup_type": getattr(event, "setup_type", "unknown"),
-            "estimated_price": current_price,  # Phase 240: avoid redundant price fetch in OCO
-            "atr_1m": getattr(event, "atr_1m", 0.0),
-            "limit_price": limit_price,  # Phase 1200: Limit Sniper structural level
-        }
+        # v8.3: Shallow copy from template (avoids full dict allocation per decision)
+        order_payload = self._ORDER_TEMPLATE.copy()
+        order_payload.update(
+            {
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "side": side,
+                "size": bet_size,
+                "amount": amount,
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+                "timestamp": str(event.timestamp),
+                "t0_signal_ts": getattr(event, "t0_timestamp", None),
+                "t1_decision_ts": getattr(event, "t1_decision_ts", None),
+                "contributors": [getattr(event, "selected_sensor", "Unknown")],
+                "trace_id": getattr(event, "trace_id", None),
+                "setup_type": getattr(event, "setup_type", "unknown"),
+                "estimated_price": current_price,
+                "atr_1m": getattr(event, "atr_1m", 0.0),
+                "limit_price": limit_price,
+            }
+        )
 
         # Phase 650: Explicitly propagate setup_type and latency telemetry for adapters
-        order_payload["params"] = {
-            "setup_type": order_payload["setup_type"],
-            "trace_id": order_payload["trace_id"],
-            "t0_signal_ts": order_payload["t0_signal_ts"],
-            "t1_decision_ts": order_payload["t1_decision_ts"],
-            "t2_submit_ts": time.time(),  # Capture exact wire-time for T2
-        }
+        order_payload["params"]["setup_type"] = order_payload["setup_type"]
+        order_payload["params"]["trace_id"] = order_payload["trace_id"]
+        order_payload["params"]["t0_signal_ts"] = order_payload["t0_signal_ts"]
+        order_payload["params"]["t1_decision_ts"] = order_payload["t1_decision_ts"]
+        order_payload["params"]["t2_submit_ts"] = time.time()
 
         # Store for outcome tracking (include sensor_id if available)
         sensor_id = getattr(event, "selected_sensor", "Unknown")

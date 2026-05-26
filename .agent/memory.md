@@ -9,10 +9,10 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Dual-Core (Reversión/Continuación) con Inercia de Micro-Flujo.
-*   **Current Branch**: `v8.2-exit-edge-auditor`
-*   **Active Mode**: Multi-Coin Agnostic (LTC, SOL, BTC Certified).
+*   **Current Branch**: `v8.3-optimized`
+*   **Active Mode**: Multi-Coin Agnostic
 *   **Active Alpha**: **AMT V10 Alpha** (Certified Generalized).
-*   **Exit Pillar 4**: **Z-Shift Invalidation** (abs ΔZ > 4.0) — reemplazo de Delta Invalidation.
+
 
 ## 📚 Historial y Contexto
 *   **Archivo Maestro de Sesiones**: [`.agent/changelog.md`](file:///home/chesterbelle/Casino-V3/.agent/changelog.md)
@@ -28,13 +28,15 @@
 *   **Hito Actual**: **Arquitectura Zero-Necrosis**. Eliminado `fast_track`, `tracker` y `shadow_sl`.
 *   **Métrica de Estrés**: Trazabilidad asíncrona validada en ventanas de 500ms (Phase 2).
 *   **Latency Guard**: Zero-interference logging via memory-resident DNA traces.
+*   **Optimización V8.3**: HPC Audit completada. 18/19 optimizaciones implementadas en la Capa de Hierro. Running sums O(1), VWAP residuals O(1), semáforo de concurrencia, task tracking, event-based parking, template dict, sync hot paths, peak incremental, QueueHandler logging, aiosqlite, __slots__ OpenPosition.
+*   **Validate-All Pipeline (Mayo 26)**: Suite completa Capas 0-5 certificada. 3 bugs corregidos durante validación (self.clock, orchestrator truncado, aiosqlite faltante). Bot operacionalmente seguro.
 
 ### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (4-Coin Net Taker Positive)]
 *   **AMT V10 Alpha**: Audited across 10 crypto assets. 4 certified Net Taker positive (BNB, SOL, SUI, AVAX).
 *   **Hito Actual**: **Multi-Window Grid Discovery** — Ventana de 4h elimina Timeouts y desbloquea Net Taker positivo.
 *   **Métrica Forense (4h Window)**: BNB +0.107% (1.2% target), SOL +0.28% (1.2%), SUI +0.08% (1.2%), AVAX +0.12% (1.2%).
 *   **Sweet Spot**: Target 1.0%-1.2% TP/SL simétrico con ventana de 4h. Ventanas < 2h generan Timeouts que destruyen expectancia.
-*   **ETH EXCLUDED**: Único activo que no logra Net Taker positivo en ninguna combinación window/target.
+*   **ETH PROBLEM**: Único activo que no logra Net Taker positivo en ninguna combinación window/target debmos investigar porque.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Slim Exit Engine (v10.2)**: Salidas tácticas vía Maker (Limit Orders) certificadas.
@@ -73,9 +75,9 @@
 2.  **AMT V10 ARCH — COMPLETADO ✅**: Escenarios AMT integrados.
 3.  **EXECUTION STABILITY — COMPLETADO ✅**: Slim Exit Engine sincronizado.
 4.  **UDT FORENSICS — COMPLETADO ✅**: Sistema de autopsias unificado (Rama 8.1).
-5.  **CALIBRACIÓN ALPHA — COMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas.
+5.  **CALIBRACIÓN ALPHA —  CASICOMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas. con execpcion de ETH
 6.  **EXIT ENGINE SLIM — COMPLETADO ✅**: Purga de pilares ruidosos.
-7.  **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live para validar slippage real y ejecución WebSocket.
+7.  **INVESTIGACION— PRÓXIMO PASO**: investigar porque sirve en todos menos ETH.
 
 ---
 

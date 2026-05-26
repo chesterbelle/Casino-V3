@@ -132,6 +132,10 @@ class PortfolioGuard:
         self._consecutive_losses: int = 0
         self._session_peak_equity: float = 0.0
 
+        # v8.3: Incremental peak tracking for O(1) drawdown checks
+        self._peak_in_window: float = 0.0
+        self._peak_timestamp: float = 0.0
+
         # State change listeners: callback(old_state, new_state, reason)
         self._state_listeners: List[Callable[[GuardState, GuardState, str], None]] = []
 
@@ -183,6 +187,11 @@ class PortfolioGuard:
         # Track peak
         if equity > self._session_peak_equity:
             self._session_peak_equity = equity
+
+        # v8.3: Incremental peak update — O(1) instead of O(n) scan in common case
+        if equity > self._peak_in_window:
+            self._peak_in_window = equity
+            self._peak_timestamp = now
 
         self._balance_history.append(_BalanceSnapshot(timestamp=now, equity=equity))
 
@@ -313,18 +322,22 @@ class PortfolioGuard:
     def _check_drawdown_velocity(self, now: float) -> Tuple[Optional[GuardState], str]:
         """
         Check rate of equity loss within the rolling window.
-        Uses peak equity within the window as reference.
+        Uses cached peak with lazy recalculation for O(1) in the common case.
         """
         if len(self._balance_history) < 2:
             return (None, "")
 
         window_start = now - (self.config.drawdown_window_minutes * 60)
 
-        # Find peak equity within the window
-        peak_in_window = 0.0
-        for snap in self._balance_history:
-            if snap.timestamp >= window_start and snap.equity > peak_in_window:
-                peak_in_window = snap.equity
+        # v8.3: Use cached peak if still within window; lazy O(n) fallback only when peak expires
+        peak_in_window = self._peak_in_window
+        if self._peak_timestamp < window_start or peak_in_window <= 0:
+            peak_in_window = 0.0
+            for snap in self._balance_history:
+                if snap.timestamp >= window_start and snap.equity > peak_in_window:
+                    peak_in_window = snap.equity
+            self._peak_in_window = peak_in_window
+            self._peak_timestamp = now
 
         if peak_in_window <= 0:
             return (None, "")

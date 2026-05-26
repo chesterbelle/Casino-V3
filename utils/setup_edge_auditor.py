@@ -117,6 +117,12 @@ class EdgeAuditor:
             tp_pct = sig.get("tp_distance_pct", 0.0)
             sl_pct = sig.get("sl_distance_pct", 0.0)
 
+            # Fallback: calculate TP/SL pct from absolute prices when metadata missing
+            if tp_pct == 0.0 and tp_price > 0 and entry_price > 0:
+                tp_pct = abs(tp_price - entry_price) / entry_price * 100
+            if sl_pct == 0.0 and sl_price > 0 and entry_price > 0:
+                sl_pct = abs(sl_price - entry_price) / entry_price * 100
+
             # Determine real outcome
             for p in prices_list:
                 if side == "LONG":
@@ -316,11 +322,14 @@ class EdgeAuditor:
             print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
             print("-" * 75)
 
-            trace_counts = traces.groupby(["gate", "reason"]).size().reset_index(name="count")
-            trace_counts = trace_counts.sort_values("count", ascending=False)
-
-            for _, row in trace_counts.iterrows():
-                print(f"{row['gate']:<25} {row['reason']:<40} {row['count']:<6}")
+            try:
+                trace_counts = traces.groupby(["gate", "reason"]).size().reset_index(name="count")
+                trace_counts = trace_counts.sort_values("count", ascending=False)
+                for _, row in trace_counts.iterrows():
+                    print(f"{row['gate']:<25} {row['reason']:<40} {row['count']:<6}")
+            except KeyError as e:
+                available = [c for c in traces.columns if c not in ("id",)]
+                print(f"{YELLOW}⚠️ Column {e} not found in decision_traces. Available: {available}{RESET}")
 
         # ── [5] PER-SETUP UNIFORM GRID (Full Detail) ──
         print(f"\n{BOLD}[5] UNIFORM TP/SL GRID (Full Detail per Setup){RESET}")

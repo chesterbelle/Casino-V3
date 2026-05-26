@@ -94,9 +94,12 @@ class ExecutionProcess(multiprocessing.Process):
             self.logger.info("✅ HTTP Keep-Alive Session Established")
 
             # Phase 8: Pipe-based Event Reactor
-            # We register the pipe's file descriptor to the event loop.
-            # This allows the loop to wake up ONLY when there is data, with sub-ms precision.
             loop = asyncio.get_running_loop()
+
+            # v8.3: Semaphore limits concurrent order execution (prevents backlog saturation)
+            self._exec_semaphore = asyncio.Semaphore(10)
+            # v8.3: Event-based parking (replaces sleep(0.1) polling)
+            self._work_event = asyncio.Event()
 
             def handle_command():
                 try:
@@ -105,6 +108,7 @@ class ExecutionProcess(multiprocessing.Process):
                         if item is None:
                             self.logger.info("🧪 Poison pill received. Exiting.")
                             self.stop_event.set()
+                            self._work_event.set()
                             return
 
                         # Parse Item: (priority, request_id, endpoint, method, payload, signed)
@@ -115,19 +119,24 @@ class ExecutionProcess(multiprocessing.Process):
 
                         priority, request_id, endpoint, method, payload, signed = item
 
-                        # Fire-and-Forget execution task
+                        # Fire-and-Forget execution task (bounded by semaphore)
                         asyncio.create_task(self._execute_request(request_id, endpoint, method, payload, signed))
                 except EOFError:
                     self.logger.warning("🔌 Command Pipe closed unexpectedly.")
                     self.stop_event.set()
+                    self._work_event.set()
                 except Exception as e:
                     self.logger.error(f"⚠️ Reactor Error: {e}")
+                finally:
+                    self._work_event.set()
 
             loop.add_reader(self.cmd_pipe.fileno(), handle_command)
             self.logger.info("🔥 Pipe Reactor Registered (Zero-Latency)")
 
+            self._work_event.set()  # Initial wake to allow first pass
             while not self.stop_event.is_set():
-                await asyncio.sleep(0.1)  # Keep loop alive, actual work triggered by handler
+                self._work_event.clear()
+                await self._work_event.wait()
 
             loop.remove_reader(self.cmd_pipe.fileno())
             if ws_task:
@@ -177,6 +186,10 @@ class ExecutionProcess(multiprocessing.Process):
                 await asyncio.sleep(5)
 
     async def _execute_request(self, request_id: str, endpoint: str, method: str, payload: Dict, signed: bool):
+        async with self._exec_semaphore:
+            await self._execute_request_impl(request_id, endpoint, method, payload, signed)
+
+    async def _execute_request_impl(self, request_id: str, endpoint: str, method: str, payload: Dict, signed: bool):
         start_ts = time.time()
 
         use_ws = False
@@ -322,18 +335,30 @@ class ExecutionProcess(multiprocessing.Process):
             self.logger.error(f"❌ Network Error for {request_id}: {e}")
             self.res_queue.put({"request_id": request_id, "status": 0, "data": {"error": str(e)}, "success": False})
 
-        except Exception as e:
-            self.logger.error(f"❌ Network Error for {request_id}: {e}")
-            self.res_queue.put({"request_id": request_id, "status": 0, "data": {"error": str(e)}, "success": False})
+    CANONICAL_PARAM_ORDER = [
+        "symbol",
+        "side",
+        "type",
+        "timeInForce",
+        "quantity",
+        "price",
+        "stopPrice",
+        "trailingDelta",
+        "positionSide",
+        "reduceOnly",
+        "newClientOrderId",
+        "newOrderRespType",
+        "recvWindow",
+        "timestamp",
+    ]
 
     def _sign_payload(self, payload: Dict) -> str:
         """Signs the payload using HMAC SHA256 and returns a URL-encoded string."""
         if "timestamp" not in payload:
             payload["timestamp"] = int(time.time() * 1000) + self.time_offset
 
-        # Phase 240: Strict parameter sorting to prevent -1022 (Signature mismatch)
-        # We must ensure the query string used for signing matches the one sent.
-        items = sorted([(k, v) for k, v in payload.items() if v is not None])
+        # v8.3: Canonical order avoids sorted() O(n log n) and list comprehension per order
+        items = [(k, payload[k]) for k in self.CANONICAL_PARAM_ORDER if k in payload and payload[k] is not None]
         query_string = urlencode(items)
 
         signature = hmac.new(self.api_secret.encode("utf-8"), query_string.encode("utf-8"), hashlib.sha256).hexdigest()

@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 from collections import defaultdict, deque
 from typing import Dict, Optional, Tuple
@@ -66,6 +67,14 @@ class ContextRegistry:
         self.ranges_short: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.attr_short_window))
         self.ranges_long: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.attr_long_window))
         self.atrs: Dict[str, Dict[str, float]] = defaultdict(lambda: {"short": 0.0, "long": 0.0})
+
+        # v8.3: Running sums O(1) for spread & ATR
+        self._spread_running_sum: Dict[str, float] = {}
+        self._range_short_running_sum: Dict[str, float] = {}
+        self._range_long_running_sum: Dict[str, float] = {}
+
+        # v8.3: Rolling window of VWAP residuals O(1) for std
+        self._vwap_residuals: Dict[str, dict] = defaultdict(lambda: {"history": deque(maxlen=500), "sum_sq": 0.0})
 
         # Phase D1: Rolling VWAP & Z-Bands (Statistical Location)
         self.vwap_window_secs = 120 * 60  # 120 minutes
@@ -247,15 +256,21 @@ class ContextRegistry:
         return state.get("cvd", 0.0), state.get("skewness", 0.5), state.get("z_score", 0.0)
 
     def update_spread(self, symbol: str, spread: float):
-        """Phase B3: Track spread for spread sanity gate."""
+        """Phase B3: Track spread for spread sanity gate. O(1) running sum."""
         if symbol not in self.spread_state:
             self.spread_state[symbol] = {"current": 0.0, "avg_5m": 0.0, "history": deque(maxlen=300)}
+            self._spread_running_sum[symbol] = 0.0
 
         state = self.spread_state[symbol]
         state["current"] = spread
-        state["history"].append(spread)
-        if len(state["history"]) > 0:
-            state["avg_5m"] = sum(state["history"]) / len(state["history"])
+
+        history = state["history"]
+        if len(history) >= history.maxlen:
+            self._spread_running_sum[symbol] -= history[0]
+
+        history.append(spread)
+        self._spread_running_sum[symbol] += spread
+        state["avg_5m"] = self._spread_running_sum[symbol] / len(history)
 
     def get_flow_inertia(self, symbol: str, side: str, profit_pct: float = 0.0) -> float:
         """
@@ -287,17 +302,30 @@ class ContextRegistry:
         return inertia
 
     def on_candle(self, symbol: str, high: float, low: float):
-        """Update ATR buffers from candle data."""
+        """Update ATR buffers from candle data. O(1) running sum."""
         candle_range = high - low
         if candle_range <= 0:
             return
 
-        self.ranges_short[symbol].append(candle_range)
-        self.ranges_long[symbol].append(candle_range)
+        short_history = self.ranges_short[symbol]
+        long_history = self.ranges_long[symbol]
 
-        # Update cached averages
-        self.atrs[symbol]["short"] = sum(self.ranges_short[symbol]) / len(self.ranges_short[symbol])
-        self.atrs[symbol]["long"] = sum(self.ranges_long[symbol]) / len(self.ranges_long[symbol])
+        if symbol not in self._range_short_running_sum:
+            self._range_short_running_sum[symbol] = 0.0
+            self._range_long_running_sum[symbol] = 0.0
+
+        if len(short_history) >= short_history.maxlen:
+            self._range_short_running_sum[symbol] -= short_history[0]
+        if len(long_history) >= long_history.maxlen:
+            self._range_long_running_sum[symbol] -= long_history[0]
+
+        short_history.append(candle_range)
+        long_history.append(candle_range)
+        self._range_short_running_sum[symbol] += candle_range
+        self._range_long_running_sum[symbol] += candle_range
+
+        self.atrs[symbol]["short"] = self._range_short_running_sum[symbol] / len(short_history)
+        self.atrs[symbol]["long"] = self._range_long_running_sum[symbol] / len(long_history)
 
     def get_volatility_ratio(self, symbol: str) -> float:
         """
@@ -384,10 +412,8 @@ class ContextRegistry:
     def update_vwap(self, symbol: str, price: float, volume: float, timestamp: float = None):
         """
         Phase D1: Update Rolling VWAP state (High Performance).
-        Uses running sums and deques for O(1) update complexity.
+        Uses running sums + online residual std for O(1) at all times.
         """
-        import math
-
         now = timestamp or time.time()
         key = self._norm_key(symbol)
 
@@ -414,24 +440,20 @@ class ContextRegistry:
         if acc["v"] > 0:
             vwap = acc["pv"] / acc["v"]
 
-            # 4. Standard Deviation (Periodic Sampling to save CPU)
-            # Recalculating std on EVERY tick is still heavy due to the sqrt and sum.
-            # We only update STD every 100 ticks or when a signal is likely.
-            if len(history) % 100 == 0 or symbol not in self.vwap_state:
-                # Sample prices for STD
-                # We use a subset of history to keep it fast
-                step = max(1, len(history) // 500)  # Max 500 samples
-                sample_prices = [history[i][1] for i in range(0, len(history), step)]
+            # 4. Standard Deviation — O(1) exact rolling residual std
+            # v8.3 fix: Store residual (price - vwap) at insertion time, so eviction
+            # subtracts exactly the value that was added — no approximation needed.
+            res = self._vwap_residuals[key]
+            residual = price - vwap
+            res["history"].append(residual)
+            res["sum_sq"] += residual * residual
+            if len(res["history"]) > res["history"].maxlen:
+                old_residual = res["history"].popleft()
+                res["sum_sq"] -= old_residual * old_residual
 
-                n = len(sample_prices)
-                if n > 1:
-                    variance = sum((p - vwap) ** 2 for p in sample_prices) / n
-                    std = math.sqrt(variance)
-                    self.vwap_state[key] = {"vwap": vwap, "std": std}
-                else:
-                    self.vwap_state[key]["vwap"] = vwap
-            else:
-                self.vwap_state[key]["vwap"] = vwap
+            n = len(res["history"])
+            std = math.sqrt(res["sum_sq"] / n) if n > 1 else 0.0
+            self.vwap_state[key] = {"vwap": vwap, "std": std}
 
     def get_vwap_zscore(self, symbol: str, current_price: float) -> float:
         """

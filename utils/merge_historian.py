@@ -2,39 +2,76 @@ import glob
 import os
 import sqlite3
 
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id TEXT UNIQUE, parent_trade_id TEXT, symbol TEXT, side TEXT,
+    entry_price REAL, exit_price REAL, qty REAL, fee REAL DEFAULT 0.0,
+    funding REAL DEFAULT 0.0, gross_pnl REAL, net_pnl REAL,
+    exit_reason TEXT, timestamp TEXT, bars_held INTEGER, session_id TEXT,
+    healed BOOLEAN DEFAULT 0, t4_fill_ts REAL, slippage_pct REAL,
+    lifecycle_phase TEXT DEFAULT 'ACTIVE', setup_type TEXT DEFAULT 'unknown',
+    level_ref TEXT DEFAULT 'unknown', level_price REAL DEFAULT 0.0
+);
+CREATE TABLE IF NOT EXISTS price_candles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL, symbol TEXT, open REAL, high REAL, low REAL,
+    close REAL, volume REAL
+);
+CREATE TABLE IF NOT EXISTS decision_traces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL,
+    symbol TEXT,
+    status TEXT,
+    gate TEXT,
+    reason TEXT,
+    metrics TEXT,
+    price REAL,
+    side TEXT
+);
+CREATE TABLE IF NOT EXISTS signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL, symbol TEXT, side TEXT, price REAL,
+    metadata TEXT, session_id TEXT, trace_id TEXT
+);
+CREATE TABLE IF NOT EXISTS price_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT, timestamp REAL, price REAL, micro_z REAL,
+    trade_id TEXT
+);
+"""
+
 
 def merge_databases():
     master_db = "data/historian.db"
     print(f"🔗 Fusing temporary databases into Master: {master_db}...")
 
-    # Ensure master directory exists
     os.makedirs(os.path.dirname(master_db), exist_ok=True)
 
-    # Tables to consolidate
     tables = ["trades", "price_candles", "decision_traces", "signals", "price_samples"]
 
-    # Find all isolated database files
     temp_dbs = glob.glob("data/historian_*.db")
     if not temp_dbs:
         print("⚠️ No temporary databases found to merge.")
         return
 
-    # Connect to the master database
     conn = sqlite3.connect(master_db)
-
-    # Enable WAL mode for performance
     conn.execute("PRAGMA journal_mode=WAL;")
+
+    # Ensure master has schema before merging
+    conn.executescript(SCHEMA_SQL)
+    conn.commit()
 
     total_merged = {table: 0 for table in tables}
 
     for temp_db in temp_dbs:
+        if temp_db == master_db:
+            continue
         print(f"📦 Processing: {temp_db}...")
 
-        # Attach the temporary database
         conn.execute(f"ATTACH DATABASE '{temp_db}' AS temp_db;")
 
         for table in tables:
-            # Check if table exists in temporary database
             try:
                 cursor = conn.execute(f"SELECT COUNT(*) FROM temp_db.{table}")
                 row_count = cursor.fetchone()[0]
@@ -57,20 +94,27 @@ def merge_databases():
                 conn.execute(f"INSERT OR IGNORE INTO {table} ({cols_str}) SELECT {select_str} FROM temp_db.{table}")
                 total_merged[table] += row_count
             except sqlite3.OperationalError:
-                # Table might not exist in the temp DB (e.g. if no candles were generated)
                 pass
 
         conn.commit()
         conn.execute("DETACH DATABASE temp_db;")
 
     conn.commit()
+
+    # Verify data was actually merged before deleting sources
+    total_rows = sum(total_merged.values())
+    if total_rows == 0:
+        conn.close()
+        print("\n⚠️ No rows merged — keeping source databases.")
+        return
+
     conn.close()
 
-    # Clean up temporary database files only after successful commit
     for temp_db in temp_dbs:
+        if temp_db == master_db:
+            continue
         try:
             os.remove(temp_db)
-            # Also clean up SQLite WAL/SHM files if they exist
             for ext in ["-wal", "-shm"]:
                 if os.path.exists(temp_db + ext):
                     os.remove(temp_db + ext)

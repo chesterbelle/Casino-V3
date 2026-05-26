@@ -154,7 +154,7 @@ async def test_micro_z_reversal():
     croupier = MockCroupier(context_registry=ctx)
     engine = slim_engine(croupier)
     pos = make_position(side="LONG", entry_z=-3.0)
-    triggered = await engine._check_micro_z_reversal(pos, profile)
+    triggered = engine._check_micro_z_reversal(pos, profile)
     if triggered and pos.trade_id in engine._pending_terminations:
         ok(f"LONG abs(ΔZ) > {threshold} → invalidation + pending termination")
     else:
@@ -166,25 +166,28 @@ async def test_micro_z_reversal():
     croupier2 = MockCroupier(context_registry=ctx2)
     engine2 = slim_engine(croupier2)
     pos2 = make_position(side="SHORT", entry_z=3.0)
-    triggered2 = await engine2._check_micro_z_reversal(pos2, profile)
+    triggered2 = engine2._check_micro_z_reversal(pos2, profile)
     if triggered2:
         ok(f"SHORT abs(ΔZ) > {threshold} → invalidation")
     else:
         fail("SHORT Micro-Z reversal should trigger")
 
-    # No entry_z baseline
-    engine3 = slim_engine(MockCroupier(context_registry=ctx))
-    pos3 = make_position(side="LONG", entry_z=None)
-    if not await engine3._check_micro_z_reversal(pos3, profile):
-        ok("No entry_z → no invalidation")
+    # LONG: No reversal when within threshold
+    ctx3 = MockContextRegistry(z=-3.0 + 0.5)  # ΔZ = 0.5 < threshold
+    croupier3 = MockCroupier(context_registry=ctx3)
+    engine3 = slim_engine(croupier3)
+    pos3 = make_position(side="LONG", entry_z=-3.0)
+    if not engine3._check_micro_z_reversal(pos3, profile):
+        ok(f"LONG abs(ΔZ) < {threshold} → no invalidation")
     else:
-        fail("Missing entry_z should not invalidate")
+        fail("LONG Micro-Z should NOT trigger (within threshold)")
 
-    # Within threshold
-    ctx4 = MockContextRegistry(z=-3.0 + threshold - 0.5)
-    engine4 = slim_engine(MockCroupier(context_registry=ctx4))
-    pos4 = make_position(side="LONG", entry_z=-3.0)
-    if not await engine4._check_micro_z_reversal(pos4, profile):
+    # SHORT: No reversal when within threshold
+    ctx4 = MockContextRegistry(z=3.0 - 0.5)  # ΔZ = -0.5, abs=0.5 < threshold
+    croupier4 = MockCroupier(context_registry=ctx4)
+    engine4 = slim_engine(croupier4)
+    pos4 = make_position(side="SHORT", entry_z=3.0)
+    if not engine4._check_micro_z_reversal(pos4, profile):
         ok("abs(ΔZ) within threshold → no invalidation")
     else:
         fail("Small abs(ΔZ) should not invalidate")

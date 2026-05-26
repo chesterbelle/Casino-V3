@@ -23,7 +23,94 @@ signal.signal(signal.SIGINT, handle_exit)
 signal.signal(signal.SIGTERM, handle_exit)
 
 
-# ... (rest of code)
+# Protocol Configurations
+PROTOCOLS = {
+    "generalized": {
+        "assets": [
+            "ADAUSDT",
+            "ETHUSDT",
+            "SOLUSDT",
+            "BNBUSDT",
+            "BTCUSDT",
+            "AVAXUSDT",
+            "LINKUSDT",
+            "DOGEUSDT",
+            "LTCUSDT",
+            "SUIUSDT",
+        ],
+        "run_type": "audit",
+        "max_workers": 4,
+    },
+    "long-range": {
+        "datasets": [
+            "LTC_RANGE_2024-02-01.db",
+            "LTC_RANGE_2024-05-01.db",
+            "LTC_RANGE_2024-08-01.db",
+            "LTC_BEAR_2024-04-01.db",
+            "LTC_BEAR_2024-10-01.db",
+            "LTC_BEAR_2025-02-01.db",
+            "LTC_BULL_2024-03-01.db",
+            "LTC_BULL_2024-12-01.db",
+            "LTC_BULL_2025-05-01.db",
+        ],
+        "symbol": "LTC/USDT:USDT",
+        "run_type": "audit",
+        "max_workers": 3,
+    },
+    "strategy": {
+        "run_type": "trade",
+        "max_workers": 1,
+    },
+    "single-coin": {
+        "run_type": "audit",
+        "max_workers": 1,
+    },
+}
+
+DB_DIR = "data/datasets/backtest_ready"
+LOG_DIR = "logs"
+
+
+def clean_temp_data():
+    print("🧹 Cleaning historian databases...")
+    for f in glob.glob("data/historian_*.db"):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    for f in glob.glob("data/historian.db*"):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+
+
+def strict_find_db(asset_or_db):
+    if asset_or_db.endswith(".db"):
+        path = os.path.join(DB_DIR, asset_or_db)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Missing required dataset: {path}")
+        return path
+    pattern = os.path.join(DB_DIR, f"*{asset_or_db}*.db")
+    matches = glob.glob(pattern)
+    if len(matches) == 0:
+        raise FileNotFoundError(f"No DB found for {asset_or_db} in {DB_DIR}")
+    elif len(matches) > 1:
+        raise ValueError(f"AMBIGUOUS: Found {len(matches)} DBs for {asset_or_db} in {DB_DIR}. Keep exactly 1.")
+    return matches[0]
+
+
+def format_ccxt_symbol(sym):
+    if "/" in sym:
+        return sym
+    if sym.endswith("USDT"):
+        base = sym[:-4]
+        return f"{base}/USDT:USDT"
+    return sym
+
+
 def run_backtest_task(task_config):
     # Acquire semaphore to throttle DB initialization phase
     with io_semaphore:
@@ -113,48 +200,34 @@ def run_protocol(protocol_name, symbol=None):
             future = executor.submit(run_backtest_task, t)
             futures_map[future] = t
 
-        # Monitor Loop
+        # Monitor Loop — checks future.done() for ProcessPoolExecutor
         completed_tasks = set()
         while len(completed_tasks) < len(tasks):
-            time.sleep(5)
+            time.sleep(30)
 
-            os.system("clear" if os.name == "posix" else "cls")
+            if os.environ.get("TERM"):
+                os.system("clear" if os.name == "posix" else "cls")
             print(f"=== ⚙️  Smart Orchestrator: {protocol_name.upper()} ===")
             print(f"Status: {len(completed_tasks)}/{len(tasks)} completed.\n")
 
-            for t in tasks:
+            for future, t in futures_map.items():
                 task_id = t["task_id"]
-                process = t.get("process")
-                hist_db = t.get("historian_db", "")
-
-                if process is None:
-                    print(f"⏳ {task_id}: Waiting in queue...")
-                    continue
-
-                if process.poll() is not None:  # Finished
+                if future.done():
                     if task_id not in completed_tasks:
-                        completed_tasks.add(task_id)
-                    status = "✅ SUCCESS" if process.returncode == 0 else "❌ FAILED"
-                    print(f"{status} {task_id}")
-                else:  # Running
+                        try:
+                            success = future.result()
+                            print(f"{'✅ SUCCESS' if success else '❌ FAILED'} {task_id}")
+                            completed_tasks.add(task_id)
+                        except Exception as e:
+                            print(f"❌ ERROR {task_id}: {e}")
+                            completed_tasks.add(task_id)
+                else:
+                    hist_db = f"data/historian_{task_id}.db"
                     size_str = "0 MB"
-                    current_size = 0
                     if os.path.exists(hist_db):
-                        current_size = os.path.getsize(hist_db)
-                        size_mb = current_size / (1024 * 1024)
+                        size_mb = os.path.getsize(hist_db) / (1024 * 1024)
                         size_str = f"{size_mb:.2f} MB"
-
-                    # Watchdog logic
-                    if current_size > t.get("last_size", 0):
-                        t["last_size"] = current_size
-                        t["last_progress_time"] = time.time()
-
-                    stalled_seconds = time.time() - t.get("last_progress_time", time.time())
-
-                    if stalled_seconds > 120:
-                        print(f"⚠️ {task_id}: WARNING STALLED for {int(stalled_seconds)}s! (DB Size: {size_str})")
-                    else:
-                        print(f"🔄 {task_id}: Processing... (DB Size: {size_str})")
+                    print(f"🔄 {task_id}: Processing... (DB Size: {size_str})")
 
         results = [f.result() for f in futures_map.keys()]
 

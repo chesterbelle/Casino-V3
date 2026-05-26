@@ -36,6 +36,7 @@ class SlimExitEngine:
         self.croupier = croupier
         self.logger = logging.getLogger("SlimExitEngine")
         self._pending_terminations: set = set()
+        self._profile_cache: Dict[str, Dict[str, Any]] = {}
 
         # Load asset profiles from config
         self.profiles = getattr(config, "ASSET_EXIT_PROFILES", {})
@@ -44,23 +45,24 @@ class SlimExitEngine:
         for name, profile in self.profiles.items():
             if "assets" in profile:
                 profile["normalized_assets"] = [normalize_symbol(a) for a in profile["assets"]]
+                for asset_norm in profile["normalized_assets"]:
+                    self._profile_cache[asset_norm] = profile
 
         self.logger.info(f"🚀 SlimExitEngine initialized with {len(self.profiles)} asset profiles.")
 
     def _get_profile(self, symbol: str) -> Dict[str, Any]:
-        """Matches a symbol to its market personality profile."""
+        """Matches a symbol to its market personality profile. O(1) via pre-built cache."""
         symbol_norm = normalize_symbol(symbol)
-        for name, profile in self.profiles.items():
-            if name == "DEFAULT":
-                continue
-            if symbol_norm in profile.get("normalized_assets", []):
-                return profile
+        profile = self._profile_cache.get(symbol_norm)
+        if profile:
+            return profile
 
-        # Fallback to DEFAULT with Error Logging
         self.logger.error(
             f"⚠️ [CONFIG-ERROR] Symbol {symbol} ({symbol_norm}) has no matching Exit Profile! Using DISABLED DEFAULT."
         )
-        return self.profiles.get("DEFAULT", {})
+        default = self.profiles.get("DEFAULT", {})
+        self._profile_cache[symbol_norm] = default
+        return default
 
     async def on_tick(self, event: TickEvent):
         """Main tactical loop: Process pillars for active positions."""
@@ -83,7 +85,7 @@ class SlimExitEngine:
             # PILAR 4: MICRO-Z REVERSAL (Flow Invalidation)
             # ---------------------------------------------------------
             if profile["micro_z_reversal"]["enabled"]:
-                if await self._check_micro_z_reversal(position, profile):
+                if self._check_micro_z_reversal(position, profile):
                     continue
 
             # ---------------------------------------------------------
@@ -93,7 +95,7 @@ class SlimExitEngine:
                 if await self._check_scale_out(position, current_price, profile):
                     continue
 
-    async def _check_micro_z_reversal(self, position: OpenPosition, profile: Dict) -> bool:
+    def _check_micro_z_reversal(self, position: OpenPosition, profile: Dict) -> bool:
         entry_z = getattr(position, "entry_z", None)
         if entry_z is None or entry_z == 0.0:
             return False

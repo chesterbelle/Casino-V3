@@ -133,6 +133,9 @@ class Croupier(TimeIterator):
         # Track pending closures to prevent premature shutdown before PnL is recorded
         self._pending_closures: set = set()
 
+        # v8.3: Track background tasks to prevent pile-up and enable monitoring
+        self._background_tasks: set = set()
+
         # Phase 249: PortfolioGuard (Event-Driven Risk Monitor)
         self._kill_switch_triggered: bool = False
         guard_cfg = GuardConfig(
@@ -549,7 +552,7 @@ class Croupier(TimeIterator):
                 pnl=pnl,
                 fee=position.entry_fee + float((result.get("fee", {}) or {}).get("cost", 0)),
                 parent_trade_id=trade_id,
-                timestamp=self.clock.get_time(),
+                timestamp=time.time(),
             )
 
             # 4. Context Unlock
@@ -584,9 +587,10 @@ class Croupier(TimeIterator):
         if trace_id:
             self.auditor.record_execution(trace_id, result)
 
-        # We start an async task for cleanup to avoid blocking the tracker
-
-        asyncio.create_task(self._async_bracket_cleanup(trade_id, result))
+        # Track background cleanup task
+        task = asyncio.create_task(self._async_bracket_cleanup(trade_id, result))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _async_bracket_cleanup(self, trade_id: str, result: Dict[str, Any]):
         """Background task to cancel remaining bracket orders."""
@@ -702,7 +706,7 @@ class Croupier(TimeIterator):
                 pnl=pnl,
                 fee=fee,
                 parent_trade_id=trade_id,
-                timestamp=self.clock.get_time(),
+                timestamp=time.time(),
             )
 
             # 3. Update memory (BEFORE modifying bracket so modify_bracket reads correct qty)
@@ -995,7 +999,7 @@ class Croupier(TimeIterator):
         # await self.slim_exit_engine.tick(timestamp)
 
     def _run_periodic_task(self, coro, name: str, timeout: float):
-        """Helper to run a periodic task with strict timeout and pile-up protection."""
+        """Helper to run a periodic task with strict timeout, pile-up protection, and tracking."""
 
         async def _execution_wrapper():
             try:
@@ -1005,7 +1009,9 @@ class Croupier(TimeIterator):
             except Exception as e:
                 self.logger.error(f"❌ Periodic Task {name} FAILED: {e}", exc_info=True)
 
-        asyncio.create_task(_execution_wrapper())
+        task = asyncio.create_task(_execution_wrapper())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _sync_balance(self):
         """Standardized balance sync."""

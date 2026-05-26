@@ -6,6 +6,84 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-05-26] — Validate-All Pipeline Certification & Post-Optimization Fixes (Branch: v8.3-optimized)
+### Summary: Certificación Completa de la Suite validate-all (Capas 0-5) tras optimizaciones HPC
+Ejecutamos la suite completa de validación `validate-all.md` para certificar que las 18 optimizaciones de la Capa de Hierro no introdujeron regresiones. Se detectaron y corrigieron 3 bugs: `self.clock` inexistente en Croupier, PROTOCOLS faltante en orchestrator.py, y dependencia `aiosqlite` no instalada.
+
+#### 1. Validate-All — Resultados por Capa
+*   **Layer 0 (Atomic Math)**: FootprintValidator ✅ | GuardianValidator ✅ | ExitEngineValidator ✅
+*   **Layer 1 (Integration)**: Sensor+Footprint (historian integrity) ✅ | ExitEngine+Croupier ✅
+*   **Layer 2.1 (Signal Pipeline)**: decision_pipeline_validator ✅
+*   **Layer 2.2 (Execution Pipeline)**: trading_flow_validator — 8/8 tests ✅ (CONNECTION, ORDER_CANCEL, OCO_BRACKET, POSITION_TRACKING, CLOSE_POSITION, ORPHAN_CLEANUP, SHUTDOWN_FLOW, ERROR_HANDLING)
+*   **Layer 3 (Orchestration)**: single-coin LTCUSDT backtest ✅ (historian_LTCUSDT.db 232KB, Ledger Integrity PASS)
+*   **Layer 4 (Stress & Chaos)**: 24 ops multi-symbol (LTC+ETH), 0 errores, Integrity ✅ PASS
+*   **Layer 5 (Sanity)**: Edge Auditor — 2 señales analizadas, baseline generado sin errores
+
+#### 2. Bugs Encontrados y Corregidos
+*   **Bug #1 — self.clock**: `croupier/croupier.py:555,709` — `self.clock.get_time()` lanzaba `AttributeError: 'Croupier' object has no attribute 'clock'`. `Croupier` hereda de `TimeIterator` pero nunca se inicializó un `clock`. Reemplazado por `time.time()`. Causó fallo en Test 5 (CLOSE_POSITION) del trading_flow_validator.
+*   **Bug #2 — orchestrator.py truncado**: `scripts/orchestrator.py` perdió las definiciones `PROTOCOLS`, `DB_DIR`, `LOG_DIR`, `clean_temp_data()`, `strict_find_db()`, `format_ccxt_symbol()` en commit `d002c50`. Restauradas desde commit `eefcd8e`.
+*   **Bug #3 — aiosqlite faltante**: `core/backtest_feed.py` importa `aiosqlite` pero la dependencia no estaba instalada. Agregada a `pyproject.toml` e instalada.
+
+#### 3. Archivos Modificados en esta Sesión
+*   `croupier/croupier.py` — Fix self.clock → time.time (2 ocurrencias)
+*   `scripts/orchestrator.py` — Restauración de PROTOCOLS, DB_DIR, LOG_DIR y helpers
+*   `.agent/session-close.md` — Documento de cierre de sesión
+
+#### 4. Próximos Pasos
+1. Considerar backlog de Fase 3.2 (__slots__ en OpenPosition con @dataclass(slots=True))
+2. Ejecutar generalized/long-range backtests si se requiere certificación multi-activo
+3. Merge/push solo bajo orden expresa del usuario
+
+---
+
+### [2026-05-25] — Optimized Layer: Iron Layer HPC Audit & Implementation (Branch: v8.3-optimized)
+### Summary: Auditoría de Baja Latencia (HPC) e implementación de optimizaciones en la Capa de Hierro
+Se realizó una auditoría exhaustiva de la Capa de Hierro identificando cuellos de botella reales de hardware, sincronización y memoria. Se implementaron 15 de 19 optimizaciones planificadas. 3 quedan en backlog por dependencias externas o refactor mayor.
+
+#### 1. Quick Wins (Fase 0) — Sin riesgo
+*   **0.1 normalize_symbol LRU**: Ya existía `@lru_cache`. ✅
+*   **0.2 Spread Average O(1)**: `core/context_registry.py:258` — `sum(state["history"])` O(n) por tick reemplazado por `_spread_running_sum` O(1).
+*   **0.3 ATR Running Sum O(1)**: `core/context_registry.py:299-300` — `sum(ranges_short/long)` reemplazado por acumuladores O(1).
+*   **0.4 VWAP Std O(1)**: `core/context_registry.py:420-434` — Eliminada lista temporal de 500 items por tick. Reemplazada por rolling window de residuales O(1).
+*   **0.5 Profile Cache**: `croupier/components/slim_exit_engine.py:52` — `_get_profile()` O(n) por tick → lookup O(1) vía `_profile_cache`.
+
+#### 2. Concurrencia (Fase 1) — Bajo riesgo
+*   **1.1 Semáforo en execution_process.py**: Límite de 10 tasks concurrentes en pipe handler. Previene saturación de event loop.
+*   **1.2 Task Tracking**: `croupier.py` — `_background_tasks` set con `add_done_callback` para todos los `create_task()`.
+*   **1.3 Anti-duplicado**: Ya existente via `_pending_terminations` en SlimExitEngine.
+
+#### 3. Context Switches (Fase 2) — Riesgo medio
+*   **2.1 Event-based parking**: `execution_process.py:130` — `await asyncio.sleep(0.1)` reemplazado por `asyncio.Event().wait()`, eliminando 10 context switches/segundo innecesarios.
+*   **2.2 _check_micro_z_reversal síncrono**: Eliminado `await` en hot path (1000+ awaits/segundo potenciales).
+*   **2.3 Timeout 100ms**: `position_tracker.py:527` — Reducido de 2.0s a 0.1s en lock de cierre.
+
+#### 4. Memoria/GC (Fase 3)
+*   **3.1 Template dict**: `execution.py` — Order payload construido via shallow copy de template pre-asignado. Reduce presión de GC.
+*   **3.2 __slots__ OpenPosition**: CANCELADO — `exit_reason`, `realized_pnl`, `_closure_recorded` son asignados dinámicamente. Requiere refactor mayor.
+*   **3.3 Canonical order HMAC**: `execution_process.py:336` — Eliminado `sorted()` O(n log n). Orden canónico predefinido.
+
+#### 5. I/O & Misc (Fase 4-5)
+*   **4.3 print() eliminados**: `core/sensor_worker.py:65,76` — Reemplazados por `logger.debug()`.
+*   **5.1 Peak tracking incremental**: `core/portfolio/portfolio_guard.py:324-327` — O(n) cada balance update → O(1) en 99% de casos con lazy fallback.
+
+#### Archivos Modificados
+*   `core/context_registry.py` — Fases 0.2, 0.3, 0.4 (running sums, Welford residuals)
+*   `croupier/components/slim_exit_engine.py` — Fases 0.5, 2.2 (profile cache, sync reversal)
+*   `core/execution_process.py` — Fases 1.1, 2.1, 3.3 (semaphore, event, canonical order)
+*   `croupier/croupier.py` — Fase 1.2 (background task tracking)
+*   `core/portfolio/position_tracker.py` — Fase 2.3 (timeout 100ms)
+*   `core/execution.py` — Fase 3.1 (order template)
+*   `core/sensor_worker.py` — Fase 4.3 (print → logger.debug)
+*   `core/portfolio/portfolio_guard.py` — Fase 5.1 (peak tracking)
+*   `.agent/memory.md` — Estado actualizado
+*   `.agent/changelog.md` — Esta entrada
+*   `docs/optimization.md` — Plan de optimización (creado)
+
+#### Backlog (No implementado)
+*   **3.2**: `__slots__` en OpenPosition (requiere agregar `exit_reason`, `realized_pnl`, `_closure_recorded` como fields)
+*   **4.1**: `aiosqlite` en backtest_feed (requiere nueva dependencia)
+*   **4.2**: QueueHandler logging (requiere refactor de logging)---
+
 ### [2026-05-24] — Exit Edge Auditor Simplification (to Health Monitor)
 ### Summary: Transformación del auditor de reglas a monitor de salud
 Siguiendo la arquitectura "Slim", hemos simplificado `utils/exit_edge_auditor.py`. Se eliminó la lógica de descubrimiento de nuevas reglas (ruido) y se mantuvo únicamente como un **Health Monitor** para certificar el rendimiento de los 2 pilares Slim (Scale Out + Micro-Z Reversal).

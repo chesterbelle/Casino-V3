@@ -317,84 +317,72 @@ class SetupEngineV4(TraceBulletMixin):
         signal: dict = {},
     ) -> Tuple[float, float, str, str]:
         """
-        Symmetric Variance-Aware Target Calculator (Professional Standard).
+        Phase 800: AMT Structural Target Calculator.
 
-        This model implements a volatility-anchored 'cage' for price action,
-        ensuring that all trades have enough room to breathe above the noise floor
-        while maintaining mathematical symmetry to maximize Win Rate.
+        Derives TP and SL from Auction Market Theory geometry (POC, VAH, VAL)
+        instead of ATR-based multipliers. Each reversion setup has a distinct
+        geometric formula based on the expected dynamics within the Value Area.
 
-        Logic:
-        1. Multiplier Selection:
-           - Reversals (Absorption/FB): 2.5x ATR (Standard mean-reversion).
-           - Trend Acceptance: 4.5x ATR (Scaled room for trend discovery).
-        2. Distance: calculated_dist = ATR * Multiplier.
-        3. Floor: Enforce a minimum distance to stay above the LTC noise floor.
-        4. Asymmetry (Round 2 Tuning): TP captures MFE expansion (1.0x mult), SL cuts MAE (0.8x mult).
-
-        Returns:
-            Tuple: (tp_price, sl_price, setup_name, level_ref)
+        Reversion setups (TacticalAbsorptionV2, absorption_reversal,
+        failed_breakout, liquidity_exhaustion) target structural AMT levels.
+        Fallback uses classic ATR multiplier cage when data is unavailable.
         """
-        # --- 1. GET CURRENT VOLATILITY (ATR) ---
-        # Baseline volatility (0.2%) used as fallback if registry is unavailable.
         atr_pct = 0.20
         if self.context_registry:
             atr_data = self.context_registry.atrs.get(symbol, {})
-            # Aligned Volatility Horizon:
-            # TacticalAbsorptionV2 holds up to ABSORPTION_MAX_HOLDING_SEC (4h). Short 1m ATR alone
-            # yields microscopic targets eaten by taker fees; use 15m medium ATR for the target cage.
             if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
                 atr_pct = atr_data.get("medium") or atr_data.get("short") or atr_pct
             else:
                 atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
 
-        # --- 2. DYNAMIC AMT TARGETING (Reversion/Rotation setups) ---
-        # Implementation of Phase 800 Target Calibrations
         applied_dynamic = False
-        if self.context_registry and scenario in [
-            "failed_breakout",
-            "liquidity_exhaustion",
-        ]:
+        tp_price = price
+        sl_price = price
+
+        poc = vah = val = 0.0
+        if self.context_registry:
             poc, vah, val = self.context_registry.get_structural(symbol)
-            if poc and poc > 0 and vah and vah > 0 and val and val > 0:
-                dist_to_poc = abs(price - poc)
-                dist_to_boundary = (price - val) if side == "LONG" else (vah - price)
-                if dist_to_boundary <= 0:
-                    dist_to_boundary = dist_to_poc * 0.8
 
-                noise_floor_pct = 1.0 * atr_pct
+        if poc > 0 and vah > 0 and val > 0 and vah > val:
+            va_width = vah - val
+            noise_floor_tp = max(atr_pct * 1.5, 0.15) / 100.0
+            noise_floor_sl = max(atr_pct * 1.0, 0.10) / 100.0
 
-                if scenario == "failed_breakout":
-                    geo_tp_pct = 8.0 * (dist_to_poc / price) * 100.0
-                    geo_sl_pct = 7.0 * (dist_to_boundary / price) * 100.0
-                    tp_dist_pct = max(noise_floor_pct, geo_tp_pct)
-                    sl_dist_pct = max(noise_floor_pct * 0.8, geo_sl_pct)
-                elif scenario == "liquidity_exhaustion":
-                    geo_tp_pct = 0.5 * (dist_to_poc / price) * 100.0
-                    geo_sl_pct = 1.0 * (dist_to_boundary / price) * 100.0
-                    tp_dist_pct = max(noise_floor_pct, geo_tp_pct)
-                    sl_dist_pct = max(noise_floor_pct * 0.8, geo_sl_pct)
-                else:
-                    tp_dist_pct = noise_floor_pct
-                    sl_dist_pct = noise_floor_pct * 0.8
+            AMT_CONFIG = {
+                "TacticalAbsorptionV2": ("OPPOSITE", 0.3),
+                "absorption_reversal": ("POC", 0.3),
+                "failed_breakout": ("OPPOSITE", 0.5),
+                "liquidity_exhaustion": ("OPPOSITE", 0.3),
+            }
 
-                tp_dist_decimal = tp_dist_pct / 100.0
-                sl_dist_decimal = sl_dist_pct / 100.0
-
+            cfg = AMT_CONFIG.get(scenario)
+            if cfg:
+                tp_target, sl_buf = cfg
                 if side == "LONG":
-                    tp_price = price * (1 + tp_dist_decimal)
-                    sl_price = price * (1 - sl_dist_decimal)
+                    tp_price = vah if tp_target == "OPPOSITE" else poc
+                    sl_price = val - (va_width * sl_buf)
                 else:
-                    tp_price = price * (1 - tp_dist_decimal)
-                    sl_price = price * (1 + sl_dist_decimal)
+                    tp_price = val if tp_target == "OPPOSITE" else poc
+                    sl_price = vah + (va_width * sl_buf)
 
-                setup_name = f"AMT_{scenario.upper()}_{val_pos}"
-                level_ref = "AMT_DYNAMIC_GEOMETRIC_CALIBRATED"
-                applied_dynamic = True
+                if (side == "LONG" and tp_price > price and sl_price < price) or (
+                    side == "SHORT" and tp_price < price and sl_price > price
+                ):
+                    applied_dynamic = True
+
+                    tp_dist = abs(tp_price - price) / price
+                    sl_dist = abs(sl_price - price) / price
+
+                    if tp_dist < noise_floor_tp:
+                        tp_price = price * (1.0 + noise_floor_tp) if side == "LONG" else price * (1.0 - noise_floor_tp)
+
+                    if sl_dist < noise_floor_sl:
+                        sl_price = price * (1.0 - noise_floor_sl) if side == "LONG" else price * (1.0 + noise_floor_sl)
+
+                    setup_name = f"AMT_{scenario.upper()}_{val_pos}"
+                    level_ref = "AMT_STRUCTURAL_LEVEL"
 
         if not applied_dynamic:
-            # --- 3. FALLBACK TO VOLATILITY MULTIPLIERS (Classic ATR) ---
-            # TacticalAbsorptionV2 was mathematically proven to underperform with geometry
-            # and dominate with fixed massive targets (5.0x ATR) under a 4h window.
             MULTIPLIERS = {
                 "TacticalAbsorptionV2": 5.0,
                 "absorption_reversal": 5.0,
@@ -403,31 +391,23 @@ class SetupEngineV4(TraceBulletMixin):
                 "liquidity_exhaustion": 2.5,
             }
             mult = MULTIPLIERS.get(scenario, 2.5)
-
-            # We calculate the pure mathematical targets based on volatility.
             if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
-                tp_dist_pct = atr_pct * mult  # 5.0x 15m ATR
-                sl_dist_pct = atr_pct * 3.33  # 3.33x 15m ATR (Symmetric 1.5:1 RR)
+                tp_dist_pct = atr_pct * mult
+                sl_dist_pct = atr_pct * 3.33
             else:
                 tp_dist_pct = atr_pct * mult
                 sl_dist_pct = atr_pct * (mult * 0.8)
-
-            tp_dist_decimal = tp_dist_pct / 100.0
-            sl_dist_decimal = sl_dist_pct / 100.0
-
+            tp_dec = tp_dist_pct / 100.0
+            sl_dec = sl_dist_pct / 100.0
             if side == "LONG":
-                tp_price = price * (1 + tp_dist_decimal)
-                sl_price = price * (1 - sl_dist_decimal)
+                tp_price = price * (1.0 + tp_dec)
+                sl_price = price * (1.0 - sl_dec)
             else:
-                tp_price = price * (1 - tp_dist_decimal)
-                sl_price = price * (1 + sl_dist_decimal)
-
+                tp_price = price * (1.0 - tp_dec)
+                sl_price = price * (1.0 + sl_dec)
             setup_name = f"AMT_{scenario.upper()}_{val_pos}"
             level_ref = f"VAR_AWARE_{mult}x_ATR"
 
-        # Phase 710: Return atr_pct so it can be propagated to entry_atr on OpenPosition.
-        # SlimExitEngine's Scale Out / Break Even / Trailing pillars all guard on
-        # `if not position.entry_atr` — without this they are permanently disabled.
         return tp_price, sl_price, setup_name, level_ref, atr_pct
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):

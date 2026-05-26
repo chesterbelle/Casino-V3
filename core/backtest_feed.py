@@ -6,8 +6,8 @@ Replays historical data as TickEvents.
 import asyncio
 import logging
 import os
-import sqlite3
 
+import aiosqlite
 import pandas as pd
 
 from utils.symbol_norm import normalize_symbol
@@ -77,8 +77,8 @@ class BacktestFeed:
 
         return MockAdapter(self.symbol)
 
-    def load_data(self):
-        """Load data from CSV/Parquet and optionally from the SQLite depth/price DB."""
+    async def load_data(self):
+        """Load data from CSV/Parquet and optionally from the SQLite depth/price DB. Non-blocking."""
         self.data = pd.DataFrame()
         if self.data_path:
             logger.info(f"📂 Loading backtest data from {self.data_path}...")
@@ -114,12 +114,14 @@ class BacktestFeed:
             if os.path.exists(self.depth_db_path):
                 try:
                     logger.info(f"📂 Loading depth snapshots from {self.depth_db_path}...")
-                    conn = sqlite3.connect(self.depth_db_path)
-                    depth_df = pd.read_sql_query(
-                        f"SELECT timestamp, symbol, bids, asks FROM depth_snapshots WHERE symbol = '{norm_symbol}'",
-                        conn,
-                    )
-                    conn.close()
+                    async with aiosqlite.connect(self.depth_db_path) as db:
+                        cursor = await db.execute(
+                            "SELECT timestamp, symbol, bids, asks FROM depth_snapshots WHERE symbol = ?",
+                            (norm_symbol,),
+                        )
+                        rows = await cursor.fetchall()
+                        columns = [desc[0] for desc in cursor.description]
+                        depth_df = pd.DataFrame(rows, columns=columns)
                     if not depth_df.empty:
                         depth_df["event_type"] = "DEPTH"
                         self.data = pd.concat([self.data, depth_df], ignore_index=True)
@@ -136,12 +138,14 @@ class BacktestFeed:
             if os.path.exists(self.depth_db_path):
                 try:
                     logger.info(f"📂 Loading price candles from {self.depth_db_path}...")
-                    conn = sqlite3.connect(self.depth_db_path)
-                    price_df = pd.read_sql_query(
-                        f"SELECT timestamp, open, high, low, close, volume FROM price_candles WHERE symbol = '{norm_symbol}'",
-                        conn,
-                    )
-                    conn.close()
+                    async with aiosqlite.connect(self.depth_db_path) as db:
+                        cursor = await db.execute(
+                            "SELECT timestamp, open, high, low, close, volume FROM price_candles WHERE symbol = ?",
+                            (norm_symbol,),
+                        )
+                        rows = await cursor.fetchall()
+                        columns = [desc[0] for desc in cursor.description]
+                        price_df = pd.DataFrame(rows, columns=columns)
                     if not price_df.empty:
                         price_df["event_type"] = "CANDLE"
                         self.data = pd.concat([self.data, price_df], ignore_index=True)
@@ -158,22 +162,25 @@ class BacktestFeed:
             if os.path.exists(self.depth_db_path):
                 try:
                     logger.info(f"📂 Loading market trades from {self.depth_db_path}...")
-                    conn = sqlite3.connect(self.depth_db_path)
-                    # Check if table exists first to avoid crash on legacy DBs
-                    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'")
-                    if cursor.fetchone():
-                        trades_df = pd.read_sql_query(
-                            f"SELECT timestamp, price, amount as volume, side FROM market_trades WHERE symbol = '{norm_symbol}'",
-                            conn,
+                    async with aiosqlite.connect(self.depth_db_path) as db:
+                        cursor = await db.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'"
                         )
-                        if not trades_df.empty:
-                            trades_df["event_type"] = "TICK"
-                            self.data = pd.concat([self.data, trades_df], ignore_index=True)
-                            self.mode = "TRADES"  # Upgrade mode to TRADES if we found ticks
-                            logger.info(f"✅ Loaded {len(trades_df)} market trades.")
-                        else:
-                            logger.warning("⚠️ No market trades found for symbol in given DB.")
-                    conn.close()
+                        if await cursor.fetchone():
+                            cursor2 = await db.execute(
+                                "SELECT timestamp, price, amount as volume, side FROM market_trades WHERE symbol = ?",
+                                (norm_symbol,),
+                            )
+                            rows = await cursor2.fetchall()
+                            columns = [desc[0] for desc in cursor2.description]
+                            trades_df = pd.DataFrame(rows, columns=columns)
+                            if not trades_df.empty:
+                                trades_df["event_type"] = "TICK"
+                                self.data = pd.concat([self.data, trades_df], ignore_index=True)
+                                self.mode = "TRADES"
+                                logger.info(f"✅ Loaded {len(trades_df)} market trades.")
+                            else:
+                                logger.warning("⚠️ No market trades found for symbol in given DB.")
                 except Exception as e:
                     logger.error(f"❌ Failed to load market trades: {e}")
 
@@ -195,7 +202,7 @@ class BacktestFeed:
     async def run(self):
         """Start the replay and wait for completion."""
         self.running = True
-        self.load_data()
+        await self.load_data()
         await self._replay_loop()
 
     async def connect(self):
