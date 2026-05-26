@@ -8,6 +8,10 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
 
+# Resolve venv python path for subprocess calls
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+venv_python = os.path.join(_BASE, ".venv", "bin", "python")
+
 # Semaphore to control I/O-intensive initialization
 io_semaphore = threading.Semaphore(2)
 
@@ -123,7 +127,7 @@ def run_backtest_task(task_config):
         log_file = os.path.join(LOG_DIR, f"orchestrator_{task_id}.log")
 
         cmd = [
-            sys.executable,
+            venv_python,
             "backtest.py",
             "--depth-db-path",
             db_path,
@@ -236,10 +240,10 @@ def run_protocol(protocol_name, symbol=None):
 
         if config["run_type"] == "audit" and protocol_name != "single-coin":
             print("🔗 Merging historian databases...")
-            subprocess.run([sys.executable, "utils/merge_historian.py"])
+            subprocess.run([venv_python, "utils/merge_historian.py"])
 
             print("📊 Running full edge auditor analysis...")
-            subprocess.run([sys.executable, "utils/setup_edge_auditor.py", "--window", "14400"])
+            subprocess.run([venv_python, "utils/setup_edge_auditor.py", "--window", "14400"])
 
         print("✅ Protocol complete.")
     else:
