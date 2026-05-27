@@ -132,17 +132,15 @@ class SensorManager:
 
         # Filter enabled sensors
         enabled_classes = []
+        enabled_instances = []  # Cache instances to avoid double instantiation
         for cls in sensor_classes:
-            # Temporary instantiation to check name usually needed
-            # Or assume class name map. Let's instantiate briefly to check name
             try:
-                # Optimization: if strict naming convention, we could guess name.
-                # But safer to instantiate once here.
                 tmp = cls()
                 is_enabled = ACTIVE_SENSORS.get(tmp.name, False)
                 logger.info(f"🔍 [SENSOR_MGR] Sensor {tmp.name}: {'ENABLED' if is_enabled else 'DISABLED'}")
                 if is_enabled:
                     enabled_classes.append(cls)
+                    enabled_instances.append(tmp)  # Cache for capability detection
             except Exception:
                 pass
 
@@ -169,9 +167,9 @@ class SensorManager:
                 worker_idx = i % num_workers
                 chunks[worker_idx].append(cls)
 
-                # Detect capabilities
+                # Detect capabilities using cached instance (no double instantiation)
                 try:
-                    tmp = cls()
+                    tmp = enabled_instances[i]
                     if hasattr(tmp, "on_tick"):
                         capabilities[worker_idx]["tick"] = True
                     if hasattr(tmp, "on_orderbook"):

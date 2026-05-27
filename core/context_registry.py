@@ -356,17 +356,35 @@ class ContextRegistry:
         if not all_levels:
             return
 
-        # Calculate L2 Ratio
+        # Single pass: calculate L2 ratio, average volume, and detect walls
+        bid_vol = 0.0
+        ask_vol = 0.0
+        total_vol = 0.0
+
         if bids and asks:
             try:
-                price = float(bids[0][0])
-                bid_vol = sum(float(v) for p, v in bids if float(p) >= price * 0.998)
-                ask_vol = sum(float(v) for p, v in asks if float(p) <= price * 1.002)
+                mid_price = float(bids[0][0])
+                for p, v in bids:
+                    pf = float(p)
+                    vf = float(v)
+                    if pf >= mid_price * 0.998:
+                        bid_vol += vf
+                for p, v in asks:
+                    pf = float(p)
+                    vf = float(v)
+                    if pf <= mid_price * 1.002:
+                        ask_vol += vf
                 self.l2_imbalance[key] = max(bid_vol, 0.01) / max(ask_vol, 0.01)
             except Exception:
                 pass
 
-        avg_vol = sum(float(level[1]) for level in all_levels) / len(all_levels)
+        # Single pass: compute total volume and detect walls
+        new_walls = {}
+        for price_str, vol_str in all_levels:
+            vol = float(vol_str)
+            total_vol += vol
+
+        avg_vol = total_vol / len(all_levels) if all_levels else 0.0
 
         for price_str, vol_str in all_levels:
             price = float(price_str)

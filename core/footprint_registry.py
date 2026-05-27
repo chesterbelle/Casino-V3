@@ -42,6 +42,9 @@ class FootprintData:
         # Performance Cache: {metric_key: (timestamp, value)}
         self._cache: Dict[str, Tuple[float, any]] = {}
 
+        # Update counter for timing sampling
+        self._update_count: int = 0
+
     def round_price(self, price: float) -> float:
         """Round price to nearest tick size."""
         if self.tick_size <= 0:
@@ -61,7 +64,8 @@ class FootprintData:
         Returns:
             Latency in milliseconds (for telemetry)
         """
-        t_start = time.time()
+        # Sample timing every 100 trades to reduce syscall overhead
+        t_start = time.time() if self._update_count % 100 == 0 else 0.0
 
         level = self.round_price(price)
 
@@ -100,10 +104,14 @@ class FootprintData:
 
         # Update metadata
         self.last_update = timestamp
+        self._update_count += 1
 
-        # Calculate latency
-        t_end = time.time()
-        latency_ms = (t_end - t_start) * 1000
+        # Calculate latency (sampled)
+        if t_start > 0.0:
+            t_end = time.time()
+            latency_ms = (t_end - t_start) * 1000
+        else:
+            latency_ms = 0.0
 
         return latency_ms
 
@@ -179,16 +187,22 @@ class FootprintData:
         if len(self.cvd_history) < 2:
             return 0.0
 
-        # Find CVD value from window_seconds ago
+        # Find CVD value from window_seconds ago using binary search
         cutoff = self.last_update - window_seconds
         old_cvd = None
         old_ts = None
 
-        for ts, cvd in self.cvd_history:
-            if ts >= cutoff:
+        # Binary search for the first entry >= cutoff
+        lo, hi = 0, len(self.cvd_history) - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            ts, cvd = self.cvd_history[mid]
+            if ts < cutoff:
+                lo = mid + 1
+            else:
                 old_cvd = cvd
                 old_ts = ts
-                break
+                hi = mid - 1
 
         if old_cvd is None or old_ts is None:
             return 0.0
@@ -243,22 +257,42 @@ class FootprintData:
         cutoff_long = now - window_long
         cutoff_short = now - window_short
 
-        # Find CVD values at window boundaries
+        # Binary search for window boundaries
         cvd_at_long_start = None
         cvd_at_short_start = None
         cvd_now = self.cvd_history[-1][1]
         n_long = 0
         n_short = 0
+        idx_long = len(self.cvd_history)  # default: no entries in window
+        idx_short = len(self.cvd_history)
 
-        for ts, cvd in self.cvd_history:
-            if ts >= cutoff_long and cvd_at_long_start is None:
+        # Find long window start using binary search
+        lo, hi = 0, len(self.cvd_history) - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            ts, cvd = self.cvd_history[mid]
+            if ts < cutoff_long:
+                lo = mid + 1
+            else:
                 cvd_at_long_start = cvd
-            if ts >= cutoff_short and cvd_at_short_start is None:
+                idx_long = mid
+                hi = mid - 1
+
+        # Find short window start using binary search
+        lo, hi = 0, len(self.cvd_history) - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            ts, cvd = self.cvd_history[mid]
+            if ts < cutoff_short:
+                lo = mid + 1
+            else:
                 cvd_at_short_start = cvd
-            if ts >= cutoff_long:
-                n_long += 1
-            if ts >= cutoff_short:
-                n_short += 1
+                idx_short = mid
+                hi = mid - 1
+
+        # Count entries in each window
+        n_long = len(self.cvd_history) - idx_long
+        n_short = len(self.cvd_history) - idx_short
 
         if cvd_at_long_start is None:
             cvd_at_long_start = self.cvd_history[0][1]

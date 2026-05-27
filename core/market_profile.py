@@ -1,6 +1,14 @@
 from collections import defaultdict, deque
 from typing import Dict, Tuple
 
+# Try to use sortedcontainers for O(log n) insert + O(1) index
+try:
+    from sortedcontainers import SortedList
+
+    _HAS_SORTEDLIST = True
+except ImportError:
+    _HAS_SORTEDLIST = False
+
 
 class MarketProfile:
     """
@@ -18,6 +26,8 @@ class MarketProfile:
         # O(1) running POC tracking
         self._poc_price = 0.0
         self._poc_volume = 0.0
+        # Sorted price levels for O(log n) lookup in calculate_value_area
+        self._sorted_prices = SortedList() if _HAS_SORTEDLIST else None
 
     def round_price(self, price: float) -> float:
         """Rounds price to the nearest tick size."""
@@ -32,8 +42,14 @@ class MarketProfile:
             return
 
         level = self.round_price(price)
+        # Track if this is a new level for sorted list maintenance
+        is_new_level = level not in self.profile
         self.profile[level] += volume
         self.total_volume += volume
+
+        # Maintain sorted list for O(log n) VA calculation
+        if self._sorted_prices is not None and is_new_level:
+            self._sorted_prices.add(level)
 
         # O(1) POC update: only recalculate if this level is now the max
         level_vol = self.profile[level]
@@ -59,8 +75,14 @@ class MarketProfile:
         current_volume = self.profile[poc]
 
         # 3. Expand Value Area up and down until target volume is reached
-        sorted_prices = sorted(self.profile.keys())
-        poc_idx = sorted_prices.index(poc)
+        if self._sorted_prices is not None:
+            # O(log n) lookup using SortedList
+            sorted_prices = self._sorted_prices
+            poc_idx = sorted_prices.index(poc)
+        else:
+            # Fallback: O(n log n) sort
+            sorted_prices = sorted(self.profile.keys())
+            poc_idx = sorted_prices.index(poc)
 
         up_idx = poc_idx + 1
         down_idx = poc_idx - 1
@@ -174,3 +196,5 @@ class MarketProfile:
         self.total_volume = 0.0
         self._poc_price = 0.0
         self._poc_volume = 0.0
+        if self._sorted_prices is not None:
+            self._sorted_prices.clear()
