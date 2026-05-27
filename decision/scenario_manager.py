@@ -13,7 +13,7 @@ import logging
 from typing import Optional
 
 from decision.absorption_reversal_guardian import AbsorptionReversalGuardian
-from decision.amt_scenarios import (
+from decision.scenarios import (
     FailedBreakoutDetector,
     LiquidityExhaustionDetector,
     TrendAcceptanceDetector,

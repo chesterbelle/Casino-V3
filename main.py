@@ -66,7 +66,7 @@ from core.observability.watchdog import watchdog
 from core.sensor_manager import SensorManager
 from croupier.components.reconciliation_worker import ReconciliationWorker
 from croupier.croupier import Croupier
-from decision.setup_engine import SetupEngineV4
+from decision.engine.core import SetupEngineV4
 from exchanges.adapters import ExchangeAdapter
 from exchanges.connectors import (
     BinanceNativeConnector,

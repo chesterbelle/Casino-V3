@@ -730,7 +730,7 @@ class SensorManager:
         from sensors.absorption.absorption_detector import AbsorptionDetector
         from sensors.debug_heartbeat import DebugHeartbeatV3
         from sensors.footprint.session import SessionValueArea
-        from sensors.regime.market_regime import MarketRegimeSensor  # Phase 2100
+        from sensors.regime.market import MarketRegimeSensor  # Phase 2100
         from sensors.regime.one_timeframing import (
             OneTimeframingSensor,  # Legacy fallback
         )

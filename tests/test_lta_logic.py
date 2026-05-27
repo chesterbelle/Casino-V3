@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.events import EventType, SignalEvent
-from decision.setup_engine import SetupEngineV4
+from decision.engine.core import SetupEngineV4
 
 
 @pytest.mark.asyncio

@@ -14,8 +14,8 @@ from typing import Tuple
 # Ensure Casino-V3 is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
+from decision.engine.core import SetupEngineV4
 from decision.guardians.guardian_result import SetupMode
-from decision.setup_engine import SetupEngineV4
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("SetupDataValidator")

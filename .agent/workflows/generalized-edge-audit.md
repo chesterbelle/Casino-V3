@@ -85,7 +85,7 @@ for sym, cnt in rows:
 ## Step 4: Edge Audit & Target Calibration
 Evaluate current strategy performance:
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 14400
+.venv/bin/python utils/setup_edge_auditor.py --window 14400 --by-coin
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
 ```bash

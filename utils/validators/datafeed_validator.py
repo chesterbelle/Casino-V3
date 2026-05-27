@@ -82,7 +82,7 @@ class DataFeedValidator:
         from core.context_registry import ContextRegistry
         from core.engine import Engine
         from core.sensor_manager import SensorManager
-        from decision.setup_engine import SetupEngineV4
+        from decision.engine.core import SetupEngineV4
         from sensors.footprint.session import SessionValueArea
 
         logger.info("=" * 70)

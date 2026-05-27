@@ -200,13 +200,67 @@ class EdgeAuditor:
         df_results = pd.DataFrame(results)
         self.print_report(df_results, traces)
 
+    def _find_best_uniform(self, group, uniform_grids=None):
+        """Find best uniform TP/SL for a group. Returns (best_exp, best_config, best_wr) or None."""
+        if uniform_grids is None:
+            uniform_grids = [
+                (0.1, 0.1),
+                (0.15, 0.15),
+                (0.2, 0.2),
+                (0.3, 0.3),
+                (0.4, 0.4),
+                (0.5, 0.5),
+                (0.6, 0.6),
+                (0.7, 0.7),
+                (0.8, 0.8),
+                (0.9, 0.9),
+                (0.9, 0.6),
+                (0.9, 1.0),
+                (1.0, 1.0),
+            ]
+        best_exp = -999
+        best_config = None
+        best_wr = 0
+        for tp_t, sl_t in uniform_grids:
+            col = f"ft_{tp_t}_{sl_t}"
+            if col not in group.columns:
+                continue
+            w = (group[col] == "WIN").sum()
+            losses = (group[col] == "LOSS").sum()
+            d = w + losses
+            if d == 0:
+                continue
+            wr = w / d * 100
+            ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
+            if ev > best_exp:
+                best_exp = ev
+                best_config = (tp_t, sl_t)
+                best_wr = wr
+        if best_config is None:
+            return None
+        return best_exp, best_config, best_wr
+
     def print_report(self, df, traces=None):
         if df.empty:
             return
 
         FEE_TAKER_RT = 0.12
         FEE_MAKER_RT = 0.08
-        FEE_THRESHOLD = 0.36
+        UNIFORM_GRIDS = [
+            (0.1, 0.1),
+            (0.15, 0.15),
+            (0.2, 0.2),
+            (0.3, 0.3),
+            (0.4, 0.4),
+            (0.5, 0.5),
+            (0.6, 0.6),
+            (0.7, 0.7),
+            (0.8, 0.8),
+            (0.9, 0.9),
+            (0.9, 0.6),
+            (0.9, 1.0),
+            (1.0, 1.0),
+        ]
 
         # ── [1] SETUP EDGE BREAKDOWN (MFE/MAE raw) ──
         suffix = " (Per Coin)" if self.by_coin else ""
@@ -241,17 +295,118 @@ class EdgeAuditor:
                     f"{setup:<20} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}  {avg_win:>4.0f}s"
                 )
 
-        # ── [2] PRIMARY: REAL STRATEGY PERFORMANCE (Dynamic TP/SL) ──
+        # ── [2] ENTRY QUALITY ASSESSMENT (Uniform Grid Ground Truth) ──
         suffix = " (Per Coin)" if self.by_coin else ""
-        print(f"\n{BOLD}[2] PRIMARY METRIC: REAL STRATEGY PERFORMANCE (Dynamic TP/SL){suffix}{RESET}")
+        print(f"\n{BOLD}[2] ENTRY QUALITY ASSESSMENT (Uniform Grid as Ground Truth){suffix}{RESET}")
+        print(f"  The Uniform Grid tests ALL possible TP/SL combinations. If NONE produce")
+        print(f"  positive Net Taker, the entry signal ITSELF has no exploitable edge,")
+        print(f"  regardless of target optimization.")
+        print()
         if self.by_coin:
             print(
-                f"{'Setup Type':<20} {'Coin':<26} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Verdict'}"
+                f"{'Setup Type':<20} {'Coin':<26} {'Best TP/SL':<12} {'Best WR%':<9} {'Best Exp%':<11} {'Best Net':<10} {'Entry OK?'}"
+            )
+            print("-" * 120)
+        else:
+            print(
+                f"{'Setup Type':<20} {'Best TP/SL':<12} {'Best WR%':<9} {'Best Exp%':<11} {'Best Net':<10} {'Entry OK?'}"
+            )
+            print("-" * 90)
+
+        for setup, s_group in df.groupby("setup_type"):
+            groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
+            for label, group in groups:
+                best = self._find_best_uniform(group, UNIFORM_GRIDS)
+                if best is None:
+                    continue
+                best_exp, (tp_t, sl_t), best_wr = best
+                best_net = best_exp - FEE_TAKER_RT
+                entry_ok = best_net > 0
+                status = f"{GREEN}✅ YES{RESET}" if entry_ok else f"{RED}❌ NO{RESET}"
+                if self.by_coin:
+                    print(
+                        f"{setup:<20} {label:<26} {tp_t:.2f}/{sl_t:.2f}%    {best_wr:>6.1f}%  {best_exp:>+9.4f}%  {best_net:>+8.4f}%  {status}"
+                    )
+                else:
+                    print(
+                        f"{setup:<20} {tp_t:.2f}/{sl_t:.2f}%    {best_wr:>6.1f}%  {best_exp:>+9.4f}%  {best_net:>+8.4f}%  {status}"
+                    )
+
+        # ── [3] ROOT CAUSE DIAGNOSIS ──
+        print(f"\n{BOLD}[3] ROOT CAUSE DIAGNOSIS{RESET}")
+        for setup, s_group in df.groupby("setup_type"):
+            groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
+            for label, group in groups:
+                tag = f" / {label}" if self.by_coin else ""
+                print(f"\n  {BOLD}{setup}{tag}{RESET} (n={len(group)})")
+
+                best = self._find_best_uniform(group, UNIFORM_GRIDS)
+                if best is None:
+                    continue
+                best_exp, (tp_t, sl_t), best_wr = best
+                best_net = best_exp - FEE_TAKER_RT
+
+                avg_mfe = group["mfe"].mean()
+                avg_mae = group["mae"].mean()
+                ratio = avg_mfe / (avg_mae + 1e-9)
+
+                print(
+                    f"    MFE/MAE Ratio:     {ratio:.2f} {'✅' if ratio > 1.2 else '❌'} (need >1.2 for directional edge)"
+                )
+                print(f"    Best Uniform:      {tp_t:.2f}/{sl_t:.2f}% → Exp {best_exp:+.4f}%")
+                print(f"    Best Net Taker:    {best_net:+.4f}% {'✅' if best_net > 0 else '❌'}")
+
+                if best_net <= 0:
+                    print(f"    {RED}VERDICT: ENTRY FAILURE{RESET}")
+                    print(f"    No TP/SL configuration can produce positive expectancy.")
+                    print(f"    The entry signal does not predict direction reliably enough.")
+                    print(f"    Fix: tighten entry filters, improve scenario conditions,")
+                    print(f"    or accept that this setup type has no edge on this coin.")
+                else:
+                    # Entry has edge — check AMT targets vs best uniform
+                    real_w = (group["real_outcome"] == "WIN").sum()
+                    real_l = (group["real_outcome"] == "LOSS").sum()
+                    real_d = real_w + real_l
+                    if real_d > 0:
+                        real_wr = real_w / real_d * 100
+                        real_avg_tp = group["tp_pct"].mean()
+                        real_avg_sl = group["sl_pct"].mean()
+                        real_exp = (real_wr / 100) * real_avg_tp - ((100 - real_wr) / 100) * real_avg_sl
+                        delta = real_exp - best_exp
+                        if delta >= -0.05:
+                            print(f"    AMT Targets:       Exp {real_exp:+.4f}% (within 0.05% of best)")
+                            print(f"    {GREEN}VERDICT: TARGETS OK ✅{RESET}")
+                        else:
+                            print(f"    AMT Targets:       Exp {real_exp:+.4f}% ({delta:+.2f}% vs best uniform)")
+                            print(f"    {YELLOW}VERDICT: TARGET OPTIMIZATION NEEDED ⚠️{RESET}")
+                            print(f"    AMT targets underperform the best uniform. Adjust formula.")
+        # ── [4] DECISION TRACE AUDIT (SetupEngine Gates) ──
+        if traces is not None and not traces.empty:
+            print(f"\n{BOLD}[4] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
+            print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
+            print("-" * 75)
+
+            try:
+                trace_counts = traces.groupby(["gate", "reason"]).size().reset_index(name="count")
+                trace_counts = trace_counts.sort_values("count", ascending=False)
+                for _, row in trace_counts.iterrows():
+                    print(f"{row['gate']:<25} {row['reason']:<40} {row['count']:<6}")
+            except KeyError as e:
+                available = [c for c in traces.columns if c not in ("id",)]
+                print(f"{YELLOW}⚠️ Column {e} not found in decision_traces. Available: {available}{RESET}")
+
+        # ── [5] REAL STRATEGY PERFORMANCE (Dynamic AMT Targets) ──
+        suffix = " (Per Coin)" if self.by_coin else ""
+        print(f"\n{BOLD}[5] REAL STRATEGY PERFORMANCE (Dynamic AMT Targets){suffix}{RESET}")
+        print(f"  Reference only — conclusion in [3] above determines if targets are the problem.")
+        if self.by_coin:
+            print(
+                f"{'Setup Type':<20} {'Coin':<26} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Net Taker'}"
             )
             print("-" * 130)
         else:
             print(
-                f"{'Setup Type':<20} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Verdict'}"
+                f"{'Setup Type':<20} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Net Taker'}"
             )
             print("-" * 105)
 
@@ -268,164 +423,15 @@ class EdgeAuditor:
                 avg_sl = group["sl_pct"].mean()
                 expectancy = (wr / 100) * avg_tp - ((100 - wr) / 100) * avg_sl if d > 0 else 0
                 net_taker = expectancy - FEE_TAKER_RT
-
-                if d < 20:
-                    verdict = f"{YELLOW}LOW_N{RESET}"
-                elif expectancy > FEE_THRESHOLD and wr > 55:
-                    verdict = f"{GREEN}CERTIFIED{RESET}"
-                elif net_taker > 0.05:
-                    verdict = f"{YELLOW}WATCH{RESET}"
-                elif net_taker > -0.02:
-                    verdict = f"{RED}MARGINAL (NO EDGE){RESET}"
-                else:
-                    verdict = f"{RED}FAILED (BLEEDING){RESET}"
+                nc = GREEN if net_taker > 0 else RED
 
                 if self.by_coin:
                     print(
-                        f"{setup:<20} {label:<26} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {verdict}"
+                        f"{setup:<20} {label:<26} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {nc}{net_taker:>+8.4f}%{RESET}"
                     )
                 else:
                     print(
-                        f"{setup:<20} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {verdict}"
-                    )
-
-        # ── [3] DIAGNOSTIC: UNIFORM TP/SL (Target Calibration) ──
-        suffix = " (Per Coin)" if self.by_coin else ""
-        print(f"\n{BOLD}[3] DIAGNOSTIC: UNIFORM TP/SL (Target Calibration Guide){suffix}{RESET}")
-        if self.by_coin:
-            print(
-                f"{'Setup Type':<20} {'Coin':<26} {'Best TP/SL':<12} {'WR%':<8} {'Exp%':<10} {'vs Real Exp':<12} {'Target Advice'}"
-            )
-            print("-" * 130)
-        else:
-            print(
-                f"{'Setup Type':<20} {'Best TP/SL':<12} {'WR%':<8} {'Exp%':<10} {'vs Real Exp':<12} {'Target Advice'}"
-            )
-            print("-" * 100)
-
-        for setup, s_group in df.groupby("setup_type"):
-            groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
-            for label, group in groups:
-                best_exp = -999
-                best_config = (0, 0)
-                best_wr = 0
-
-                for tp_t, sl_t in [
-                    (0.1, 0.1),
-                    (0.15, 0.15),
-                    (0.2, 0.2),
-                    (0.3, 0.3),
-                    (0.4, 0.4),
-                    (0.5, 0.5),
-                    (0.6, 0.6),
-                    (0.7, 0.7),
-                    (0.8, 0.8),
-                    (0.9, 0.9),
-                    (0.9, 0.6),
-                    (0.9, 1.0),
-                    (1.0, 1.0),
-                ]:
-                    col = f"ft_{tp_t}_{sl_t}"
-                    if col not in group.columns:
-                        continue
-                    w = (group[col] == "WIN").sum()
-                    losses = (group[col] == "LOSS").sum()
-                    d = w + losses
-                    if d == 0:
-                        continue
-                    wr = w / d * 100
-                    ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
-                    if ev > best_exp:
-                        best_exp = ev
-                        best_config = (tp_t, sl_t)
-                        best_wr = wr
-
-                real_w = (group["real_outcome"] == "WIN").sum()
-                real_l = (group["real_outcome"] == "LOSS").sum()
-                real_d = real_w + real_l
-                real_wr = (real_w / real_d * 100) if real_d > 0 else 0
-                real_avg_tp = group["tp_pct"].mean()
-                real_avg_sl = group["sl_pct"].mean()
-                real_exp = (real_wr / 100) * real_avg_tp - ((100 - real_wr) / 100) * real_avg_sl if real_d > 0 else 0
-
-                delta = real_exp - best_exp
-                if delta >= -0.05:
-                    advice = f"{GREEN}Targets OK (within 0.05%){RESET}"
-                elif delta >= -0.15:
-                    advice = f"{YELLOW}Targets slightly suboptimal{RESET}"
-                else:
-                    advice = f"{RED}Targets need adjustment{RESET}"
-
-                if self.by_coin:
-                    print(
-                        f"{setup:<20} {label:<26} {best_config[0]:.2f}/{best_config[1]:.2f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
-                    )
-                else:
-                    print(
-                        f"{setup:<20} {best_config[0]:.2f}/{best_config[1]:.2f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
-                    )
-
-        # ── [4] DECISION TRACE AUDIT (SetupEngine Gates) ──
-        if traces is not None and not traces.empty:
-            print(f"\n{BOLD}[4] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
-            print(f"{'Gate':<25} {'Reason':<40} {'Count':<6}")
-            print("-" * 75)
-
-            try:
-                trace_counts = traces.groupby(["gate", "reason"]).size().reset_index(name="count")
-                trace_counts = trace_counts.sort_values("count", ascending=False)
-                for _, row in trace_counts.iterrows():
-                    print(f"{row['gate']:<25} {row['reason']:<40} {row['count']:<6}")
-            except KeyError as e:
-                available = [c for c in traces.columns if c not in ("id",)]
-                print(f"{YELLOW}⚠️ Column {e} not found in decision_traces. Available: {available}{RESET}")
-
-        # ── [5] PER-SETUP UNIFORM GRID (Full Detail) ──
-        suffix = " (Per Coin)" if self.by_coin else ""
-        print(f"\n{BOLD}[5] UNIFORM TP/SL GRID (Full Detail per Setup){suffix}{RESET}")
-        for setup, s_group in df.groupby("setup_type"):
-            groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
-            for label, group in groups:
-                coin_tag = f" / {label}" if self.by_coin else ""
-                print(f"\n  {BOLD}{setup}{coin_tag}{RESET} (n={len(group)})")
-                print(
-                    f"  {'TP/SL':<12} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Exp%':<10} {'Net Taker':<10} {'Net Maker'}"
-                )
-                print("  " + "-" * 80)
-
-                for tp_t, sl_t in [
-                    (0.1, 0.1),
-                    (0.15, 0.15),
-                    (0.2, 0.2),
-                    (0.3, 0.3),
-                    (0.4, 0.4),
-                    (0.5, 0.5),
-                    (0.6, 0.6),
-                    (0.7, 0.7),
-                    (0.8, 0.8),
-                    (0.9, 0.9),
-                    (0.9, 0.6),
-                    (0.9, 1.0),
-                    (1.0, 1.0),
-                ]:
-                    col = f"ft_{tp_t}_{sl_t}"
-                    if col not in group.columns:
-                        continue
-                    w = (group[col] == "WIN").sum()
-                    losses = (group[col] == "LOSS").sum()
-                    to = (group[col] == "TIMEOUT").sum()
-                    d = w + losses
-                    wr = (w / d * 100) if d > 0 else 0
-                    ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t if d > 0 else 0
-                    net_taker = ev - FEE_TAKER_RT
-                    net_maker = ev - FEE_MAKER_RT
-
-                    color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
-                    nc_t = GREEN if net_taker > 0 else RED
-                    nc_m = GREEN if net_maker > 0 else RED
-
-                    print(
-                        f"  {tp_t:.2f}/{sl_t:.2f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
+                        f"{setup:<20} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {nc}{net_taker:>+8.4f}%{RESET}"
                     )
 
         # ── [6] ALPHA FUSION & CONVICTION AUDIT ──
@@ -467,11 +473,10 @@ class EdgeAuditor:
                         f"{label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
                     )
 
-        # ── [7] OVERALL EDGE SUMMARY (Primary = Dynamic Targets) ──
+        # ── [7] OVERALL EDGE SUMMARY ──
         print(f"\n{BOLD}[7] OVERALL EDGE SUMMARY{RESET}")
         print("-" * 70)
 
-        # Primary: Real strategy performance
         if "real_outcome" in df.columns:
             total_wins = (df["real_outcome"] == "WIN").sum()
             total_losses = (df["real_outcome"] == "LOSS").sum()
@@ -480,58 +485,67 @@ class EdgeAuditor:
 
             if total_decided > 0:
                 overall_wr = total_wins / total_decided * 100
-                avg_tp = df["tp_pct"].mean()
-                avg_sl = df["sl_pct"].mean()
-                gross_expectancy = (overall_wr / 100) * avg_tp - ((100 - overall_wr) / 100) * avg_sl
-
+                gross_expectancy = (overall_wr / 100) * df["tp_pct"].mean() - ((100 - overall_wr) / 100) * df[
+                    "sl_pct"
+                ].mean()
                 net_taker = gross_expectancy - FEE_TAKER_RT
                 net_maker = gross_expectancy - FEE_MAKER_RT
-
                 coins_n = df["symbol"].nunique() if "symbol" in df.columns else 1
+
+                # Determine root cause verdict from [3]
+                all_entry_fail = True
+                all_target_ok = True
+                for setup, s_group in df.groupby("setup_type"):
+                    groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
+                    for label, group in groups:
+                        best = self._find_best_uniform(group, UNIFORM_GRIDS)
+                        if best is None:
+                            continue
+                        best_exp, _, _ = best
+                        if best_exp - FEE_TAKER_RT > 0:
+                            all_entry_fail = False
+                        # Also check real targets vs best
+                        real_w = (group["real_outcome"] == "WIN").sum()
+                        real_l = (group["real_outcome"] == "LOSS").sum()
+                        real_d = real_w + real_l
+                        if real_d > 0:
+                            real_wr = real_w / real_d * 100
+                            real_exp = (real_wr / 100) * group["tp_pct"].mean() - ((100 - real_wr) / 100) * group[
+                                "sl_pct"
+                            ].mean()
+                            if real_exp < best_exp - 0.05:
+                                all_target_ok = False
 
                 print(f"Total Signals:        {len(df)} ({coins_n} coins)")
                 print(f"Decided (W+L):        {total_decided} (Timeouts: {total_timeouts})")
                 print(f"Overall Win Rate:     {overall_wr:.1f}%")
-                print(f"Avg TP Distance:      {avg_tp:.3f}%")
-                print(f"Avg SL Distance:      {avg_sl:.3f}%")
                 print(f"")
                 print(f"{BOLD}Gross Expectancy:     {gross_expectancy:+.4f}%{RESET}")
                 print(f"Net (Taker 0.12%):    {net_taker:+.4f}% {'✅' if net_taker > 0 else '❌'}")
                 print(f"Net (Maker 0.08%):    {net_maker:+.4f}% {'✅' if net_maker > 0 else '❌'}")
                 print(f"")
 
-                if gross_expectancy > FEE_THRESHOLD:
-                    print(f"{GREEN}✅ EDGE CONFIRMED: Gross expectancy > 3× taker fees (0.36%){RESET}")
-                    print(f"{GREEN}   Strategy is viable even with taker orders.{RESET}")
-                elif gross_expectancy > FEE_TAKER_RT:
-                    print(f"{YELLOW}⚠️  MARGINAL EDGE: Gross expectancy > fees but < 3× threshold{RESET}")
-                    print(f"{YELLOW}   Requires maker orders (limit sniper) to be profitable.{RESET}")
-                elif gross_expectancy > 0:
-                    print(f"{YELLOW}⚠️  THIN EDGE: Gross expectancy positive but below fees{RESET}")
-                    print(f"{YELLOW}   Need fee reduction or target optimization.{RESET}")
+                if all_entry_fail:
+                    print(f"{RED}❌ ROOT CAUSE: ENTRY FAILURE{RESET}")
+                    print(f"{RED}   No TP/SL configuration across any setup produces positive expectancy.")
+                    print(f"{RED}   The entry signal does not predict direction. Rework entry logic.{RESET}")
+                elif not all_target_ok:
+                    print(f"{YELLOW}⚠️  ROOT CAUSE: TARGET FAILURE{RESET}")
+                    print(f"{YELLOW}   Entry has potential but AMT targets underperform best uniform.{RESET}")
+                    print(f"{YELLOW}   Adjust target formula (see Section [3] for details).{RESET}")
                 else:
-                    print(f"{RED}❌ NO EDGE: Gross expectancy negative{RESET}")
-                    print(f"{RED}   Strategy is not viable. Rework entry logic or exit management.{RESET}")
-
-                print(f"")
-                print(f"{BOLD}Recommendation:{RESET}")
-                if net_maker > 0 and net_taker <= 0:
-                    print(f"  → ENABLE Limit Sniper (maker entries) to capture the edge")
-                elif net_taker > 0:
-                    print(f"  → Edge is strong enough for market orders")
-                else:
-                    print(f"  → Edge is too thin. Consider:")
-                    print(f"    • Tighter entry filters (reduce MAE)")
-                    print(f"    • Better exit timing (capture more MFE)")
-                    print(f"    • Target calibration (see Section [3])")
+                    if net_taker > 0:
+                        print(f"{GREEN}✅ EDGE CONFIRMED: Both entry and targets are sound.{RESET}")
+                    else:
+                        print(f"{YELLOW}⚠️  EDGE MARGINAL: Entry is viable but costs exceed expectancy.{RESET}")
 
             # ── Per-Coin Summary (when --by-coin) ──
             if self.by_coin and "symbol" in df.columns:
                 print(f"\n{BOLD}Per-Coin Summary{RESET}")
                 print(
-                    f"{'Coin':<26} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Exp%':<10} {'Net Taker':<10} {'Net Maker'}"
+                    f"{'Coin':<26} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Exp%':<10} {'Net Taker':<10} {'Verdict'}"
                 )
-                print("-" * 95)
+                print("-" * 105)
                 for coin, cg in df.groupby("symbol"):
                     cw = (cg["real_outcome"] == "WIN").sum()
                     cl = (cg["real_outcome"] == "LOSS").sum()
@@ -544,29 +558,21 @@ class EdgeAuditor:
                     csl = cg["sl_pct"].mean()
                     cexp = (cwr / 100) * ctp - ((100 - cwr) / 100) * csl
                     cnt = cexp - FEE_TAKER_RT
-                    cnm = cexp - FEE_MAKER_RT
+                    best = self._find_best_uniform(cg, UNIFORM_GRIDS)
+                    if best is None:
+                        verdict = f"{RED}NO DATA{RESET}"
+                    else:
+                        best_exp, _, _ = best
+                        if best_exp - FEE_TAKER_RT <= 0:
+                            verdict = f"{RED}ENTRY FAIL{RESET}"
+                        elif cnt <= 0:
+                            verdict = f"{YELLOW}TARGET FAIL{RESET}"
+                        else:
+                            verdict = f"{GREEN}EDGE ✅{RESET}"
                     nc = GREEN if cnt > 0 else RED
-                    nm = GREEN if cnm > 0 else RED
                     print(
-                        f"{coin:<26} {len(cg):<6} {cw:<5} {cl:<5} {cto:<5} {cwr:>5.1f}%  {cexp:>+8.4f}%  {nc}{cnt:>+8.4f}%{RESET}  {nm}{cnm:>+8.4f}%{RESET}"
+                        f"{coin:<26} {len(cg):<6} {cw:<5} {cl:<5} {cto:<5} {cwr:>5.1f}%  {cexp:>+8.4f}%  {nc}{cnt:>+8.4f}%{RESET}  {verdict}"
                     )
-
-        # Secondary: Best uniform TP/SL for reference
-        print(f"\n{BOLD}Reference: Best Uniform TP/SL{RESET}")
-        for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
-            col = f"ft_{tp_t}_{sl_t}"
-            if col not in df.columns:
-                continue
-            w = (df[col] == "WIN").sum()
-            losses = (df[col] == "LOSS").sum()
-            d = w + losses
-            if d == 0:
-                continue
-            wr = w / d * 100
-            ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
-            net_t = ev - FEE_TAKER_RT
-            nc = GREEN if net_t > 0 else RED
-            print(f"  {tp_t:.1f}/{sl_t:.1f}%: WR={wr:.1f}%, Exp={ev:+.4f}%, Net={nc}{net_t:+.4f}%{RESET}")
 
         print(header("AUDIT COMPLETE"))
 

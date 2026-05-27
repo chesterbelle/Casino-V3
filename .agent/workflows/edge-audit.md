@@ -59,7 +59,7 @@ mkdir -p logs
 ## Step 3: Statistical Extraction & Calibration
 Run the Edge Auditor tool to evaluate current strategy performance.
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 14400
+.venv/bin/python utils/setup_edge_auditor.py --window 14400 --by-coin
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers.
 ```bash

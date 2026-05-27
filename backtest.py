@@ -39,7 +39,7 @@ from core.execution import OrderManager  # noqa: E402
 from core.footprint_registry import footprint_registry  # noqa: E402
 from core.sensor_manager import SensorManager  # noqa: E402
 from croupier.croupier import Croupier  # noqa: E402
-from decision.setup_engine import SetupEngineV4  # noqa: E402
+from decision.engine.core import SetupEngineV4  # noqa: E402
 from exchanges.adapters import ExchangeAdapter  # noqa: E402
 from exchanges.connectors.virtual_exchange import VirtualExchangeConnector  # noqa: E402
 from players.adaptive import AdaptivePlayer  # noqa: E402
