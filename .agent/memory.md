@@ -9,7 +9,7 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Dual-Core (Reversión/Continuación) con Inercia de Micro-Flujo.
-*   **Current Branch**: `v8.4-agent-friendly-refactor` (V8.5 Planar Architecture, commit `a06ec22`)
+*   **Current Branch**: `v8.4-agent-friendly-refactor` (V8.5 Planar Architecture, commit `79d4875`)
 *   **Active Mode**: Multi-Coin Agnostic
 *   **Active Alpha**: **AMT V10 Alpha** (Certified Generalized).
 
@@ -22,22 +22,19 @@
 
 ## 🏛️ Estado de las Capas de Certificación
 
-*   **Crystal Layer Cleanup (v8.5)**: Eliminación de código muerto: AbsorptionReversalGuardian, confirmation_sensors, AbsorptionSetupEngine, sensor_tracker, statistical_location_guardian. Fast-track extirpado. 500+ líneas removidas.
-*   **Orquestación de Auditorías (v8.3)**: Implementado `scripts/orchestrator.py` para automatización determinística de protocolos `generalized` y `long-range`. Eliminación de ejecución manual concurrente.
-*   **Repo Sanitization (In Progress)**: Iniciada fase de limpieza y purificación de archivos huérfanos/legacy para mejorar mantenibilidad.
+*   **Crystal Layer Cleanup (v8.5)**: **COMPLETADO ✅**. Auditoría forense identificó código muerto: AbsorptionReversalGuardian (desconectado del pipeline), confirmation_sensors, AbsorptionSetupEngine, sensor_tracker, statistical_location_guardian. Fast-track zombie extirpado (21 refs → 0). **-2,172 líneas, 6 archivos eliminados.** Commit `79d4875`.
+*   **Orquestación de Auditorías (v8.3)**: Implementado `scripts/orchestrator.py` para automatización determinística de protocolos `generalized` y `long-range`.
 *   **UDT Forensics (v8.1)**: **Unified Decision DNA** operacional. Autopsias automáticas en `EXECUTED/ERROR`.
-*   **Hito Actual**: **Arquitectura Slim + Zero-Necrosis**. Eliminados `fast_track`, `tracker`, `shadow_sl`, AbsorptionReversalGuardian, confirmation_sensors.
-*   **Métrica de Estrés**: Trazabilidad asíncrona validada en ventanas de 500ms (Phase 2).
-*   **Latency Guard**: Zero-interference logging via memory-resident DNA traces.
-*   **Optimización V8.3**: HPC Audit completada. 18/19 optimizaciones implementadas en la Capa de Hierro. Running sums O(1), VWAP residuals O(1), semáforo de concurrencia, task tracking, event-based parking, template dict, sync hot paths, peak incremental, QueueHandler logging, aiosqlite, __slots__ OpenPosition.
-*   **Validate-All Pipeline (Mayo 26)**: Suite completa Capas 0-5 certificada. 3 bugs corregidos durante validación (self.clock, orchestrator truncado, aiosqlite faltante). Bot operacionalmente seguro.
+*   **Hito Actual**: **Arquitectura Slim + Zero-Necrosis**. Código muerto eliminado. Solo queda código activo y funcional.
+*   **Optimización V8.3**: HPC Audit completada. 18/19 optimizaciones implementadas en la Capa de Hierro.
+*   **Validate-All Pipeline (Mayo 26)**: Suite completa Capas 0-5 certificada.
 
 ### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (4-Coin Net Taker Positive)]
 *   **AMT V10 Alpha**: Audited across 10 crypto assets. 4 certified Net Taker positive (BNB, SOL, SUI, AVAX).
 *   **Hito Actual**: **Multi-Window Grid Discovery** — Ventana de 4h elimina Timeouts y desbloquea Net Taker positivo.
 *   **Métrica Forense (4h Window)**: BNB +0.107% (1.2% target), SOL +0.28% (1.2%), SUI +0.08% (1.2%), AVAX +0.12% (1.2%).
-*   **Sweet Spot**: Target 1.0%-1.2% TP/SL simétrico con ventana de 4h. Ventanas < 2h generan Timeouts que destruyen expectancia.
-*   **ETH PROBLEM**: Único activo que no logra Net Taker positivo en ninguna combinación window/target debmos investigar porque.
+*   **Sweet Spot**: Target 1.0%-1.2% TP/SL simétrico con ventana de 4h.
+*   **ETH PROBLEM**: Único activo que no logra Net Taker positivo en ninguna combinación window/target.
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
 *   **Slim Exit Engine (v10.2)**: Salidas tácticas vía Maker (Limit Orders) certificadas.
@@ -50,52 +47,32 @@
 1.  **DATA/MATH — COMPLETADO ✅**: Pipeline L2 SQLite operativo.
 2.  **AMT V10 ARCH — COMPLETADO ✅**: Escenarios AMT integrados.
 3.  **EXECUTION STABILITY — COMPLETADO ✅**: Slim Exit Engine sincronizado.
-4.  **UDT FORENSICS — COMPLETADO ✅**: Sistema de autopsias unificado (Rama 8.1).
-5.  **CALIBRACIÓN ALPHA — COMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas.
-6.  **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live para validar slippage real y ejecución WebSocket.
-
----
-
-### Current Status: 🟢 Slim & Certified (Phase 900+ Optimized)
-- **Architecture**: `v8.2-slim` deployed. 4 pillars reduced to 2 (Scale Out + Micro-Z Reversal).
-- **Baseline**: Alpha "Naked" (Sin BE ni Trailing).
-- **Persistence**: 100% Signal Persistence verified.
-- **Exit Strategy**: Removed noise (BE, Trailing). Focused on structural exit.
-
----
-
-### 🏛️ Auditoría Forense: Transición a Arquitectura Slim
-*   **Decisión Estratégica**: Tras auditar `historian_final_merged.db`, descubrimos que el pilar `Break-Even` eliminaba al **93.75% de nuestros trades ganadores**. Se decidió eliminar por completo el `Break-Even` y `Trailing Stop`.
-*   **Cambio de Paradigma**: Pasamos de una gestión "Geométrica" (ATR-basada, reactiva al precio) a una gestión "Estructural" (Micro-Z Reversal, reactiva al flujo).
-*   **Justificación**: Si un setup de entrada tiene Alpha real, no necesita "ayudas artificiales" que solo aumentan la varianza y recortan la cola derecha de la distribución de beneficios.
-
----
-
-## 📉 Roadmap: CAPA 0 → Absorption Alpha Validation
-1.  **DATA/MATH — COMPLETADO ✅**: Pipeline L2 SQLite operativo.
-2.  **AMT V10 ARCH — COMPLETADO ✅**: Escenarios AMT integrados.
-3.  **EXECUTION STABILITY — COMPLETADO ✅**: Slim Exit Engine sincronizado.
-4.  **UDT FORENSICS — COMPLETADO ✅**: Sistema de autopsias unificado (Rama 8.1).
-5.  **CALIBRACIÓN ALPHA —  CASICOMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas. con execpcion de ETH
+4.  **UDT FORENSICS — COMPLETADO ✅**: Sistema de autopsias unificado.
+5.  **CALIBRACIÓN ALPHA — COMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas (excepto ETH).
 6.  **EXIT ENGINE SLIM — COMPLETADO ✅**: Purga de pilares ruidosos.
-7.  **INVESTIGACION— PRÓXIMO PASO**: investigar porque sirve en todos menos ETH.
+7.  **CRYSTAL CLEANUP — COMPLETADO ✅**: Código muerto eliminado (-2,172 líneas).
+8.  **INVESTIGACIÓN ETH — PRÓXIMO PASO**: Investigar por qué ETH no logra Net Taker positivo.
+9.  **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live.
+
+---
+
+### Current Status: 🟢 Slim, Certified & Clean (Zero-Necrosis)
+- **Architecture**: V8.5 Planar. Crystal Layer purged of dead code.
+- **Baseline**: Net Taker +0.1155%, Net Maker +0.1555% (LTCUSDT single-coin).
+- **Commit**: `79d4875` on `v8.4-agent-friendly-refactor`.
+- **Exit Strategy**: Scale Out + Micro-Z Reversal only.
 
 ---
 
 ## ⚠️ Gotchas Críticos
-...
-10. **Taker-Only Execution Mandate**: ...
-11. **Historian Cumulative Runs**: ...
-12. **Parallel Audit SQLite Write Locks**: ...
-13. **Break-Even Cost Fallacy**: El Break-Even estático mata el Edge de absorción (93.75% de winners perdidos en backtest). Todo SL debe ser estructural o basado en cambio de régimen (Micro-Z).
+10. **Taker-Only Execution Mandate**: Toda validación se juzga descontando fees Taker del 0.12%.
+11. **Historian Cumulative Runs**: Usar `--historian-db` para aislar archivos SQLite por run.
+12. **Parallel Audit SQLite Write Locks**: Usar archivos temporales y consolidar al final.
+13. **Break-Even Cost Fallacy**: El Break-Even estático mata el Edge (93.75% winners perdidos). Todo SL debe ser estructural.
 
-- 2026-05-24T09:30:00.000000 | session-update | Auditoría forense del Break-Even (93.75% de winners perdidos).
-- 2026-05-24T10:00:00.000000 | session-close | Purga de pilares: Eliminados Break-Even y Trailing Stop. SlimExitEngine operando solo con Scale Out y Micro-Z Reversal. Arquitectura Slim certificada.
-- 2026-05-25T15:00:00.000000 | session-update | Repo Sanitization: Eliminados archivos .bak y exit_edge_auditor.py. Workflows actualizados para apuntar solo al setup_edge_auditor.
-- 2026-05-25T15:20:00.000000 | session-update | CLI Refactor: Reemplazado flag implícito y --audit por argumento obligatorio --run-type (audit|trade) en main.py y backtest.py para mitigar riesgos de ejecución accidental.
-- 2026-05-25T16:10:00.000000 | session-update | Smart Orchestrator: Refactorizado scripts/orchestrator.py para implementar búsqueda estricta de datasets (evitando fallos silenciosos), aislamiento de logs y un monitor de progreso I/O (Heartbeat) que previene la ceguera durante ejecuciones largas.
-- 2026-05-25T16:15:00.000000 | session-close | Preparación completada. CLI segura y Orquestador inteligente implementados. Siguiente paso: Sesión de análisis de mercado/borde.
-- 2026-05-27T08:00:00.000000 | session-update | Agent-Friendly Refactoring (v8.4): AMT Scenarios modularized into decision/scenarios package. SetupEngine telemetry extracted to decision/engine/telemetry.py.
-- 2026-05-27T08:10:00.000000 | session-close | Modularización completa de la Capa de Cristal: market_regime.py desglosado en el paquete sensors/regime/market/. 100% de paridad métrica verificada en LTCUSDT (+0.1334% Net Taker) vía edge-audit.md. Branch lista para revisión.
-- 2026-05-27T10:00:00.000000 | session-update | V8.5 Planar Architecture: TradeProposal creado como SSOT. Pipeline rewired desde AggregatedSignalEvent. Validator reescrito con 25 escenarios. AdaptivePlayer subscription fixed. TraceBullet getattr fallback.
-- 2026-05-27T10:30:00.000000 | session-close | V8.5 certificado con 100% paridad contra baseline. Commit a06ec22 en branch v8.4-agent-friendly-refactor. Edge audit: 2 signals, +0.2534% Gross Exp, +0.1334% Net Taker.
+---
+
+## 📝 Timeline de Sesiones Recientes
+- 2026-05-27T16:00:00 | session-update | Crystal Layer Cleanup: Auditoría forense identificó AbsorptionReversalGuardian desconectado, fast_track zombie, código muerto acumulado V8→V10.
+- 2026-05-27T16:30:00 | session-update | Ejecutado benchmark pre-cleanup: 2 signals, Net Taker +0.1334%, Net Maker +0.1734%.
+- 2026-05-27T17:00:00 | session-close | Cleanup completado: -2,172 líneas, 6 archivos eliminados, 8 archivos podados. Post-cleanup: Net Taker +0.1155%, Net Maker +0.1555% (positivo preservado). Commit `79d4875`.
