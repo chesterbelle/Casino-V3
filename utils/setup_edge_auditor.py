@@ -42,8 +42,10 @@ def header(msg):
 
 
 class EdgeAuditor:
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, by_coin=False, coin_filter=None):
         self.db_path = db_path
+        self.by_coin = by_coin
+        self.coin_filter = coin_filter
         if not Path(db_path).exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
         # Import SETUP_WINDOWS for use in calibration
@@ -57,6 +59,11 @@ class EdgeAuditor:
 
     def analyze(self, window_seconds=DEFAULT_WINDOW):
         signals, prices, traces = self.load_data()
+
+        if self.coin_filter:
+            before = len(signals)
+            signals = signals[signals["symbol"] == self.coin_filter]
+            print(f"  🪙 Filtered to {self.coin_filter}: {len(signals)}/{before} signals")
 
         if signals.empty:
             print(f"{RED}❌ No signals found in database.{RESET}")
@@ -202,119 +209,161 @@ class EdgeAuditor:
         FEE_THRESHOLD = 0.36
 
         # ── [1] SETUP EDGE BREAKDOWN (MFE/MAE raw) ──
-        print(f"\n{BOLD}[1] SETUP EDGE BREAKDOWN (Raw MFE/MAE){RESET}")
-        print(f"{'Setup Type':<20} {'n':<6} {'Avg MFE%':<10} {'Avg MAE%':<10} {'Ratio':<8} {'Window':<8}")
-        print("-" * 70)
-
-        for setup, group in df.groupby("setup_type"):
-            avg_mfe = group["mfe"].mean()
-            avg_mae = group["mae"].mean()
-            ratio = avg_mfe / (avg_mae + 1e-9)
-            avg_win = group["window"].mean()
-            color = GREEN if ratio > 1.2 else (YELLOW if ratio > 1.0 else RED)
+        suffix = " (Per Coin)" if self.by_coin else ""
+        print(f"\n{BOLD}[1] SETUP EDGE BREAKDOWN (Raw MFE/MAE){suffix}{RESET}")
+        if self.by_coin:
             print(
-                f"{setup:<20} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}  {avg_win:>4.0f}s"
+                f"{'Setup Type':<20} {'Coin':<26} {'n':<6} {'Avg MFE%':<10} {'Avg MAE%':<10} {'Ratio':<8} {'Window':<8}"
             )
+        else:
+            print(f"{'Setup Type':<20} {'n':<6} {'Avg MFE%':<10} {'Avg MAE%':<10} {'Ratio':<8} {'Window':<8}")
+        print("-" * 70 if not self.by_coin else "-" * 100)
+
+        for setup, s_group in df.groupby("setup_type"):
+            if self.by_coin:
+                for coin, group in s_group.groupby("symbol"):
+                    avg_mfe = group["mfe"].mean()
+                    avg_mae = group["mae"].mean()
+                    ratio = avg_mfe / (avg_mae + 1e-9)
+                    avg_win = group["window"].mean()
+                    color = GREEN if ratio > 1.2 else (YELLOW if ratio > 1.0 else RED)
+                    print(
+                        f"{setup:<20} {coin:<26} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}  {avg_win:>4.0f}s"
+                    )
+            else:
+                group = s_group
+                avg_mfe = group["mfe"].mean()
+                avg_mae = group["mae"].mean()
+                ratio = avg_mfe / (avg_mae + 1e-9)
+                avg_win = group["window"].mean()
+                color = GREEN if ratio > 1.2 else (YELLOW if ratio > 1.0 else RED)
+                print(
+                    f"{setup:<20} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}  {avg_win:>4.0f}s"
+                )
 
         # ── [2] PRIMARY: REAL STRATEGY PERFORMANCE (Dynamic TP/SL) ──
-        print(f"\n{BOLD}[2] PRIMARY METRIC: REAL STRATEGY PERFORMANCE (Dynamic TP/SL){RESET}")
-        print(
-            f"{'Setup Type':<20} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Verdict'}"
-        )
-        print("-" * 105)
-
-        for setup, group in df.groupby("setup_type"):
-            w = (group["real_outcome"] == "WIN").sum()
-            losses = (group["real_outcome"] == "LOSS").sum()
-            to = (group["real_outcome"] == "TIMEOUT").sum()
-            d = w + losses
-            wr = (w / d * 100) if d > 0 else 0
-
-            # Average actual TP/SL distances
-            avg_tp = group["tp_pct"].mean()
-            avg_sl = group["sl_pct"].mean()
-
-            # Gross Expectancy using actual TP/SL distances
-            expectancy = (wr / 100) * avg_tp - ((100 - wr) / 100) * avg_sl if d > 0 else 0
-
-            # Net metrics for verdict
-            net_taker = expectancy - FEE_TAKER_RT
-
-            if d < 20:
-                verdict = f"{YELLOW}LOW_N{RESET}"
-            elif expectancy > FEE_THRESHOLD and wr > 55:
-                verdict = f"{GREEN}CERTIFIED{RESET}"
-            elif net_taker > 0.05:  # Clear profit after fees
-                verdict = f"{YELLOW}WATCH{RESET}"
-            elif net_taker > -0.02:  # Near break-even
-                verdict = f"{RED}MARGINAL (NO EDGE){RESET}"
-            else:
-                verdict = f"{RED}FAILED (BLEEDING){RESET}"
-
+        suffix = " (Per Coin)" if self.by_coin else ""
+        print(f"\n{BOLD}[2] PRIMARY METRIC: REAL STRATEGY PERFORMANCE (Dynamic TP/SL){suffix}{RESET}")
+        if self.by_coin:
             print(
-                f"{setup:<20} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {verdict}"
+                f"{'Setup Type':<20} {'Coin':<26} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Verdict'}"
             )
+            print("-" * 130)
+        else:
+            print(
+                f"{'Setup Type':<20} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Avg TP%':<9} {'Avg SL%':<9} {'Exp%':<10} {'Verdict'}"
+            )
+            print("-" * 105)
+
+        for setup, s_group in df.groupby("setup_type"):
+            groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
+            for label, group in groups:
+                w = (group["real_outcome"] == "WIN").sum()
+                losses = (group["real_outcome"] == "LOSS").sum()
+                to = (group["real_outcome"] == "TIMEOUT").sum()
+                d = w + losses
+                wr = (w / d * 100) if d > 0 else 0
+
+                avg_tp = group["tp_pct"].mean()
+                avg_sl = group["sl_pct"].mean()
+                expectancy = (wr / 100) * avg_tp - ((100 - wr) / 100) * avg_sl if d > 0 else 0
+                net_taker = expectancy - FEE_TAKER_RT
+
+                if d < 20:
+                    verdict = f"{YELLOW}LOW_N{RESET}"
+                elif expectancy > FEE_THRESHOLD and wr > 55:
+                    verdict = f"{GREEN}CERTIFIED{RESET}"
+                elif net_taker > 0.05:
+                    verdict = f"{YELLOW}WATCH{RESET}"
+                elif net_taker > -0.02:
+                    verdict = f"{RED}MARGINAL (NO EDGE){RESET}"
+                else:
+                    verdict = f"{RED}FAILED (BLEEDING){RESET}"
+
+                if self.by_coin:
+                    print(
+                        f"{setup:<20} {label:<26} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {verdict}"
+                    )
+                else:
+                    print(
+                        f"{setup:<20} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {verdict}"
+                    )
 
         # ── [3] DIAGNOSTIC: UNIFORM TP/SL (Target Calibration) ──
-        print(f"\n{BOLD}[3] DIAGNOSTIC: UNIFORM TP/SL (Target Calibration Guide){RESET}")
-        print(f"{'Setup Type':<20} {'Best TP/SL':<12} {'WR%':<8} {'Exp%':<10} {'vs Real Exp':<12} {'Target Advice'}")
-        print("-" * 100)
-
-        for setup, group in df.groupby("setup_type"):
-            best_exp = -999
-            best_config = (0, 0)
-            best_wr = 0
-
-            for tp_t, sl_t in [
-                (0.1, 0.1),
-                (0.15, 0.15),
-                (0.2, 0.2),
-                (0.3, 0.3),
-                (0.4, 0.4),
-                (0.5, 0.5),
-                (0.6, 0.6),
-                (0.7, 0.7),
-                (0.8, 0.8),
-                (0.9, 0.9),
-                (0.9, 0.6),  # Historical Asymmetric Standard
-                (0.9, 1.0),  # Historical Asymmetric Standard
-                (1.0, 1.0),
-            ]:
-                col = f"ft_{tp_t}_{sl_t}"
-                if col not in group.columns:
-                    continue
-                w = (group[col] == "WIN").sum()
-                losses = (group[col] == "LOSS").sum()
-                d = w + losses
-                if d == 0:
-                    continue
-                wr = w / d * 100
-                ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
-                if ev > best_exp:
-                    best_exp = ev
-                    best_config = (tp_t, sl_t)
-                    best_wr = wr
-
-            # Compare with real strategy expectancy
-            real_w = (group["real_outcome"] == "WIN").sum()
-            real_l = (group["real_outcome"] == "LOSS").sum()
-            real_d = real_w + real_l
-            real_wr = (real_w / real_d * 100) if real_d > 0 else 0
-            real_avg_tp = group["tp_pct"].mean()
-            real_avg_sl = group["sl_pct"].mean()
-            real_exp = (real_wr / 100) * real_avg_tp - ((100 - real_wr) / 100) * real_avg_sl if real_d > 0 else 0
-
-            delta = real_exp - best_exp
-            if delta >= -0.05:
-                advice = f"{GREEN}Targets OK (within 0.05%){RESET}"
-            elif delta >= -0.15:
-                advice = f"{YELLOW}Targets slightly suboptimal{RESET}"
-            else:
-                advice = f"{RED}Targets need adjustment{RESET}"
-
+        suffix = " (Per Coin)" if self.by_coin else ""
+        print(f"\n{BOLD}[3] DIAGNOSTIC: UNIFORM TP/SL (Target Calibration Guide){suffix}{RESET}")
+        if self.by_coin:
             print(
-                f"{setup:<20} {best_config[0]:.2f}/{best_config[1]:.2f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
+                f"{'Setup Type':<20} {'Coin':<26} {'Best TP/SL':<12} {'WR%':<8} {'Exp%':<10} {'vs Real Exp':<12} {'Target Advice'}"
             )
+            print("-" * 130)
+        else:
+            print(
+                f"{'Setup Type':<20} {'Best TP/SL':<12} {'WR%':<8} {'Exp%':<10} {'vs Real Exp':<12} {'Target Advice'}"
+            )
+            print("-" * 100)
+
+        for setup, s_group in df.groupby("setup_type"):
+            groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
+            for label, group in groups:
+                best_exp = -999
+                best_config = (0, 0)
+                best_wr = 0
+
+                for tp_t, sl_t in [
+                    (0.1, 0.1),
+                    (0.15, 0.15),
+                    (0.2, 0.2),
+                    (0.3, 0.3),
+                    (0.4, 0.4),
+                    (0.5, 0.5),
+                    (0.6, 0.6),
+                    (0.7, 0.7),
+                    (0.8, 0.8),
+                    (0.9, 0.9),
+                    (0.9, 0.6),
+                    (0.9, 1.0),
+                    (1.0, 1.0),
+                ]:
+                    col = f"ft_{tp_t}_{sl_t}"
+                    if col not in group.columns:
+                        continue
+                    w = (group[col] == "WIN").sum()
+                    losses = (group[col] == "LOSS").sum()
+                    d = w + losses
+                    if d == 0:
+                        continue
+                    wr = w / d * 100
+                    ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
+                    if ev > best_exp:
+                        best_exp = ev
+                        best_config = (tp_t, sl_t)
+                        best_wr = wr
+
+                real_w = (group["real_outcome"] == "WIN").sum()
+                real_l = (group["real_outcome"] == "LOSS").sum()
+                real_d = real_w + real_l
+                real_wr = (real_w / real_d * 100) if real_d > 0 else 0
+                real_avg_tp = group["tp_pct"].mean()
+                real_avg_sl = group["sl_pct"].mean()
+                real_exp = (real_wr / 100) * real_avg_tp - ((100 - real_wr) / 100) * real_avg_sl if real_d > 0 else 0
+
+                delta = real_exp - best_exp
+                if delta >= -0.05:
+                    advice = f"{GREEN}Targets OK (within 0.05%){RESET}"
+                elif delta >= -0.15:
+                    advice = f"{YELLOW}Targets slightly suboptimal{RESET}"
+                else:
+                    advice = f"{RED}Targets need adjustment{RESET}"
+
+                if self.by_coin:
+                    print(
+                        f"{setup:<20} {label:<26} {best_config[0]:.2f}/{best_config[1]:.2f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
+                    )
+                else:
+                    print(
+                        f"{setup:<20} {best_config[0]:.2f}/{best_config[1]:.2f}%    {best_wr:>5.1f}%  {best_exp:>+8.4f}%  {delta:>+10.4f}%  {advice}"
+                    )
 
         # ── [4] DECISION TRACE AUDIT (SetupEngine Gates) ──
         if traces is not None and not traces.empty:
@@ -332,67 +381,91 @@ class EdgeAuditor:
                 print(f"{YELLOW}⚠️ Column {e} not found in decision_traces. Available: {available}{RESET}")
 
         # ── [5] PER-SETUP UNIFORM GRID (Full Detail) ──
-        print(f"\n{BOLD}[5] UNIFORM TP/SL GRID (Full Detail per Setup){RESET}")
-        for setup, group in df.groupby("setup_type"):
-            print(f"\n  {BOLD}{setup}{RESET} (n={len(group)})")
-            print(
-                f"  {'TP/SL':<12} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Exp%':<10} {'Net Taker':<10} {'Net Maker'}"
-            )
-            print("  " + "-" * 80)
-
-            for tp_t, sl_t in [
-                (0.1, 0.1),
-                (0.15, 0.15),
-                (0.2, 0.2),
-                (0.3, 0.3),
-                (0.4, 0.4),
-                (0.5, 0.5),
-                (0.6, 0.6),
-                (0.7, 0.7),
-                (0.8, 0.8),
-                (0.9, 0.9),
-                (0.9, 0.6),  # Historical Asymmetric Standard
-                (0.9, 1.0),  # Historical Asymmetric Standard
-                (1.0, 1.0),
-            ]:
-                col = f"ft_{tp_t}_{sl_t}"
-                if col not in group.columns:
-                    continue
-                w = (group[col] == "WIN").sum()
-                losses = (group[col] == "LOSS").sum()
-                to = (group[col] == "TIMEOUT").sum()
-                d = w + losses
-                wr = (w / d * 100) if d > 0 else 0
-                ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t if d > 0 else 0
-                net_taker = ev - FEE_TAKER_RT
-                net_maker = ev - FEE_MAKER_RT
-
-                color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
-                nc_t = GREEN if net_taker > 0 else RED
-                nc_m = GREEN if net_maker > 0 else RED
-
+        suffix = " (Per Coin)" if self.by_coin else ""
+        print(f"\n{BOLD}[5] UNIFORM TP/SL GRID (Full Detail per Setup){suffix}{RESET}")
+        for setup, s_group in df.groupby("setup_type"):
+            groups = [(setup, s_group)] if not self.by_coin else [(c, g) for c, g in s_group.groupby("symbol")]
+            for label, group in groups:
+                coin_tag = f" / {label}" if self.by_coin else ""
+                print(f"\n  {BOLD}{setup}{coin_tag}{RESET} (n={len(group)})")
                 print(
-                    f"  {tp_t:.2f}/{sl_t:.2f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
+                    f"  {'TP/SL':<12} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Exp%':<10} {'Net Taker':<10} {'Net Maker'}"
                 )
+                print("  " + "-" * 80)
+
+                for tp_t, sl_t in [
+                    (0.1, 0.1),
+                    (0.15, 0.15),
+                    (0.2, 0.2),
+                    (0.3, 0.3),
+                    (0.4, 0.4),
+                    (0.5, 0.5),
+                    (0.6, 0.6),
+                    (0.7, 0.7),
+                    (0.8, 0.8),
+                    (0.9, 0.9),
+                    (0.9, 0.6),
+                    (0.9, 1.0),
+                    (1.0, 1.0),
+                ]:
+                    col = f"ft_{tp_t}_{sl_t}"
+                    if col not in group.columns:
+                        continue
+                    w = (group[col] == "WIN").sum()
+                    losses = (group[col] == "LOSS").sum()
+                    to = (group[col] == "TIMEOUT").sum()
+                    d = w + losses
+                    wr = (w / d * 100) if d > 0 else 0
+                    ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t if d > 0 else 0
+                    net_taker = ev - FEE_TAKER_RT
+                    net_maker = ev - FEE_MAKER_RT
+
+                    color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
+                    nc_t = GREEN if net_taker > 0 else RED
+                    nc_m = GREEN if net_maker > 0 else RED
+
+                    print(
+                        f"  {tp_t:.2f}/{sl_t:.2f}%      {w:<5} {losses:<5} {to:<5} {color}{wr:>5.1f}%{RESET}  {ev:>+8.4f}%  {nc_t}{net_taker:>+8.4f}%{RESET}  {nc_m}{net_maker:>+8.4f}%{RESET}"
+                    )
 
         # ── [6] ALPHA FUSION & CONVICTION AUDIT ──
         if "is_composite" in df.columns:
-            print(f"\n{BOLD}[6] ALPHA FUSION & CONVICTION AUDIT (Arbitrator Efficacy){RESET}")
-            print(f"{'Signal Class':<20} {'n':<6} {'W':<5} {'L':<5} {'WR%':<8} {'Avg Conviction':<15} {'Verdict'}")
-            print("-" * 75)
-
-            for is_comp, group in df.groupby("is_composite"):
-                label = f"{YELLOW}COMPOSITE (Fused){RESET}" if is_comp else "SOLO (Single)"
-                w = (group["real_outcome"] == "WIN").sum()
-                losses = (group["real_outcome"] == "LOSS").sum()
-                d = w + losses
-                wr = (w / d * 100) if d > 0 else 0
-                avg_conv = group["conviction"].mean()
-
-                v_color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
+            suffix = " (Per Coin)" if self.by_coin else ""
+            print(f"\n{BOLD}[6] ALPHA FUSION & CONVICTION AUDIT (Arbitrator Efficacy){suffix}{RESET}")
+            if self.by_coin:
                 print(
-                    f"{label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
+                    f"{'Coin':<26} {'Class':<25} {'n':<6} {'W':<5} {'L':<5} {'WR%':<8} {'Avg Conviction':<15} {'Verdict'}"
                 )
+                print("-" * 110)
+            else:
+                print(f"{'Signal Class':<20} {'n':<6} {'W':<5} {'L':<5} {'WR%':<8} {'Avg Conviction':<15} {'Verdict'}")
+                print("-" * 75)
+
+            if self.by_coin:
+                for coin, cg in df.groupby("symbol"):
+                    for is_comp, group in cg.groupby("is_composite"):
+                        label = f"{YELLOW}COMPOSITE (Fused){RESET}" if is_comp else "SOLO (Single)"
+                        w = (group["real_outcome"] == "WIN").sum()
+                        losses = (group["real_outcome"] == "LOSS").sum()
+                        d = w + losses
+                        wr = (w / d * 100) if d > 0 else 0
+                        avg_conv = group["conviction"].mean()
+                        v_color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
+                        print(
+                            f"{coin:<26} {label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
+                        )
+            else:
+                for is_comp, group in df.groupby("is_composite"):
+                    label = f"{YELLOW}COMPOSITE (Fused){RESET}" if is_comp else "SOLO (Single)"
+                    w = (group["real_outcome"] == "WIN").sum()
+                    losses = (group["real_outcome"] == "LOSS").sum()
+                    d = w + losses
+                    wr = (w / d * 100) if d > 0 else 0
+                    avg_conv = group["conviction"].mean()
+                    v_color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
+                    print(
+                        f"{label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
+                    )
 
         # ── [7] OVERALL EDGE SUMMARY (Primary = Dynamic Targets) ──
         print(f"\n{BOLD}[7] OVERALL EDGE SUMMARY{RESET}")
@@ -414,7 +487,9 @@ class EdgeAuditor:
                 net_taker = gross_expectancy - FEE_TAKER_RT
                 net_maker = gross_expectancy - FEE_MAKER_RT
 
-                print(f"Total Signals:        {len(df)}")
+                coins_n = df["symbol"].nunique() if "symbol" in df.columns else 1
+
+                print(f"Total Signals:        {len(df)} ({coins_n} coins)")
                 print(f"Decided (W+L):        {total_decided} (Timeouts: {total_timeouts})")
                 print(f"Overall Win Rate:     {overall_wr:.1f}%")
                 print(f"Avg TP Distance:      {avg_tp:.3f}%")
@@ -450,6 +525,32 @@ class EdgeAuditor:
                     print(f"    • Better exit timing (capture more MFE)")
                     print(f"    • Target calibration (see Section [3])")
 
+            # ── Per-Coin Summary (when --by-coin) ──
+            if self.by_coin and "symbol" in df.columns:
+                print(f"\n{BOLD}Per-Coin Summary{RESET}")
+                print(
+                    f"{'Coin':<26} {'n':<6} {'W':<5} {'L':<5} {'TO':<5} {'WR%':<8} {'Exp%':<10} {'Net Taker':<10} {'Net Maker'}"
+                )
+                print("-" * 95)
+                for coin, cg in df.groupby("symbol"):
+                    cw = (cg["real_outcome"] == "WIN").sum()
+                    cl = (cg["real_outcome"] == "LOSS").sum()
+                    cto = (cg["real_outcome"] == "TIMEOUT").sum()
+                    cd = cw + cl
+                    if cd == 0:
+                        continue
+                    cwr = cw / cd * 100
+                    ctp = cg["tp_pct"].mean()
+                    csl = cg["sl_pct"].mean()
+                    cexp = (cwr / 100) * ctp - ((100 - cwr) / 100) * csl
+                    cnt = cexp - FEE_TAKER_RT
+                    cnm = cexp - FEE_MAKER_RT
+                    nc = GREEN if cnt > 0 else RED
+                    nm = GREEN if cnm > 0 else RED
+                    print(
+                        f"{coin:<26} {len(cg):<6} {cw:<5} {cl:<5} {cto:<5} {cwr:>5.1f}%  {cexp:>+8.4f}%  {nc}{cnt:>+8.4f}%{RESET}  {nm}{cnm:>+8.4f}%{RESET}"
+                    )
+
         # Secondary: Best uniform TP/SL for reference
         print(f"\n{BOLD}Reference: Best Uniform TP/SL{RESET}")
         for tp_t, sl_t in [(0.15, 0.15), (0.2, 0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5)]:
@@ -471,6 +572,11 @@ class EdgeAuditor:
 
     def calibrate(self, window_seconds=900):
         signals, prices, traces = self.load_data()
+
+        if self.coin_filter:
+            before = len(signals)
+            signals = signals[signals["symbol"] == self.coin_filter]
+            print(f"  🪙 Filtered to {self.coin_filter}: {len(signals)}/{before} signals")
 
         if signals.empty:
             print(f"{RED}❌ No signals found in database.{RESET}")
@@ -697,10 +803,12 @@ def main():
     parser.add_argument("--db", default="data/historian.db")
     parser.add_argument("--window", type=int, default=14400, help="Analysis window in seconds (default: 4h)")
     parser.add_argument("--calibrate", action="store_true", help="Run dynamic AMT target calibration sweep")
+    parser.add_argument("--by-coin", action="store_true", help="Group results by coin within each setup")
+    parser.add_argument("--coin", type=str, default=None, help="Filter to specific coin/symbol (e.g. BTC/USDT:USDT)")
     args = parser.parse_args()
 
     try:
-        auditor = EdgeAuditor(args.db)
+        auditor = EdgeAuditor(args.db, by_coin=args.by_coin, coin_filter=args.coin)
         if args.calibrate:
             auditor.calibrate(window_seconds=args.window)
         else:
