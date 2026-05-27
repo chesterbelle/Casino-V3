@@ -10,6 +10,7 @@ Architecture:
 """
 
 import logging
+from collections import defaultdict
 from typing import Optional
 
 from decision.scenarios import (
@@ -42,7 +43,7 @@ class ScenarioManager:
         }
 
         # Telemetry
-        self.signal_stats = {}
+        self.signal_stats = defaultdict(int)
 
         logger.info("🏗️ ScenarioManager initialized (AMT V10 Architecture - UDT Enabled)")
 
@@ -110,7 +111,7 @@ class ScenarioManager:
 
         # Telemetry: Track which scenario won
         scenario_name = best_signal.get("scenario", best_signal.get("tactical_type", "unknown"))
-        self.signal_stats[scenario_name] = self.signal_stats.get(scenario_name, 0) + 1
+        self.signal_stats[scenario_name] += 1
 
         return best_signal
 

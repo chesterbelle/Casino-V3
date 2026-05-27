@@ -11,7 +11,7 @@ class TradeProposal:
     entry_price: float
     tp_price: float
     sl_price: float
-    grade: str  # "A" (Full Size) o "B" (Half Size)
+    grade: str  # "A" (Full Size) or "B" (Half Size)
     narrative: str
     trace_id: str
     timestamp: float

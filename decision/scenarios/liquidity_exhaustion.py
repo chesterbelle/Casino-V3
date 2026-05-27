@@ -7,7 +7,7 @@ AMT Narrative:
     ammunition. The level will likely hold.
 
 Entry conditions:
-    1. ≥2 touches of the same level (±0.05% tolerance) in last 120s
+    1. >=3 touches of the same level (±0.05% tolerance) in last 120s
     2. Delta at each successive test is DECLINING (|delta_n| < |delta_n-1|)
     3. Price bounced from the level (not consolidating AT the level)
 

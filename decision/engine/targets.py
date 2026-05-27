@@ -4,6 +4,10 @@ from typing import Tuple
 class TargetingMixin:
     """
     Handles TP/SL calculations using Auction Market Theory geometry.
+
+    Two-tier strategy:
+    1. AMT Structural: TP/SL from POC/VAH/VAL geometry (when VA data available)
+    2. ATR Fallback: Multipliers per scenario (when VA data unavailable)
     """
 
     def _calculate_targets(
@@ -17,7 +21,7 @@ class TargetingMixin:
         signal: dict = None,
     ) -> Tuple[float, float, str, str, float]:
         """
-        Phase 800: AMT Structural Target Calculator.
+        AMT Structural Target Calculator.
 
         Derives TP and SL from Auction Market Theory geometry (POC, VAH, VAL)
         instead of ATR-based multipliers. Each reversion setup has a distinct
@@ -34,14 +38,15 @@ class TargetingMixin:
             else:
                 atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
 
-        applied_dynamic = False
         tp_price = price
         sl_price = price
+        level_ref = "VAR_AWARE_2.5x_ATR"
 
         poc = vah = val = 0.0
         if self.context_registry:
             poc, vah, val = self.context_registry.get_structural(symbol)
 
+        # AMT Structural Path
         if poc > 0 and vah > 0 and val > 0 and vah > val:
             va_width = vah - val
             noise_floor_tp = max(atr_pct * 1.5, 0.15) / 100.0
@@ -66,8 +71,6 @@ class TargetingMixin:
                 if (side == "LONG" and tp_price > price and sl_price < price) or (
                     side == "SHORT" and tp_price < price and sl_price > price
                 ):
-                    applied_dynamic = True
-
                     tp_dist = abs(tp_price - price) / price
                     sl_dist = abs(sl_price - price) / price
 
@@ -77,10 +80,10 @@ class TargetingMixin:
                     if sl_dist < noise_floor_sl:
                         sl_price = price * (1.0 - noise_floor_sl) if side == "LONG" else price * (1.0 + noise_floor_sl)
 
-                    setup_name = f"AMT_{scenario.upper()}_{val_pos}"
                     level_ref = "AMT_STRUCTURAL_LEVEL"
 
-        if not applied_dynamic:
+        # ATR Fallback Path
+        else:
             MULTIPLIERS = {
                 "TacticalAbsorptionV2": 5.0,
                 "trend_acceptance": 4.5,
@@ -102,7 +105,7 @@ class TargetingMixin:
             else:
                 tp_price = price * (1.0 - tp_dec)
                 sl_price = price * (1.0 + sl_dec)
-            setup_name = f"AMT_{scenario.upper()}_{val_pos}"
             level_ref = f"VAR_AWARE_{mult}x_ATR"
 
+        setup_name = f"AMT_{scenario.upper()}_{val_pos}"
         return tp_price, sl_price, setup_name, level_ref, atr_pct

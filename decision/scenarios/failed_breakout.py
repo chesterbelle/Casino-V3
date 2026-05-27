@@ -1,5 +1,5 @@
 """
-Scenario ②: Failed Breakout — "Ruptura + Delta Divergente"
+Scenario 2: Failed Breakout — "Breakout + Divergent Delta"
 
 AMT Narrative:
     Price breaks a structural level (VAH or VAL). Looks like a breakout.

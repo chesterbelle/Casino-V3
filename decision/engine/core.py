@@ -1,9 +1,8 @@
 """
-Setup Engine V4 - Precise pattern matching machine for Institutional Scalping.
+Setup Engine V10 - Orchestrator for AMT scenario evaluation and signal dispatch.
 
-Setup Engine mapping tactical confluence markers dynamically against Structural matrices.
-a 5-second short-term memory of stateless Tactical events and evaluates strict
-multi-condition playbooks. Fires instantly (0ms latency) upon pattern completion.
+Evaluates tactical confluence markers against structural matrices.
+Fires instantly (0ms latency) upon pattern completion.
 """
 
 import logging
@@ -39,7 +38,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self._last_candle_boundary: Dict[str, float] = defaultdict(float)
 
         # Layers
-        self.guardian_manager = GuardianManager(self._trace_decision)
+        self.guardian_manager = GuardianManager()
 
         # Memories (5s)
         self.micro_memory = defaultdict(lambda: deque(maxlen=500))
@@ -82,7 +81,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         return True
 
     def _enrich_metadata(self, metadata: dict, symbol: str) -> dict:
-        """Phase 950: Inject structural levels from ContextRegistry into trigger metadata.
+        """Inject structural levels from ContextRegistry into trigger metadata.
 
         This is CRITICAL — without poc/vah/val in metadata, AdaptivePlayer falls
         through to config_fallback TP/SL (0.3%/0.2%), which is mathematically losing.
@@ -93,7 +92,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             metadata["vah"] = vah
             metadata["val"] = val
 
-        # Phase 980: Pre-Entry Breakeven Guard (Institutional Guard)
+        # Pre-Entry Breakeven Guard (Institutional Guard)
         if "tp_price" in metadata and "price" in metadata and metadata["price"] > 0:
             tp_dist = abs(metadata["tp_price"] - metadata["price"]) / metadata["price"]
             # 0.05% Taker + 0.02% Maker + 0.02% Slippage safety
@@ -105,7 +104,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         return metadata
 
     async def on_tick(self, event):
-        """Tick Entry Point: Orquestra la evaluación de escenarios y el despacho."""
+        """Tick Entry Point: Orchestrates scenario evaluation and signal dispatch."""
         symbol = event.symbol
         price = event.price
         timestamp = event.timestamp
@@ -131,10 +130,10 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             await self._process_signal(signal, trace=trace)
 
     async def on_signal(self, event: SignalEvent):
-        """Signal Entry Point: Maneja regímenes y señales tácticas externas."""
+        """Signal Entry Point: Handles regime updates and external tactical signals."""
         md = event.metadata or {}
 
-        # A. Manejo de Regímenes (Prioridad)
+        # A. Regime Handling (Priority)
         if md.get("type") == "MarketRegime_V2":
             self._handle_regime_update(event)
             return
@@ -143,7 +142,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         if event.side == "TACTICAL_CONFIRMATION_REQUIRED":
             return
 
-        # B. Manejo de Señales Tácticas (Enrutamiento vía ScenarioManager)
+        # B. Tactical Signal Handling (Route via ScenarioManager)
         if event.side in ["LONG", "SHORT", "TACTICAL"]:
             payload = md if md.get("tactical_type") else event.__dict__.copy()
             payload["symbol"] = payload.get("symbol") or event.symbol
@@ -169,7 +168,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 await self._process_signal(orchestrated_signal, trace=trace)
 
     def _handle_regime_update(self, event):
-        """Actualiza el ContextRegistry con la info del sensor de régimen."""
+        """Updates ContextRegistry with regime sensor data."""
         md = event.metadata
         regime_v2 = md.get("regime", "BALANCE")
         # Mapping logic (Legacy compatibility)
@@ -183,14 +182,14 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         logger.info(f"🌐 [REGIME_V2] {event.symbol}: {regime_v2} (conf={md.get('confidence', 0):.2f})")
 
     async def _process_signal(self, signal, trace=None):
-        """Orquesta la validación final, cálculo de targets y despacho."""
+        """Orchestrates final validation, target calculation, and dispatch."""
         symbol = signal["symbol"]
         side = signal["side"]
         price = signal["price"]
         now = signal["timestamp"]
         scenario = signal.get("scenario", signal.get("tactical_type", "unknown"))
 
-        # Phase 240: Unified Decision DNA (UDT) - Use existing trace or create new one
+        # Unified Decision Trace (UDT): Use existing trace or create new one
         if not trace:
             trace = black_box.create_trace(symbol, side, signal_id=f"SIG_{int(time.time()*1000)}")
             trace.add_step("SetupEngine", True, f"Processing instant signal: {scenario}")
@@ -217,10 +216,10 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         )
 
         # 3. Metadata Enrichment
-        _entry_z = 0.0
+        entry_z = 0.0
         poc_p, vah_p, val_p, va_w = 0.0, 0.0, 0.0, 0.0
         if self.context_registry:
-            _, _, _entry_z = self.context_registry.get_micro_state(symbol)
+            _, _, entry_z = self.context_registry.get_micro_state(symbol)
             _poc, _vah, _val = self.context_registry.get_structural(symbol)
             poc_p = _poc or 0.0
             vah_p = _vah or 0.0
@@ -244,7 +243,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 "contributors": signal.get("contributing_scenarios", []),
                 "footprint_z_score": signal.get("z_score", 0.0),
                 "atr_1m": atr_pct,
-                "z_score_entry": _entry_z,
+                "z_score_entry": entry_z,
                 "trace_id": trace.trace_id,
                 "poc_price": poc_p,
                 "vah_price": vah_p,
@@ -287,7 +286,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             {"setup_type": scenario, "atr_pct": atr_pct, "multiplier": multiplier},
         )
 
-        logger.warning(
+        logger.info(
             f"🎯 [V8.5] Fired {side} {scenario} on {symbol} | Price: {price:.2f} | TP: {tp_price:.2f} | SL: {sl_price:.2f} | Grade: {grade}"
         )
 
@@ -304,12 +303,12 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
     async def _process_microstructure(self, event: MicrostructureEvent):
         """Internal logic to process a single microstructure event."""
         now = event.timestamp
-        sym = event.symbol
+        symbol = event.symbol
 
         # 1. Store in memory (market_time, wall_time, event)
-        self.micro_memory[sym].append((now, time.time(), event))
+        self.micro_memory[symbol].append((now, time.time(), event))
 
-        # Lazy Pruning (Phase 500) - Using Market Time
+        # Lazy Pruning - Using Market Time
         if now - self._last_micro_prune_ts > self._prune_interval:
             self._last_micro_prune_ts = now
             for s in list(self.micro_memory.keys()):
@@ -318,7 +317,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                     self.micro_memory[s].popleft()
 
         # 2. Evaluate Toxic Order Flow playbook (BEFORE Cooldown for visibility)
-        if len(self.micro_memory[sym]) < 2:
+        if len(self.micro_memory[symbol]) < 2:
             return
 
         skewness = event.skewness
@@ -328,9 +327,9 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
         z = event.z_score
         if self.context_registry:
-            self.context_registry.set_micro_state(sym, event.cvd, skewness, z)
-            # Phase B3: Feed spread data to ContextRegistry for spread sanity gate
+            self.context_registry.set_micro_state(symbol, event.cvd, skewness, z)
+            # Feed spread data to ContextRegistry for spread sanity gate
             if hasattr(event, "spread") and event.spread > 0:
-                self.context_registry.update_spread(sym, event.spread)
+                self.context_registry.update_spread(symbol, event.spread)
 
-        # Phase 900: Microstructure is now CONTEXT ONLY — no signal generation.
+        # Microstructure is now CONTEXT ONLY — no signal generation.

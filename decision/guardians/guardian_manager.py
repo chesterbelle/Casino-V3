@@ -1,6 +1,6 @@
 from typing import Tuple
 
-from .guardian_result import GuardianResult, SetupMode
+from .guardian_result import SetupMode
 from .liquidity_guardian import check_liquidity_heatmap
 from .regime_guardian import check_regime_alignment
 from .spread_sanity_guardian import check_spread_sanity
@@ -12,9 +12,6 @@ class GuardianManager:
     Orchestrator for the Order Flow Guardians.
     Evaluates them sequentially and traces the result using UDT.
     """
-
-    def __init__(self, trace_callback=None):
-        self.trace_decision = trace_callback
 
     def evaluate_all(
         self, symbol: str, side: str, reversal_signal: dict, context_registry, recent_extremes: dict, trace=None
@@ -78,7 +75,3 @@ class GuardianManager:
                 break
 
         return True, final_multiplier, final_mode, value_position
-
-    def _trace(self, symbol: str, side: str, price: float, res: GuardianResult):
-        status = "PASS" if res.passed else "REJECT"
-        self.trace_decision(symbol, status, res.gate_name, res.reason, res.metrics, price, side)
