@@ -278,16 +278,22 @@ python reset_data.py
 python main.py --run-type trade --mode demo --symbol MULTI --timeout 1 --close-on-exit
 ```
 
-### Shadow SL Triggered (Frequent)
+### SlimExitEngine Triggers (Frequent)
 
-**Cause**: ExitManager detects price crossing the in-memory stop-loss threshold
+**Cause**: Exit engine detected structural conditions for exit (Micro-Z Reversal, Scale Out, or Time Exit).
+
+**Understanding**: SlimExitEngine exits are **normal** and expected. The exit engine uses 2 active pillars:
+- **Scale Out (SO)**: Partial position closure at structural levels
+- **Micro-Z Reversal (MZ)**: Full exit when micro-flow reverses against position
 
 **Diagnosis**:
 ```bash
-grep "Shadow SL Triggered" logs/stress_test_*.log | wc -l
-```
+# Check exit engine activity
+grep "\[SLIM-MZ\]\|\[SLIM-SO\]\|\[MAKER-EXIT\]" logs/*.log | wc -l
 
-**Understanding**: Shadow SL hits are **normal** and expected. Each hit represents a single position being closed because price crossed the SL threshold in memory before the exchange SL order could fill. This is a feature, not a bug.
+# Check exit reasons
+grep "exit_reason" logs/*.log | tail -20
+```
 
 ### Ghost Position Removals
 
@@ -302,35 +308,35 @@ grep "Analyzing Ghost Position" logs/stress_test_*.log
 
 ### "0 Trades" in Live Demo or Validation Protocols
 
-**Cause**: LTA V4 imposes strict geometric constraints (VAH/VAL limits). The market often stays inside the Value Area.
-
-**Diagnosis**:
-```bash
-# Verify if execution_quality_validator reports a CONDITIONAL PASS
-grep "CONDITIONAL PASS" logs/demo_exec.log
-```
+**Cause**: AMT V10 scenario detectors require specific market conditions (structural breaks, level tests, absorption patterns). The Guardian chain validates each signal before execution. Short sessions often don't encounter these conditions.
 
 **Understanding & Solution**:
-1. This is **100% normal behavior** in 15-30 min windows. The bot safely parsed data but didn't find edges.
-2. If your goal was to *mechanically stress test* the bot (test OCOs, async loops, exits), you **must use the `--fast-track` flag**. It will legally bypass the Location Gate and force the bot to fire orders dynamically for testing purposes.
+1. This is **100% normal behavior** in 15-30 min windows. The bot safely parsed data but didn't find exploitable narratives.
+2. To observe signal generation without requiring trade execution, use `--run-type audit` mode. This records all signals and price trajectories for offline analysis.
+3. To increase trade frequency, extend `--timeout` to 60+ minutes or use `--symbol MULTI` to monitor more symbols simultaneously.
+4. Run the edge audit workflow to validate strategy performance: `python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT`
 
 ### HFT Latency Too High (T0-T2 > 50ms)
 
-**Cause**: WebSocket cache misses causing REST API fallbacks
+**Cause**: WebSocket cache misses causing REST API fallbacks, or slow sensor worker processing.
 
 **Diagnosis**:
 ```bash
 # Check cache misses
-grep "Cache miss/stale" logs/stress_test_*.log | wc -l
+grep "Cache miss/stale" logs/*.log | wc -l
 
-# Check aggregator wait time
-grep "Strat Aggregation" logs/stress_test_*.log
+# Check sensor worker processing time
+grep "SensorManager" logs/*.log | grep -E "latency|timeout"
+
+# Check ScenarioManager arbitration
+grep "\[CONFLICT\]" logs/*.log | wc -l
 ```
 
 **Solutions**:
 1. Increase cache threshold in `exchange_adapter.py` (`threshold_ms`, default: 60000)
-2. Reduce `SIGNAL_TIMEOUT_MS` in `aggregator.py` (default: 20ms)
-3. Ensure WebSocket shards are connected (`grep "Connected" workers.log`)
+2. Reduce sensor worker count if CPU-bound: `SENSOR_WORKERS=2`
+3. Check WebSocket shard connectivity: `grep "Connected" logs/*.log`
+4. Verify footprint registry latency: `grep "FOOTPRINT.*Latency" logs/*.log`
 
 ### State File Corruption
 
@@ -374,6 +380,77 @@ curl https://fapi.binance.com/fapi/v1/ping
 2. Bot will use WebSocket cache during outage
 3. If persists >5 minutes, check Binance status page
 4. Manually reset: restart bot
+
+---
+
+## Strategy & Signal Issues
+
+### Guardian Rejections (All Signals Blocked)
+
+**Cause**: The Guardian chain validates every signal before execution. Any single guardian failure rejects the trade.
+
+**Diagnosis**:
+```bash
+# Check guardian rejection reasons
+grep "Rejected by Guardian chain" logs/*.log | tail -20
+
+# Check specific guardian failures
+grep "REGIME_ALIGNMENT_V3.*REJECTED\|STRUCTURE_GEOGRAPHY.*REJECTED\|SPREAD_SANITY.*REJECTED\|LIQUIDITY_HEATMAP.*REJECTED" logs/*.log
+
+# Run guardian efficacy audit
+python utils/analysis/guardian_efficacy_audit.py
+```
+
+**Common Causes**:
+- **RegimeGuardian**: Counter-trend trade in trending market, or pure reversion in OUT_OF_VALUE zone
+- **StructureGuardian**: Entry at wrong geography (e.g., reversion at POC instead of VA edge)
+- **SpreadSanityGuardian**: Spread > 2x average (volatile market conditions)
+- **LiquidityGuardian**: L2 Ratio < 2.0 (thin order book, no structural shield)
+
+### ScenarioManager Conflicts (Signals Neutralized)
+
+**Cause**: Multiple scenarios fired simultaneously with opposing directions (LONG vs SHORT).
+
+**Diagnosis**:
+```bash
+# Check conflict resolution
+grep "\[CONFLICT\]" logs/*.log
+
+# Check conviction scores
+grep "conviction_score" logs/*.log | tail -10
+```
+
+**Understanding**: When LONG and SHORT conviction scores differ by < 30, both signals are neutralized (no trade). This is working as designed — the system avoids low-conviction trades. If conflicts are frequent, the market may be in a balanced/ranging regime where scenario signals are inherently ambiguous.
+
+### SlimExitEngine Profile Mismatch
+
+**Cause**: A symbol has no matching exit profile in the SlimExitEngine configuration.
+
+**Diagnosis**:
+```bash
+# Check for profile mismatch errors
+grep "no matching Exit Profile" logs/*.log
+```
+
+**Solution**: Add the symbol to the appropriate asset profile in `config/trading.py` under `SLIM_EXIT_PROFILES`. Available profiles: `BLUE_CHIP`, `LIQUID_ALT`, `HIGH_BETA`.
+
+### PortfolioGuard Kill Switch
+
+**Cause**: Portfolio-level risk limits triggered (drawdown or consecutive losses).
+
+**Diagnosis**:
+```bash
+# Check PortfolioGuard state
+grep "PORTFOLIO_GUARD" logs/*.log | tail -10
+```
+
+**States**:
+- **ACTIVE**: Normal operation, all entries allowed
+- **CAUTION**: 2% drawdown — new entries blocked, existing positions continue
+- **CRITICAL**: 5% drawdown or 12 consecutive losses — drain mode activated
+- **TERMINAL**: Unrecoverable — bot shuts down
+
+**Solution**: Wait for drawdown to recover (CAUTION auto-clears), or restart bot with `--close-on-exit` to exit all positions.
 
 ---
 

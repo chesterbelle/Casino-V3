@@ -114,13 +114,14 @@ python main.py --run-type trade --mode live  # Binance Production
 ```
 
 #### --bet-size
-**Description**: Base position size in USDT
+**Description**: Base position size as fraction of equity
 **Type**: Float
-**Default**: `0.05`
-**Range**: `0.01` - `1000`
+**Default**: `0.01`
+**Range**: `0.001` - `1.0`
 
 ```bash
-python main.py --run-type trade --bet-size 0.1  # 0.1 USDT per position
+python main.py --run-type trade --bet-size 0.01  # 1% of equity per position
+python main.py --run-type trade --bet-size 0.05  # 5% of equity per position
 ```
 
 ### Optional Arguments
@@ -153,50 +154,121 @@ python main.py --run-type trade --timeout 150  # Stop after 150 minutes
 python main.py --run-type trade --mode demo --close-on-exit --timeout 30
 ```
 
-> **Note**: The drain phase is automatically skipped when `--fast-track` is active (see below), since fast-track test windows are too short for progressive drain stages to be meaningful.
+> **Note**: The drain phase is automatically skipped when the session is too short for progressive drain stages to be meaningful.
 
----
+#### --drain-duration
+**Description**: Override drain phase duration in minutes
+**Type**: Integer
+**Default**: None (uses config value)
 
-#### --fast-track
-**Description**: Bypasses infrastructure gates to force mechanical execution and make short validation sessions (≤30 min) statistically viable for testing the orchestration pipeline.
+```bash
+python main.py --run-type trade --close-on-exit --drain-duration 10
+```
 
-**What it bypasses (Infrastructure Validation Mocking Mode):**
-- **LTA Location Gate**: Bypasses the strict `VAH/VAL` geographic requirement (simulates touches) to force mechanical testing on every micro-anomaly.
-- Micro-structure gate (requires N ticks before evaluation) → bypassed
-- Wick confirmation gate (requires candle history) → bypassed
-- Regime gate checks that depend on historical context → bypassed
-- Drain Phase activation → skipped (session is too short for drain to make sense)
+#### --max-symbols
+**Description**: Limit number of symbols in MULTI mode
+**Type**: Integer
+**Default**: None (uses all configured symbols)
 
-*Note: The archaic 60-minute warmup timer was eradicated in v6.1.0. Warmup is now purely dynamic.*
+```bash
+python main.py --run-type trade --symbol MULTI --max-symbols 10
+```
 
-**What it does NOT bypass (always enforced):**
-- Math Inversion check (`execution.py`) — if the market moved past TP/SL since signal generation, the trade is always rejected
-- Inverted TP/SL validation (`adaptive.py`) — structural integrity of the signal
-- Max distance check (`adaptive.py`) — >10% TP/SL distance is never scalping
-- RR Ratio minimum (`adaptive.py`) — trades must always have R:R ≥ 1.0
-- PortfolioGuard risk gates — risk management is always sovereign
-- Min Notional check — exchange minimums always apply
-
+#### --ui
+**Description**: Enable Terminal User Interface (Dashboard)
 **Type**: Flag (no value needed)
 **Default**: False
 
 ```bash
-python main.py --run-type trade --mode demo --symbol LTC/USDT:USDT --timeout 30 --fast-track --close-on-exit
+python main.py --run-type trade --ui
 ```
 
-> **Warning**: Do not use `--fast-track` in production. It is exclusively for infrastructure validation protocols (`/fast-track-parity`, `/execution-quality-audit`).
+#### --wallet / --key
+**Description**: Override wallet address and private key from .env
+**Type**: String
+
+```bash
+python main.py --run-type trade --wallet 0x... --key 0x...
+```
 
 ---
 
-#### --run-type audit
-**Description**: Enable Zero-Interference Audit Mode (Edge Validation)
-**Type**: Flag (no value needed)
-**Default**: False
+#### --run-type
+**Description**: Execution mode (REQUIRED)
+**Type**: String
+**Values**: `audit`, `trade`
+**Default**: None (must be specified)
 
 ```bash
-python main.py --run-type audit
-python backtest.py --data history.csv --run-type audit
+python main.py --run-type audit   # Zero-Interference Edge Validation
+python main.py --run-type trade   # Full Execution Mode
 ```
+
+- **`audit`**: Disables proactive exits, records signals and prices for edge analysis. No real trades executed.
+- **`trade`**: Full execution mode with order placement, position management, and exit engine.
+
+---
+
+#### --exchange
+**Description**: Exchange to trade on
+**Type**: String
+**Values**: `binance`, `hyperliquid`
+**Default**: `binance`
+
+```bash
+python main.py --run-type trade --exchange binance
+python main.py --run-type trade --exchange hyperliquid
+```
+
+---
+
+#### --mode
+**Description**: Trading mode
+**Type**: String
+**Values**: `live`, `testing`, `demo`
+**Default**: `testing`
+
+```bash
+python main.py --run-type trade --mode testing  # Binance Testnet
+python main.py --run-type trade --mode live     # Binance Production
+```
+
+---
+
+## Backtest Arguments
+
+### backtest.py Arguments
+
+#### --depth-db-path
+**Description**: Path to historical depth database (L2 snapshots)
+**Type**: String
+
+```bash
+python backtest.py --run-type audit --depth-db-path data/datasets/backtest_ready/2024-01-01_LTCUSDT.db
+```
+
+#### --historian-db
+**Description**: Custom output path for historian database
+**Type**: String
+
+```bash
+python backtest.py --run-type audit --historian-db data/historian_LTCUSDT.db
+```
+
+#### --balance
+**Description**: Initial balance for backtest
+**Type**: Float
+**Default**: `10000.0`
+
+#### --delay
+**Description**: Artificial delay between events (seconds)
+**Type**: Float
+**Default**: `0.0`
+
+#### --limit
+**Description**: Stop after N events
+**Type**: Integer
+**Default**: None (process all events)
 
 ---
 
@@ -347,13 +419,13 @@ BASE_BET_SIZE=0.01
 
 ```env
 # config/trading.py
-AUDIT_MODE=true             # Disables proactive exits (Shadow SL, etc.)
-AUDIT_SAMPLING_FREQ=1.0      # Sample price every 1.0s
+AUDIT_MODE=true             # Disables proactive exits (SlimExitEngine pillars)
+AUDIT_SAMPLING_FREQ=30.0    # Sample price every 30.0s (30x faster backtests)
 ```
 
 ---
 
-## Limit Sniper (V6-Limit) 🏹
+## Limit Sniper (V6-Limit)
 
 The Limit Sniper mode allows for **Maker** entries instead of Market (Taker) entries, significantly reducing commission costs.
 
@@ -371,8 +443,14 @@ LIMIT_SNIPER_OFFSET_PCT = 0.0004
 # Tactical Confirmation Window (seconds)
 LIMIT_SNIPER_CONFIRM_WINDOW_SEC = 0.50
 
-# Strict Backtest Fill (True = price must CROSS order to fill)
-LIMIT_SNIPER_BACKTEST_STRICT_FILL = True
+# Chase Settings
+LIMIT_SNIPER_CHASE_ENABLED = True       # Enable order chasing if not filled
+LIMIT_SNIPER_MAX_CHASE_ATTEMPTS = 3     # Max chase attempts before cancel
+LIMIT_SNIPER_TIMEOUT_MS = 5000          # Timeout before chase (ms)
+LIMIT_SNIPER_CHECK_INTERVAL_MS = 100    # Check interval during chase (ms)
+
+# Strict Backtest Fill (False = touch-fill at signal price)
+LIMIT_SNIPER_BACKTEST_STRICT_FILL = False
 ```
 
 ### Strategic Comparison
