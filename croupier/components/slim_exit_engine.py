@@ -69,7 +69,7 @@ class SlimExitEngine:
         symbol_norm = normalize_symbol(event.symbol)
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
 
-        for position in positions[:]:
+        for position in positions:
             if position.status != "OPEN" or position.trade_id in self._pending_terminations:
                 continue
 

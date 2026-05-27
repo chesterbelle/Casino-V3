@@ -376,11 +376,6 @@ class FootprintRegistry:
                     f"(symbol={symbol}, levels={len(footprint.levels)})"
                 )
 
-            # Periodic pruning
-            if timestamp - self.last_prune > self.prune_interval:
-                self._prune_all(timestamp)
-                self.last_prune = timestamp
-
             # Periodic telemetry logging (every 1000 updates)
             if self.update_count % 1000 == 0:
                 avg_latency = self.total_latency_ms / self.update_count
@@ -390,9 +385,21 @@ class FootprintRegistry:
                     f"Max Latency: {self.max_latency_ms:.2f}ms"
                 )
 
+        # Periodic pruning — OUTSIDE the lock to avoid blocking on_trade()
+        if timestamp - self.last_prune > self.prune_interval:
+            self.last_prune = timestamp
+            self._prune_all_deferred(current_time=timestamp)
+
     def _prune_all(self, current_time: float):
         """Prune old levels from all symbols."""
         for symbol, footprint in self.footprints.items():
+            footprint.prune_old_levels(current_time)
+
+    def _prune_all_deferred(self, current_time: float):
+        """Prune old levels outside the main lock to avoid blocking on_trade()."""
+        # Take a snapshot of footprints (safe to iterate without lock for pruning)
+        snapshots = list(self.footprints.items())
+        for symbol, footprint in snapshots:
             footprint.prune_old_levels(current_time)
 
     def get_footprint(self, symbol: str) -> Optional[FootprintData]:

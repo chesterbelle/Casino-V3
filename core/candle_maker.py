@@ -190,11 +190,11 @@ class CandleMaker:
         tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
 
         if symbol not in self.tr_history:
-            self.tr_history[symbol] = []
+            from collections import deque
+
+            self.tr_history[symbol] = deque(maxlen=self.atr_window)
 
         self.tr_history[symbol].append(tr)
-        if len(self.tr_history[symbol]) > self.atr_window:
-            self.tr_history[symbol].pop(0)
 
         atr = sum(self.tr_history[symbol]) / len(self.tr_history[symbol])
         self.prev_closes[symbol] = close

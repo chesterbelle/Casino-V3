@@ -1122,14 +1122,11 @@ class PositionTracker(TraceBulletMixin):
         low = float(current_candle.get("low", 0))
         timestamp = current_candle.get("timestamp", "")
 
-        for position in self.open_positions:
-            # CRITICAL FIX: Check symbol FIRST to prevent multi-counting in Multi-Asset mode
-            # Each position should only increment bars_held for its own symbol's candles
-            pos_sym = normalize_symbol(position.symbol)
-            candle_sym = normalize_symbol(current_candle.get("symbol", ""))
+        # Use symbol map for O(1) lookup instead of O(n) scan
+        candle_sym = normalize_symbol(current_candle.get("symbol", ""))
+        positions_for_symbol = self._symbol_map.get(candle_sym, [])
 
-            if pos_sym != candle_sym:
-                continue
+        for position in positions_for_symbol:
 
             position.bars_held += 1
 
