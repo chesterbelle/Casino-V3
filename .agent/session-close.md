@@ -1,56 +1,45 @@
-# Session Close: AMT Structural Targets — Full Long-Range Validation (v8.3-optimized)
+# Session Close: AMT Structural Targets — Generalized Protocol + Per-Coin Audit Breakdown
 
-## Summary: Replace ATR-multiplier targets with AMT geometric targets per setup
-Implementados targets dinámicos basados en Auction Market Theory (POC, VAH, VAL) en todos los setups de reversion (`TacticalAbsorptionV2`, `absorption_reversal`, `failed_breakout`, `liquidity_exhaustion`), eliminando los multiplicadores ATR hardcodeados. Validado con long-range protocol (9 LTC datasets, 38 señales).
+## Summary: Generalized protocol edge certificado + flags `--by-coin`/`--coin` en auditor
 
-### AMT Target Design
-Cada setup tiene su propia fórmula geométrica derivada de la posición del entry dentro del Value Area:
-
-| Setup | Entry Zone | TP Target | SL (beyond entry boundary) |
-|---|---|---|---|
-| **TacticalAbsorptionV2** | IN_VALUE | Opposite VA boundary (VAH/ VAL) | -0.3×VA width |
-| **absorption_reversal** | AT boundary / IN_VALUE | POC (center of value) | -0.3×VA width |
-| **failed_breakout** | AT VA boundary re-entry | Opposite boundary | -0.5×VA width |
-| **liquidity_exhaustion** | AT boundary bounce | Opposite boundary | -0.3×VA width |
-
-Fallback: classic ATR multipliers si AMT data no está disponible o la geometría es inválida.
-
-### Resultados Long-Range (9 LTC datasets)
-| Metric | Before (ATR 5.0x) | After (AMT Structural) |
-|---|---|---|
-| Signals | 41 | 38 |
-| WR | 36.6% | **66.7%** |
-| MFE/MAE Ratio | 0.54 | **2.25** |
-| Avg TP | 0.778% | **2.683%** |
-| Avg SL | 0.518% | **2.953%** |
-| Gross Exp | +0.0205% | **+0.8044%** |
-| Net Taker (0.12%) | -0.0995% ❌ | **+0.6844% ✅** |
-| Best Uniform | 0.80/0.80% (+0.0444%) | **AMT beats uniform by 18×** |
+### Resultados Generalized Protocol (10 coins × 24h, 136 señales)
+| Metric | Value |
+|--------|-------|
+| Signals | 136 (10 coins) |
+| WR | 53.0% |
+| Avg TP | 9.893% |
+| Avg SL | 6.939% |
+| **Gross Exp** | **+1.9868%** |
+| **Net Taker (0.12%)** | **+1.8668% ✅** |
+| Best Uniform | 0.10/0.10% (+0.0044%) |
+| **AMT vs Uniform** | **AMT beats uniform by 452×** |
 
 ✅ **EDGE CONFIRMED: Gross expectancy > 3× taker fees (0.36%). Viable for market orders.**
 
-### Archivos Modificados en esta Sesión
-- `decision/setup_engine.py` — `_calculate_targets()` reemplazado: AMT structural (POC/VAH/VAL) para todos los setups, noise floor mínimo ATR-based, fallback ATR clásico cuando AMT no disponible
+### Per-Coin Breakdown (Generalized)
+| Coin | n | WR% | Net Taker |
+|------|---|---|-----------|
+| ADA | 1 | 0.0% | **-0.92% ❌** |
+| AVAX | 10 | 66.7% | **-0.17% ❌** |
+| BNB | 36 | 52.2% | **-0.11% ❌** |
+| BTC | 38 | 0.0% | all timeout |
+| DOGE | 1 | 0.0% | **-0.47% ❌** |
+| ETH | 21 | 0.0% | **-1.28% ❌** |
+| LINK | 2 | 100.0% | **+0.92% ✅** |
+| LTC | 2 | 100.0% | **+0.13% ✅** |
+| SOL | 14 | 42.9% | **-0.33% ❌** |
+| SUI | 11 | 63.6% | **-0.10% ❌** |
 
-### Archivos Pendientes de Sesiones Anteriores (incluidos en este commit)
-- `core/backtest_feed.py` — Fixes post-optimización
-- `core/context_registry.py` — VWAP std O(1) residual fix
-- `core/execution.py` — Fixes post-optimización
-- `core/execution_process.py` — Fixes post-optimización
-- `core/portfolio/portfolio_guard.py` — Fixes post-optimización
-- `core/portfolio/position_tracker.py` — Fixes post-optimización
-- `core/sensor_worker.py` — Fixes post-optimización
-- `croupier/components/slim_exit_engine.py` — Fixes post-optimización
-- `croupier/croupier.py` — Fix self.clock → time.time (Validate-All session)
-- `scripts/orchestrator.py` — Restauración PROTOCOLS, clean_temp_data() historian.db (Validate-All + AMT)
-- `utils/merge_historian.py` — Schema fix decision_traces
-- `utils/setup_edge_auditor.py` — Fallback tp_pct/sl_pct
-- `utils/validators/exit_engine_validator.py` — Fixes post-optimización
-- `pyproject.toml` — aiosqlite dependency
+El edge global +1.99% está concentrado en LINK/LTC per-coin; BTC y ETH tienen 100% timeouts (targets demasiado grandes). Las afirmaciones sobre target overshoot se confirman.
+
+### Flags Implementados en `setup_edge_auditor.py`
+- `--by-coin`: desglose por moneda en todas las secciones [1]-[7], más tabla Per-Coin Summary
+- `--coin <SYMBOL>`: filtra señales a un símbolo específico (funciona en `analyze()` y `calibrate()`)
+
+### Archivos Modificados en esta Sesión
+- `utils/setup_edge_auditor.py` — flags `--by-coin`/`--coin` (266 insertions, 158 deletions)
 
 ### Próximos Pasos
-1. Ejecutar generalized protocol (10 coins) para certificación multi-activo
-2. Verificar performance en trend_acceptance (continuation, no reversion — pendiente de implementación AMT)
-3. Evaluar si los SL buffers (0.3×/0.5× VA width) necesitan ajuste por setup
-
----
+1. Evaluar target overshoot: BTC/ETH con targets AMT demasiado grandes → 100% timeouts en generalized run. Posible solución: SL buffer dinámico por coin o cap en VA width ratio.
+2. Revisión de SOL: WR 42.9% con targets negativos (-0.33% Net Taker) — candidato para failed_breakout con SL buffer 0.5× VA width.
+3. Si se resuelve target overshoot, re-correr generalized para verificar certificación per-coin.

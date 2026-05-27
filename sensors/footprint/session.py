@@ -355,6 +355,14 @@ class SessionValueArea(SensorV3):
         # Calculate Value Area levels
         poc, vah, val = window_state.market_profile.calculate_value_area()
 
+        # Phase A2: Push per-window structural levels to ContextRegistry
+        # This fixes get_structural() returning stale global cumulative profile
+        from core.context_registry import ContextRegistry
+
+        ContextRegistry().update_structural_from_session(
+            self.symbol, poc, vah, val, window_state.market_profile.calculate_va_integrity()
+        )
+
         # Determine price position relative to VA and IB
         price = candle["close"]
         position = "INSIDE_VA"
