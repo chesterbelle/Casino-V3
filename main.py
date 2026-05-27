@@ -392,7 +392,6 @@ async def main():
     black_box.set_historian(historian)
 
     setup_engine = SetupEngineV4(engine, context_registry=context_registry)
-    tracker = setup_engine.tracker  # Get dummy tracker
 
     # 9. Initialize Player (Aggregated Signal -> Decision)
     from players.adaptive import AdaptivePlayer

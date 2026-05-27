@@ -46,16 +46,3 @@ class TelemetryMixin(TraceBulletMixin):
             logger.info(f"🚫 [GATE] {symbol} {side} {gate} REJECTED: {reason}")
 
         hist_local.record_decision_trace(trace_data)
-
-    def log_scenario_distribution(self, scenario_manager) -> dict:
-        """Expose distribution stats from ScenarioManager."""
-        stats = scenario_manager.get_stats()
-        dist = stats["scenario_distribution"]
-        total = stats["total_signals"]
-
-        logger.info("📊 --- SCENARIO DISTRIBUTION REPORT ---")
-        for sc, count in dist.items():
-            pct = (count / total * 100) if total > 0 else 0
-            logger.info(f"🔹 {sc:20}: {count:3} ({pct:5.1f}%)")
-        logger.info(f"📈 TOTAL SIGNALS DISPATCHED: {total}")
-        return stats

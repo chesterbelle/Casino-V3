@@ -45,6 +45,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self.micro_memory = defaultdict(lambda: deque(maxlen=500))
         self._last_micro_prune_ts = 0.0
         self._prune_interval = 1.0
+        self._micro_count = 0
 
         # Scenario Orchestrator (Unification of AMT + Absorption)
         from core.footprint_registry import footprint_registry
@@ -122,13 +123,6 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
         # 3. Process and Dispatch if signal found
         if signal:
-            # Fast-Lane: Signals from AMT Scenarios and TacticalAbsorption (Scalping mode)
-            # All fire immediately without tactical confirmation delay.
-            if signal.get("source") in ["ScenarioManager", "TacticalAbsorptionV2"]:
-                # Guard: Only one position per symbol
-                if self.position_tracker.has_position(signal.get("symbol")):
-                    return
-
             # UDT: Recover trace if this was a confirmed candidate
             trace = None
             if "trace_id" in signal:
@@ -299,10 +293,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):
         """Processes a batch of real-time microstructural anomalies efficiently."""
-        if hasattr(self, "_micro_count"):
-            self._micro_count += 1
-        else:
-            self._micro_count = 1
+        self._micro_count += 1
 
         if self._micro_count % 1000 == 0:
             logger.info(f"📥 [SETUP] Micro batch received: {self._micro_count} | Events: {len(event.events)}")
@@ -343,6 +334,3 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 self.context_registry.update_spread(sym, event.spread)
 
         # Phase 900: Microstructure is now CONTEXT ONLY — no signal generation.
-        # Toxic_OrderFlow removed. Micro state stored for _check_micro_gate().
-
-        pass
