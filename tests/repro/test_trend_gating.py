@@ -48,7 +48,7 @@ class TestTrendGating(unittest.IsolatedAsyncioTestCase):
             side="SHORT",
             sensor_id="FootprintStackedImbalance",
             score=0.9,  # High score
-            metadata={"fast_track": True, "setup_type": "continuation", "price": 2010.0},
+            metadata={"setup_type": "continuation", "price": 2010.0},
         )
 
         await self.aggregator.on_signal(signal)
@@ -81,7 +81,7 @@ class TestTrendGating(unittest.IsolatedAsyncioTestCase):
             side="SHORT",
             sensor_id="FootprintStackedImbalance",
             score=0.9,
-            metadata={"fast_track": True, "setup_type": "continuation", "price": 2010.0},
+            metadata={"setup_type": "continuation", "price": 2010.0},
         )
 
         await self.aggregator.on_signal(signal)

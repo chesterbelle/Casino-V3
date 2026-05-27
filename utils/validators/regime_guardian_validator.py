@@ -39,7 +39,7 @@ def run_tests() -> bool:
     logger.info("\n--- Case 1: BALANCE + OUT_OF_VALUE -> REVERSION ---")
     regime_data = {"regime": "BALANCE", "direction": "NEUTRAL", "value_acceptance": "NEUTRAL", "confidence": 0.0}
     context = MockContextRegistry(vwap_z_score=2.5, regime_v2_data=regime_data)
-    res = check_regime_alignment(symbol, "LONG", {"price": 60000}, context, fast_track=False)
+    res = check_regime_alignment(symbol, "LONG", {"price": 60000}, context)
     if res.passed and res.setup_mode == SetupMode.REVERSION:
         logger.info("✅ Passed (Reversion)")
     else:
@@ -52,7 +52,7 @@ def run_tests() -> bool:
     logger.info("\n--- Case 2: BALANCE + IN_VALUE -> CONTINUATION (Rotation) ---")
     regime_data = {"regime": "BALANCE", "direction": "NEUTRAL", "value_acceptance": "NEUTRAL", "confidence": 0.0}
     context = MockContextRegistry(vwap_z_score=1.0, regime_v2_data=regime_data)
-    res = check_regime_alignment(symbol, "LONG", {"price": 60000}, context, fast_track=False)
+    res = check_regime_alignment(symbol, "LONG", {"price": 60000}, context)
     if res.passed and res.setup_mode == SetupMode.CONTINUATION:
         logger.info("✅ Passed (Rotation/Continuation)")
     else:
@@ -65,7 +65,7 @@ def run_tests() -> bool:
     logger.info("\n--- Case 3: TREND + ACCEPTING + Trend-Aligned -> CONTINUATION ---")
     regime_data = {"regime": "TREND_UP", "direction": "UP", "value_acceptance": "ACCEPTING", "confidence": 0.8}
     context = MockContextRegistry(vwap_z_score=2.5, regime_v2_data=regime_data)
-    res = check_regime_alignment(symbol, "LONG", {"price": 60000}, context, fast_track=False)
+    res = check_regime_alignment(symbol, "LONG", {"price": 60000}, context)
     if res.passed and res.setup_mode == SetupMode.CONTINUATION:
         logger.info("✅ Passed (Trend Continuation)")
     else:
@@ -78,7 +78,7 @@ def run_tests() -> bool:
     logger.info("\n--- Case 4: TREND + REJECTING + Counter-Trend + EXCESS -> REVERSION ---")
     regime_data = {"regime": "TREND_UP", "direction": "UP", "value_acceptance": "REJECTING", "confidence": 0.8}
     context = MockContextRegistry(vwap_z_score=3.5, regime_v2_data=regime_data)  # > 3.0 is EXCESS
-    res = check_regime_alignment(symbol, "SHORT", {"price": 60000}, context, fast_track=False)  # Counter trend
+    res = check_regime_alignment(symbol, "SHORT", {"price": 60000}, context)  # Counter trend
     if res.passed and res.setup_mode == SetupMode.REVERSION:
         logger.info("✅ Passed (Absorption Reversion at Excess)")
     else:
@@ -91,7 +91,7 @@ def run_tests() -> bool:
     logger.info("\n--- Case 5: TREND + ACCEPTING + Counter-Trend -> BLOCKED ---")
     regime_data = {"regime": "TREND_UP", "direction": "UP", "value_acceptance": "ACCEPTING", "confidence": 0.8}
     context = MockContextRegistry(vwap_z_score=2.5, regime_v2_data=regime_data)
-    res = check_regime_alignment(symbol, "SHORT", {"price": 60000}, context, fast_track=False)
+    res = check_regime_alignment(symbol, "SHORT", {"price": 60000}, context)
     if not res.passed:
         logger.info("✅ Passed (Blocked counter-trend successfully)")
     else:
@@ -102,7 +102,7 @@ def run_tests() -> bool:
     logger.info("\n--- Case 6: TREND + NEUTRAL + Counter-Trend (High Conf) -> BLOCKED ---")
     regime_data = {"regime": "TREND_UP", "direction": "UP", "value_acceptance": "NEUTRAL", "confidence": 0.8}
     context = MockContextRegistry(vwap_z_score=2.5, regime_v2_data=regime_data)
-    res = check_regime_alignment(symbol, "SHORT", {"price": 60000}, context, fast_track=False)
+    res = check_regime_alignment(symbol, "SHORT", {"price": 60000}, context)
     if not res.passed:
         logger.info("✅ Passed (Blocked counter-trend in high conf trend)")
     else:
@@ -115,7 +115,7 @@ def run_tests() -> bool:
     # With BALANCE, this should trigger IN_VALUE Rotation, NOT OUT_OF_VALUE Reversion
     regime_data = {"regime": "BALANCE", "direction": "NEUTRAL", "value_acceptance": "NEUTRAL", "confidence": 0.0}
     context = MockContextRegistry(vwap_z_score=1.0, regime_v2_data=regime_data)
-    res = check_regime_alignment(symbol, "LONG", {"price": 60000, "z_score": 4.0}, context, fast_track=False)
+    res = check_regime_alignment(symbol, "LONG", {"price": 60000, "z_score": 4.0}, context)
     if res.passed and res.setup_mode == SetupMode.CONTINUATION:
         logger.info("✅ Passed (Used VWAP Z-score for value position correctly)")
     else:

@@ -1,8 +1,8 @@
 """
 Scenario Manager — Orchestrator V10.
 
-Centralizes all tactical scenarios (AMT, Absorption) and manages the dispatch pipeline.
-Distinguishes between Fast Lane (Instant) and Confirmation Lane (Guardian) signals.
+Centralizes all tactical scenarios (AMT) and manages the dispatch pipeline.
+All signals flow through Fast Lane (instant dispatch).
 
 Architecture:
     SetupEngine -> ScenarioManager.on_tick() -> Signal or None
@@ -12,7 +12,6 @@ Architecture:
 import logging
 from typing import Optional
 
-from decision.absorption_reversal_guardian import AbsorptionReversalGuardian
 from decision.scenarios import (
     FailedBreakoutDetector,
     LiquidityExhaustionDetector,
@@ -40,14 +39,10 @@ class ScenarioManager:
             "liquidity_exhaustion": 100,
             "failed_breakout": 50,
             "trend_acceptance": 30,
-            "absorption_reversal": 80,  # Guarded signal priority
         }
 
         # Telemetry
         self.signal_stats = {}
-
-        # Confirmation Middleware (Confirmation Lane)
-        self.guardian = AbsorptionReversalGuardian()
 
         logger.info("🏗️ ScenarioManager initialized (AMT V10 Architecture - UDT Enabled)")
 
@@ -56,16 +51,9 @@ class ScenarioManager:
         Main orchestration logic (The Arbitrator).
         Fuses multiple signals in the same direction and resolves conflicts.
         """
-        # 1. Collect all candidate signals
+        # 1. Collect all candidate signals from Fast Lane
         candidates = []
 
-        # Confirmation Lane (Guarded signals)
-        confirmed = self.guardian.on_tick(symbol, price, timestamp)
-        if confirmed:
-            confirmed["_priority"] = self.PRIORITY_MAP.get("absorption_reversal", 80)
-            candidates.append(confirmed)
-
-        # Fast Lane (Instant AMT scenarios)
         for scenario in self.scenarios:
             sig = scenario.on_tick(symbol, price, timestamp, self.context, self.footprint)
             if sig:
@@ -138,7 +126,8 @@ class ScenarioManager:
 
     def on_signal(self, signal: dict, trace=None) -> Optional[dict]:
         """
-        Routes signals to the appropriate lane with UDT support.
+        Routes external signals with UDT support.
+        Passthrough: external signals are forwarded directly to SetupEngine.
         """
         tactical_type = signal.get("tactical_type")
 
@@ -146,21 +135,10 @@ class ScenarioManager:
         if trace:
             trace.add_step("ScenarioManager", True, f"Routing {tactical_type} signal", {"side": signal.get("side")})
 
-        # Routing Logic:
-        ABS_IDS = ("Absorption", "TacticalAbsorptionV2", "TacticalAbsorption", "AbsorptionDetector")
-        if tactical_type in ABS_IDS:
-            self.guardian.register_candidate(signal, timestamp=signal.get("timestamp", 0.0), trace=trace)
-            return None
-
-        if tactical_type == "LiquidityExhaustion" and signal.get("needs_micro_confirmation", True):
-            self.guardian.register_candidate(signal, trace=trace)
-            return None
-
         return signal
 
     def reset(self):
         """Reset all scenario states."""
-        self.guardian.candidates.clear()
         for scenario in self.scenarios:
             if hasattr(scenario, "pending_breaks"):
                 scenario.pending_breaks.clear()

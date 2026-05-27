@@ -145,9 +145,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             self._handle_regime_update(event)
             return
 
-        # ⚠️ LEGACY/EXPERIMENTAL: The TacticalConfirmationGate (formerly Guardian)
-        # Reserved for high-noise signals or setups requiring deep conviction confirmation.
-        # Currently bypassed for Absorption Scalping as per Forensic Audit v10.2.
+        # ⚠️ LEGACY: TACTICAL_CONFIRMATION_REQUIRED signals are no longer used.
         if event.side == "TACTICAL_CONFIRMATION_REQUIRED":
             return
 
@@ -175,9 +173,6 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
             if orchestrated_signal:
                 await self._process_signal(orchestrated_signal, trace=trace)
-            else:
-                # Signal is either discarded or pending confirmation in Guardian
-                pass
 
     def _handle_regime_update(self, event):
         """Actualiza el ContextRegistry con la info del sensor de régimen."""
@@ -261,11 +256,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 "vah_price": vah_p,
                 "val_price": val_p,
                 "va_width": va_w,
-                "max_holding_time": (
-                    config.ABSORPTION_MAX_HOLDING_SEC
-                    if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]
-                    else None
-                ),
+                "max_holding_time": (config.ABSORPTION_MAX_HOLDING_SEC if scenario == "TacticalAbsorptionV2" else None),
             },
             symbol,
         )

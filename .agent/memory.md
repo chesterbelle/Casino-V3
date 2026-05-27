@@ -9,7 +9,7 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Dual-Core (Reversión/Continuación) con Inercia de Micro-Flujo.
-*   **Current Branch**: `v8.4-agent-friendly-refactor`
+*   **Current Branch**: `v8.4-agent-friendly-refactor` (V8.5 Planar Architecture, commit `a06ec22`)
 *   **Active Mode**: Multi-Coin Agnostic
 *   **Active Alpha**: **AMT V10 Alpha** (Certified Generalized).
 
@@ -22,10 +22,11 @@
 
 ## 🏛️ Estado de las Capas de Certificación
 
+*   **Crystal Layer Cleanup (v8.5)**: Eliminación de código muerto: AbsorptionReversalGuardian, confirmation_sensors, AbsorptionSetupEngine, sensor_tracker, statistical_location_guardian. Fast-track extirpado. 500+ líneas removidas.
 *   **Orquestación de Auditorías (v8.3)**: Implementado `scripts/orchestrator.py` para automatización determinística de protocolos `generalized` y `long-range`. Eliminación de ejecución manual concurrente.
 *   **Repo Sanitization (In Progress)**: Iniciada fase de limpieza y purificación de archivos huérfanos/legacy para mejorar mantenibilidad.
 *   **UDT Forensics (v8.1)**: **Unified Decision DNA** operacional. Autopsias automáticas en `EXECUTED/ERROR`.
-*   **Hito Actual**: **Arquitectura Zero-Necrosis**. Eliminado `fast_track`, `tracker` y `shadow_sl`.
+*   **Hito Actual**: **Arquitectura Slim + Zero-Necrosis**. Eliminados `fast_track`, `tracker`, `shadow_sl`, AbsorptionReversalGuardian, confirmation_sensors.
 *   **Métrica de Estrés**: Trazabilidad asíncrona validada en ventanas de 500ms (Phase 2).
 *   **Latency Guard**: Zero-interference logging via memory-resident DNA traces.
 *   **Optimización V8.3**: HPC Audit completada. 18/19 optimizaciones implementadas en la Capa de Hierro. Running sums O(1), VWAP residuals O(1), semáforo de concurrencia, task tracking, event-based parking, template dict, sync hot paths, peak incremental, QueueHandler logging, aiosqlite, __slots__ OpenPosition.
@@ -96,3 +97,5 @@
 - 2026-05-25T16:15:00.000000 | session-close | Preparación completada. CLI segura y Orquestador inteligente implementados. Siguiente paso: Sesión de análisis de mercado/borde.
 - 2026-05-27T08:00:00.000000 | session-update | Agent-Friendly Refactoring (v8.4): AMT Scenarios modularized into decision/scenarios package. SetupEngine telemetry extracted to decision/engine/telemetry.py.
 - 2026-05-27T08:10:00.000000 | session-close | Modularización completa de la Capa de Cristal: market_regime.py desglosado en el paquete sensors/regime/market/. 100% de paridad métrica verificada en LTCUSDT (+0.1334% Net Taker) vía edge-audit.md. Branch lista para revisión.
+- 2026-05-27T10:00:00.000000 | session-update | V8.5 Planar Architecture: TradeProposal creado como SSOT. Pipeline rewired desde AggregatedSignalEvent. Validator reescrito con 25 escenarios. AdaptivePlayer subscription fixed. TraceBullet getattr fallback.
+- 2026-05-27T10:30:00.000000 | session-close | V8.5 certificado con 100% paridad contra baseline. Commit a06ec22 en branch v8.4-agent-friendly-refactor. Edge audit: 2 signals, +0.2534% Gross Exp, +0.1334% Net Taker.

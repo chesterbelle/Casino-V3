@@ -6,6 +6,55 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-05-27] — V8.5 Planar Architecture: TradeProposal Replaces AggregatedSignalEvent (Branch: v8.4-agent-friendly-refactor)
+### Summary: TradeProposal becomes the single source of truth; pipeline rewired, validator updated, edge audit 100% parity
+Se refactorizó el pipeline V8.4 (AggregatedSignalEvent) a la arquitectura planar V8.5 donde **TradeProposal** es la única fuente de verdad. Se certificó 100% de paridad contra baseline.
+
+#### 1. TradeProposal Dataclass (`decision/engine/proposal.py`)
+- Creado como dataclass Event-compatible con `type=EventType.TRADE_PROPOSAL` (sin herencia de `Event` para evitar conflictos de constructor)
+- Campo `meta: dict` opcional que transporta los niveles AMT (`poc`, `vah`, `val`, `atr_pct`) al auditor
+
+#### 2. Pipeline Rewired (`decision/engine/core.py`)
+- `SetupEngineV4._process_signal()` ahora despacha `TradeProposal` en lugar de `AggregatedSignalEvent`
+- El `trigger_meta` completo viaja en `TradeProposal.meta` para cumplir con el edge auditor
+
+#### 3. Validator Updated (`utils/validators/decision_pipeline_validator.py`)
+- Chaos Storm reescrito con 25 `TradeProposal`-based escenarios — **0 violaciones**
+
+#### 4. Consumers Migrated
+- `players/adaptive.py`: Suscripción corregida de string `"TRADE_PROPOSAL"` a `EventType.TRADE_PROPOSAL` (enum). Importaciones V8.4 muertas eliminadas (asyncio, time, dataclass, Optional, AggregatedSignalEvent, SensorTracker)
+- `main.py` / `backtest.py`: `audit_signal_handler` ahora acepta `TradeProposal` y almacena `event.meta` completo como JSON
+
+#### 5. TraceBullet Fix (`utils/trace_bullet.py`)
+- `trace()` ahora extrae `trace_id` via `getattr(event, "trace_id", None)` para soportar objetos con atributo directo (TradeProposal) sin depender de metadata/dict
+
+#### 6. Zero-Interference Certification
+| Métrica | Baseline (V8.4) | Post-Refactor (V8.5) | Paridad |
+|---|---|---|---|
+| Total Signals | 2 | 2 | ✅ |
+| Win Rate | 100.0% | 100.0% | ✅ |
+| Gross Expectancy | +0.2534% | +0.2534% | ✅ |
+| Net Taker (0.12%) | +0.1334% | +0.1334% | ✅ |
+| Net Maker (0.08%) | +0.1734% | +0.1734% | ✅ |
+
+#### 7. Archivos Modificados
+- `decision/engine/proposal.py` — Nuevo (TradeProposal dataclass)
+- `decision/engine/core.py` — Dispatch de TradeProposal, carga de trigger_meta
+- `utils/validators/decision_pipeline_validator.py` — Chaos Storm reescrito
+- `players/adaptive.py` — Suscripción enum + limpieza de imports V8.4
+- `main.py` / `backtest.py` — Handler migrado + metadata completa
+- `utils/trace_bullet.py` — getattr fallback para trace_id
+- `core/events.py` — EventType.TRADE_PROPOSAL añadido
+- `decision/absorption_setup_engine.py` — Import y tipos TradeProposal
+- `baseline_data.md` — Nuevo (baseline persistido)
+
+#### 8. Próximos Pasos
+1. Paper Trading: Conectar V8.5 a Binance Futures Testnet
+2. Multi-Asset Validation: `/long-range-edge-audit` en BNB, SOL, SUI, AVAX
+3. Target Formula Optimization: AMT targets bajo-optimizados vs best uniform grid
+
+---
+
 ### [2026-05-26] — Validate-All Pipeline Certification & Post-Optimization Fixes (Branch: v8.3-optimized)
 ### Summary: Certificación Completa de la Suite validate-all (Capas 0-5) tras optimizaciones HPC
 Ejecutamos la suite completa de validación `validate-all.md` para certificar que las 18 optimizaciones de la Capa de Hierro no introdujeron regresiones. Se detectaron y corrigieron 3 bugs: `self.clock` inexistente en Croupier, PROTOCOLS faltante en orchestrator.py, y dependencia `aiosqlite` no instalada.

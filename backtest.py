@@ -160,7 +160,7 @@ async def run_backtest():
 
     # 5. Core Decision Engine (SetupEngineV4)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry)
-    player = AdaptivePlayer(
+    _ = AdaptivePlayer(
         engine,
         croupier,
         max_positions=getattr(trading_config, "MAX_POSITION_SIZE", 1),
@@ -170,7 +170,7 @@ async def run_backtest():
     # 5.1 Candle Maker (Crucial for Regime Sensors)
     CandleMaker(engine, is_backtest=True)
 
-    om = OrderManager(engine, croupier, player)
+    om = OrderManager(engine, croupier)
     await om.start()
 
     # 6. Subscribe Components

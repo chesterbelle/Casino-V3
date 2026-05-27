@@ -408,7 +408,7 @@ async def main():
 
     # 10. Initialize Order Manager (Decision → Execution)
     # OrderTracker removed in Phase 2 (PositionTracker handles order state)
-    order_manager = OrderManager(engine, croupier, player)
+    order_manager = OrderManager(engine, croupier)
 
     # 11. Link Real-Time Events to Context Registry
     # This ensures the 0-latency mirror stays updated BEFORE any signal processing
@@ -543,7 +543,6 @@ async def main():
         bet_size=args.bet_size,
         sizing_mode=getattr(trading_config, "POSITION_SIZING_MODE", "FIXED_NOTIONAL"),
         stop_loss=getattr(trading_config, "DEFAULT_SL_PCT", 0.002),
-        fast_track=getattr(args, "fast_track", False),
         retry_config=startup_retry,
         context="flytest",
     )
@@ -792,9 +791,8 @@ async def main():
             if args.timeout:
                 elapsed_min = (time.time() - start_time) / 60
 
-                # A. Drain Phase (Soft Timeout) — skipped in --fast-track mode
-                # ONLY activate Drain Phase if the user explicitly provided --close-on-exit flag
-                if not getattr(args, "fast_track", False) and getattr(args, "close_on_exit", False):
+                # A. Drain Phase (Soft Timeout) — ONLY activate if --close-on-exit flag provided
+                if getattr(args, "close_on_exit", False):
                     drain_duration = (
                         args.drain_duration if args.drain_duration is not None else trading_config.DRAIN_PHASE_MINUTES
                     )

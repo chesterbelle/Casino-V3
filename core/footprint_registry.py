@@ -299,7 +299,6 @@ class FootprintRegistry:
 
     Shared by:
     - AbsorptionDetector (sensor in workers) - read-only
-    - AbsorptionSetupEngine (main process) - read-only
     - ExitEngine (main process) - read-only
     - OrderManager (main process) - read-only
     """

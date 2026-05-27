@@ -29,7 +29,7 @@ class TargetingMixin:
         atr_pct = 0.20
         if self.context_registry:
             atr_data = self.context_registry.atrs.get(symbol, {})
-            if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+            if scenario == "TacticalAbsorptionV2":
                 atr_pct = atr_data.get("medium") or atr_data.get("short") or atr_pct
             else:
                 atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
@@ -49,7 +49,6 @@ class TargetingMixin:
 
             AMT_CONFIG = {
                 "TacticalAbsorptionV2": ("OPPOSITE", 0.3),
-                "absorption_reversal": ("POC", 0.3),
                 "failed_breakout": ("OPPOSITE", 0.5),
                 "liquidity_exhaustion": ("OPPOSITE", 0.3),
             }
@@ -84,13 +83,12 @@ class TargetingMixin:
         if not applied_dynamic:
             MULTIPLIERS = {
                 "TacticalAbsorptionV2": 5.0,
-                "absorption_reversal": 5.0,
                 "trend_acceptance": 4.5,
                 "failed_breakout": 2.5,
                 "liquidity_exhaustion": 2.5,
             }
             mult = MULTIPLIERS.get(scenario, 2.5)
-            if scenario in ["TacticalAbsorptionV2", "absorption_reversal"]:
+            if scenario == "TacticalAbsorptionV2":
                 tp_dist_pct = atr_pct * mult
                 sl_dist_pct = atr_pct * 3.33
             else:

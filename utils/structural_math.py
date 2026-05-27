@@ -2,7 +2,6 @@
 Utilidades Matemáticas Estructurales (LTA V7)
 ---------------------------------------------
 Módulo de cálculo puro extraído de SetupEngine para determinar:
-- Proximidad a niveles estructurales (Location Gates).
 - Nodos de Bajo Volumen (LVN) para targets dinámicos.
 """
 
@@ -50,39 +49,3 @@ def calculate_lvn_target(symbol: str, entry_price: float, side: str) -> Optional
     except Exception as e:
         logger.error(f"❌ Error calculating LVN target: {e}")
         return None
-
-
-def check_level_proximity(symbol: str, price: float, context_registry, fast_track: bool = False) -> Optional[dict]:
-    """
-    Checks if price is close to a structural level (POC/VAH/VAL/IBH/IBL).
-    Standard proximity threshold: 0.35%.
-    """
-    if not context_registry or price <= 0:
-        return None
-
-    poc, vah, val = context_registry.get_structural(symbol)
-    ib_high, ib_low = context_registry.get_ib(symbol)
-
-    levels = []
-    if poc > 0:
-        levels.append(("POC", poc))
-    if vah > 0:
-        levels.append(("VAH", vah))
-    if val > 0:
-        levels.append(("VAL", val))
-    if ib_high and ib_high > 0:
-        levels.append(("IBH", ib_high))
-    if ib_low and ib_low > 0:
-        levels.append(("IBL", ib_low))
-
-    PROX_THRESHOLD = 1.0 if fast_track else 0.0035  # Synchronized with LTA_PROXIMITY_THRESHOLD (0.35%)
-
-    nearest = None
-    min_dist = float("inf")
-    for name, level_price in levels:
-        dist = abs(price - level_price) / price
-        if dist < PROX_THRESHOLD and dist < min_dist:
-            min_dist = dist
-            nearest = {"level_ref": name, "level_price": level_price, "dist_pct": round(dist * 100, 4)}
-
-    return nearest
