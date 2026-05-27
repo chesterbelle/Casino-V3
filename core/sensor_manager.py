@@ -260,7 +260,10 @@ class SensorManager:
 
         else:
             for q in self.input_queues:
-                asyncio.get_running_loop().run_in_executor(None, q.put, msg)
+                try:
+                    q.put_nowait(msg)
+                except Exception:
+                    pass  # Queue full — drop message rather than block
 
     async def on_tick(self, event: TickEvent):
         """

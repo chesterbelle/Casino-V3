@@ -112,17 +112,26 @@ class Engine:
         watchdog.heartbeat("engine_dispatch", f"Processing {event.type.name}")
 
         if event.type in self._subscribers:
-            # Execute all callbacks concurrently
             callbacks = self._subscribers[event.type]
-            results = await asyncio.gather(*(cb(event) for cb in callbacks), return_exceptions=True)
-            for res in results:
-                if isinstance(res, BaseException):
-                    if isinstance(res, asyncio.CancelledError):
-                        logger.warning(f"⚠️ Event handler cancelled: {event.type.name}")
-                    elif isinstance(res, Exception):
-                        logger.error(f"❌ Error in event handler: {res}", exc_info=res)
-                    else:
-                        logger.critical(f"🛑 Critical error in event handler: {res}", exc_info=res)
+            # Fast path: single subscriber (common case) — avoid gather overhead
+            if len(callbacks) == 1:
+                try:
+                    await callbacks[0](event)
+                except asyncio.CancelledError:
+                    logger.warning(f"⚠️ Event handler cancelled: {event.type.name}")
+                except Exception as e:
+                    logger.error(f"❌ Error in event handler: {e}", exc_info=e)
+            else:
+                # Multiple subscribers — run concurrently
+                results = await asyncio.gather(*(cb(event) for cb in callbacks), return_exceptions=True)
+                for res in results:
+                    if isinstance(res, BaseException):
+                        if isinstance(res, asyncio.CancelledError):
+                            logger.warning(f"⚠️ Event handler cancelled: {event.type.name}")
+                        elif isinstance(res, Exception):
+                            logger.error(f"❌ Error in event handler: {res}", exc_info=res)
+                        else:
+                            logger.critical(f"🛑 Critical error in event handler: {res}", exc_info=res)
 
     async def start(self, blocking: bool = True):
         """Start the engine and all components."""

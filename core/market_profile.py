@@ -15,6 +15,9 @@ class MarketProfile:
         self.profile: Dict[float, float] = defaultdict(float)  # price_level -> volume
         self.total_volume = 0.0
         self.poc_history = deque(maxlen=300)  # Phase 1150: Track POC migration
+        # O(1) running POC tracking
+        self._poc_price = 0.0
+        self._poc_volume = 0.0
 
     def round_price(self, price: float) -> float:
         """Rounds price to the nearest tick size."""
@@ -32,9 +35,12 @@ class MarketProfile:
         self.profile[level] += volume
         self.total_volume += volume
 
-        # Phase 1150: Update POC history
-        poc = max(self.profile.items(), key=lambda x: x[1])[0]
-        self.poc_history.append(poc)
+        # O(1) POC update: only recalculate if this level is now the max
+        level_vol = self.profile[level]
+        if level_vol > self._poc_volume:
+            self._poc_price = level
+            self._poc_volume = level_vol
+        self.poc_history.append(self._poc_price)
 
     def calculate_value_area(self) -> Tuple[float, float, float]:
         """
@@ -45,8 +51,8 @@ class MarketProfile:
         if not self.profile:
             return 0.0, 0.0, 0.0
 
-        # 1. Find the Point of Control (POC) - highest volume node
-        poc = max(self.profile.items(), key=lambda x: x[1])[0]
+        # 1. Find the Point of Control (POC) - use O(1) running max
+        poc = self._poc_price
 
         # 2. Determine target volume for Value Area (70%)
         target_volume = self.total_volume * self.value_area_pct
@@ -166,3 +172,5 @@ class MarketProfile:
         """Clears the profile for a new session/day."""
         self.profile.clear()
         self.total_volume = 0.0
+        self._poc_price = 0.0
+        self._poc_volume = 0.0
