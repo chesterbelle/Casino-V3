@@ -34,12 +34,13 @@ from core.candle_maker import CandleMaker  # noqa: E402
 from core.clock import Clock  # noqa: E402
 from core.context_registry import ContextRegistry  # noqa: E402
 from core.engine import Engine  # noqa: E402
-from core.events import AggregatedSignalEvent, EventType, TickEvent  # noqa: E402
+from core.events import EventType, TickEvent  # noqa: E402
 from core.execution import OrderManager  # noqa: E402
 from core.footprint_registry import footprint_registry  # noqa: E402
 from core.sensor_manager import SensorManager  # noqa: E402
 from croupier.croupier import Croupier  # noqa: E402
 from decision.engine.core import SetupEngineV4  # noqa: E402
+from decision.engine.proposal import TradeProposal  # noqa: E402
 from exchanges.adapters import ExchangeAdapter  # noqa: E402
 from exchanges.connectors.virtual_exchange import VirtualExchangeConnector  # noqa: E402
 from players.adaptive import AdaptivePlayer  # noqa: E402
@@ -159,10 +160,10 @@ async def run_backtest():
 
     # 5. Core Decision Engine (SetupEngineV4)
     setup_engine = SetupEngineV4(engine, context_registry=context_registry)
-    player = AdaptivePlayer(  # noqa: E402
+    player = AdaptivePlayer(
         engine,
         croupier,
-        fixed_pct=args.bet_size,
+        max_positions=getattr(trading_config, "MAX_POSITION_SIZE", 1),
         context_registry=context_registry,
     )
 
@@ -200,19 +201,22 @@ async def run_backtest():
         # Clear existing data for this symbol in the database to prevent duplicate accumulation
         historian.clear_symbol_data(args.symbol)
 
-        async def audit_signal_handler(event: AggregatedSignalEvent):
+        async def audit_signal_handler(event: TradeProposal):
             logger.warning(f"📝 AUDIT SIGNAL HANDLER FIRED: {event.symbol} {event.side}")
             historian.record_signal(
                 timestamp=event.timestamp,
                 symbol=event.symbol,
                 side=event.side,
-                setup_type=event.setup_type or "unknown",
-                price=event.price,
-                metadata=json.dumps(event.metadata),
+                setup_type=event.setup_type or event.narrative,
+                price=event.entry_price,
+                metadata=json.dumps(
+                    event.meta
+                    or {"trace_id": event.trace_id, "grade": event.grade, "tp": event.tp_price, "sl": event.sl_price}
+                ),
                 session_id=croupier.position_tracker.session_id,
             )
 
-        engine.subscribe(EventType.AGGREGATED_SIGNAL, audit_signal_handler)
+        engine.subscribe(EventType.TRADE_PROPOSAL, audit_signal_handler)
 
         last_sample_ts = {}
 

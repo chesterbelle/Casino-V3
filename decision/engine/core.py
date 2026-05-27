@@ -13,13 +13,13 @@ from typing import Dict
 
 from config import trading as config
 from core.events import (
-    AggregatedSignalEvent,
     EventType,
     MicrostructureBatchEvent,
     MicrostructureEvent,
     SignalEvent,
 )
 from core.telemetry import TraceOutcome, black_box
+from decision.engine.proposal import TradeProposal
 from decision.engine.targets import TargetingMixin
 from decision.engine.telemetry import TelemetryMixin
 from decision.guardians import GuardianManager
@@ -270,31 +270,30 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             symbol,
         )
 
-        # 4. Dispatch Signal Event
+        # 4. Dispatch TradeProposal (V8.5 Planar Architecture)
         self.last_fire_ts[symbol] = now
-        out_evt = AggregatedSignalEvent(
-            type=EventType.AGGREGATED_SIGNAL,
-            timestamp=now,
+
+        grade = "A" if trigger_meta.get("conviction_score", 0) > 0 else "B"
+
+        proposal = TradeProposal(
             symbol=symbol,
-            candle_timestamp=now,
-            selected_sensor=f"SetupEngine_{scenario}",
-            sensor_score=1.0,
             side=side,
-            confidence=1.0,
-            total_signals=1,
-            metadata=trigger_meta,
-            trace_id=signal.get("trace_id"),
-            t0_timestamp=now,
-            t1_decision_ts=now,
+            entry_price=price,
+            tp_price=tp_price,
+            sl_price=sl_price,
+            grade=grade,
+            narrative=f"{setup_name}-{grade}-Sc:{scenario}",
+            trace_id=signal.get("trace_id", trace.trace_id),
+            timestamp=now,
             setup_type=scenario,
-            price=price,
+            meta=trigger_meta,
         )
 
-        trace.add_step("SetupEngine", True, "Signal dispatched to AdaptivePlayer")
+        trace.add_step("SetupEngine", True, "TradeProposal dispatched to AdaptivePlayer")
         trace.finalize(TraceOutcome.EXECUTED, f"Trade ready: {setup_name}")
         black_box.archive_trace(trace.trace_id)
 
-        await self.engine.dispatch(out_evt)
+        await self.engine.dispatch(proposal)
 
         # Trace Phase 3: Successful Dispatch
         self.trace(
@@ -304,7 +303,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         )
 
         logger.warning(
-            f"🎯 [ORCHESTRATOR] Fired {side} {scenario} on {symbol} | Price: {price:.2f} | TP: {tp_price:.2f} | SL: {sl_price:.2f} (Ref: {level_ref})"
+            f"🎯 [V8.5] Fired {side} {scenario} on {symbol} | Price: {price:.2f} | TP: {tp_price:.2f} | SL: {sl_price:.2f} | Grade: {grade}"
         )
 
     async def on_microstructure_batch(self, event: MicrostructureBatchEvent):

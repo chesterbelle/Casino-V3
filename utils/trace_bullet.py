@@ -45,13 +45,17 @@ class TraceBulletMixin:
         """
         Reports a trace event if a trace_id is present in event metadata.
         """
-        # Try to extract trace_id from different event formats (SignalEvent object or dict)
-        trace_id = None
-        if hasattr(event, "metadata") and isinstance(event.metadata, dict):
-            trace_id = event.metadata.get("trace_id")
-        elif isinstance(event, dict):
-            # Check both top level and metadata level
-            trace_id = event.get("trace_id") or event.get("metadata", {}).get("trace_id")
+        # Try to extract trace_id from different event formats
+        # 1. Direct attribute (TradeProposal, dataclasses)
+        trace_id = getattr(event, "trace_id", None)
+        if not trace_id:
+            # 2. metadata dict (SignalEvent objects)
+            if hasattr(event, "metadata") and isinstance(event.metadata, dict):
+                trace_id = event.metadata.get("trace_id")
+        if not trace_id:
+            # 3. Plain dict
+            if isinstance(event, dict):
+                trace_id = event.get("trace_id") or event.get("metadata", {}).get("trace_id")
 
         if not trace_id:
             return

@@ -24,6 +24,7 @@ import logging
 from typing import Optional
 
 from core.footprint_registry import footprint_registry
+from decision.engine.proposal import TradeProposal
 from utils.trace_bullet import TraceBulletMixin
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class AbsorptionSetupEngine(TraceBulletMixin):
     """
     Converts confirmed entry signals into executable setups (V2).
 
-    In V2, this engine only handles TP/SL calculation and validation.
+    In V2, this engine only handles TP/SL calculation, validation, and Grade assignment.
     Confirmation is handled by AbsorptionReversalGuardian (Phase 2).
 
     Dynamic TP/SL:
@@ -44,39 +45,26 @@ class AbsorptionSetupEngine(TraceBulletMixin):
     def __init__(self):
         super().__init__()
         self.name = "AbsorptionSetupEngine"
+        self.min_tp_distance_pct = 0.25
+        self.max_tp_distance_pct = 0.50
+        self.sl_buffer_pct = 0.15
 
-        # Configuration (Default fallback, updated dynamically via _update_dynamic_bounds)
-        self.min_tp_distance_pct = 0.25  # Minimum TP distance (0.25%) to enforce RR > 1.5
-        self.max_tp_distance_pct = 0.50  # Maximum TP distance (0.50%)
-        self.sl_buffer_pct = 0.15  # SL buffer as % of price  # Tightened SL buffer as % of price (0.12%)
-
-        logger.info(f"✅ {self.name} V2 initialized")
+        logger.info(f"✅ {self.name} V2 (Planar Architecture) initialized")
 
     def _update_dynamic_bounds(self, symbol: str):
-        """Update bounds dynamically based on rolling ATR (volatility-agnostic)."""
         from core.context_registry import ContextRegistry
 
         reg = ContextRegistry()
         atr_data = reg.atrs.get(symbol, {})
-        # Use long-term 1m ATR (100 periods) for stable volatility estimation
         atr_pct = atr_data.get("long") or atr_data.get("short") or 0.20
 
-        self.min_tp_distance_pct = atr_pct * 3.0  # ~0.60% on LTC (floor to beat taker bleed)
-        self.max_tp_distance_pct = atr_pct * 6.5  # ~1.20% on LTC (macro rotation range limit)
-        self.sl_buffer_pct = atr_pct * 3.33  # ~0.60% on LTC (structural invalidation)
+        self.min_tp_distance_pct = atr_pct * 3.0
+        self.max_tp_distance_pct = atr_pct * 6.5
+        self.sl_buffer_pct = atr_pct * 3.33
 
-    def process_confirmed_signal(self, signal: dict) -> Optional[dict]:
+    def process_confirmed_signal(self, signal: dict) -> Optional[TradeProposal]:
         """
-        Process a CONFIRMED entry signal from AbsorptionReversalGuardian.
-
-        In V2, the signal is already confirmed (Phase 2 complete).
-        This method only calculates TP/SL and validates distances.
-
-        Args:
-            signal: Confirmed entry signal dict from guardian
-
-        Returns:
-            Setup dict or None
+        Process a CONFIRMED entry signal and return a TradeProposal.
         """
         symbol = signal["symbol"]
         direction = signal["direction"]
@@ -87,59 +75,35 @@ class AbsorptionSetupEngine(TraceBulletMixin):
         self._update_dynamic_bounds(symbol)
         self.trace(signal, "SETUP_GEN_START")
 
-        # Calculate TP
         tp_price = self._calculate_tp(symbol, level, direction, current_price)
         if tp_price is None:
-            logger.debug(f"❌ [ABSORPTION_V2] No valid TP found for {symbol}")
-            self.trace(signal, "SETUP_GEN_REJECT", {"reason": "NO_TP_FOUND"})
             return None
 
-        # Validate TP distance
         tp_distance_pct = abs(tp_price - current_price) / current_price * 100
-        if tp_distance_pct < self.min_tp_distance_pct:
-            logger.debug(f"❌ [ABSORPTION_V2] TP too close: {tp_distance_pct:.2f}% < {self.min_tp_distance_pct}%")
-            self.trace(signal, "SETUP_GEN_REJECT", {"reason": "TP_TOO_CLOSE", "dist": tp_distance_pct})
-            return None
-        if tp_distance_pct > self.max_tp_distance_pct:
-            logger.debug(f"❌ [ABSORPTION_V2] TP too far: {tp_distance_pct:.2f}% > {self.max_tp_distance_pct}%")
-            self.trace(signal, "SETUP_GEN_REJECT", {"reason": "TP_TOO_FAR", "dist": tp_distance_pct})
+        if tp_distance_pct < self.min_tp_distance_pct or tp_distance_pct > self.max_tp_distance_pct:
             return None
 
-        # Calculate SL
         sl_price = self._calculate_sl(level, direction)
 
-        # Generate setup
-        side = signal["side"]
-        size_multiplier = signal.get("size_multiplier", 1.0)
+        # Grade logic: High conviction if multiple confirmations exist
+        confirmations = signal.get("confirmations", 0)
+        grade = "A" if confirmations >= 2 else "B"
 
-        setup = {
-            "symbol": symbol,
-            "side": side,
-            "entry_price": current_price,
-            "tp_price": tp_price,
-            "sl_price": sl_price,
-            "absorption_level": level,
-            "delta": signal["delta"],
-            "z_score": signal["z_score"],
-            "concentration": signal["concentration"],
-            "noise": signal["noise"],
-            "timestamp": timestamp,
-            "strategy": "AbsorptionScalpingV2",
-            "size_multiplier": size_multiplier,
-            "confirmations": signal.get("confirmations", 0),
-            "is_contra_trend": signal.get("is_contra_trend", False),
-            "trace_id": signal.get("trace_id"),  # Propagate trace_id
-        }
-
-        self.trace(setup, "SETUP_GEN_COMPLETE")
-
-        logger.info(
-            f"🎯 [ABSORPTION_V2] Setup generated: {symbol} {side} @ {current_price:.2f} "
-            f"(TP={tp_price:.2f} +{tp_distance_pct:.2f}%, SL={sl_price:.2f}, "
-            f"conf={signal.get('confirmations', 0)}/3, size={size_multiplier:.0%})"
+        proposal = TradeProposal(
+            symbol=symbol,
+            side=signal["side"],
+            entry_price=current_price,
+            tp_price=tp_price,
+            sl_price=sl_price,
+            grade=grade,
+            narrative=f"Absorption-{grade}-Conf:{confirmations}",
+            trace_id=signal.get("trace_id", "unknown"),
+            timestamp=timestamp,
         )
 
-        return setup
+        logger.info(f"🎯 [V8.5] TradeProposal generated: {proposal}")
+        self.trace(proposal, "SETUP_GEN_COMPLETE")
+        return proposal
 
     # ── TP/SL Calculation ────────────────────────────────────────────
 

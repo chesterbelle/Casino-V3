@@ -42,7 +42,7 @@ from core.candle_maker import CandleMaker
 from core.clock import Clock
 from core.engine import Engine
 from core.error_handling.error_handler import RetryConfig, get_error_handler
-from core.events import AggregatedSignalEvent, EventType, TickEvent
+from core.events import EventType, TickEvent
 from core.execution import OrderManager
 from core.feed import StreamManager
 
@@ -67,6 +67,7 @@ from core.sensor_manager import SensorManager
 from croupier.components.reconciliation_worker import ReconciliationWorker
 from croupier.croupier import Croupier
 from decision.engine.core import SetupEngineV4
+from decision.engine.proposal import TradeProposal
 from exchanges.adapters import ExchangeAdapter
 from exchanges.connectors import (
     BinanceNativeConnector,
@@ -420,7 +421,7 @@ async def main():
     # --- Phase 800: AUDIT MODE HANDLERS ---
     if trading_config.AUDIT_MODE:
 
-        async def audit_signal_handler(event: AggregatedSignalEvent):
+        async def audit_signal_handler(event: TradeProposal):
             """Records all signals even if not picked up by Player."""
             import json
 
@@ -428,14 +429,19 @@ async def main():
                 timestamp=event.timestamp,
                 symbol=event.symbol,
                 side=event.side,
-                setup_type=event.setup_type or "unknown",
-                price=event.price,
-                metadata=json.dumps(event.metadata),
+                setup_type=event.setup_type or event.narrative,
+                price=event.entry_price,
+                metadata=json.dumps(
+                    event.meta
+                    or {"trace_id": event.trace_id, "grade": event.grade, "tp": event.tp_price, "sl": event.sl_price}
+                ),
                 session_id=croupier.position_tracker.session_id,
             )
 
-        engine.subscribe(EventType.AGGREGATED_SIGNAL, audit_signal_handler)
-        logger.info("🔍 Audit: Signal Recorder linked to AGGREGATED_SIGNAL")
+        # Use TRADE_PROPOSAL for the new planar architecture
+        engine.subscribe(EventType.TRADE_PROPOSAL, audit_signal_handler)
+
+        logger.info("🔍 Audit: Signal Recorder linked to TRADE_PROPOSAL")
 
         # Throttled price sampling
         last_sample_ts = {}
