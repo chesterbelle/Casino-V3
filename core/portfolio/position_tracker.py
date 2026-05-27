@@ -315,6 +315,9 @@ class PositionTracker(TraceBulletMixin):
         # O(1) Symbol Map for high-frequency price processing
         self._symbol_map: Dict[str, List[OpenPosition]] = defaultdict(list)
 
+        # O(1) Global Alias Map for fallback lookup (trade_id → position)
+        self._global_alias_map: Dict[str, OpenPosition] = {}
+
         logger.info("PositionTracker inicializado | Global limit removed (Unlimited)")
 
     # =========================================================
@@ -397,7 +400,12 @@ class PositionTracker(TraceBulletMixin):
                 if pos:
                     return pos
 
-        # 2. Linear Fallback (Global Safety)
+        # 2. O(1) Global Alias Map Fallback
+        pos = self._global_alias_map.get(str(order_id))
+        if pos:
+            return pos
+
+        # 3. Linear Fallback (Global Safety) — should rarely be reached
         for pos in self.open_positions:
             if pos.trade_id == order_id:
                 return pos
@@ -492,6 +500,8 @@ class PositionTracker(TraceBulletMixin):
         self.unregister_alias(position.sl_order_id, symbol=symbol)
         self.unregister_alias(position.exchange_tp_id, symbol=symbol)
         self.unregister_alias(position.exchange_sl_id, symbol=symbol)
+        # Update global alias map
+        self._global_alias_map.pop(position.trade_id, None)
 
         # Unregister from OrderState objects
         if position.main_order:
@@ -1665,6 +1675,8 @@ class PositionTracker(TraceBulletMixin):
         sym_norm = normalize_symbol(found_pos.symbol)
         if found_pos in self._symbol_map.get(sym_norm, []):
             self._symbol_map[sym_norm].remove(found_pos)
+        # Update global alias map
+        self._global_alias_map.pop(found_pos.trade_id, None)
 
         logger.info(f"🧹 GC: Terminated OFF_BOARDING position {trade_id}")
         self._trigger_state_change()
@@ -1839,6 +1851,8 @@ class PositionTracker(TraceBulletMixin):
         sym_norm = position.symbol
         if position not in self._symbol_map[sym_norm]:
             self._symbol_map[sym_norm].append(position)
+        # Update global alias map for O(1) fallback lookup
+        self._global_alias_map[position.trade_id] = position
         # Increment opened counter to ensure 'Total Managed' is correct
         self.total_trades_opened += 1
         # Track specifically as recovered/adopted
