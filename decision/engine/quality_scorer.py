@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
+from core.coin_profiler import coin_profiler
 from core.footprint_registry import footprint_registry
 from decision.guardians.guardian_result import SetupMode
 
@@ -192,6 +193,11 @@ def evaluate_quality(
         + liquidity_score * WEIGHTS["liquidity"]
         + spread_score * WEIGHTS["spread"]
     )
+
+    # Apply coin profile adjustment
+    coin_tier = coin_profiler.classify(symbol, {"trades_per_sec": 0.03, "volume_24h_usd": 100_000_000})
+    profile_adjustment = coin_profiler.get_quality_adjustment(coin_tier)
+    quality_score += profile_adjustment
 
     # Map to grade
     if quality_score >= GRADE_A_THRESHOLD:
