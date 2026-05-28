@@ -64,7 +64,7 @@ def check_structure_alignment(
                 return GuardianResult(
                     passed=False,
                     score=0.0,
-                    reason="BLOCKED (FADE RISK) | Reverting outwards {side} at {geo_tag}",
+                    reason=f"BLOCKED (FADE RISK) | Reverting outwards {side} at {geo_tag}",
                     metrics=metrics,
                     gate_name="STRUCTURE_GEOGRAPHY",
                 )
@@ -72,7 +72,7 @@ def check_structure_alignment(
             return GuardianResult(
                 passed=True,
                 score=1.0,
-                reason="PASSED | Strong reversion context at {geo_tag}",
+                reason=f"PASSED | Strong reversion context at {geo_tag}",
                 metrics=metrics,
                 gate_name="STRUCTURE_GEOGRAPHY",
             )
