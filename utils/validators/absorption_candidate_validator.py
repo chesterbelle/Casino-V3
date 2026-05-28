@@ -6,10 +6,10 @@ Validates that _find_extreme_deltas() correctly identifies
 absorption candidates from a footprint.
 
 Tests (isolated, no bot, no SensorManager):
-  1. Returns top 5% by absolute delta (not by sign)
-  2. Returns empty when footprint has < 10 levels with non-zero delta
-  3. Returns at least 1 candidate even when top 5% rounds to 0
-  4. Returns max 10 candidates regardless of footprint size
+  1. Returns top 10% by absolute delta (not by sign)
+  2. Returns empty when footprint has < 3 levels with non-zero delta
+  3. Returns at least 1 candidate even when top 10% rounds to 0
+  4. Returns max 5 candidates regardless of footprint size
   5. Correctly identifies SELL candidates (negative delta)
   6. Correctly identifies BUY candidates (positive delta)
   7. Mixed footprint: top candidate is the one with highest |delta|
@@ -71,26 +71,24 @@ def main():
     print("=" * 60)
 
     detector = AbsorptionDetector()
-    ts = 1000.0
 
     # ─────────────────────────────────────────────────────────
-    # TEST 1: < 10 levels → empty (insufficient data)
+    # TEST 1: < 3 non-zero delta levels → empty (insufficient data)
     # ─────────────────────────────────────────────────────────
-    section("TEST 1: < 10 non-zero delta levels → returns []")
+    section("TEST 1: < 3 non-zero delta levels → returns []")
 
     fp_small = build_footprint(
         {
-            78.40: (100, 50),
-            78.41: (80, 60),
-            78.42: (90, 40),
-            # only 3 levels
+            78.40: (100, 50),  # delta=50
+            78.41: (80, 60),  # delta=20
+            # only 2 levels with non-zero delta (threshold is 3)
         }
     )
 
     candidates = detector._find_extreme_deltas(fp_small)
     if len(candidates) != 0:
-        fail(f"Expected 0 candidates with < 10 levels, got {len(candidates)}")
-    ok("< 10 levels → returns [] (insufficient data guard works)")
+        fail(f"Expected 0 candidates with < 3 non-zero delta levels, got {len(candidates)}")
+    ok("< 3 non-zero delta levels → returns [] (insufficient data guard works)")
 
     # ─────────────────────────────────────────────────────────
     # TEST 2: Exactly 10 levels → returns at least 1 candidate
@@ -156,9 +154,9 @@ def main():
     ok(f"Top delta is positive ({top_buy_delta:+.1f}) → BUY_EXHAUSTION candidate")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 5: Max 10 candidates regardless of footprint size
+    # TEST 5: Max 5 candidates regardless of footprint size
     # ─────────────────────────────────────────────────────────
-    section("TEST 5: Max 10 candidates regardless of footprint size (200 levels)")
+    section("TEST 5: Max 5 candidates regardless of footprint size (200 levels)")
 
     # 200 levels with varying deltas
     levels_200 = {}
@@ -170,9 +168,9 @@ def main():
     fp_200 = build_footprint(levels_200)
     candidates_200 = detector._find_extreme_deltas(fp_200)
 
-    if len(candidates_200) > 10:
-        fail(f"Expected max 10 candidates, got {len(candidates_200)}")
-    ok(f"200-level footprint → {len(candidates_200)} candidates (max 10 cap respected)")
+    if len(candidates_200) > 5:
+        fail(f"Expected max 5 candidates, got {len(candidates_200)}")
+    ok(f"200-level footprint → {len(candidates_200)} candidates (max 5 cap respected)")
 
     if len(candidates_200) < 1:
         fail("Expected at least 1 candidate from 200-level footprint")
@@ -209,7 +207,7 @@ def main():
     # ─────────────────────────────────────────────────────────
     section("TEST 7: Candidates sorted by |delta| descending")
 
-    # 50 levels with clearly different deltas (top 5% = 2-3 candidates)
+    # 50 levels with clearly different deltas (top 10% = 5 candidates)
     levels_sorted = {}
     for i in range(50):
         ask = 100.0 + i * 10.0  # delta increases with i
@@ -220,7 +218,7 @@ def main():
 
     if len(candidates_sorted) < 2:
         fail(
-            f"Expected >= 2 candidates for sort check, got {len(candidates_sorted)} (need 50+ levels for top 5% to yield 2+)"
+            f"Expected >= 2 candidates for sort check, got {len(candidates_sorted)} (need 50+ levels for top 10% to yield 2+)"
         )
 
     # Verify descending order by |delta|

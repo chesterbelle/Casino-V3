@@ -20,12 +20,17 @@ logger = logging.getLogger("RegimeGuardianValidator")
 
 
 class MockContextRegistry:
-    def __init__(self, vwap_z_score=0.0, regime_v2_data=None):
+    def __init__(self, vwap_z_score=0.0, regime_v2_data=None, structural=(0.0, 0.0, 0.0)):
         self.vwap_z_score = vwap_z_score
         self._regime_v2 = {"BTC/USDT:USDT": regime_v2_data or {}}
+        self._structural = structural  # (poc, vah, val)
 
     def get_vwap_zscore(self, symbol, price):
         return self.vwap_z_score
+
+    def get_structural(self, symbol):
+        """Return (poc, vah, val). Default (0,0,0) forces VWAP Z fallback."""
+        return self._structural
 
 
 def run_tests() -> bool:

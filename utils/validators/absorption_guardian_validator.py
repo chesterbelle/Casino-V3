@@ -7,7 +7,7 @@ compute correct metrics and make correct decisions.
 
 Tests (isolated, no bot, no FootprintRegistry, no SensorManager):
   1. _cross_sectional_zscore() — correct z-score math across footprint
-  2. _concentration() — correct time-based ratio
+  2. _concentration() — correct volume-based ratio
   3. _noise_ratio()    — correct opposite-volume ratio
   4. _check_price_stagnation() — passes/fails based on displacement
 
@@ -85,22 +85,36 @@ def main():
     ok(f"z_score(outlier delta) = {z_outlier:.2f}")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 2: _concentration()
+    # TEST 2: _concentration() — volume-based ratio
     # ─────────────────────────────────────────────────────────
-    section("TEST 2: _concentration()")
+    section("TEST 2: _concentration() — volume-based ratio")
 
     current_ts = 2000.0
-    fp_recent = build_footprint_with_level(78.50, 100.0, 50.0, last_update=current_ts - 10)
-    conc_recent = detector._concentration(fp_recent, 78.50, current_ts)
-    if conc_recent < 0.6:
-        fail(f"Expected conc >= 0.6, got {conc_recent}")
-    ok(f"concentration(<30s) = {conc_recent:.2f}")
 
-    fp_old = build_footprint_with_level(78.50, 100.0, 50.0, last_update=current_ts - 120)
-    conc_old = detector._concentration(fp_old, 78.50, current_ts)
-    if conc_old > 0.7:
-        fail(f"Expected conc < 0.7, got {conc_old}")
-    ok(f"concentration(>60s) = {conc_old:.2f}")
+    # SELL_EXHAUSTION (delta < 0): concentration = bid_vol / total_vol
+    # High concentration: bid_vol dominates (clean sell absorption)
+    fp_high_conc = build_footprint_with_level(78.50, 20.0, 180.0, last_update=current_ts - 10)
+    conc_high = detector._concentration(fp_high_conc, 78.50, current_ts)
+    expected_high = 180.0 / 200.0  # 0.90
+    if not math.isclose(conc_high, expected_high, abs_tol=0.01):
+        fail(f"Expected concentration ~{expected_high:.2f}, got {conc_high:.3f}")
+    ok(f"concentration(high bid dominance) = {conc_high:.2f} (clean sell absorption)")
+
+    # Low concentration: balanced volumes (noisy)
+    fp_low_conc = build_footprint_with_level(78.50, 90.0, 110.0, last_update=current_ts - 10)
+    conc_low = detector._concentration(fp_low_conc, 78.50, current_ts)
+    expected_low = 110.0 / 200.0  # 0.55
+    if not math.isclose(conc_low, expected_low, abs_tol=0.01):
+        fail(f"Expected concentration ~{expected_low:.2f}, got {conc_low:.3f}")
+    ok(f"concentration(balanced volumes) = {conc_low:.2f} (noisy)")
+
+    # BUY_EXHAUSTION (delta > 0): concentration = ask_vol / total_vol
+    fp_buy_conc = build_footprint_with_level(78.50, 180.0, 20.0, last_update=current_ts - 10)
+    conc_buy = detector._concentration(fp_buy_conc, 78.50, current_ts)
+    expected_buy = 180.0 / 200.0  # 0.90
+    if not math.isclose(conc_buy, expected_buy, abs_tol=0.01):
+        fail(f"Expected concentration ~{expected_buy:.2f}, got {conc_buy:.3f}")
+    ok(f"concentration(buy absorption) = {conc_buy:.2f} (clean buy absorption)")
 
     # ─────────────────────────────────────────────────────────
     # TEST 3: _noise_ratio()
@@ -135,6 +149,20 @@ def main():
     if stag_sell_fail:
         fail("Expected False (stagnation failed) for 1.0% drop")
     ok("stagnation(sell, big drop) = FAIL (Impulse)")
+
+    # BUY_EXHAUSTION: open=100, high=100.04 -> rose 0.04% -> should pass (stagnation=True)
+    candle_buy_pass = {"open": 100.0, "close": 100.02, "high": 100.04, "low": 100.0}
+    stag_buy_pass = detector._check_price_stagnation("BUY_EXHAUSTION", candle_buy_pass)
+    if not stag_buy_pass:
+        fail("Expected True (stagnation passed) for 0.04% rise")
+    ok("stagnation(buy, small rise) = PASS")
+
+    # BUY_EXHAUSTION: open=100, high=101.00 -> rose 1.0% -> should fail (impulse=False)
+    candle_buy_fail = {"open": 100.0, "close": 100.50, "high": 101.00, "low": 100.0}
+    stag_buy_fail = detector._check_price_stagnation("BUY_EXHAUSTION", candle_buy_fail)
+    if stag_buy_fail:
+        fail("Expected False (stagnation failed) for 1.0% rise")
+    ok("stagnation(buy, big rise) = FAIL (Impulse)")
 
     print(f"\n{'=' * 60}")
     print("  ✅ LAYER 0.B PASSED — Guardian math is correct")
