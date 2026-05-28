@@ -185,7 +185,7 @@ def check_regime_alignment(symbol: str, side: str, reversal_signal: dict, contex
 
     # BALANCE regime
     if regime_v2 == "BALANCE":
-        is_pure_reversion = tactical_type in ("TacticalAbsorptionV2", "failed_breakout")
+        is_pure_reversion = tactical_type in ("TacticalAbsorptionV2", "AMT_FAILED_BREAKOUT", "AMT_LIQUIDITY_EXHAUSTION")
         if value_position in ("OUT_OF_VALUE", "EXCESS"):
             return GuardianResult(
                 passed=True,

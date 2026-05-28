@@ -22,6 +22,7 @@ from decision.engine.proposal import TradeProposal
 from decision.engine.quality_scorer import evaluate_quality
 from decision.engine.targets import TargetingMixin
 from decision.engine.telemetry import TelemetryMixin
+from decision.guardians.guardian_result import SetupMode
 
 logger = logging.getLogger("SetupEngine")
 
@@ -209,6 +210,17 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
         setup_mode = quality.setup_mode
         val_pos = quality.value_position
+
+        # Force REVERSION mode for scenarios that are inherently reversion
+        REVERSION_SCENARIOS = {
+            "TacticalAbsorptionV2",
+            "failed_breakout",
+            "liquidity_exhaustion",
+            "AMT_FAILED_BREAKOUT",
+            "AMT_LIQUIDITY_EXHAUSTION",
+        }
+        if scenario in REVERSION_SCENARIOS:
+            setup_mode = SetupMode.REVERSION
 
         # 2. Target Calculation
         tp_price, sl_price, setup_name, level_ref, atr_pct = self._calculate_targets(
