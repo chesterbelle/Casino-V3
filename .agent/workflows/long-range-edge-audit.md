@@ -108,14 +108,10 @@ print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
 
 ---
 
-## Step 4: Statistical Extraction & Target Calibration
+## Step 4: Statistical Extraction
 Evaluate current strategy performance:
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --window 14400 --by-coin
-```
-Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
-```bash
-.venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --calibrate
 ```
 
 ---

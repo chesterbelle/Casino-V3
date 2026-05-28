@@ -56,16 +56,12 @@ mkdir -p logs
 ```
 **Must output**: Signals >= 2 (minimum for single-coin). If 0, check backtest logs for errors.
 
-## Step 3: Statistical Extraction & Calibration
+## Step 3: Statistical Extraction
 Run the Edge Auditor tool to evaluate current strategy performance.
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --db data/historian_LTCUSDT.db --window 14400
 ```
-Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers.
-```bash
-.venv/bin/python utils/setup_edge_auditor.py --db data/historian_LTCUSDT.db --calibrate
-```
-Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**, as well as the **🎯 TOP 15 GEOMETRIC AMT TARGET CONFIGURATIONS**.
+Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] ENTRY QUALITY ASSESSMENT**, **[3] ROOT CAUSE DIAGNOSIS**, and **[7] OVERALL EDGE SUMMARY**.
 
 ## Step 4: Multi-Window Target Grid Evaluation
 Run a comprehensive matrix evaluation (1h, 2h, 4h windows across 0.6% to 1.2% targets) to ensure we don't blind ourselves to timeouts on a single window.

@@ -102,14 +102,10 @@ for sym, cnt in rows:
 ```
 **Minimum**: Total Signals ≥ 300. Per-coin ≥ 10 (flag if less).
 
-## Step 4: Edge Audit & Target Calibration
+## Step 4: Edge Audit
 Evaluate current strategy performance:
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --window 14400 --by-coin
-```
-Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
-```bash
-.venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --calibrate
 ```
 
 ## Step 5: Per-Coin Quality Analysis
