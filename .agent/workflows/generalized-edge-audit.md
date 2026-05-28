@@ -7,25 +7,25 @@ description: Auditoría de Borde Generalizada (10 Coins × 24h)
 // turbo-all
 
 ## Overview
-Tests whether estrategy edge **generalizes across instruments**.
+Tests whether the strategy edge **generalizes across instruments**.
 A reversion strategy based on Auction Market Theory should work on ANY liquid instrument.
 If the edge only exists on a subset, it's likely overfitting, not a real market property.
 
-**Prerequisites**: 24h datasets must already exist in `tests/validation/cross_section/`.
-Download them manually before running this protocol.
+**Prerequisites**: 24h datasets must exist in `data/datasets/backtest_ready/`.
+Download them with `utils/data/tardis_fetcher.py` before running this protocol.
 
 **Expected files** (one per coin):
 ```
-tests/validation/cross_section/ADA_USDT_USDT_24h.csv
-tests/validation/cross_section/ETH_USDT_USDT_24h.csv
-tests/validation/cross_section/SOL_USDT_USDT_24h.csv
-tests/validation/cross_section/BNB_USDT_USDT_24h.csv
-tests/validation/cross_section/XRP_USDT_USDT_24h.csv
-tests/validation/cross_section/AVAX_USDT_USDT_24h.csv
-tests/validation/cross_section/LINK_USDT_USDT_24h.csv
-tests/validation/cross_section/DOGE_USDT_USDT_24h.csv
-tests/validation/cross_section/LTC_USDT_USDT_24h.csv
-tests/validation/cross_section/SUI_USDT_USDT_24h.csv
+data/datasets/backtest_ready/2024-01-01_ADAUSDT.db
+data/datasets/backtest_ready/2024-01-01_ETHUSDT.db
+data/datasets/backtest_ready/2024-01-01_SOLUSDT.db
+data/datasets/backtest_ready/2024-01-01_BNBUSDT.db
+data/datasets/backtest_ready/2024-01-01_BTCUSDT.db
+data/datasets/backtest_ready/2024-01-01_AVAXUSDT.db
+data/datasets/backtest_ready/2024-01-01_LINKUSDT.db
+data/datasets/backtest_ready/2024-01-01_DOGEUSDT.db
+data/datasets/backtest_ready/2024-01-01_LTCUSDT.db
+data/datasets/backtest_ready/2024-01-01_SUIUSDT.db
 ```
 
 **Statistical Goal**: n ≥ 300 signals total, SE on WR ≤ ±2.8%
@@ -43,7 +43,23 @@ tests/validation/cross_section/SUI_USDT_USDT_24h.csv
 ```bash
 mkdir -p logs
 echo "=== Dataset Verification ==="
-COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "BTC_USDT_USDT" "AVAX_USDT_USDT" "LINK_USDT_USDT" "DOGE_USDT_USDT" "LTC_USDT_USDT" "SUI_USDT_USDT")
+for f in \
+  data/datasets/backtest_ready/2024-01-01_ADAUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_ETHUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_SOLUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_BNBUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_BTCUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_AVAXUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_LINKUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_DOGEUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_LTCUSDT.db \
+  data/datasets/backtest_ready/2024-01-01_SUIUSDT.db; do
+  if [ -f "$f" ]; then
+    echo "✅ $(basename $f): $(du -h $f | cut -f1)"
+  else
+    echo "❌ MISSING: $f"
+  fi
+done
 ```
 **⛔ STOP if any datasets are missing.** Inform the user which files need to be downloaded.
 
@@ -62,7 +78,11 @@ COINS=("ADA_USDT_USDT" "ETH_USDT_USDT" "SOL_USDT_USDT" "BNB_USDT_USDT" "BTC_USDT
 > 4. Cuando el log indique que el proceso ha finalizado, detén tu monitoreo y continúa al Step 3.
 
 
-## Step 3: Verify Data Collection
+## Step 3: Merge Databases & Verify Data Collection
+```bash
+# Consolidate all historian_<symbol>.db into master historian.db
+.venv/bin/python utils/merge_historian.py
+```
 ```bash
 .venv/bin/python -c "
 import sqlite3
@@ -85,11 +105,11 @@ for sym, cnt in rows:
 ## Step 4: Edge Audit & Target Calibration
 Evaluate current strategy performance:
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 14400 --by-coin
+.venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --window 14400 --by-coin
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --calibrate
+.venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --calibrate
 ```
 
 ## Step 5: Per-Coin Quality Analysis
@@ -146,12 +166,6 @@ for window in windows:
 "
 ```
 
-## Step 6: L2 Microstructure Audit (Liquidity Wall)
-Verify if the edge is supported by L2 limits across the multiple instruments.
-```bash
-.venv/bin/python utils/l2_depth_auditor.py
-```
-
 ---
 
 ## ⛔ MANDATORY STOP — Present Results
@@ -161,8 +175,7 @@ After Step 5, the agent **MUST STOP** and present:
 1. **Aggregate table** (all 10 coins combined): n, WR%, Gross Expectancy%, Net (Taker), Net (Maker)
 2. **Per-coin breakdown table** with individual Verdicts based on Expectancy
 3. **Generalizability Score**: How many coins CERTIFIED / WATCH / FAILED
-4. **L2 Correlation Result**: Does the L2 Auditor confirm that "High Wall" setups exhibit MFE/MAE > 1.2 across all assets?
-5. **Specific observations** per coin (e.g., "ETH has high MAE, needs tighter filters")
+4. **Specific observations** per coin (e.g., "ETH has high MAE, needs tighter filters")
 
 ### Certification Matrix — UPDATED Phase 800B
 

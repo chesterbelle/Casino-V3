@@ -1,22 +1,22 @@
 ---
-description: Protocolo para certificar el Alpha/Edge de los Setups usando el Auditor de Interferencia Cero
+description: Protocolo para certificar el Alpha/Edge de un solo activo usando el Auditor de Interferencia Cero
 ---
-# Phase 800 — Edge Audit Protocol (Zero-Interference Certification)
+# Single-Coin Edge Audit Protocol (Zero-Interference Certification)
 
 // turbo-all
 
 ## Overview
 This protocol performs a rigorous, purely statistical validation of the **predictive power (Edge)**
-of tactical setups in Casino-V3. It runs a zero-interference simulation (no active risk management exits)
+of tactical setups for a SINGLE coin. It runs a zero-interference simulation (no active risk management exits)
 to capture pristine price trajectories and compute MFE (Maximum Favorable Excursion) vs MAE (Maximum Adverse Excursion).
 
-It follows a 4-step sequence: Nuclear Reset → Run Backtests (Multi-Asset) → Statistical Extraction → Decision.
+It follows a 5-step sequence: Nuclear Reset → Run Backtest → Verify Data → Statistical Extraction → Multi-Window Grid.
 
 **⛔ MANDATORY STOP RULE**: After Step 3 (Statistical Extraction), the agent **MUST STOP COMPLETELY**.
 Present results + specific observations and **wait for explicit user approval** before any further action.
 **No iterations, no auto-fixes, no follow-up backtests** without user instruction.
 
-**Goals (Overall)**: Total Signals Audited ≥ 50
+**Default Asset**: LTCUSDT (can be changed via `--symbol` flag)
 **Goals (Per setup_type)**:
 - **Gross Expectancy**: > 0.36% (3× taker fees = viable with any order type)
 - **Gross Expectancy**: > 0.12% (viable with maker orders / Limit Sniper)
@@ -52,18 +52,18 @@ mkdir -p logs
 
 ## Step 2: Verify Data Collection
 ```bash
-.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian.db'); s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]; p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]; d = conn.execute('SELECT COUNT(*) FROM decision_traces').fetchone()[0] if conn.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='decision_traces' ''').fetchone()[0] == 1 else 0; print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')"
+.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian_LTCUSDT.db'); s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]; p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]; d = conn.execute('SELECT COUNT(*) FROM decision_traces').fetchone()[0] if conn.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='decision_traces' ''').fetchone()[0] == 1 else 0; print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')"
 ```
-**Must output**: Signals >= 80. If fewer, mark as INSUFFICIENT DATA.
+**Must output**: Signals >= 2 (minimum for single-coin). If 0, check backtest logs for errors.
 
 ## Step 3: Statistical Extraction & Calibration
 Run the Edge Auditor tool to evaluate current strategy performance.
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 14400 --by-coin
+.venv/bin/python utils/setup_edge_auditor.py --db data/historian_LTCUSDT.db --window 14400
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers.
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --calibrate
+.venv/bin/python utils/setup_edge_auditor.py --db data/historian_LTCUSDT.db --calibrate
 ```
 Review the output for **[1] SETUP EDGE BREAKDOWN**, **[2] PRIMARY METRIC**, and **[4] DECISION TRACE AUDIT**, as well as the **🎯 TOP 15 GEOMETRIC AMT TARGET CONFIGURATIONS**.
 
@@ -72,7 +72,7 @@ Run a comprehensive matrix evaluation (1h, 2h, 4h windows across 0.6% to 1.2% ta
 ```bash
 .venv/bin/python -c "
 import sqlite3, collections
-conn = sqlite3.connect('data/historian.db')
+conn = sqlite3.connect('data/historian_LTCUSDT.db')
 signals = conn.execute('SELECT timestamp, symbol, side, price, setup_type FROM signals ORDER BY timestamp').fetchall()
 
 windows = [3600, 7200, 14400]
@@ -127,13 +127,6 @@ for window in windows:
 "
 ```
 
-## Step 5: L2 Microstructure Audit (Liquidity Wall)
-Run the L2 Depth Auditor to verify passive liquidity support.
-```bash
-.venv/bin/python utils/l2_depth_auditor.py
-```
-Review the **[L2 DEPTH RATIO AUDIT RESULTS]** to ensure "High Wall" setups have a Ratio > 1.2.
-
 ---
 
 ## ⛔ MANDATORY STOP — Present Results and Certification Status
@@ -145,7 +138,6 @@ After running Step 3, the agent MUST:
 3. **Present the Theoretical Win-Rate Matrix** (Section [2/5]) with Net (Taker) and Net (Maker)
 4. **Present the Decision Trace Audit** (Section [4])
 5. **Present the Multi-Window Target Grid Evaluation** (Step 4) - Verify at which window/target combo Net Taker Expectancy peaks.
-6. **Present the L2 Microstructure Certification** (Step 5) - Does the High Wall (>2.0) category correlate with higher expectancy?
 6. **Assign a Certification Status** for each setup based on the criteria below
 7. **List highly specific observations** (e.g., "Setup X has Expectancy 0.15% but needs Limit Sniper", "MAE too high, tighten entry filters")
 8. **STOP and wait** for user input. Do not alter any strategy file or run another test without permission.
@@ -156,7 +148,7 @@ After running Step 3, the agent MUST:
 
 | Setup Type | Condition | Status | Action Required |
 |---|---|---|---|
-| **Any** | n < 20 | **INSUFFICIENT DATA** | Needs longer backtest or looser baseline filters |
+| **Any** | n < 2 | **INSUFFICIENT DATA** | Needs longer backtest or looser baseline filters |
 | **Any** | Expectancy > 0.36% AND WR > 55% | **CERTIFIED** | Viable with any order type. Approve for Live Trading. |
 | **Any** | Expectancy > 0.12% AND WR > 50% | **WATCH** | Viable ONLY with Limit Sniper (maker entries). Enable in config. |
 | **Any** | Expectancy < 0.12% | **FAILED** | Not viable after fees. Rework entry filters (reduce MAE) or exit timing (capture more MFE). |

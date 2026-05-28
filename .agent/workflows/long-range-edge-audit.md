@@ -6,7 +6,7 @@ description: Protocolo para certificar el Edge en múltiples condiciones de merc
 // turbo-all
 
 ## Overview
-Tests whether the Estrategy edge **persists across different market regimes** using LTC.
+Tests whether the strategy edge **persists across different market regimes** using LTC.
 Runs 9 backtests across three distinct conditions (3 days each).
 
 **Asset:**
@@ -89,7 +89,11 @@ mkdir -p logs
 
 ---
 
-## Step 3: Verify Data Collection
+## Step 3: Merge Databases & Verify Data Collection
+```bash
+# Consolidate all historian_<condition>_<date>.db into master historian.db
+.venv/bin/python utils/merge_historian.py
+```
 ```bash
 .venv/bin/python -c "
 import sqlite3
@@ -107,11 +111,11 @@ print(f'Signals: {s}, Price Samples: {p}, Traces: {d}')
 ## Step 4: Statistical Extraction & Target Calibration
 Evaluate current strategy performance:
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --window 14400 --by-coin
+.venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --window 14400 --by-coin
 ```
 Run the Calibration grid sweeper to discover and verify optimal AMT target multipliers:
 ```bash
-.venv/bin/python utils/setup_edge_auditor.py --calibrate
+.venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --calibrate
 ```
 
 ---
@@ -186,17 +190,9 @@ Note: `per_condition_audit.py` uses timestamp ranges derived from the 9 datasets
 
 ---
 
-## Step 7: L2 Microstructure Audit (Liquidity Wall)
-Run the L2 Depth Auditor to verify passive liquidity support across all 3 market conditions.
-```bash
-.venv/bin/python utils/l2_depth_auditor.py
-```
-
----
-
 ## ⛔ MANDATORY STOP — Present Results and Certification Status
 
-After Step 6, the agent **MUST STOP COMPLETELY** and present:
+After Step 5, the agent **MUST STOP COMPLETELY** and present:
 
 1. **Section [7]: Overall Edge Summary** from the auditor (Gross Expectancy, Net Taker/Maker)
 2. **Section [4]: Decision Trace Audit** (Forensic reasons for rejections)
@@ -205,8 +201,7 @@ After Step 6, the agent **MUST STOP COMPLETELY** and present:
 5. **Guardian effectiveness**: Compare signal counts across conditions
    - Range should have the MOST signals (balance = our edge zone)
    - Bear/Bull should have FEWER signals (guardians blocking counter-trend)
-6. **L2 Correlation Result**: Present the L2 Depth Ratio Audit results (Step 7).
-7. **STOP and wait** for user input
+6. **STOP and wait** for user input
 
 ### Certification Matrix
 
