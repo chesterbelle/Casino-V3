@@ -19,9 +19,9 @@ from core.events import (
 )
 from core.telemetry import TraceOutcome, black_box
 from decision.engine.proposal import TradeProposal
+from decision.engine.quality_scorer import evaluate_quality
 from decision.engine.targets import TargetingMixin
 from decision.engine.telemetry import TelemetryMixin
-from decision.guardians import GuardianManager
 
 logger = logging.getLogger("SetupEngine")
 
@@ -36,9 +36,6 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self.last_fire_ts = defaultdict(float)
         self.fire_cooldown = 15.0
         self._last_candle_boundary: Dict[str, float] = defaultdict(float)
-
-        # Layers
-        self.guardian_manager = GuardianManager()
 
         # Memories (5s)
         self.micro_memory = defaultdict(lambda: deque(maxlen=500))
@@ -195,14 +192,19 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             trace = black_box.create_trace(symbol, side, signal_id=f"SIG_{int(time.time()*1000)}")
             trace.add_step("SetupEngine", True, f"Processing instant signal: {scenario}")
 
-        # 1. Guardian Evaluation
-        passed, multiplier, setup_mode, val_pos = self.guardian_manager.evaluate_all(
-            symbol, side, signal, self.context_registry, {}, trace=trace
-        )
-        if not passed:
-            trace.finalize(TraceOutcome.DISCARDED, "Rejected by Guardian chain")
+        # 1. Quality Scoring (v8.4 Crystal Reforge — replaces guardian chain)
+        quality = evaluate_quality(symbol, side, signal, self.context_registry, trace=trace)
+        if not quality.passed:
+            trace.finalize(TraceOutcome.DISCARDED, quality.block_reason)
             black_box.archive_trace(trace.trace_id)
             return
+        if quality.grade is None:
+            trace.finalize(TraceOutcome.DISCARDED, f"Low quality score: {quality.quality_score}")
+            black_box.archive_trace(trace.trace_id)
+            return
+
+        setup_mode = quality.setup_mode
+        val_pos = quality.value_position
 
         # 2. Target Calculation
         tp_price, sl_price, setup_name, level_ref, atr_pct = self._calculate_targets(
@@ -236,7 +238,6 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 "tp_price": tp_price,
                 "sl_price": sl_price,
                 "level_ref": level_ref,
-                "sizing_multiplier": multiplier,
                 "v3_mode": setup_mode.value,
                 "scenario": scenario,
                 "is_composite": signal.get("is_composite", False),
@@ -258,7 +259,10 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         # 4. Dispatch TradeProposal (V8.5 Planar Architecture)
         self.last_fire_ts[symbol] = now
 
-        grade = "A" if trigger_meta.get("conviction_score", 0) > 0 else "B"
+        # Use grade from quality scorer
+        grade = quality.grade
+        trigger_meta["quality_score"] = quality.quality_score
+        trigger_meta["quality_scores"] = quality.scores
 
         proposal = TradeProposal(
             symbol=symbol,
@@ -284,7 +288,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self.trace(
             trigger_meta,
             "PHASE3_DISPATCHED",
-            {"setup_type": scenario, "atr_pct": atr_pct, "multiplier": multiplier},
+            {"setup_type": scenario, "atr_pct": atr_pct, "quality_score": quality.quality_score},
         )
 
         logger.info(

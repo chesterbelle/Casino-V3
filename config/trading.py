@@ -18,7 +18,7 @@ STARTING_BALANCE = 10_000.0
 # Used ONLY when sensors don't provide structural price levels.
 # These are converted to absolute prices in execution.py.
 DEFAULT_TP_PCT = 0.003  # 0.3% from entry
-DEFAULT_SL_PCT = 0.002  # 0.2% from entry
+DEFAULT_SL_PCT = 0.003  # 0.3% from entry (v8.4: aligned with manifesto)
 
 # Backward-compatible aliases (used by position_tracker, multi_asset_manager, etc.)
 TAKE_PROFIT = DEFAULT_TP_PCT
@@ -296,7 +296,7 @@ ASSET_EXIT_PROFILES = {
 PATIENCE_LOCK_GRACE_PERIOD = 15.0
 # Seconds to wait for SL/TP modification before considering it a failure
 GRACEFUL_SL_TIMEOUT = 10.0
-GRACEFUL_TP_TIMEOUT = 10.0
+# Note: GRACEFUL_TP_TIMEOUT defined earlier at line 43 (30.0s)
 
 # Legacy compatibility (kept for any external references, but ignored by SlimExitEngine)
 HFT_EXIT_MODE = True

@@ -3,11 +3,11 @@ from typing import Tuple
 
 class TargetingMixin:
     """
-    Handles TP/SL calculations using Auction Market Theory geometry.
+    v8.4 Crystal Reforge — Simplified Target Calculator.
 
-    Two-tier strategy:
-    1. AMT Structural: TP/SL from POC/VAH/VAL geometry (when VA data available)
-    2. ATR Fallback: Multipliers per scenario (when VA data unavailable)
+    Two modes:
+    1. Reversion (Scenarios 1, 2, 3): TP = POC, SL = 1.5× ATR
+    2. Continuation (Scenario 4): TP = 1.5× ATR, SL = 1.0× ATR
     """
 
     def _calculate_targets(
@@ -21,91 +21,67 @@ class TargetingMixin:
         signal: dict = None,
     ) -> Tuple[float, float, str, str, float]:
         """
-        AMT Structural Target Calculator.
-
-        Derives TP and SL from Auction Market Theory geometry (POC, VAH, VAL)
-        instead of ATR-based multipliers. Each reversion setup has a distinct
-        geometric formula based on the expected dynamics within the Value Area.
+        Simplified target calculator for v8.4 Crystal Reforge.
         """
         if signal is None:
             signal = {}
 
+        # Get ATR
         atr_pct = 0.20
         if self.context_registry:
             atr_data = self.context_registry.atrs.get(symbol, {})
-            if scenario == "TacticalAbsorptionV2":
-                atr_pct = atr_data.get("medium") or atr_data.get("short") or atr_pct
-            else:
-                atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
+            atr_pct = atr_data.get("short") or atr_data.get("medium") or atr_pct
 
-        tp_price = price
-        sl_price = price
-        level_ref = "VAR_AWARE_2.5x_ATR"
-
+        # Get structural levels
         poc = vah = val = 0.0
         if self.context_registry:
             poc, vah, val = self.context_registry.get_structural(symbol)
 
-        # AMT Structural Path
-        if poc > 0 and vah > 0 and val > 0 and vah > val:
-            va_width = vah - val
-            noise_floor_tp = max(atr_pct * 1.5, 0.15) / 100.0
-            noise_floor_sl = max(atr_pct * 1.0, 0.10) / 100.0
+        # Determine if reversion or continuation
+        is_reversion = setup_mode.value == "reversion" if hasattr(setup_mode, "value") else setup_mode != "continuation"
 
-            AMT_CONFIG = {
-                "TacticalAbsorptionV2": ("OPPOSITE", 0.3),
-                "failed_breakout": ("OPPOSITE", 0.5),
-                "liquidity_exhaustion": ("OPPOSITE", 0.3),
-            }
+        # v8.4 Simplified Logic
+        if is_reversion:
+            # REVERSION: TP = POC, SL = 1.5× ATR
+            if poc > 0:
+                tp_price = poc
+            else:
+                # Fallback: 1.5× ATR
+                tp_dist = price * atr_pct * 1.5 / 100.0
+                tp_price = price + tp_dist if side == "LONG" else price - tp_dist
 
-            cfg = AMT_CONFIG.get(scenario)
-            if cfg:
-                tp_target, sl_buf = cfg
-                if side == "LONG":
-                    tp_price = vah if tp_target == "OPPOSITE" else poc
-                    sl_price = val - (va_width * sl_buf)
-                else:
-                    tp_price = val if tp_target == "OPPOSITE" else poc
-                    sl_price = vah + (va_width * sl_buf)
+            sl_dist = price * atr_pct * 1.5 / 100.0
+            sl_price = price - sl_dist if side == "LONG" else price + sl_dist
 
-                if (side == "LONG" and tp_price > price and sl_price < price) or (
-                    side == "SHORT" and tp_price < price and sl_price > price
-                ):
-                    tp_dist = abs(tp_price - price) / price
-                    sl_dist = abs(sl_price - price) / price
+            level_ref = "REVERSION_POC" if poc > 0 else "REVERSION_ATR"
+            setup_name = f"AMT_{scenario.upper()}_REVERSION_{val_pos}"
 
-                    if tp_dist < noise_floor_tp:
-                        tp_price = price * (1.0 + noise_floor_tp) if side == "LONG" else price * (1.0 - noise_floor_tp)
-
-                    if sl_dist < noise_floor_sl:
-                        sl_price = price * (1.0 - noise_floor_sl) if side == "LONG" else price * (1.0 + noise_floor_sl)
-
-                    level_ref = "AMT_STRUCTURAL_LEVEL"
-
-        # ATR Fallback Path
         else:
-            MULTIPLIERS = {
-                "TacticalAbsorptionV2": 5.0,
-                "trend_acceptance": 4.5,
-                "failed_breakout": 2.5,
-                "liquidity_exhaustion": 2.5,
-            }
-            mult = MULTIPLIERS.get(scenario, 2.5)
-            if scenario == "TacticalAbsorptionV2":
-                tp_dist_pct = atr_pct * mult
-                sl_dist_pct = atr_pct * 3.33
-            else:
-                tp_dist_pct = atr_pct * mult
-                sl_dist_pct = atr_pct * (mult * 0.8)
-            tp_dec = tp_dist_pct / 100.0
-            sl_dec = sl_dist_pct / 100.0
-            if side == "LONG":
-                tp_price = price * (1.0 + tp_dec)
-                sl_price = price * (1.0 - sl_dec)
-            else:
-                tp_price = price * (1.0 - tp_dec)
-                sl_price = price * (1.0 + sl_dec)
-            level_ref = f"VAR_AWARE_{mult}x_ATR"
+            # CONTINUATION: TP = 1.5× ATR, SL = 1.0× ATR
+            tp_dist = price * atr_pct * 1.5 / 100.0
+            sl_dist = price * atr_pct * 1.0 / 100.0
 
-        setup_name = f"AMT_{scenario.upper()}_{val_pos}"
+            if side == "LONG":
+                tp_price = price + tp_dist
+                sl_price = price - sl_dist
+            else:
+                tp_price = price - tp_dist
+                sl_price = price + sl_dist
+
+            level_ref = "CONTINUATION_ATR"
+            setup_name = f"AMT_{scenario.upper()}_CONTINUATION_{val_pos}"
+
+        # Enforce minimum distances
+        min_tp_pct = 0.001  # 0.1%
+        min_sl_pct = 0.001  # 0.1%
+
+        tp_dist_pct = abs(tp_price - price) / price
+        sl_dist_pct = abs(sl_price - price) / price
+
+        if tp_dist_pct < min_tp_pct:
+            tp_price = price * (1.0 + min_tp_pct) if side == "LONG" else price * (1.0 - min_tp_pct)
+
+        if sl_dist_pct < min_sl_pct:
+            sl_price = price * (1.0 - min_sl_pct) if side == "LONG" else price * (1.0 + min_sl_pct)
+
         return tp_price, sl_price, setup_name, level_ref, atr_pct

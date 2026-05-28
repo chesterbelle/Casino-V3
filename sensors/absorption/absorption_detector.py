@@ -97,6 +97,18 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
                 logger.debug(f"❌ [ABS] Rejected {level}: Stagnation check failed")
                 continue
 
+            # Filter 5: Exhaustion Gate (v8.4 Crystal Reforge)
+            # Block if aggressor is intensifying (delta_ratio > 1.5)
+            try:
+                exhaustion = footprint_registry.get_exhaustion(self.symbol)
+                if exhaustion and exhaustion.get("ready", False):
+                    delta_ratio = exhaustion.get("delta_ratio", 1.0)
+                    if delta_ratio > 1.5:
+                        logger.debug(f"❌ [ABS] Rejected {level}: Aggressor intensifying (δ={delta_ratio:.2f} > 1.5)")
+                        continue
+            except Exception:
+                pass  # If exhaustion data not available, continue without gate
+
             # SUCCESS: Tactical Absorption V2 Detected
             side = "LONG" if direction == "SELL_EXHAUSTION" else "SHORT"
             trace_id = f"TRB-{self.symbol.split('/')[0]}-{uuid.uuid4().hex[:8]}"
