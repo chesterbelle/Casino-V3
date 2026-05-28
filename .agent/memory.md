@@ -62,15 +62,16 @@
 
 ---
 
-### Current Status: 🟢 v8.4 Crystal Reforge — Working (Dynamic Targets + Proximity)
-- **Architecture**: Quality Pipeline + 4 scenarios + dynamic targets + proximity analysis.
-- **Baseline**: Net Taker -0.0351% (LTCUSDT 24h, 184 signals). Long-range: +0.2254%.
-- **Win Rate**: 52.7%
+### Current Status: 🟢 v8.4 Crystal Reforge — Working (Coin Profiler Active)
+- **Architecture**: Quality Pipeline + 4 scenarios + dynamic targets + coin profiler + proximity analysis.
+- **Baseline**: Net Taker +0.0166% (LTCUSDT 24h, 215 signals). Long-range: +0.2254%.
+- **Win Rate**: 55.6%
 - **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
-- **Commits**: `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
-- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.32, proximity 0.74), failed_breakout (MFE/MAE 2.38, proximity 1.00), liquidity_exhaustion (MFE/MAE 0.95, proximity 0.50), trend_acceptance (MFE/MAE 0.39, proximity 0.40)
-- **Target Proximity**: New metric showing how close price gets to target. TacticalAbsorptionV2: 58.2% achieved, failed_breakout: 100% achieved.
-- **Next**: Multi-asset validation, tune quality threshold
+- **Commits**: `a6780c1` (coin profiler), `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+- **Coin Profiler**: Auto-classifies coins into TIER_1/2/3 based on microstructure. Adapts TP/SL and quality scores.
+- **Per Setup**: TacticalAbsorptionV2 (+0.1452%), failed_breakout (+0.7800%), liquidity_exhaustion (-0.1200%), trend_acceptance (-0.7413%)
+- **Multi-Coin**: 3/10 coins with edge (SUI, AVAX, LTC). Edge is instrument-dependent.
+- **Next**: Run generalized audit with coin profiler to verify multi-coin improvement
 
 ---
 
