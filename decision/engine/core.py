@@ -113,7 +113,8 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         if not self.is_system_warm(symbol):
             return
         if self.context_registry and self.context_registry.is_in_trade(symbol):
-            return
+            if not getattr(config, "AUDIT_MODE", False):
+                return
         if timestamp - self.last_fire_ts[symbol] < self.fire_cooldown:
             return
 

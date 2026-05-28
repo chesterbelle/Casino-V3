@@ -8,6 +8,7 @@ Supports optional Kelly Criterion sizing based on sensor performance.
 
 import logging
 
+from config import trading as trading_config
 from core.events import EventType
 from decision.engine.proposal import TradeProposal
 
@@ -42,6 +43,10 @@ class AdaptivePlayer:
 
     async def on_trade_proposal(self, proposal: TradeProposal):
         """Execute proposal based on rigid grade policy."""
+        # Audit mode: record only, no execution
+        if getattr(trading_config, "AUDIT_MODE", False):
+            return
+
         target_symbol_norm = proposal.symbol.replace("/", "").replace(":USDT", "")
 
         # Check inflight
