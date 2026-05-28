@@ -62,13 +62,14 @@
 
 ---
 
-### Current Status: 🟡 v8.4 Crystal Reforge — Working (Needs Tuning)
-- **Architecture**: Quality Pipeline replaces guardian kill-chain. Exhaustion gate + graduated scoring.
-- **Baseline**: Net Taker +0.0012%, Net Maker +0.0412% (LTCUSDT 24h, 177 signals).
-- **Win Rate**: 37% (needs threshold tuning).
+### Current Status: 🟡 v8.4 Crystal Reforge — Working (TrendAcceptance Fixed)
+- **Architecture**: Quality Pipeline + 4 scenarios active. Exhaustion gate + graduated scoring.
+- **Baseline**: Net Taker +0.2254%, Net Maker +0.2654% (LTCUSDT 9-day, 1909 signals).
+- **Win Rate**: 29.5%
 - **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
-- **Commits**: `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
-- **Next**: Tune quality threshold (0.4 → 0.5-0.6) to improve win rate.
+- **Commits**: `d5a49b6` (TrendAcceptance fix), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+- **Per Setup**: TacticalAbsorptionV2 (+0.2573%), trend_acceptance (+0.0564%), failed_breakout (-0.1293%), liquidity_exhaustion (-0.0536%)
+- **Next**: Tune quality threshold, disable negative setups (failed_breakout, liquidity_exhaustion)
 
 ---
 
