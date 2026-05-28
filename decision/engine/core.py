@@ -53,6 +53,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self.engine.subscribe(EventType.TICK, self.on_tick)
         self.engine.subscribe(EventType.SIGNAL, self.on_signal)
         self.engine.subscribe(EventType.MICROSTRUCTURE_BATCH, self.on_microstructure_batch)
+        self.engine.subscribe(EventType.CANDLE, self.on_candle)
 
         logger.info("🎯 LTA V10 Orchestrator initialized (Crystal Pipe Architecture)")
 
@@ -67,7 +68,10 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             pct = (count / total * 100) if total > 0 else 0
             logger.info(f"🔹 {sc:20}: {count:3} ({pct:5.1f}%)")
         logger.info(f"📈 TOTAL SIGNALS DISPATCHED: {total}")
-        return stats
+
+    async def on_candle(self, event):
+        """Propagate candle events to ScenarioManager for TrendAcceptance tracking."""
+        self.scenario_manager.on_candle(event.symbol, event.close, event.timestamp)
 
     def is_system_warm(self, symbol: str) -> bool:
         """Structural readiness check."""
