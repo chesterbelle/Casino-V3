@@ -61,13 +61,14 @@
 
 ---
 
-### Current Status: 🟢 Slim, Certified, Clean & Optimized
+### Current Status: 🟢 v8.4 Crystal Reforge — Certified
 - **Architecture**: V8.5 Planar. Crystal Layer purged (-2,172 lines), 10/10 readability, 16 Iron Layer OPT, 10/10 validators.
-- **Baseline**: Net Taker +0.6620%, Net Maker +0.7020% (LTCUSDT single-coin, toxic block removed).
-- **Backtest Speed**: 1m0s (33% faster vs pre-optimization).
-- **Commit**: Pending on `v8.4-agent-friendly-refactor`.
+- **Baseline**: Net Taker +0.68%, Net Maker +0.72% (LTCUSDT single-coin, v8.4-crystal-reforge tag).
+- **MFE/MAE**: 1.62 (structural advantage confirmed).
+- **Win Rate**: 100% (3/3 decided trades).
+- **Tag**: `v8.4-crystal-reforge` on `v8.4-agent-friendly-refactor`.
 - **Exit Strategy**: Scale Out + Micro-Z Reversal only.
-- **Toxic Flow Block**: REMOVED — was contradicting BALANCE regime and TREND Cases 3/4.
+- **Session**: Toxic flow block removed, audit mode fixed, FADE RISK analysis completed.
 
 ---
 
@@ -84,6 +85,8 @@
 - 2026-05-28T06:30:00 | session-update | Forense guardian chain: 917 ABS signals → 229 guardian rejections → 723 passed → 720 killed by in-trade lock → 3 trades.
 - 2026-05-28T07:00:00 | session-update | TOXIC FLOW BLOCK identificado como bug de diseño: contradice BALANCE regime (score=1.0) y TREND Cases 3/4.
 - 2026-05-28T07:30:00 | session-update | A/B test: eliminar toxic block → Signals 3→11 (+267%), Net Taker +0.17%→+0.66% (+283%), MFE/MAE 0.92→1.81.
+- 2026-05-28T08:00:00 | session-update | Audit mode fixes: in-trade lock bypass + no execution. FADE RISK analysis: sensor VAH/UX filter reverted (arquitectura incorrecta).
+- 2026-05-28T08:30:00 | session-close | v8.4-crystal-reforge tagged. Net Taker +0.68%, MFE/MAE 1.62, WR 100%. 3 commits, 0 regress.
 - 2026-05-27T16:00:00 | session-update | Crystal Layer Cleanup: Auditoría forense identificó AbsorptionReversalGuardian desconectado, fast_track zombie, código muerto acumulado V8→V10.
 - 2026-05-27T16:30:00 | session-update | Ejecutado benchmark pre-cleanup: 2 signals, Net Taker +0.1334%, Net Maker +0.1734%.
 - 2026-05-27T17:00:00 | session-close | Cleanup completado: -2,172 líneas, 6 archivos eliminados, 8 archivos podados. Post-cleanup: Net Taker +0.1155%, Net Maker +0.1555%.
