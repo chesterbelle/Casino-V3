@@ -246,8 +246,8 @@ class EdgeAuditor:
         FEE_TAKER_RT = 0.12
         FEE_MAKER_RT = 0.08
         UNIFORM_GRIDS = [
+            # Symmetric (full ladder)
             (0.1, 0.1),
-            (0.15, 0.15),
             (0.2, 0.2),
             (0.3, 0.3),
             (0.4, 0.4),
@@ -256,9 +256,23 @@ class EdgeAuditor:
             (0.7, 0.7),
             (0.8, 0.8),
             (0.9, 0.9),
-            (0.9, 0.6),
-            (0.9, 1.0),
             (1.0, 1.0),
+            (1.2, 1.2),
+            (1.5, 1.5),
+            (2.0, 2.0),
+            (2.5, 2.5),
+            # Asymmetric favorable (TP > SL)
+            (0.6, 0.3),
+            (0.8, 0.3),
+            (0.9, 0.4),
+            (1.0, 0.3),
+            (1.2, 0.3),
+            (1.5, 0.3),
+            (1.9, 0.2),
+            (2.0, 0.3),
+            # Asymmetric conservative (SL > TP)
+            (0.5, 0.8),
+            (0.6, 1.0),
         ]
 
         # ── [1] SETUP EDGE BREAKDOWN (MFE/MAE raw) ──
@@ -537,6 +551,62 @@ class EdgeAuditor:
                         print(f"{GREEN}✅ EDGE CONFIRMED: Both entry and targets are sound.{RESET}")
                     else:
                         print(f"{YELLOW}⚠️  EDGE MARGINAL: Entry is viable but costs exceed expectancy.{RESET}")
+
+            # ── [8] TARGET PROXIMITY ANALYSIS ──
+            if "mfe" in df.columns and "tp_pct" in df.columns:
+                print(f"\n{BOLD}[8] TARGET PROXIMITY ANALYSIS{RESET}")
+                print(f"{'How close did price get to our target?'}")
+                print("-" * 80)
+                print(
+                    f"{'Setup Type':<20} {'Avg Proximity':<15} {'Achieved%':<12} {'Close%':<10} {'Partial%':<12} {'Missed%':<10}"
+                )
+                print("-" * 80)
+
+                CLOSE_THRESHOLD = 0.80  # 80% of target = "close enough"
+
+                for setup, group in df.groupby("setup_type"):
+                    decided = group[group["real_outcome"].isin(["WIN", "LOSS"])]
+                    if len(decided) == 0:
+                        continue
+
+                    # Calculate proximity for each signal
+                    proximities = []
+                    achieved = close_count = partial = missed = 0
+
+                    for _, row in decided.iterrows():
+                        mfe = row.get("mfe", 0.0)
+                        tp = row.get("tp_pct", 0.0)
+                        if tp > 0:
+                            prox = min(mfe / tp, 1.0)
+                            proximities.append(prox)
+
+                            if prox >= 1.0:
+                                achieved += 1
+                            elif prox >= CLOSE_THRESHOLD:
+                                close_count += 1
+                            elif prox >= 0.5:
+                                partial += 1
+                            else:
+                                missed += 1
+
+                    n = len(proximities)
+                    if n == 0:
+                        continue
+
+                    avg_prox = sum(proximities) / n
+                    ach_pct = achieved / n * 100
+                    close_pct = close_count / n * 100
+                    part_pct = partial / n * 100
+                    miss_pct = missed / n * 100
+
+                    prox_color = GREEN if avg_prox >= 0.7 else (YELLOW if avg_prox >= 0.5 else RED)
+                    print(
+                        f"{setup:<20} {prox_color}{avg_prox:>10.2f}{RESET}      "
+                        f"{ach_pct:>5.1f}%     {close_pct:>5.1f}%    {part_pct:>5.1f}%     {miss_pct:>5.1f}%"
+                    )
+
+                print(f"\n{RESET}  Proximity = min(MFE / TP, 1.0). Close = ≥80% of target reached.")
+                print(f"  {'High proximity + low WR = target too tight. Low proximity = entry wrong direction.'}")
 
             # ── Per-Coin Summary (when --by-coin) ──
             if self.by_coin and "symbol" in df.columns:

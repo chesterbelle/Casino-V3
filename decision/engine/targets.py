@@ -3,12 +3,17 @@ from typing import Tuple
 
 class TargetingMixin:
     """
-    v8.4 Crystal Reforge — Simplified Target Calculator.
+    v8.4 Crystal Reforge — Dynamic Target Calculator.
 
-    Two modes:
-    1. Reversion (Scenarios 1, 2, 3): TP = POC, SL = 1.5× ATR
-    2. Continuation (Scenario 4): TP = 1.5× ATR, SL = 1.0× ATR
+    Targets adapt to market conditions using ATR + POC + Grid minimums.
+    Grid-calibrated floors ensure minimum profitability.
     """
+
+    # Grid-optimal floors per scenario (from Uniform Grid analysis)
+    GRID_FLOORS = {
+        "reversion": {"tp": 0.009, "sl": 0.009},  # 0.90% symmetric
+        "continuation": {"tp": 0.01, "sl": 0.01},  # 1.0% symmetric
+    }
 
     def _calculate_targets(
         self,
@@ -21,7 +26,7 @@ class TargetingMixin:
         signal: dict = None,
     ) -> Tuple[float, float, str, str, float]:
         """
-        Simplified target calculator for v8.4 Crystal Reforge.
+        Dynamic target calculator: max(ATR, POC, Grid_minimum).
         """
         if signal is None:
             signal = {}
@@ -37,51 +42,52 @@ class TargetingMixin:
         if self.context_registry:
             poc, vah, val = self.context_registry.get_structural(symbol)
 
-        # Determine if reversion or continuation
+        # Determine mode
         is_reversion = setup_mode.value == "reversion" if hasattr(setup_mode, "value") else setup_mode != "continuation"
 
-        # v8.4 Simplified Logic
         if is_reversion:
-            # REVERSION: TP = POC, SL = 1.5× ATR
+            # REVERSION: Dynamic TP/SL with 0.90% floor
+            grid_floor = self.GRID_FLOORS["reversion"]
+
+            # TP: max(POC_distance, ATR×1.5, grid_floor)
+            atr_tp = atr_pct * 1.5 / 100.0
             if poc > 0:
-                tp_price = poc
+                poc_dist = abs(poc - price) / price
+                tp_pct = max(atr_tp, poc_dist, grid_floor["tp"])
             else:
-                # Fallback: 1.5× ATR
-                tp_dist = price * atr_pct * 1.5 / 100.0
-                tp_price = price + tp_dist if side == "LONG" else price - tp_dist
+                tp_pct = max(atr_tp, grid_floor["tp"])
 
-            sl_dist = price * atr_pct * 1.5 / 100.0
-            sl_price = price - sl_dist if side == "LONG" else price + sl_dist
+            # SL: max(ATR×1.5, grid_floor)
+            sl_pct = max(atr_pct * 1.5 / 100.0, grid_floor["sl"])
 
-            level_ref = "REVERSION_POC" if poc > 0 else "REVERSION_ATR"
+            if side == "LONG":
+                tp_price = price * (1.0 + tp_pct)
+                sl_price = price * (1.0 - sl_pct)
+            else:
+                tp_price = price * (1.0 - tp_pct)
+                sl_price = price * (1.0 + sl_pct)
+
+            level_ref = "REVERSION_DYNAMIC"
             setup_name = f"AMT_{scenario.upper()}_REVERSION_{val_pos}"
 
         else:
-            # CONTINUATION: TP = 1.5× ATR, SL = 1.0× ATR
-            tp_dist = price * atr_pct * 1.5 / 100.0
-            sl_dist = price * atr_pct * 1.0 / 100.0
+            # CONTINUATION: Dynamic TP/SL with 1.0% floor
+            grid_floor = self.GRID_FLOORS["continuation"]
+
+            # TP: max(ATR×1.5, grid_floor)
+            tp_pct = max(atr_pct * 1.5 / 100.0, grid_floor["tp"])
+
+            # SL: max(ATR×1.0, grid_floor)
+            sl_pct = max(atr_pct * 1.0 / 100.0, grid_floor["sl"])
 
             if side == "LONG":
-                tp_price = price + tp_dist
-                sl_price = price - sl_dist
+                tp_price = price * (1.0 + tp_pct)
+                sl_price = price * (1.0 - sl_pct)
             else:
-                tp_price = price - tp_dist
-                sl_price = price + sl_dist
+                tp_price = price * (1.0 - tp_pct)
+                sl_price = price * (1.0 + sl_pct)
 
-            level_ref = "CONTINUATION_ATR"
+            level_ref = "CONTINUATION_DYNAMIC"
             setup_name = f"AMT_{scenario.upper()}_CONTINUATION_{val_pos}"
-
-        # Enforce minimum distances
-        min_tp_pct = 0.001  # 0.1%
-        min_sl_pct = 0.001  # 0.1%
-
-        tp_dist_pct = abs(tp_price - price) / price
-        sl_dist_pct = abs(sl_price - price) / price
-
-        if tp_dist_pct < min_tp_pct:
-            tp_price = price * (1.0 + min_tp_pct) if side == "LONG" else price * (1.0 - min_tp_pct)
-
-        if sl_dist_pct < min_sl_pct:
-            sl_price = price * (1.0 - min_sl_pct) if side == "LONG" else price * (1.0 + min_sl_pct)
 
         return tp_price, sl_price, setup_name, level_ref, atr_pct
