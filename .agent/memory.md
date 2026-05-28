@@ -62,15 +62,15 @@
 
 ---
 
-### Current Status: 🟡 v8.4 Crystal Reforge — Working (Parametric Fix Applied)
-- **Architecture**: Quality Pipeline + 4 scenarios active. Exhaustion gate + graduated scoring.
-- **Baseline**: Net Taker -0.0186% (LTCUSDT 24h, 186 signals). Long-range: +0.2254%.
-- **Win Rate**: 33.3%
+### Current Status: 🟢 v8.4 Crystal Reforge — Working (Dynamic Targets + Proximity)
+- **Architecture**: Quality Pipeline + 4 scenarios + dynamic targets + proximity analysis.
+- **Baseline**: Net Taker -0.0351% (LTCUSDT 24h, 184 signals). Long-range: +0.2254%.
+- **Win Rate**: 52.7%
 - **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
-- **Commits**: `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
-- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.76), failed_breakout (MFE/MAE 2.25), liquidity_exhaustion (MFE/MAE 1.03), trend_acceptance (MFE/MAE 0.39)
-- **Fix Applied**: regime_guardian string match + REVERSION mode forced for reversion scenarios
-- **Next**: Fine-tune targets for failed_breakout and liquidity_exhaustion
+- **Commits**: `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.32, proximity 0.74), failed_breakout (MFE/MAE 2.38, proximity 1.00), liquidity_exhaustion (MFE/MAE 0.95, proximity 0.50), trend_acceptance (MFE/MAE 0.39, proximity 0.40)
+- **Target Proximity**: New metric showing how close price gets to target. TacticalAbsorptionV2: 58.2% achieved, failed_breakout: 100% achieved.
+- **Next**: Multi-asset validation, tune quality threshold
 
 ---
 
