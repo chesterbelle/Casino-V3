@@ -63,10 +63,11 @@
 
 ### Current Status: 🟢 Slim, Certified, Clean & Optimized
 - **Architecture**: V8.5 Planar. Crystal Layer purged (-2,172 lines), 10/10 readability, 16 Iron Layer OPT, 10/10 validators.
-- **Baseline**: Net Taker +0.1334%, Net Maker +0.1734% (LTCUSDT single-coin, preserved across all changes).
+- **Baseline**: Net Taker +0.6620%, Net Maker +0.7020% (LTCUSDT single-coin, toxic block removed).
 - **Backtest Speed**: 1m0s (33% faster vs pre-optimization).
-- **Commit**: `f036fbd` on `v8.4-agent-friendly-refactor` (18 commits in session).
+- **Commit**: Pending on `v8.4-agent-friendly-refactor`.
 - **Exit Strategy**: Scale Out + Micro-Z Reversal only.
+- **Toxic Flow Block**: REMOVED — was contradicting BALANCE regime and TREND Cases 3/4.
 
 ---
 
@@ -79,6 +80,10 @@
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-05-28T06:00:00 | session-update | Edge Audit LTCUSDT: 3 signals, Net Taker +0.1739%. Diagnóstico: 98.7% guardian rejection rate (195/198).
+- 2026-05-28T06:30:00 | session-update | Forense guardian chain: 917 ABS signals → 229 guardian rejections → 723 passed → 720 killed by in-trade lock → 3 trades.
+- 2026-05-28T07:00:00 | session-update | TOXIC FLOW BLOCK identificado como bug de diseño: contradice BALANCE regime (score=1.0) y TREND Cases 3/4.
+- 2026-05-28T07:30:00 | session-update | A/B test: eliminar toxic block → Signals 3→11 (+267%), Net Taker +0.17%→+0.66% (+283%), MFE/MAE 0.92→1.81.
 - 2026-05-27T16:00:00 | session-update | Crystal Layer Cleanup: Auditoría forense identificó AbsorptionReversalGuardian desconectado, fast_track zombie, código muerto acumulado V8→V10.
 - 2026-05-27T16:30:00 | session-update | Ejecutado benchmark pre-cleanup: 2 signals, Net Taker +0.1334%, Net Maker +0.1734%.
 - 2026-05-27T17:00:00 | session-close | Cleanup completado: -2,172 líneas, 6 archivos eliminados, 8 archivos podados. Post-cleanup: Net Taker +0.1155%, Net Maker +0.1555%.

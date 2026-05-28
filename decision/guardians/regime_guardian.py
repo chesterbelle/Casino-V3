@@ -42,26 +42,6 @@ def determine_value_position(price, poc, vah, val, context_registry, symbol, z_s
     return "IN_VALUE"
 
 
-def _check_toxic_flow_block(tactical_type, value_position, metrics):
-    """
-    Hard-block pure reversion setups in OUT_OF_VALUE/EXCESS zones.
-
-    Pure reversion (TacticalAbsorptionV2, FailedBreakout) fails catastrophically
-    when catching falling knives or top-tick breakouts during price discovery.
-    """
-    is_pure_reversion = tactical_type in ("TacticalAbsorptionV2", "failed_breakout")
-
-    if is_pure_reversion and value_position in ("OUT_OF_VALUE", "EXCESS"):
-        return GuardianResult(
-            passed=False,
-            score=0.0,
-            reason=f"BLOCKED (TOXIC FLOW) | {tactical_type} is structurally banned in {value_position}",
-            metrics=metrics,
-            gate_name="REGIME_ALIGNMENT_V3",
-        )
-    return None
-
-
 def _check_trend_regime(regime_v2, direction, side, value_acceptance, value_position, confidence, metrics):
     """
     Handle TREND regime decision matrix (7 cases).
@@ -200,11 +180,8 @@ def check_regime_alignment(symbol: str, side: str, reversal_signal: dict, contex
         "side": side,
     }
 
-    # Toxic Flow Hard-Block
+    # Determine tactical type for setup mode
     tactical_type = reversal_signal.get("tactical_type", reversal_signal.get("setup_type", ""))
-    toxic_block = _check_toxic_flow_block(tactical_type, value_position, metrics)
-    if toxic_block:
-        return toxic_block
 
     # BALANCE regime
     if regime_v2 == "BALANCE":
