@@ -56,19 +56,19 @@
 5.  **CALIBRACIÓN ALPHA — COMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas (excepto ETH).
 6.  **EXIT ENGINE SLIM — COMPLETADO ✅**: Purga de pilares ruidosos.
 7.  **CRYSTAL CLEANUP — COMPLETADO ✅**: Código muerto eliminado (-2,172 líneas).
-8.  **INVESTIGACIÓN ETH — PRÓXIMO PASO**: Investigar por qué ETH no logra Net Taker positivo.
-9.  **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live.
+8.  **CRYSTAL REFORGE — EN CURSO 🔄**: Quality Pipeline + Exhaustion Core implementado. Necesita threshold tuning.
+9.  **INVESTIGACIÓN ETH — PRÓXIMO PASO**: Investigar por qué ETH no logra Net Taker positivo.
+10. **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live.
 
 ---
 
-### Current Status: 🟢 v8.4 Crystal Reforge — Certified
-- **Architecture**: V8.5 Planar. Crystal Layer purged (-2,172 lines), 10/10 readability, 16 Iron Layer OPT, 10/10 validators.
-- **Baseline**: Net Taker +0.68%, Net Maker +0.72% (LTCUSDT single-coin, v8.4-crystal-reforge tag).
-- **MFE/MAE**: 1.62 (structural advantage confirmed).
-- **Win Rate**: 100% (3/3 decided trades).
-- **Tag**: `v8.4-crystal-reforge` on `v8.4-agent-friendly-refactor`.
-- **Exit Strategy**: Scale Out + Micro-Z Reversal only.
-- **Session**: Toxic flow block removed, audit mode fixed, FADE RISK analysis completed.
+### Current Status: 🟡 v8.4 Crystal Reforge — Working (Needs Tuning)
+- **Architecture**: Quality Pipeline replaces guardian kill-chain. Exhaustion gate + graduated scoring.
+- **Baseline**: Net Taker +0.0012%, Net Maker +0.0412% (LTCUSDT 24h, 177 signals).
+- **Win Rate**: 37% (needs threshold tuning).
+- **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
+- **Commits**: `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+- **Next**: Tune quality threshold (0.4 → 0.5-0.6) to improve win rate.
 
 ---
 
@@ -81,6 +81,7 @@
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-05-28T09:00:00 | session-close | v8.4 Crystal Reforge implementado: Quality Pipeline + Exhaustion Core. 177 signals, 37% WR, Net Taker +0.0012%. Necesita threshold tuning.
 - 2026-05-28T06:00:00 | session-update | Edge Audit LTCUSDT: 3 signals, Net Taker +0.1739%. Diagnóstico: 98.7% guardian rejection rate (195/198).
 - 2026-05-28T06:30:00 | session-update | Forense guardian chain: 917 ABS signals → 229 guardian rejections → 723 passed → 720 killed by in-trade lock → 3 trades.
 - 2026-05-28T07:00:00 | session-update | TOXIC FLOW BLOCK identificado como bug de diseño: contradice BALANCE regime (score=1.0) y TREND Cases 3/4.

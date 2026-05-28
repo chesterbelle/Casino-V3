@@ -6,6 +6,74 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-05-28 FULL SESSION] — v8.4 Crystal Reforge: Quality Pipeline + Exhaustion Core (Branch: v8.4-agent-friendly-refactor)
+### Summary: Rediseño completo de la arquitectura de trading. Guardian kill-chain reemplazado por Quality Pipeline graduado. Exhaustion gate como core del sistema.
+
+#### 1. Diagnóstico Inicial
+- Edge audit LTCUSDT reveló 98.7% guardian rejection rate (195/198 señales rechazadas)
+- Forense de guardian chain: 917 ABS signals → 229 guardian rejections → 723 passed → 720 killed by in-trade lock → 3 trades
+- TOXIC FLOW BLOCK identificado como bug de diseño (contradecía BALANCE regime)
+
+#### 2. Cambios Implementados
+
+**a) Toxic Flow Block Removal (`regime_guardian.py`)**
+- Eliminada función `_check_toxic_flow_block()` que contradecía BALANCE regime y TREND Cases 3/4
+- Net Taker mejoró de +0.17% a +0.68%
+
+**b) Audit Mode Fixes (`core.py`, `adaptive.py`)**
+- In-trade lock bypass en audit mode
+- Ejecución deshabilitada en audit mode
+- Audit graba señales sin ejecutar trades
+
+**c) Quality Pipeline (`quality_scorer.py`) — NUEVO**
+- Reemplaza guardian kill-chain con scoring graduado (0.0-1.0)
+- 5 factores ponderados: exhaustion (35%), regime (25%), structure (20%), liquidity (15%), spread (5%)
+- Grade mapping: A (>=0.7), B (>=0.4), None (<0.4)
+- Solo 2 hard blocks: spread > 3x, sistema no warm
+
+**d) Exhaustion Gate (`absorption_detector.py`)**
+- Conectado `get_exhaustion_metrics()` al pipeline
+- Bloquea agresores intensificándose (delta_ratio > 1.5)
+
+**e) Simplified Targets (`targets.py`)**
+- Reversiones: TP = POC, SL = 1.5× ATR
+- Continuaciones: TP = 1.5× ATR, SL = 1.0× ATR
+
+**f) Config Fixes (`trading.py`)**
+- DEFAULT_SL_PCT: 0.2% → 0.3% (alineado con manifiesto)
+- GRACEFUL_TP_TIMEOUT duplicado eliminado
+
+#### 3. Métricas Comparativas
+
+| Métrica | Pre-Session | Post-Session | Cambio |
+|---|---|---|---|
+| Signals | 3 | 177 | +5800% |
+| Decided | 3 | 165 | +5400% |
+| Win Rate | 66.7% | 37% | -30% |
+| Net Taker | +0.17% | +0.0012% | -99% |
+| Guardian Blocks | 229 | 0 | -100% |
+| Architecture | Kill chain | Quality scoring | Clean |
+
+#### 4. Archivos Modificados/Creados
+- `decision/engine/quality_scorer.py` — NUEVO: Quality scoring engine
+- `docs/strategies/amt-scenario-trading-v84.md` — NUEVO: Manifiesto v8.4
+- `decision/engine/core.py` — Usa quality scorer en vez de guardianes
+- `decision/engine/targets.py` — Targets simplificados
+- `sensors/absorption/absorption_detector.py` — Exhaustion gate
+- `config/trading.py` — Config fixes
+
+#### 5. Tags
+- `v8.4-pre-reforge` — Checkpoint antes del refactor
+- `v8.4-crystal-reforge` — Estado actual
+
+#### 6. Próximos Pasos
+1. Tune quality threshold (0.4 → 0.5-0.6) para mejorar win rate
+2. Ajustar weights del quality scorer
+3. Multi-asset validation (BNB, SOL, SUI, AVAX)
+4. Investigar ETH PROBLEM
+
+---
+
 ### [2026-05-28] — Toxic Flow Block Removal: Guardian Contradiction Fix (Branch: v8.4-agent-friendly-refactor)
 ### Summary: Eliminación del TOXIC FLOW BLOCK que contradecía BALANCE regime y TREND Cases 3/4. Net Taker +0.17%→+0.66%.
 
