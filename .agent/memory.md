@@ -62,14 +62,15 @@
 
 ---
 
-### Current Status: 🟡 v8.4 Crystal Reforge — Working (TrendAcceptance Fixed)
+### Current Status: 🟡 v8.4 Crystal Reforge — Working (Parametric Fix Applied)
 - **Architecture**: Quality Pipeline + 4 scenarios active. Exhaustion gate + graduated scoring.
-- **Baseline**: Net Taker +0.2254%, Net Maker +0.2654% (LTCUSDT 9-day, 1909 signals).
-- **Win Rate**: 29.5%
+- **Baseline**: Net Taker -0.0186% (LTCUSDT 24h, 186 signals). Long-range: +0.2254%.
+- **Win Rate**: 33.3%
 - **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
-- **Commits**: `d5a49b6` (TrendAcceptance fix), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
-- **Per Setup**: TacticalAbsorptionV2 (+0.2573%), trend_acceptance (+0.0564%), failed_breakout (-0.1293%), liquidity_exhaustion (-0.0536%)
-- **Next**: Tune quality threshold, disable negative setups (failed_breakout, liquidity_exhaustion)
+- **Commits**: `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.76), failed_breakout (MFE/MAE 2.25), liquidity_exhaustion (MFE/MAE 1.03), trend_acceptance (MFE/MAE 0.39)
+- **Fix Applied**: regime_guardian string match + REVERSION mode forced for reversion scenarios
+- **Next**: Fine-tune targets for failed_breakout and liquidity_exhaustion
 
 ---
 
