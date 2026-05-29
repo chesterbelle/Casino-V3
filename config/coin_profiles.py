@@ -5,22 +5,28 @@ Comprehensive profiles defining ALL Crystal Layer parameters per coin type.
 Each profile contains parameters for sensors, scenarios, quality scorer, targets, and guardians.
 
 Profile Names:
-- VOLATIL_BAJO_FLOW: High volatility, low trade density (SUI, AVAX, LTC)
-- EFICIENTE_MEGACAP: Ultra-efficient, tight spreads, high flow (BTC, ETH)
+- VOLATIL_BAJO_FLOW: Thin books, low trade density (SUI, AVAX, LTC)
+- EFICIENTE_MEGACAP: Deep books, tight spreads, high flow (BTC, ETH)
 - BALANCED_MID: Moderate characteristics (SOL, ADA, BNB, LINK, DOGE)
+
+Classification Metrics (measured from L2 data):
+- spread_ratio: current_spread / avg_5m_spread (1.0 = normal, >1.0 = wide)
+- depth_ratio: L2 bid_vol / ask_vol within 0.2% of mid (higher = deeper book)
+- speed: trades per second (higher = more active market)
 """
 
 COIN_PROFILES = {
     # =========================================================================
-    # VOLATIL_BAJO_FLOW — High volatility, low trade density
+    # VOLATIL_BAJO_FLOW — Thin books, low trade density
     # Coins: SUI, AVAX, LTC
-    # Characteristics: ATR > 0.15%, trades/sec < 0.04
+    # Characteristics: spread_ratio < 2.0, depth_ratio < 1.5, speed < 0.04
     # =========================================================================
     "VOLATIL_BAJO_FLOW": {
-        "description": "Volátiles con bajo flujo — edge de reversion fuerte",
+        "description": "Libros delgados, bajo flujo — edge de reversion fuerte",
         "characteristics": {
-            "atr_pct": {"min": 0.15, "max": 1.0},
-            "trades_per_sec": {"min": 0.0, "max": 0.04},
+            "spread_ratio": {"min": 0.0, "max": 2.0},  # Spread estable
+            "depth_ratio": {"min": 0.0, "max": 1.5},  # Libro delgado
+            "speed": {"min": 0.0, "max": 0.04},  # Baja densidad
         },
         # --- SENSOR PARAMETERS ---
         "sensors": {
@@ -77,15 +83,16 @@ COIN_PROFILES = {
         },
     },
     # =========================================================================
-    # EFICIENTE_MEGACAP — Ultra-efficient, tight spreads, high flow
+    # EFICIENTE_MEGACAP — Deep books, tight spreads, high flow
     # Coins: BTC, ETH
-    # Characteristics: trades/sec > 0.07, volume > $2B
+    # Characteristics: spread_ratio < 1.5, depth_ratio > 1.5, speed > 0.07
     # =========================================================================
     "EFICIENTE_MEGACAP": {
-        "description": "Ultra-eficientes — edge mínimo, parámetros conservadores",
+        "description": "Ultra-eficientes — libros profundos, spreads tight",
         "characteristics": {
-            "trades_per_sec": {"min": 0.07, "max": 100.0},
-            "volume_24h_usd": {"min": 2_000_000_000, "max": 1_000_000_000_000},
+            "spread_ratio": {"min": 0.0, "max": 1.5},  # Spread muy tight
+            "depth_ratio": {"min": 1.5, "max": 100.0},  # Libro profundo
+            "speed": {"min": 0.07, "max": 100.0},  # Alta densidad
         },
         # --- SENSOR PARAMETERS ---
         "sensors": {
@@ -144,12 +151,14 @@ COIN_PROFILES = {
     # =========================================================================
     # BALANCED_MID — Moderate characteristics
     # Coins: SOL, ADA, BNB, LINK, DOGE
+    # Characteristics: spread_ratio < 2.5, depth_ratio 1.0-3.0, speed 0.04-0.07
     # =========================================================================
     "BALANCED_MID": {
         "description": "Balanceados — parámetros intermedios",
         "characteristics": {
-            "trades_per_sec": {"min": 0.04, "max": 0.07},
-            "atr_pct": {"min": 0.08, "max": 0.15},
+            "spread_ratio": {"min": 0.0, "max": 2.5},  # Spread moderado
+            "depth_ratio": {"min": 1.0, "max": 3.0},  # Profundidad media
+            "speed": {"min": 0.04, "max": 0.07},  # Densidad media
         },
         # --- SENSOR PARAMETERS ---
         "sensors": {

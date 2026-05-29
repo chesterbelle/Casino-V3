@@ -1,6 +1,5 @@
 from typing import Tuple
 
-from core.coin_profiler import coin_profiler
 from decision.engine.profile_manager import profile_manager
 
 
@@ -73,23 +72,3 @@ class TargetingMixin:
         setup_name = f"AMT_{scenario.upper()}_{val_pos}"
 
         return tp_price, sl_price, setup_name, level_ref, atr_pct
-
-    def _apply_coin_profile(self, symbol: str, tp_price: float, sl_price: float, price: float) -> Tuple[float, float]:
-        """Apply coin profile multipliers to TP/SL."""
-        # Get coin profile (simplified stats - in production, use real-time data)
-        coin_stats = {"trades_per_sec": 0.03, "volume_24h_usd": 100_000_000}
-        tier = coin_profiler.classify(symbol, coin_stats)
-        multipliers = coin_profiler.get_multipliers(tier)
-
-        # Apply multipliers
-        tp_dist = abs(tp_price - price) * multipliers["tp"]
-        sl_dist = abs(sl_price - price) * multipliers["sl"]
-
-        if tp_price > price:
-            tp_price = price + tp_dist
-            sl_price = price - sl_dist
-        else:
-            tp_price = price - tp_dist
-            sl_price = price + sl_dist
-
-        return tp_price, sl_price

@@ -11,6 +11,7 @@ from collections import defaultdict, deque
 from typing import Dict
 
 from config import trading as config
+from core.coin_profiler import coin_profiler
 from core.events import (
     EventType,
     MicrostructureBatchEvent,
@@ -18,6 +19,7 @@ from core.events import (
     SignalEvent,
 )
 from core.telemetry import TraceOutcome, black_box
+from decision.engine.profile_manager import profile_manager
 from decision.engine.proposal import TradeProposal
 from decision.engine.quality_scorer import evaluate_quality
 from decision.engine.targets import TargetingMixin
@@ -43,6 +45,9 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self._last_micro_prune_ts = 0.0
         self._prune_interval = 1.0
         self._micro_count = 0
+
+        # Profile classification tracking
+        self._profile_classified: Dict[str, bool] = defaultdict(bool)
 
         # Scenario Orchestrator (Unification of AMT + Absorption)
         from core.footprint_registry import footprint_registry
@@ -120,10 +125,14 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         if timestamp - self.last_fire_ts[symbol] < self.fire_cooldown:
             return
 
-        # 2. Evaluate Scenarios via ScenarioManager
+        # 2. Classify coin profile on first encounter
+        if not self._profile_classified[symbol]:
+            self._classify_and_set_profile(symbol)
+
+        # 3. Evaluate Scenarios via ScenarioManager
         signal = self.scenario_manager.on_tick(symbol, price, timestamp)
 
-        # 3. Process and Dispatch if signal found
+        # 4. Process and Dispatch if signal found
         if signal:
             # UDT: Recover trace if this was a confirmed candidate
             trace = None
@@ -131,6 +140,38 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 trace = black_box.get_trace(signal["trace_id"])
 
             await self._process_signal(signal, trace=trace)
+
+    def _classify_and_set_profile(self, symbol: str):
+        """Classify coin into profile using real microstructure data from ContextRegistry."""
+        if not self.context_registry:
+            return
+
+        # Get real metrics from ContextRegistry
+        spread_data = self.context_registry.spread_state.get(symbol, {})
+        spread_current = spread_data.get("current", 0)
+        spread_avg = spread_data.get("avg_5m", 1)
+        spread_ratio = spread_current / spread_avg if spread_avg > 0 else 1.0
+
+        depth_ratio = self.context_registry.l2_imbalance.get(symbol, 1.0)
+
+        pulse = self.context_registry.get_pulse(symbol)
+        speed = pulse.get("speed", 0.0)
+
+        coin_stats = {
+            "spread_ratio": spread_ratio,
+            "depth_ratio": depth_ratio,
+            "speed": speed,
+        }
+
+        # Classify and set profile
+        profile = coin_profiler.classify(symbol, coin_stats)
+        profile_manager.set_profile(profile)
+        self._profile_classified[symbol] = True
+
+        logger.info(
+            f"🏷️ [PROFILE] {symbol} → {profile} | "
+            f"spread_ratio={spread_ratio:.2f}, depth_ratio={depth_ratio:.2f}, speed={speed:.4f}"
+        )
 
     async def on_signal(self, event: SignalEvent):
         """Signal Entry Point: Handles regime updates and external tactical signals."""
