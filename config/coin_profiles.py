@@ -75,11 +75,6 @@ COIN_PROFILES = {
             "l2_ratio_min": 1.5,
             "spread_max_ratio": 2.5,
         },
-        # --- RISK PARAMETERS ---
-        "risk": {
-            "risk_per_trade": 0.002,  # 0.2%
-            "max_positions": 1,
-        },
     },
     # =========================================================================
     # EFICIENTE_MEGACAP — Ultra-efficient, tight spreads, high flow
@@ -145,11 +140,6 @@ COIN_PROFILES = {
             "l2_ratio_min": 2.5,
             "spread_max_ratio": 1.5,
         },
-        # --- RISK PARAMETERS ---
-        "risk": {
-            "risk_per_trade": 0.001,  # 0.1%
-            "max_positions": 1,
-        },
     },
     # =========================================================================
     # BALANCED_MID — Moderate characteristics
@@ -213,11 +203,6 @@ COIN_PROFILES = {
         "guardians": {
             "l2_ratio_min": 2.0,
             "spread_max_ratio": 2.0,
-        },
-        # --- RISK PARAMETERS ---
-        "risk": {
-            "risk_per_trade": 0.0015,  # 0.15%
-            "max_positions": 1,
         },
     },
 }
