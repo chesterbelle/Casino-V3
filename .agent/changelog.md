@@ -6,13 +6,100 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
-### [2026-05-28 FULL SESSION] — v8.4 Crystal Reforge: Quality Pipeline + Exhaustion Core (Branch: v8.4-agent-friendly-refactor)
-### Summary: Rediseño completo de la arquitectura de trading. Guardian kill-chain reemplazado por Quality Pipeline graduado. Exhaustion gate como core del sistema.
+### [2026-05-28 FULL SESSION] — v8.4 Crystal Reforge: Full Profile System + Quality Pipeline (Branch: v8.4-agent-friendly-refactor)
+### Summary: Sesión completa de arquitectura. Quality Pipeline reemplaza guardianes, profile system para Crystal Layer completa, exhaustion gate, dynamic targets, proximity analysis.
 
-#### 1. Diagnóstico Inicial
-- Edge audit LTCUSDT reveló 98.7% guardian rejection rate (195/198 señales rechazadas)
-- Forense de guardian chain: 917 ABS signals → 229 guardian rejections → 723 passed → 720 killed by in-trade lock → 3 trades
-- TOXIC FLOW BLOCK identificado como bug de diseño (contradecía BALANCE regime)
+#### 1. Quality Pipeline (Reemplaza Guardian Kill-Chain)
+- **quality_scorer.py**: scoring graduado (0.0-1.0) con 5 factores ponderados
+- **Exhaustion gate**: bloquea agresores intensificándose (delta_ratio > 1.5)
+- **Grade mapping**: A (>=0.7), B (>=0.4), None (<0.4)
+- **Resultado**: Elimina 98.7% rejection rate del guardian chain
+
+#### 2. Exhaustion Gate (Core del Sistema)
+- Conectado `get_exhaustion_metrics()` al AbsorptionDetector
+- Bloquea señales cuando delta_ratio > 1.5 (agresor intensificándose)
+- Validación empírica: ganadoras delta_ratio=0.52, perdedoras=0.56, timeouts=1.22
+
+#### 3. Dynamic Targets (Grid-Optimized)
+- Reversiones: TP=POC (floor 0.90%), SL=1.5× ATR (floor 0.90%)
+- Continuaciones: TP=1.0%, SL=1.0%
+- Uniform Grid actualizado: 25 combinaciones (max TP 2.5%, asimétricas)
+
+#### 4. Target Proximity Analysis (Nueva Métrica)
+- Mide qué tan cerca está el precio del target (MFE/TP)
+- Categorías: Achieved (≥100%), Close (≥80%), Partial (≥50%), Missed (<50%)
+
+#### 5. Coin Dynamic Profiler
+- **coin_profiler.py**: Clasifica coins en perfiles automáticamente
+- **profile_manager.py**: Carga parámetros del perfil activo
+- **config/coin_profiles.py**: 3 perfiles comprehensivos con TODOS los parámetros
+
+#### 6. Perfiles de Crystal Layer Completa
+
+| Perfil | Coins | Características |
+|---|---|---|
+| VOLATIL_BAJO_FLOW | SUI, AVAX, LTC | ATR>0.15%, trades/sec<0.04 |
+| EFICIENTE_MEGACAP | BTC, ETH | trades/sec>0.07, volume>$2B |
+| BALANCED_MID | SOL, ADA, BNB, LINK, DOGE | Intermedio |
+
+Cada perfil define: sensores (Z-score, concentration, noise), scenarios (enabled), quality scorer (weights, thresholds), targets (TP/SL por escenario), guardians (L2 ratio, spread), risk (per_trade, max_positions).
+
+#### 7. Bugs Corregidos
+- **String match bug**: `regime_guardian.py:188` — `"failed_breakout"` vs `"AMT_FAILED_BREAKOUT"`
+- **REVERSION mode**: Forzado para failed_breakout y liquidity_exhaustion
+- **TrendAcceptance wiring**: CANDLE event subscription agregada al SetupEngine
+- **f-string bug**: `structure_guardian.py:67,75` — reason messages sin interpolar
+
+#### 8. Métricas Comparativas
+
+| Métrica | Pre-Session | Post-Session | Cambio |
+|---|---|---|---|
+| Guardian blocks | 229 | 218 | -5% |
+| Signals | 3 | 187 | +6133% |
+| Win Rate | 66.7% | 59.8% | -10% |
+| Net Taker | +0.17% | +0.06% | -65% |
+| MFE/MAE | 0.92 | 1.63 | +77% |
+| Target Proximity | N/A | 0.83 | NEW |
+
+#### 9. Archivos Creados/Modificados
+
+| Archivo | Acción |
+|---|---|
+| `config/coin_profiles.py` | **CREAR** — 3 perfiles comprehensivos |
+| `decision/engine/profile_manager.py` | **CREAR** — Carga parámetros del perfil |
+| `decision/engine/quality_scorer.py` | **CREAR** — Quality scoring engine |
+| `core/coin_profiler.py` | **ACTUALIZAR** — Clasificación automática |
+| `decision/engine/targets.py` | **ACTUALIZAR** — Targets del perfil |
+| `decision/guardians/liquidity_guardian.py` | **ACTUALIZAR** — L2 ratio del perfil |
+| `utils/profile_auditor.py` | **CREAR** — Auditor de perfiles |
+| `utils/setup_edge_auditor.py` | **ACTUALIZAR** — Grid + proximity |
+| `sensors/absorption/absorption_detector.py` | **ACTUALIZAR** — Exhaustion gate |
+| `decision/engine/core.py` | **ACTUALIZAR** — Candler wiring + quality scorer |
+
+#### 10. Commits de la Sesión
+```
+432ab03 docs: update memory.md with profile system results
+ffd189e feat(profiles): comprehensive Crystal Layer per-profile parameters
+f12ac31 docs: update memory.md with coin profiler results
+a6780c1 feat(profiler): dynamic coin profiling system
+22ccca7 feat(auditor): dynamic targets + proximity analysis
+69c8a8d fix(parametric): correct scenario mode routing
+d5a49b6 fix(engine): wire candle events to ScenarioManager
+438c90e feat(v8.4): Crystal Reforge — Quality Pipeline + Exhaustion Core
+56d1cf7 fix(guardian): remove toxic flow block + f-string fix
+afa0b2e fix(audit): bypass in-trade lock and disable execution in audit mode
+e4f87e6 fix(guardian): remove toxic flow block that contradicted BALANCE regime
+```
+
+#### 11. Próximos Pasos
+1. Descargar más datasets para tuning por perfil
+2. Cross-validation para validar robustez de parámetros
+3. Multi-asset validation con perfiles optimizados
+4. Investigar ETH PROBLEM
+
+---
+
+### [2026-05-27 FULL SESSION] — Crystal Cleanup + 10/10 Readability + Iron Optimizations + Validator Fixes (Branch: v8.4-agent-friendly-refactor)
 
 #### 2. Cambios Implementados
 

@@ -8,10 +8,10 @@
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
-*   **Strategy**: Total Spectrum Absorption V3 — Dual-Core (Reversión/Continuación) con Inercia de Micro-Flujo.
-*   **Current Branch**: `v8.4-agent-friendly-refactor` (V8.5 Planar Architecture, commit `f036fbd`)
-*   **Active Mode**: Multi-Coin Agnostic
-*   **Active Alpha**: **AMT V10 Alpha** (Certified Generalized).
+*   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
+*   **Current Branch**: `v8.4-agent-friendly-refactor` (v8.4 Crystal Reforge, commit `432ab03`)
+*   **Active Mode**: Multi-Coin with Profile-Based Adaptation
+*   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
 
 
 ## 📚 Historial y Contexto
@@ -22,57 +22,47 @@
 
 ## 🏛️ Estado de las Capas de Certificación
 
-*   **Crystal Layer Cleanup (v8.5)**: **COMPLETADO ✅**. Auditoría forense identificó código muerto: AbsorptionReversalGuardian (desconectado del pipeline), confirmation_sensors, AbsorptionSetupEngine, sensor_tracker, statistical_location_guardian. Fast-track zombie extirpado (21 refs → 0). **-2,172 líneas, 6 archivos eliminados.**
-*   **Crystal Layer 10/10 Readability**: **COMPLETADO ✅**. `regime_guardian.py` decomuesto (297→167 líneas, 4 funciones puras). Idioma estandarizado (ES→EN en 6 archivos). Código muerto eliminado (_trace, trace_callback). Mensajes corregidos. Phase numbers eliminados. `defaultdict(int)`, `setup_name` unificado.
-*   **Iron Layer Optimizations (16 OPT)**: **COMPLETADO ✅**. Backtest speed 33% faster (1m30s→1m0s). Live latency: POC O(n)→O(1), VA sort O(n log n)→O(log n), CVD/Exhaustion O(n)→O(log n), deque ATR, symbol_map O(1), single-pass OB, put_nowait, single-subscriber engine dispatch, orjson fallback, itertuples, single SQLite connection.
-*   **Validator Fixes**: **COMPLETADO ✅**. 3 fixes (regime_guardian, absorption_candidate, absorption_guardian), 1 delete (minimal_math_validator). 10/10 validators PASS.
-*   **Edge Auditor Simplification**: **COMPLETADO ✅**. Calibrator removed (grid sweep was unused). Auditor simplified to core analysis (827→577 lines). `--calibrate` flag removed. 3 edge audit workflows updated with correct paths and merge step.
-*   **Documentation Updated**: **COMPLETADO ✅**. AMT V10 Strategy Manifesto (471 líneas). CONFIGURATION.md (527 líneas). TROUBLESHOOTING.md (620 líneas). validate-all.md v8.3→v8.5.
-*   **Orquestación de Auditorías (v8.3)**: Implementado `scripts/orchestrator.py` para automatización determinística de protocolos `generalized` y `long-range`.
-*   **UDT Forensics (v8.1)**: **Unified Decision DNA** operacional. Autopsias automáticas en `EXECUTED/ERROR`.
-*   **Hito Actual**: **Arquitectura Slim + Zero-Necrosis + Performance Optimized**. Código muerto eliminado, Crystal Layer 10/10 legible, Iron Layer optimizado.
-*   **Optimización V8.3**: HPC Audit completada. 18/19 optimizaciones implementadas en la Capa de Hierro.
-*   **Validate-All Pipeline**: Suite completa Capas 0-5 certificada. 10/10 validators PASS.
+### 1. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢]
+*   **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + profile system
+*   **Profiles**: VOLATIL_BAJO_FLOW (SUI, AVAX, LTC), EFICIENTE_MEGACAP (BTC, ETH), BALANCED_MID (SOL, ADA, BNB, LINK, DOGE)
+*   **Métrica Forense (LTCUSDT 24h)**: Net Taker +0.06%, MFE/MAE 1.63, Win Rate 59.8%
+*   **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC). Edge instrument-dependiente.
+*   **Exhaustion Gate**: Bloquea agresores intensificándose (delta_ratio > 1.5)
+*   **Target Proximity**: 0.83 avg, 68.6% achieved
 
-### 2. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢 (4-Coin Net Taker Positive)]
-*   **AMT V10 Alpha**: Audited across 10 crypto assets. 4 certified Net Taker positive (BNB, SOL, SUI, AVAX).
-*   **Hito Actual**: **Multi-Window Grid Discovery** — Ventana de 4h elimina Timeouts y desbloquea Net Taker positivo.
-*   **Métrica Forense (4h Window)**: BNB +0.107% (1.2% target), SOL +0.28% (1.2%), SUI +0.08% (1.2%), AVAX +0.12% (1.2%).
-*   **Sweet Spot**: Target 1.0%-1.2% TP/SL simétrico con ventana de 4h.
-*   **ETH PROBLEM**: Único activo que no logra Net Taker positivo en ninguna combinación window/target.
+### 2. Capa de Hierro (Infraestructura) — [CERTIFICADA ✅]
+*   **Profile System**: coin_profiler.py + profile_manager.py + config/coin_profiles.py
+*   **Quality Scoring**: 5 factores ponderados, grade A/B/None
+*   **Dynamic Targets**: TP/SL por perfil y escenario
+*   **Guardianes**: L2 ratio y spread thresholds por perfil
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
-*   **Slim Exit Engine (v10.2)**: Salidas tácticas vía Maker (Limit Orders) certificadas.
-*   **Concurrency Guard**: Lock de símbolos (`_inflight_symbols`) activo.
-*   **Auto-Healing**: Recuperación de drifts y adopción de posiciones huérfanas funcional.
+*   **Slim Exit Engine (v10.2)**: Scale Out + Micro-Z Reversal
+*   **Audit Mode**: In-trade lock bypass + no execution
+*   **Proximity Analysis**: Muestra qué tan cerca están los targets
 
 ---
 
-## 📉 Roadmap: CAPA 0 → Absorption Alpha Validation
-1.  **DATA/MATH — COMPLETADO ✅**: Pipeline L2 SQLite operativo.
-2.  **AMT V10 ARCH — COMPLETADO ✅**: Escenarios AMT integrados.
-3.  **EXECUTION STABILITY — COMPLETADO ✅**: Slim Exit Engine sincronizado.
-4.  **UDT FORENSICS — COMPLETADO ✅**: Sistema de autopsias unificado.
-5.  **CALIBRACIÓN ALPHA — COMPLETADO ✅**: Edge certificado universalmente en 10 criptomonedas (excepto ETH).
-6.  **EXIT ENGINE SLIM — COMPLETADO ✅**: Purga de pilares ruidosos.
-7.  **CRYSTAL CLEANUP — COMPLETADO ✅**: Código muerto eliminado (-2,172 líneas).
-8.  **CRYSTAL REFORGE — EN CURSO 🔄**: Quality Pipeline + Exhaustion Core implementado. Necesita threshold tuning.
-9.  **INVESTIGACIÓN ETH — PRÓXIMO PASO**: Investigar por qué ETH no logra Net Taker positivo.
-10. **LIVE / PAPER TRADING — PRÓXIMO PASO**: Conexión al Testnet/Live.
+## 📉 Roadmap
+1.  **CRYSTAL REFORGE — COMPLETADO ✅**: Quality Pipeline + Profile System implementado
+2.  **DOWNLOAD MORE DATASETS — PRÓXIMO**: Descargar días adicionales para tuning
+3.  **CROSS-VALIDATION — PRÓXIMO**: Validar robustez de parámetros por perfil
+4.  **MULTI-ASSET TUNING — PRÓXIMO**: Optimizar perfiles con más datos
+5.  **INVESTIGACIÓN ETH — PRÓXIMO**: Investigar por qué ETH no logra Net Taker positivo
+6.  **LIVE / PAPER TRADING — PRÓXIMO**: Conexión al Testnet/Live
 
 ---
 
-### Current Status: 🟢 v8.4 Crystal Reforge — Working (Full Profile System)
-- **Architecture**: Quality Pipeline + 4 scenarios + dynamic targets + coin profiler + profile manager + proximity analysis.
-- **Baseline**: Net Taker +0.0564% (LTCUSDT 24h, 187 signals). Long-range: +0.2254%.
+### Current Status: 🟢 v8.4 Crystal Reforge — Full Profile System
+- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + coin profiler + profile manager + proximity analysis.
+- **Baseline**: Net Taker +0.06% (LTCUSDT 24h, 187 signals). Long-range: +0.2254%.
 - **Win Rate**: 59.8%
 - **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
-- **Commits**: `ffd189e` (full profile system), `a6780c1` (coin profiler), `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
-- **Profiles**: 3 profiles (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID) with full Crystal Layer parameters.
-- **Profile System**: coin_profiler.py classifies coins → profile_manager.py loads parameters → quality_scorer/targets/guardians use profile params.
+- **Commits**: `432ab03` (memory update), `ffd189e` (full profile system), `a6780c1` (coin profiler), `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+- **Profiles**: 3 comprehensivos (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID) con TODOS los parámetros de Crystal Layer.
 - **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.63), failed_breakout (MFE/MAE 1.94), liquidity_exhaustion (MFE/MAE 0.95), trend_acceptance (MFE/MAE 0.40)
-- **Multi-Coin**: 3/10 coins with edge (SUI, AVAX, LTC). Edge is instrument-dependent.
-- **Next**: Download more datasets and tune per profile
+- **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
+- **Next**: Download datasets, cross-validation, multi-asset tuning
 
 ---
 
