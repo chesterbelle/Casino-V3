@@ -1,57 +1,226 @@
 """
-Auto-generated Coin Profiles by Profile Auditor
-Based on analysis of 10 coins × 24h historical data
+Coin Profiles — v8.4 Crystal Reforge
+
+Comprehensive profiles defining ALL Crystal Layer parameters per coin type.
+Each profile contains parameters for sensors, scenarios, quality scorer, targets, and guardians.
+
+Profile Names:
+- VOLATIL_BAJO_FLOW: High volatility, low trade density (SUI, AVAX, LTC)
+- EFICIENTE_MEGACAP: Ultra-efficient, tight spreads, high flow (BTC, ETH)
+- BALANCED_MID: Moderate characteristics (SOL, ADA, BNB, LINK, DOGE)
 """
 
-# Correlations between microstructure and edge
-CORRELATIONS = {
-    "trades_per_sec_vs_mfe_mae_ratio": -0.394,
-    "trades_per_sec_vs_net_taker": -0.285,
-    "trades_per_sec_vs_has_edge": -0.602,
-    "atr_pct_vs_mfe_mae_ratio": 0.614,
-    "atr_pct_vs_net_taker": 0.737,
-    "atr_pct_vs_has_edge": 0.371,
-    "volume_24h_usd_vs_mfe_mae_ratio": 0.57,
-    "volume_24h_usd_vs_net_taker": 0.714,
-    "volume_24h_usd_vs_has_edge": 0.338,
+COIN_PROFILES = {
+    # =========================================================================
+    # VOLATIL_BAJO_FLOW — High volatility, low trade density
+    # Coins: SUI, AVAX, LTC
+    # Characteristics: ATR > 0.15%, trades/sec < 0.04
+    # =========================================================================
+    "VOLATIL_BAJO_FLOW": {
+        "description": "Volátiles con bajo flujo — edge de reversion fuerte",
+        "characteristics": {
+            "atr_pct": {"min": 0.15, "max": 1.0},
+            "trades_per_sec": {"min": 0.0, "max": 0.04},
+        },
+        # --- SENSOR PARAMETERS ---
+        "sensors": {
+            "absorption_detector": {
+                "z_score_min": 2.5,  # Más sensible que default (3.0)
+                "concentration_min": 0.40,  # Más permisivo que default (0.70)
+                "noise_max": 0.40,  # Más permisivo que default (0.20)
+                "stagnation_floor_pct": 0.08,
+            },
+            "failed_breakout": {
+                "min_break_distance_pct": 0.0002,  # 0.02%
+                "max_break_age": 90.0,  # 90 segundos
+                "cvd_divergence_threshold": 0.25,
+            },
+            "liquidity_exhaustion": {
+                "min_tests": 3,
+                "declining_threshold": 0.75,
+                "min_bounce_pct": 0.0003,
+                "test_memory_seconds": 120.0,
+            },
+            "trend_acceptance": {
+                "min_candles_outside": 3,
+                "cvd_confirmation_threshold": 4.0,
+                "pullback_tolerance_pct": 0.001,
+                "max_pullback_penetration_pct": 0.001,
+            },
+        },
+        # --- SCENARIO PARAMETERS ---
+        "scenarios": {
+            "enabled": ["TacticalAbsorptionV2", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
+        },
+        # --- QUALITY SCORER PARAMETERS ---
+        "quality_scorer": {
+            "weights": {
+                "exhaustion": 0.35,
+                "regime": 0.25,
+                "structure": 0.20,
+                "liquidity": 0.15,
+                "spread": 0.05,
+            },
+            "grade_thresholds": {"A": 0.65, "B": 0.35},
+        },
+        # --- TARGET PARAMETERS ---
+        "targets": {
+            "TacticalAbsorptionV2": {"tp_pct": 0.009, "sl_pct": 0.009},  # 0.90%
+            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.010},  # 1.00%
+            "liquidity_exhaustion": {"tp_pct": 0.006, "sl_pct": 0.006},  # 0.60%
+            "trend_acceptance": {"tp_pct": 0.010, "sl_pct": 0.010},  # 1.00%
+        },
+        # --- GUARDIAN PARAMETERS ---
+        "guardians": {
+            "l2_ratio_min": 1.5,
+            "spread_max_ratio": 2.5,
+        },
+        # --- RISK PARAMETERS ---
+        "risk": {
+            "risk_per_trade": 0.002,  # 0.2%
+            "max_positions": 1,
+        },
+    },
+    # =========================================================================
+    # EFICIENTE_MEGACAP — Ultra-efficient, tight spreads, high flow
+    # Coins: BTC, ETH
+    # Characteristics: trades/sec > 0.07, volume > $2B
+    # =========================================================================
+    "EFICIENTE_MEGACAP": {
+        "description": "Ultra-eficientes — edge mínimo, parámetros conservadores",
+        "characteristics": {
+            "trades_per_sec": {"min": 0.07, "max": 100.0},
+            "volume_24h_usd": {"min": 2_000_000_000, "max": 1_000_000_000_000},
+        },
+        # --- SENSOR PARAMETERS ---
+        "sensors": {
+            "absorption_detector": {
+                "z_score_min": 3.5,  # Más estricto
+                "concentration_min": 0.60,  # Más estricto
+                "noise_max": 0.25,  # Más estricto
+                "stagnation_floor_pct": 0.12,
+            },
+            "failed_breakout": {
+                "min_break_distance_pct": 0.0005,  # 0.05%
+                "max_break_age": 45.0,  # 45 segundos
+                "cvd_divergence_threshold": 0.35,
+            },
+            "liquidity_exhaustion": {
+                "min_tests": 4,
+                "declining_threshold": 0.70,
+                "min_bounce_pct": 0.0005,
+                "test_memory_seconds": 90.0,
+            },
+            "trend_acceptance": {
+                "min_candles_outside": 4,
+                "cvd_confirmation_threshold": 6.0,
+                "pullback_tolerance_pct": 0.0008,
+                "max_pullback_penetration_pct": 0.0008,
+            },
+        },
+        # --- SCENARIO PARAMETERS ---
+        "scenarios": {
+            "enabled": ["TacticalAbsorptionV2"],  # Solo el principal
+        },
+        # --- QUALITY SCORER PARAMETERS ---
+        "quality_scorer": {
+            "weights": {
+                "exhaustion": 0.40,
+                "regime": 0.30,
+                "structure": 0.15,
+                "liquidity": 0.10,
+                "spread": 0.05,
+            },
+            "grade_thresholds": {"A": 0.80, "B": 0.50},
+        },
+        # --- TARGET PARAMETERS ---
+        "targets": {
+            "TacticalAbsorptionV2": {"tp_pct": 0.005, "sl_pct": 0.005},  # 0.50%
+            "failed_breakout": {"tp_pct": 0.006, "sl_pct": 0.006},  # 0.60%
+            "liquidity_exhaustion": {"tp_pct": 0.004, "sl_pct": 0.004},  # 0.40%
+            "trend_acceptance": {"tp_pct": 0.006, "sl_pct": 0.006},  # 0.60%
+        },
+        # --- GUARDIAN PARAMETERS ---
+        "guardians": {
+            "l2_ratio_min": 2.5,
+            "spread_max_ratio": 1.5,
+        },
+        # --- RISK PARAMETERS ---
+        "risk": {
+            "risk_per_trade": 0.001,  # 0.1%
+            "max_positions": 1,
+        },
+    },
+    # =========================================================================
+    # BALANCED_MID — Moderate characteristics
+    # Coins: SOL, ADA, BNB, LINK, DOGE
+    # =========================================================================
+    "BALANCED_MID": {
+        "description": "Balanceados — parámetros intermedios",
+        "characteristics": {
+            "trades_per_sec": {"min": 0.04, "max": 0.07},
+            "atr_pct": {"min": 0.08, "max": 0.15},
+        },
+        # --- SENSOR PARAMETERS ---
+        "sensors": {
+            "absorption_detector": {
+                "z_score_min": 3.0,  # Default
+                "concentration_min": 0.50,  # Default
+                "noise_max": 0.30,  # Intermedio
+                "stagnation_floor_pct": 0.10,
+            },
+            "failed_breakout": {
+                "min_break_distance_pct": 0.0003,  # 0.03%
+                "max_break_age": 60.0,  # 60 segundos
+                "cvd_divergence_threshold": 0.30,
+            },
+            "liquidity_exhaustion": {
+                "min_tests": 3,
+                "declining_threshold": 0.70,
+                "min_bounce_pct": 0.0004,
+                "test_memory_seconds": 100.0,
+            },
+            "trend_acceptance": {
+                "min_candles_outside": 3,
+                "cvd_confirmation_threshold": 5.0,
+                "pullback_tolerance_pct": 0.001,
+                "max_pullback_penetration_pct": 0.001,
+            },
+        },
+        # --- SCENARIO PARAMETERS ---
+        "scenarios": {
+            "enabled": ["TacticalAbsorptionV2", "failed_breakout"],
+        },
+        # --- QUALITY SCORER PARAMETERS ---
+        "quality_scorer": {
+            "weights": {
+                "exhaustion": 0.30,
+                "regime": 0.25,
+                "structure": 0.20,
+                "liquidity": 0.15,
+                "spread": 0.10,
+            },
+            "grade_thresholds": {"A": 0.70, "B": 0.40},
+        },
+        # --- TARGET PARAMETERS ---
+        "targets": {
+            "TacticalAbsorptionV2": {"tp_pct": 0.008, "sl_pct": 0.008},  # 0.80%
+            "failed_breakout": {"tp_pct": 0.009, "sl_pct": 0.009},  # 0.90%
+            "liquidity_exhaustion": {"tp_pct": 0.005, "sl_pct": 0.005},  # 0.50%
+            "trend_acceptance": {"tp_pct": 0.009, "sl_pct": 0.009},  # 0.90%
+        },
+        # --- GUARDIAN PARAMETERS ---
+        "guardians": {
+            "l2_ratio_min": 2.0,
+            "spread_max_ratio": 2.0,
+        },
+        # --- RISK PARAMETERS ---
+        "risk": {
+            "risk_per_trade": 0.0015,  # 0.15%
+            "max_positions": 1,
+        },
+    },
 }
 
-# Tier thresholds (auto-calibrated)
-TIER_THRESHOLDS = {
-    "TIER_1": {
-        "trade_density": [0.028, 0.036],
-        "volume_24h": [76080755.112, 198007630.022],
-        "description": "Edge exists, moderate flow",
-    },
-    "TIER_2": {
-        "trade_density": [0.036, 0.072],
-        "volume_24h": [198007630.022, 594022890.066],
-        "description": "Marginal edge, higher flow",
-    },
-    "TIER_3": {
-        "trade_density": [0.072, 100],
-        "volume_24h": [594022890.066, 1000000000000],
-        "description": "No edge, too efficient",
-    },
-}
-
-# Coin assignments (auto-detected from historical data)
-COIN_ASSIGNMENTS = {
-    "SOL/USDT:USDT": "TIER_3",
-    "ADA/USDT:USDT": "TIER_3",
-    "BNB/USDT:USDT": "TIER_3",
-    "ETH/USDT:USDT": "TIER_3",
-    "BTC/USDT:USDT": "TIER_3",
-    "AVAX/USDT:USDT": "TIER_1",
-    "LINK/USDT:USDT": "TIER_1",
-    "DOGE/USDT:USDT": "TIER_3",
-    "LTC/USDT:USDT": "TIER_1",
-    "SUI/USDT:USDT": "TIER_1",
-}
-
-# Profile multipliers
-TIER_MULTIPLIERS = {
-    "TIER_1": {"tp": 1.0, "sl": 1.0, "quality_bonus": 0.1},
-    "TIER_2": {"tp": 0.8, "sl": 0.8, "quality_bonus": 0.0},
-    "TIER_3": {"tp": 0.5, "sl": 0.5, "quality_penalty": -0.2},
-}
+# Default profile for unknown coins
+DEFAULT_PROFILE = "BALANCED_MID"

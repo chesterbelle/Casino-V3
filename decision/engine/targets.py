@@ -1,6 +1,7 @@
 from typing import Tuple
 
 from core.coin_profiler import coin_profiler
+from decision.engine.profile_manager import profile_manager
 
 
 class TargetingMixin:
@@ -12,8 +13,8 @@ class TargetingMixin:
     Coin profile multipliers adapt to microstructure.
     """
 
-    # Grid-optimal floors per scenario (from Uniform Grid analysis)
-    GRID_FLOORS = {
+    # Default grid-optimal floors (used if no profile loaded)
+    DEFAULT_GRID_FLOORS = {
         "reversion": {"tp": 0.009, "sl": 0.009},  # 0.90% symmetric
         "continuation": {"tp": 0.01, "sl": 0.01},  # 1.0% symmetric
     }
@@ -48,50 +49,28 @@ class TargetingMixin:
         # Determine mode
         is_reversion = setup_mode.value == "reversion" if hasattr(setup_mode, "value") else setup_mode != "continuation"
 
-        if is_reversion:
-            # REVERSION: Dynamic TP/SL with 0.90% floor
-            grid_floor = self.GRID_FLOORS["reversion"]
-
-            # TP: max(POC_distance, ATR×1.5, grid_floor)
-            atr_tp = atr_pct * 1.5 / 100.0
-            if poc > 0:
-                poc_dist = abs(poc - price) / price
-                tp_pct = max(atr_tp, poc_dist, grid_floor["tp"])
-            else:
-                tp_pct = max(atr_tp, grid_floor["tp"])
-
-            # SL: max(ATR×1.5, grid_floor)
-            sl_pct = max(atr_pct * 1.5 / 100.0, grid_floor["sl"])
-
-            if side == "LONG":
-                tp_price = price * (1.0 + tp_pct)
-                sl_price = price * (1.0 - sl_pct)
-            else:
-                tp_price = price * (1.0 - tp_pct)
-                sl_price = price * (1.0 + sl_pct)
-
-            level_ref = "REVERSION_DYNAMIC"
-            setup_name = f"AMT_{scenario.upper()}_REVERSION_{val_pos}"
-
+        # Get targets from profile or use defaults
+        profile_targets = profile_manager.get_target_params(scenario)
+        if profile_targets:
+            tp_pct = profile_targets.get("tp_pct", 0.009)
+            sl_pct = profile_targets.get("sl_pct", 0.009)
         else:
-            # CONTINUATION: Dynamic TP/SL with 1.0% floor
-            grid_floor = self.GRID_FLOORS["continuation"]
+            # Fallback to grid-optimal floors
+            grid_floor = self.DEFAULT_GRID_FLOORS.get(
+                "reversion" if is_reversion else "continuation", {"tp": 0.009, "sl": 0.009}
+            )
+            tp_pct = grid_floor["tp"]
+            sl_pct = grid_floor["sl"]
 
-            # TP: max(ATR×1.5, grid_floor)
-            tp_pct = max(atr_pct * 1.5 / 100.0, grid_floor["tp"])
+        if side == "LONG":
+            tp_price = price * (1.0 + tp_pct)
+            sl_price = price * (1.0 - sl_pct)
+        else:
+            tp_price = price * (1.0 - tp_pct)
+            sl_price = price * (1.0 + sl_pct)
 
-            # SL: max(ATR×1.0, grid_floor)
-            sl_pct = max(atr_pct * 1.0 / 100.0, grid_floor["sl"])
-
-            if side == "LONG":
-                tp_price = price * (1.0 + tp_pct)
-                sl_price = price * (1.0 - sl_pct)
-            else:
-                tp_price = price * (1.0 - tp_pct)
-                sl_price = price * (1.0 + sl_pct)
-
-            level_ref = "CONTINUATION_DYNAMIC"
-            setup_name = f"AMT_{scenario.upper()}_CONTINUATION_{val_pos}"
+        level_ref = f"PROFILE_{scenario.upper()}"
+        setup_name = f"AMT_{scenario.upper()}_{val_pos}"
 
         return tp_price, sl_price, setup_name, level_ref, atr_pct
 

@@ -10,14 +10,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
-from core.coin_profiler import coin_profiler
 from core.footprint_registry import footprint_registry
+from decision.engine.profile_manager import profile_manager
 from decision.guardians.guardian_result import SetupMode
 
 logger = logging.getLogger("QualityScorer")
 
-# Weight configuration — exhaustion is the core
-WEIGHTS = {
+# Default weights (used if no profile loaded)
+DEFAULT_WEIGHTS = {
     "exhaustion": 0.35,
     "regime": 0.25,
     "structure": 0.20,
@@ -25,9 +25,9 @@ WEIGHTS = {
     "spread": 0.05,
 }
 
-# Grade thresholds
-GRADE_A_THRESHOLD = 0.7
-GRADE_B_THRESHOLD = 0.4
+# Default grade thresholds
+DEFAULT_GRADE_A = 0.7
+DEFAULT_GRADE_B = 0.4
 
 # Hard blocks (only truly dangerous situations)
 SPREAD_HARD_BLOCK = 3.0  # 3x average spread = block
@@ -185,24 +185,25 @@ def evaluate_quality(
             block_reason=spread_reason,
         )
 
+    # Get weights from profile or use defaults
+    profile_params = profile_manager.get_quality_scorer_params()
+    weights = profile_params.get("weights", DEFAULT_WEIGHTS)
+    grade_a = profile_params.get("grade_thresholds", {}).get("A", DEFAULT_GRADE_A)
+    grade_b = profile_params.get("grade_thresholds", {}).get("B", DEFAULT_GRADE_B)
+
     # Calculate weighted quality score
     quality_score = (
-        exhaustion_score * WEIGHTS["exhaustion"]
-        + regime_score * WEIGHTS["regime"]
-        + structure_score * WEIGHTS["structure"]
-        + liquidity_score * WEIGHTS["liquidity"]
-        + spread_score * WEIGHTS["spread"]
+        exhaustion_score * weights.get("exhaustion", 0.35)
+        + regime_score * weights.get("regime", 0.25)
+        + structure_score * weights.get("structure", 0.20)
+        + liquidity_score * weights.get("liquidity", 0.15)
+        + spread_score * weights.get("spread", 0.05)
     )
 
-    # Apply coin profile adjustment
-    coin_tier = coin_profiler.classify(symbol, {"trades_per_sec": 0.03, "volume_24h_usd": 100_000_000})
-    profile_adjustment = coin_profiler.get_quality_adjustment(coin_tier)
-    quality_score += profile_adjustment
-
     # Map to grade
-    if quality_score >= GRADE_A_THRESHOLD:
+    if quality_score >= grade_a:
         grade = "A"
-    elif quality_score >= GRADE_B_THRESHOLD:
+    elif quality_score >= grade_b:
         grade = "B"
     else:
         grade = None
