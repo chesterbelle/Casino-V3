@@ -165,7 +165,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
         # Classify and set profile
         profile = coin_profiler.classify(symbol, coin_stats)
-        profile_manager.set_profile(profile)
+        profile_manager.set_profile(symbol, profile)
         self._profile_classified[symbol] = True
 
         logger.info(

@@ -186,7 +186,7 @@ def evaluate_quality(
         )
 
     # Get weights from profile or use defaults
-    profile_params = profile_manager.get_quality_scorer_params()
+    profile_params = profile_manager.get_quality_scorer_params(symbol)
     weights = profile_params.get("weights", DEFAULT_WEIGHTS)
     grade_a = profile_params.get("grade_thresholds", {}).get("A", DEFAULT_GRADE_A)
     grade_b = profile_params.get("grade_thresholds", {}).get("B", DEFAULT_GRADE_B)

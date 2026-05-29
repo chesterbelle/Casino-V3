@@ -49,7 +49,7 @@ class TargetingMixin:
         is_reversion = setup_mode.value == "reversion" if hasattr(setup_mode, "value") else setup_mode != "continuation"
 
         # Get targets from profile or use defaults
-        profile_targets = profile_manager.get_target_params(scenario)
+        profile_targets = profile_manager.get_target_params(symbol, scenario)
         if profile_targets:
             tp_pct = profile_targets.get("tp_pct", 0.009)
             sl_pct = profile_targets.get("sl_pct", 0.009)

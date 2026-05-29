@@ -1,8 +1,8 @@
 """
-Profile Manager — Crystal Layer Parameter Management
+Profile Manager — Crystal Layer Parameter Management (Per-Symbol)
 
-Loads and provides profile-specific parameters for the entire Crystal Layer.
-Each coin is assigned a profile, and all components use the profile's parameters.
+Loads and provides profile-specific parameters per symbol for the Crystal Layer.
+Each coin is assigned a profile, and all components use that symbol's profile parameters.
 """
 
 import logging
@@ -15,77 +15,59 @@ logger = logging.getLogger("ProfileManager")
 
 class ProfileManager:
     """
-    Manages profile-specific parameters for the Crystal Layer.
-    Each coin is classified into a profile, and all components
-    use the profile's parameters.
+    Manages per-symbol profile parameters for the Crystal Layer.
+    Each symbol is classified into a profile, and all components
+    read parameters for the specific symbol being processed.
     """
 
     def __init__(self):
         self.profiles = COIN_PROFILES
         self.default_profile = DEFAULT_PROFILE
-        self.current_profile_name = None
-        self.current_profile = None
+        self.symbol_profiles: Dict[str, str] = {}  # symbol → profile_name
 
-    def set_profile(self, profile_name: str) -> bool:
+    def set_profile(self, symbol: str, profile_name: str) -> bool:
         """
-        Load a profile by name and apply its parameters to config modules.
+        Set profile for a specific symbol.
 
         Args:
-            profile_name: Name of the profile to load
+            symbol: Coin symbol (e.g., "BTC/USDT:USDT")
+            profile_name: Name of the profile to assign
 
         Returns:
-            True if profile was loaded, False if not found
+            True if profile was set, False if not found (uses default)
         """
         if profile_name in self.profiles:
-            self.current_profile_name = profile_name
-            self.current_profile = self.profiles[profile_name]
-            self._apply_to_config()
-            logger.info(f"📋 [PROFILE] Loaded: {profile_name} — {self.current_profile.get('description', '')}")
+            self.symbol_profiles[symbol] = profile_name
+            logger.info(f"📋 [PROFILE] {symbol} → {profile_name}")
             return True
         else:
-            logger.warning(f"⚠️ [PROFILE] Unknown profile: {profile_name}, using default")
-            self.current_profile_name = self.default_profile
-            self.current_profile = self.profiles[self.default_profile]
-            self._apply_to_config()
+            logger.warning(f"⚠️ [PROFILE] Unknown profile: {profile_name}, using default for {symbol}")
+            self.symbol_profiles[symbol] = self.default_profile
             return False
 
-    def _apply_to_config(self):
-        """Apply current profile parameters to config modules."""
-        if not self.current_profile:
-            return
+    def get_profile_name(self, symbol: str) -> str:
+        """Get profile name for a symbol."""
+        return self.symbol_profiles.get(symbol, self.default_profile)
 
-        # Apply absorption sensor parameters
-        sensor_params = self.current_profile.get("sensors", {}).get("absorption_detector", {})
-        if sensor_params:
-            try:
-                import config.absorption as abs_config
+    def get_profile(self, symbol: str) -> dict:
+        """Get full profile dict for a symbol."""
+        name = self.get_profile_name(symbol)
+        return self.profiles.get(name, {})
 
-                if "z_score_min" in sensor_params:
-                    abs_config.ABSORPTION_MIN_Z_SCORE = sensor_params["z_score_min"]
-                if "concentration_min" in sensor_params:
-                    abs_config.ABSORPTION_MIN_CONCENTRATION = sensor_params["concentration_min"]
-                if "noise_max" in sensor_params:
-                    abs_config.ABSORPTION_MAX_NOISE = sensor_params["noise_max"]
-                logger.info(
-                    f"📋 [PROFILE] Applied absorption params: Z={sensor_params.get('z_score_min')}, Conc={sensor_params.get('concentration_min')}, Noise={sensor_params.get('noise_max')}"
-                )
-            except Exception as e:
-                logger.error(f"❌ [PROFILE] Failed to apply absorption params: {e}")
-
-    def get_param(self, *path: str) -> Any:
+    def get_param(self, symbol: str, *path: str) -> Any:
         """
-        Get a parameter from the current profile by path.
+        Get a parameter from a symbol's profile by path.
 
         Args:
-            *path: Path to the parameter (e.g., "sensors", "absorption_detector", "z_score_min")
+            symbol: Coin symbol
+            *path: Path to the parameter (e.g., "targets", "TacticalAbsorptionV2")
 
         Returns:
             The parameter value, or None if not found
         """
-        if not self.current_profile:
-            return None
+        profile = self.get_profile(symbol)
 
-        value = self.current_profile
+        value = profile
         for key in path:
             if isinstance(value, dict) and key in value:
                 value = value[key]
@@ -93,33 +75,33 @@ class ProfileManager:
                 return None
         return value
 
-    def get_sensor_params(self, sensor_name: str) -> Dict:
-        """Get all parameters for a specific sensor."""
-        return self.get_param("sensors", sensor_name) or {}
+    def get_sensor_params(self, symbol: str, sensor_name: str) -> Dict:
+        """Get all parameters for a specific sensor for a symbol."""
+        return self.get_param(symbol, "sensors", sensor_name) or {}
 
-    def get_scenario_params(self) -> Dict:
-        """Get scenario configuration."""
-        return self.get_param("scenarios") or {}
+    def get_scenario_params(self, symbol: str) -> Dict:
+        """Get scenario configuration for a symbol."""
+        return self.get_param(symbol, "scenarios") or {}
 
-    def get_quality_scorer_params(self) -> Dict:
-        """Get quality scorer parameters."""
-        return self.get_param("quality_scorer") or {}
+    def get_quality_scorer_params(self, symbol: str) -> Dict:
+        """Get quality scorer parameters for a symbol."""
+        return self.get_param(symbol, "quality_scorer") or {}
 
-    def get_target_params(self, scenario: str) -> Dict:
-        """Get target parameters for a specific scenario."""
-        return self.get_param("targets", scenario) or {}
+    def get_target_params(self, symbol: str, scenario: str) -> Dict:
+        """Get target parameters for a specific scenario and symbol."""
+        return self.get_param(symbol, "targets", scenario) or {}
 
-    def get_guardian_params(self) -> Dict:
-        """Get guardian parameters."""
-        return self.get_param("guardians") or {}
+    def get_guardian_params(self, symbol: str) -> Dict:
+        """Get guardian parameters for a symbol."""
+        return self.get_param(symbol, "guardians") or {}
 
-    def get_risk_params(self) -> Dict:
-        """Get risk parameters."""
-        return self.get_param("risk") or {}
+    def get_risk_params(self, symbol: str) -> Dict:
+        """Get risk parameters for a symbol."""
+        return self.get_param(symbol, "risk") or {}
 
-    def is_scenario_enabled(self, scenario: str) -> bool:
-        """Check if a scenario is enabled in the current profile."""
-        enabled = self.get_param("scenarios", "enabled") or []
+    def is_scenario_enabled(self, symbol: str, scenario: str) -> bool:
+        """Check if a scenario is enabled in a symbol's profile."""
+        enabled = self.get_param(symbol, "scenarios", "enabled") or []
         return scenario in enabled
 
     def get_all_profiles(self) -> Dict:

@@ -29,17 +29,34 @@ class AbsorptionDetector(SensorV3, TraceBulletMixin):
         self._name = "TacticalAbsorptionV2"
         self.timeframes = ["1m"]
 
-        # Filter thresholds — wired from config/absorption.py
-        self.z_score_min = ABSORPTION_MIN_Z_SCORE  # 3.0 (was 1.5 hardcoded)
-        self.concentration_min = ABSORPTION_MIN_CONCENTRATION  # 0.70 (was 0.15)
-        self.noise_max = ABSORPTION_MAX_NOISE  # 0.20 (was 0.85)
-        # Stagnation max is now dynamic (ATR-based), this is just the absolute floor
+        # Filter thresholds — defaults from config/absorption.py (overridden by configure())
+        self.z_score_min = ABSORPTION_MIN_Z_SCORE  # 3.0
+        self.concentration_min = ABSORPTION_MIN_CONCENTRATION  # 0.50
+        self.noise_max = ABSORPTION_MAX_NOISE  # 0.35
         self.stagnation_floor_pct = 0.10
 
         # State tracking
         self._last_candle_ts: Dict[str, float] = {}
         self.last_candle = None
         self.symbol = None
+
+    def configure(self, symbol: str, params: dict):
+        """
+        Configure sensor with per-symbol profile params.
+        Called after __init__() by sensor_worker to apply profile-specific thresholds.
+        """
+        self.symbol = symbol
+        if "z_score_min" in params:
+            self.z_score_min = params["z_score_min"]
+        if "concentration_min" in params:
+            self.concentration_min = params["concentration_min"]
+        if "noise_max" in params:
+            self.noise_max = params["noise_max"]
+        if "stagnation_floor_pct" in params:
+            self.stagnation_floor_pct = params["stagnation_floor_pct"]
+        logger.debug(
+            f"📋 [ABS] Configured {symbol}: Z={self.z_score_min}, Conc={self.concentration_min}, Noise={self.noise_max}"
+        )
 
     @property
     def name(self) -> str:

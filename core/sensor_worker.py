@@ -137,6 +137,7 @@ class SensorWorker(multiprocessing.Process):
 
         logger.info(f"✨ Instantiating {len(self.sensor_classes)} sensors for {symbol}...")
         from config.sensors import ACTIVE_SENSORS, get_sensor_timeframes
+        from decision.engine.profile_manager import profile_manager
 
         symbol_sensors = []
         for sensor_cls in self.sensor_classes:
@@ -152,6 +153,12 @@ class SensorWorker(multiprocessing.Process):
                 # Assign symbol to sensor if it supports it (useful for logging inside sensor)
                 sensor.symbol = symbol
                 sensor._optimal_tf = sensor.timeframes[0] if sensor.timeframes else "1m"
+
+                # Apply per-symbol profile params if sensor supports configure()
+                if hasattr(sensor, "configure"):
+                    sensor_params = profile_manager.get_sensor_params(symbol, sensor.name)
+                    if sensor_params:
+                        sensor.configure(symbol, sensor_params)
 
                 symbol_sensors.append(sensor)
             except Exception as e:

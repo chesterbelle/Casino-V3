@@ -29,7 +29,7 @@ def check_liquidity_heatmap(symbol: str, side: str, target_price: float, context
     try:
         from decision.engine.profile_manager import profile_manager
 
-        l2_ratio_min = profile_manager.get_guardian_params().get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
+        l2_ratio_min = profile_manager.get_guardian_params(symbol).get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
     except Exception:
         l2_ratio_min = DEFAULT_L2_RATIO_MIN
 
