@@ -62,16 +62,17 @@
 
 ---
 
-### Current Status: 🟢 v8.4 Crystal Reforge — Working (Coin Profiler Active)
-- **Architecture**: Quality Pipeline + 4 scenarios + dynamic targets + coin profiler + proximity analysis.
-- **Baseline**: Net Taker +0.0166% (LTCUSDT 24h, 215 signals). Long-range: +0.2254%.
-- **Win Rate**: 55.6%
+### Current Status: 🟢 v8.4 Crystal Reforge — Working (Full Profile System)
+- **Architecture**: Quality Pipeline + 4 scenarios + dynamic targets + coin profiler + profile manager + proximity analysis.
+- **Baseline**: Net Taker +0.0564% (LTCUSDT 24h, 187 signals). Long-range: +0.2254%.
+- **Win Rate**: 59.8%
 - **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
-- **Commits**: `a6780c1` (coin profiler), `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
-- **Coin Profiler**: Auto-classifies coins into TIER_1/2/3 based on microstructure. Adapts TP/SL and quality scores.
-- **Per Setup**: TacticalAbsorptionV2 (+0.1452%), failed_breakout (+0.7800%), liquidity_exhaustion (-0.1200%), trend_acceptance (-0.7413%)
+- **Commits**: `ffd189e` (full profile system), `a6780c1` (coin profiler), `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+- **Profiles**: 3 profiles (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID) with full Crystal Layer parameters.
+- **Profile System**: coin_profiler.py classifies coins → profile_manager.py loads parameters → quality_scorer/targets/guardians use profile params.
+- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.63), failed_breakout (MFE/MAE 1.94), liquidity_exhaustion (MFE/MAE 0.95), trend_acceptance (MFE/MAE 0.40)
 - **Multi-Coin**: 3/10 coins with edge (SUI, AVAX, LTC). Edge is instrument-dependent.
-- **Next**: Run generalized audit with coin profiler to verify multi-coin improvement
+- **Next**: Download more datasets and tune per profile
 
 ---
 
