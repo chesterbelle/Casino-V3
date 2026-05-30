@@ -62,7 +62,8 @@
 - **Profiles**: 3 comprehensivos (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID) con TODOS los parámetros de Crystal Layer.
 - **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.63), failed_breakout (MFE/MAE 1.94), liquidity_exhaustion (MFE/MAE 0.95), trend_acceptance (MFE/MAE 0.40)
 - **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
-- **Next**: Download datasets, cross-validation, multi-asset tuning
+- **Profile Changelog**: `.agent/perfil_changelog.md` — historial de iteraciones y hallazgos para evitar repetir trabajo.
+- **Next**: BEAR market strategy improvement, cross-validation, multi-asset tuning
 
 ---
 
