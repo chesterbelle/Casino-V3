@@ -25,11 +25,24 @@ def check_liquidity_heatmap(symbol: str, side: str, target_price: float, context
     l2_ratio = context_registry.get_l2_ratio(symbol, side)
     metrics["l2_ratio"] = l2_ratio
 
-    # Get L2 ratio threshold from profile
+    # Get L2 ratio threshold from profile (dynamic based on regime)
     try:
         from decision.engine.profile_manager import profile_manager
 
-        l2_ratio_min = profile_manager.get_guardian_params(symbol).get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
+        guardian_params = profile_manager.get_guardian_params(symbol)
+
+        # Check regime for dynamic l2_ratio_min
+        # BULL/RANGE: Thin Wall (l2_ratio_min) works better
+        # BEAR (TREND_DOWN): High Wall (l2_ratio_min_trend_down) works better
+        regime_v2_data = getattr(context_registry, "_regime_v2", {}).get(symbol)
+        regime = regime_v2_data.get("regime", "BALANCE") if regime_v2_data else "BALANCE"
+
+        if regime == "TREND_DOWN":
+            l2_ratio_min = guardian_params.get(
+                "l2_ratio_min_trend_down", guardian_params.get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
+            )
+        else:
+            l2_ratio_min = guardian_params.get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
     except Exception:
         l2_ratio_min = DEFAULT_L2_RATIO_MIN
 

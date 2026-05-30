@@ -73,7 +73,8 @@ COIN_PROFILES = {
             "trend_acceptance": {"tp_pct": 0.009, "sl_pct": 0.009},
         },
         "guardians": {
-            "l2_ratio_min": 0.5,  # Bajado de 1.5 - Thin Wall tiene mejor MFE/MAE
+            "l2_ratio_min": 0.5,  # Thin Wall para BALANCE/UP (mejor MFE/MAE)
+            "l2_ratio_min_trend_down": 2.0,  # High Wall para BEAR (High Wall tiene mejor MFE/MAE en DOWN)
             "spread_max_ratio": 2.0,
         },
     },

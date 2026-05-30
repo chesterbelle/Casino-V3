@@ -7,6 +7,8 @@ logger = logging.getLogger("MarketRegimeSensor.Volatility")
 CIRCUIT_BREAKER_LOOKBACK = 10  # Candles to measure price displacement
 CIRCUIT_BREAKER_TREND_PCT = 0.02  # 2% move in 10 candles = TREND (no Z-score needed)
 CIRCUIT_BREAKER_CRASH_PCT = 0.04  # 4% move in 10 candles = TREND_DOWN (crash override)
+CIRCUIT_BREAKER_SLOW_LOOKBACK = 60  # 60 candles (1 hour) for slow drift detection
+CIRCUIT_BREAKER_DRIFT_PCT = 0.008  # 0.8% drift in 60 candles = slow TREND
 
 
 class _PriceCircuitBreaker:
@@ -31,6 +33,7 @@ class _PriceCircuitBreaker:
 
     def __init__(self):
         self.price_history: deque = deque(maxlen=CIRCUIT_BREAKER_LOOKBACK + 2)
+        self.price_history_slow: deque = deque(maxlen=CIRCUIT_BREAKER_SLOW_LOOKBACK + 2)
         # Persistence state
         self._active: bool = False
         self._active_direction: str = "NEUTRAL"
@@ -42,6 +45,7 @@ class _PriceCircuitBreaker:
     def on_candle(self, close: float, ts: float):
         if close > 0:
             self.price_history.append((ts, close))
+            self.price_history_slow.append((ts, close))
 
     def evaluate(self) -> dict:
         """
@@ -122,6 +126,28 @@ class _PriceCircuitBreaker:
                 "displacement_pct": round(displacement * 100, 3),
                 "reason": "trend_override",
             }
+
+        # Slow drift detection: 0.8% in 60 candles (1 hour)
+        if len(self.price_history_slow) >= CIRCUIT_BREAKER_SLOW_LOOKBACK:
+            oldest_slow = self.price_history_slow[0][1]
+            displacement_slow = (current_price - oldest_slow) / oldest_slow
+            abs_displacement_slow = abs(displacement_slow)
+            direction_slow = "UP" if displacement_slow > 0 else "DOWN"
+
+            if abs_displacement_slow >= CIRCUIT_BREAKER_DRIFT_PCT:
+                confidence = min(0.7, abs_displacement_slow / (CIRCUIT_BREAKER_DRIFT_PCT * 3))
+                self._active = True
+                self._active_direction = direction_slow
+                self._active_confidence = confidence
+                self._active_reason = "slow_drift_override"
+                self._reference_price = current_price
+                return {
+                    "triggered": True,
+                    "direction": direction_slow,
+                    "confidence": round(confidence, 3),
+                    "displacement_pct": round(displacement_slow * 100, 3),
+                    "reason": "slow_drift_override",
+                }
 
         # --- Persistence: if still active, maintain the signal ---
         if self._active:

@@ -300,51 +300,46 @@ class _MacroLayer:
         total_migration = (end_poc - start_poc) / start_poc
         velocity_per_candle = total_migration / n_candles  # signed %/candle
 
-        # Count consecutive migrations in the dominant direction
-        consecutive_up = 0
-        consecutive_down = 0
-        for i in range(len(history) - 1, 0, -1):
-            curr_poc = history[i][1]
-            prev_poc = history[i - 1][1]
-            if curr_poc > prev_poc:
-                if consecutive_down > 0:
-                    break
-                consecutive_up += 1
-            elif curr_poc < prev_poc:
-                if consecutive_up > 0:
-                    break
-                consecutive_down += 1
-            else:
-                break  # POC didn't move — streak broken
+        # Count net direction ratio (robust to choppy markets)
+        # Instead of consecutive candles that reset on any opposite move,
+        # count what fraction of candles move in the dominant direction
+        ups = 0
+        downs = 0
+        for i in range(1, len(history)):
+            if history[i][1] > history[i - 1][1]:
+                ups += 1
+            elif history[i][1] < history[i - 1][1]:
+                downs += 1
+        total_moves = ups + downs
+        direction = "UP" if ups > downs else "DOWN"
+        dominant_count = ups if direction == "UP" else downs
+        # net_ratio: 0.50 = balanced, 1.00 = all candles in one direction
+        net_ratio = dominant_count / max(1, total_moves)
+        has_direction = net_ratio > 0.55  # >55% candles agree on direction
 
-        dominant_consecutive = max(consecutive_up, consecutive_down)
-        direction = "UP" if consecutive_up > consecutive_down else "DOWN"
-
-        # Score: combination of velocity magnitude and consecutive count
+        # Score: combination of velocity magnitude and directional conviction
         vel_score = min(0.5, abs(velocity_per_candle) / (MACRO_POC_VELOCITY_THRESHOLD * 4))
-        consec_score = min(0.5, dominant_consecutive / (MACRO_CONSECUTIVE_MIGRATION * 2))
-        total_score = vel_score + consec_score
+        # Map net_ratio 0.55→0.0 to 0.80→0.5 (linear)
+        direction_score = min(0.5, max(0.0, (net_ratio - 0.55) / 0.50))
+        total_score = vel_score + direction_score
 
-        if (
-            abs(velocity_per_candle) > MACRO_POC_VELOCITY_THRESHOLD
-            and dominant_consecutive >= MACRO_CONSECUTIVE_MIGRATION
-        ):
+        if abs(velocity_per_candle) > MACRO_POC_VELOCITY_THRESHOLD and has_direction:
             return {
                 "vote": direction,
                 "score": round(total_score, 3),
                 "reason": "poc_migration_conviction",
                 "velocity_per_candle": round(velocity_per_candle * 100, 5),
-                "consecutive": dominant_consecutive,
+                "net_ratio": round(net_ratio, 3),
             }
 
         if abs(velocity_per_candle) > MACRO_POC_VELOCITY_THRESHOLD:
-            # Velocity present but not consecutive enough — early signal
+            # Velocity present but not enough directional conviction — early signal
             return {
                 "vote": direction,
                 "score": round(total_score * 0.5, 3),
                 "reason": "poc_migration_early",
                 "velocity_per_candle": round(velocity_per_candle * 100, 5),
-                "consecutive": dominant_consecutive,
+                "net_ratio": round(net_ratio, 3),
             }
 
         return {

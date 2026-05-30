@@ -300,10 +300,13 @@ class MarketRegimeSensor(SensorV3):
         # Macro alone can declare TREND (slow but reliable)
         if macro.get("vote") == direction and macro.get("score", 0) >= 0.4:
             regime = "TREND_UP" if direction == "UP" else "TREND_DOWN"
+            # Escalate confidence: if macro is the only layer with conviction,
+            # its score should reflect more directly in the output confidence
+            escalated_confidence = max(abs_score, macro.get("score", 0) * 0.6)
             return {
                 "regime": regime,
                 "direction": direction,
-                "confidence": abs_score,
+                "confidence": escalated_confidence,
                 "value_acceptance": value_acceptance,
                 "absorption_detected": absorption_detected,
             }
