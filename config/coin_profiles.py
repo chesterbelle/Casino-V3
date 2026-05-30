@@ -24,21 +24,20 @@ COIN_PROFILES = {
     "VOLATIL_BAJO_FLOW": {
         "description": "Libros delgados, bajo flujo — edge de reversion fuerte",
         "characteristics": {
-            "spread_ratio": {"min": 0.0, "max": 2.0},  # Spread estable
-            "depth_ratio": {"min": 0.0, "max": 1.5},  # Libro delgado
-            "speed": {"min": 0.0, "max": 0.04},  # Baja densidad
+            "spread_ratio": {"min": 0.0, "max": 2.0},
+            "depth_ratio": {"min": 0.0, "max": 1.5},
+            "speed": {"min": 0.0, "max": 0.04},
         },
-        # --- SENSOR PARAMETERS ---
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 2.5,  # Más sensible que default (3.0)
-                "concentration_min": 0.40,  # Más permisivo que default (0.70)
-                "noise_max": 0.40,  # Más permisivo que default (0.20)
+                "z_score_min": 3.5,
+                "concentration_min": 0.40,
+                "noise_max": 0.40,
                 "stagnation_floor_pct": 0.08,
             },
             "failed_breakout": {
-                "min_break_distance_pct": 0.0002,  # 0.02%
-                "max_break_age": 90.0,  # 90 segundos
+                "min_break_distance_pct": 0.0002,
+                "max_break_age": 90.0,
                 "cvd_divergence_threshold": 0.25,
             },
             "liquidity_exhaustion": {
@@ -54,39 +53,30 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.001,
             },
         },
-        # --- SCENARIO PARAMETERS ---
         "scenarios": {
             "enabled": ["TacticalAbsorptionV2", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
         },
-        # --- QUALITY SCORER PARAMETERS ---
         "quality_scorer": {
             "weights": {
-                "exhaustion": 0.35,
-                "regime": 0.25,
-                "structure": 0.20,
-                "liquidity": 0.15,
+                "exhaustion": 0.4,
+                "regime": 0.3,
+                "structure": 0.15,
+                "liquidity": 0.1,
                 "spread": 0.05,
             },
-            "grade_thresholds": {"A": 0.65, "B": 0.35},
+            "grade_thresholds": {"A": 0.7, "B": 0.4},
         },
-        # --- TARGET PARAMETERS ---
         "targets": {
-            "TacticalAbsorptionV2": {"tp_pct": 0.009, "sl_pct": 0.009},  # 0.90%
-            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.010},  # 1.00%
-            "liquidity_exhaustion": {"tp_pct": 0.006, "sl_pct": 0.006},  # 0.60%
-            "trend_acceptance": {"tp_pct": 0.010, "sl_pct": 0.010},  # 1.00%
+            "TacticalAbsorptionV2": {"tp_pct": 0.009, "sl_pct": 0.009},  # 0.90% (auditor optimal)
+            "failed_breakout": {"tp_pct": 0.01, "sl_pct": 0.01},  # 1.00% (auditor optimal)
+            "liquidity_exhaustion": {"tp_pct": 0.006, "sl_pct": 0.006},
+            "trend_acceptance": {"tp_pct": 0.009, "sl_pct": 0.009},
         },
-        # --- GUARDIAN PARAMETERS ---
         "guardians": {
-            "l2_ratio_min": 1.5,
-            "spread_max_ratio": 2.5,
+            "l2_ratio_min": 0.5,  # Bajado de 1.5 - Thin Wall tiene mejor MFE/MAE
+            "spread_max_ratio": 2.0,
         },
     },
-    # =========================================================================
-    # EFICIENTE_MEGACAP — Deep books, tight spreads, high flow
-    # Coins: BTC, ETH
-    # Characteristics: spread_ratio < 1.5, depth_ratio > 1.5, speed > 0.07
-    # =========================================================================
     "EFICIENTE_MEGACAP": {
         "description": "Ultra-eficientes — libros profundos, spreads tight",
         "characteristics": {

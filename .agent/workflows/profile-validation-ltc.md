@@ -108,7 +108,7 @@ print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 
 ## Step 4: Profile Diagnostic (Validar Perfil)
 ```bash
-.venv/bin/python utils/profile_diagnostic.py --db data/historian.db --all
+.venv/bin/python utils/profile_diagnostic.py --db data/historian.db --all --exchange
 ```
 **Output**: Real metrics vs profile characteristics, verdict (MATCH/REASSIGN/CREATE)
 
