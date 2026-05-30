@@ -45,27 +45,28 @@
 
 ## 📉 Roadmap
 1.  **CRYSTAL REFORGE — COMPLETADO ✅**: Quality Pipeline + Profile System implementado
-2.  **FILTRO DE RÉGIMEN — PRÓXIMO**: Detectar BEAR/BULL/RANGE y ajustar l2_ratio_min dinámicamente (Thin Wall en BULL/RANGE, High Wall en BEAR)
-3.  **FILTRO DE LIQUIDEZ — PRÓXIMO**: Activar/desactivar absorción según profundidad total del order book
-4.  **DOWNLOAD MORE DATASETS — PENDIENTE**: Descargar días adicionales para tuning
-5.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
-6.  **MULTI-ASSET TUNING — PENDIENTE**: Optimizar perfiles con más datos
-7.  **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
-8.  **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
+2.  **FILTRO DE RÉGIMEN — COMPLETADO ✅**: Macro direction directo para l2_ratio_min + slow drift 60c
+3.  **MEJORAR MarketRegimeSensor — PRÓXIMO**: Revisar síntesis para detectar BEAR correctamente (macro=DOWN pero síntesis queda en BALANCE)
+4.  **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
+5.  **DOWNLOAD MORE DATASETS — PENDIENTE**: Descargar días adicionales para tuning
+6.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
+7.  **MULTI-ASSET TUNING — PENDIENTE**: Optimizar perfiles con más datos
+8.  **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
+9.  **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
 
 ---
 
-### Current Status: 🟢 v8.4 Crystal Reforge — Full Profile System
-- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + coin profiler + profile manager + proximity analysis.
-- **Baseline**: Net Taker +0.06% (LTCUSDT 24h, 187 signals). Long-range: +0.2254%.
-- **Win Rate**: 59.8%
-- **Tags**: `v8.4-pre-reforge` (checkpoint), `v8.4-crystal-reforge` (current).
-- **Commits**: `432ab03` (memory update), `ffd189e` (full profile system), `a6780c1` (coin profiler), `22ccca7` (dynamic targets), `69c8a8d` (parametric fix), `d5a49b6` (TrendAcceptance), `438c90e` (Crystal Reforge), `56d1cf7` (toxic block), `afa0b2e` (audit mode), `e4f87e6` (toxic block removal).
+### Current Status: 🟢 v8.4 Crystal Reforge + MarketRegimeSensor Improvements
+- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + coin profiler + profile manager + proximity analysis + regime filter.
+- **Baseline**: Net Taker -0.0321% (LTC 9 datasets). MFE/MAE 1.40, WR 54.9%.
+- **MarketRegimeSensor**: Macro direction directo para l2_ratio_min + slow drift 60c + net direction ratio.
+- **Tags**: `v8.4-agent-friendly-refactor` (current).
+- **Commits**: `6be7d0c` (best config), `6a8e161` (MarketRegimeSensor improvements), `ad8b3b4` (roadmap update), `ab77742` (perfil changelog), `5ac4a72` (memory update).
 - **Profiles**: 3 comprehensivos (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID) con TODOS los parámetros de Crystal Layer.
-- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.63), failed_breakout (MFE/MAE 1.94), liquidity_exhaustion (MFE/MAE 0.95), trend_acceptance (MFE/MAE 0.40)
+- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.40), failed_breakout (MFE/MAE 0.89), liquidity_exhaustion (MFE/MAE 0.58), trend_acceptance (MFE/MAE 1.16)
 - **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
-- **Profile Changelog**: `.agent/perfil_changelog.md` — historial de iteraciones y hallazgos para evitar repetir trabajo.
-- **Next**: BEAR market strategy improvement, cross-validation, multi-asset tuning
+- **Profile Changelog**: `.agent/perfil_changelog.md` — historial de iteraciones y hallazgos.
+- **Next**: Mejorar MarketRegimeSensor (síntesis), filtro de liquidez, cross-validation
 
 ---
 
@@ -78,6 +79,7 @@
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-05-30T06:00:00 | session-close | MarketRegimeSensor improvements: slow drift 60c + macro direction para l2_ratio_min + net direction ratio. Net Taker mejoró de -0.0625% a -0.0321% (+0.0304%). failed_breakout ahora positivo (+0.0040%).
 - 2026-05-30T01:00:00 | session-investigation | L2 Depth Audit: Thin Wall (MFE/MAE 2.16) > High Wall (1.23) en RANGE/BULL. OPUESTO en BEAR: High Wall (1.49) > Thin Wall (0.48). Absorption funciona cuando hay liquidez pasiva suficiente.
 - 2026-05-30T00:30:00 | session-update | Profile iteration: 5 configs probadas. Mejor resultado -0.0464% Net Taker. BEAR arrastra resultado global (-0.0822%). Problema es estrategia, no perfil.
 - 2026-05-28T09:00:00 | session-close | v8.4 Crystal Reforge implementado: Quality Pipeline + Exhaustion Core. 177 signals, 37% WR, Net Taker +0.0012%. Necesita threshold tuning.

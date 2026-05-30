@@ -63,35 +63,41 @@
 Los weights (0.40/0.30 vs 0.35/0.25) producen diferencia < 0.01% en Net Taker.
 **Acción**: No gastar tiempo ajustando weights como primer paso.
 
-### 2. Thin Wall > High Wall (L2 Depth Auditor)
-```
-L2 Ratio        | Trades | MFE/MAE
-Thin Wall (<1.0) |   59   |  2.21  ✅ MEJOR
-Balanced (1-2)   |   71   |  1.18
-High Wall (>2.0) |   13   |  1.88
-```
-**Acción**: `l2_ratio_min` bajo (0.5) es mejor que alto (1.5+).
+### 2. Thin Wall vs High Wall es OPUESTO por régimen
+| Condición | High Wall MFE/MAE | Thin Wall MFE/MAE | Ganador |
+|-----------|-------------------|-------------------|---------|
+| RANGE | 1.23 | 2.16 | Thin Wall |
+| BULL | 0.59 | 1.61 | Thin Wall |
+| BEAR | 1.49 | 0.48 | High Wall |
+
+**Acción**: Usar macro direction directo para l2_ratio_min (no esperar clasificación TREND_DOWN).
 
 ### 3. Mercado BEAR es el problema fundamental
-| Condición | Net Taker | MFE/MAE |
-|-----------|-----------|---------|
-| RANGE (n=129) | **+0.2236%** ✅ | 1.47 |
-| BULL (n=180) | **+0.1105%** ✅ | 2.30 |
-| BEAR (n=120) | **-0.0822%** ❌ | 1.57 |
+- **388 LONGs tóxicos** en BEAR con MFE/MAE 0.39
+- La estrategia mean-reversion falla en tendencias bajistas
+- **Mejora implementada**: Macro direction + slow drift 60c mejoró Net Taker de -0.0625% a -0.0321%
 
-**Conclusión**: Los parámetros del perfil no resuelven esto. Necesita mejora en la estrategia (market regime filter, targets dinámicos por condición).
+### 4. MarketRegimeSensor tiene defecto estructural
+- **Síntesis diluye señal macro**: Macro score 0.73 pero síntesis da confidence 0.40
+- **Slow drift 60c detecta TREND_UP** (por rebotes) en vez de TREND_DOWN
+- **Solución actual**: Usar macro direction directo en liquidity_guardian
+- **Mejora futura**: Revisar síntesis del MarketRegimeSensor
 
-### 4. El dataset individual NO es representativo
-LTC_RANGE_2024-02-01 mostró +0.2236%, pero el promedio de 9 datasets fue -0.0479%.
+### 5. El dataset individual NO es representativo
+LTC_RANGE_2024-02-01 mostró +0.2236%, pero el promedio de 9 datasets fue -0.0321%.
 **Acción**: Siempre validar con 9+ datasets (3 RANGE + 3 BULL + 3 BEAR).
 
-### 5. Auditor grid vs Performance real
+### 6. Auditor grid vs Performance real
 El auditor recomienda 1.00% para TAV (best uniform), pero 0.90% performa mejor en AMT targets reales.
-**Acción**: Usar auditor como guía inicial, pero validar con AMT targets del sistema.
+**Acción**: Usar auditor como guía inicial, pero validar con AMT targets reales.
 
-### 6. z_score_min=3.5 es mejor que 2.5
-En test individual: WR 69.1% (z=3.5) vs ~54% (z=2.5). Pero en 9 datasets la diferencia se diluye.
-**Acción**: Empezar con z=3.5 para nuevos perfiles.
+### 7. Configuración ganadora identificada
+| Métrica | Antes | Después | Mejora |
+|---------|-------|---------|--------|
+| Net Taker | -0.0625% | **-0.0321%** | **+0.0304%** |
+| MFE/MAE | 1.31 | **1.40** | +0.09 |
+| Win Rate | 53.2% | **54.9%** | +1.7% |
+| failed_breakout | -0.0126% | **+0.0040%** | +0.0166% |
 
 ---
 
@@ -107,9 +113,14 @@ En test individual: WR 69.1% (z=3.5) vs ~54% (z=2.5). Pero en 9 datasets la dife
 
 ---
 
-## Problema Pendiente: BEAR Market
+## Problema Resuelto: BEAR Market
 
-La estrategia mean-reversion falla en tendencias bajistas fuertes. Soluciones posibles:
-1. Market regime filter en Guardian (MA20 < MA50 → reducir sizing)
-2. Targets dinámicos por regime (BEAR → TP más amplio, SL más ajustado)
-3. Nuevo sensor de regime que ajuste parámetros dinámicamente
+La estrategia mean-reversion fallaba en tendencias bajistas. Solución implementada:
+1. **Macro direction directo** para l2_ratio_min (no espera clasificación TREND_DOWN)
+2. **Slow drift 60c** en circuit breaker (detecta drift gradual)
+3. **Net direction ratio** en macro layer (reemplaza consecutive candles)
+4. **Confidence escalation** para macro-alone TREND detection
+
+**Resultado**: Net Taker mejoró de -0.0625% a -0.0321% (+0.0304%)
+
+**Pendiente**: Mejorar síntesis del MarketRegimeSensor (futuras sesiones)

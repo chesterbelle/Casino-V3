@@ -6,6 +6,85 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-05-30 FULL SESSION] — MarketRegimeSensor Improvements: Macro Direction + Slow Drift + Net Direction Ratio (Branch: v8.4-agent-friendly-refactor)
+### Summary: Investigación y mejora del MarketRegimeSensor para detectar BEAR markets. Net Taker mejoró de -0.0625% a -0.0321% (+0.0304%).
+
+#### 1. Investigación: Por qué la estrategia falla en BEAR
+- **L2 Depth Audit**: Thin Wall (MFE/MAE 2.16) > High Wall (1.23) en RANGE/BULL. OPUESTO en BEAR: High Wall (1.49) > Thin Wall (0.48).
+- **388 LONGs tóxicos** en BEAR con MFE/MAE 0.39 (el peor del sistema).
+- **MarketRegimeSensor defecto**: Macro layer detecta DOWN (score 0.73) pero síntesis queda en BALANCE porque requiere 2+ capas.
+
+#### 2. Cambios Implementados
+
+**a) Macro Layer — Net Direction Ratio (`trend_calc.py`)**
+- Reemplazado `dominant_consecutive` por `net_direction_ratio`
+- En vez de contar candles consecutivos (que se resetea al primer opuesto), cuenta la proporción de candles que van en la dirección dominante
+- Macro score mejoró de 0.40 a 0.73
+
+**b) Circuit Breaker — Slow Drift Override (`volatility_calc.py`)**
+- Agregada segunda ventana de 60 candles (1 hora) para detectar drift gradual
+- Threshold: 0.8% displacement en 60 candles
+- **Hallazgo**: Slow drift 60c detecta TREND_UP (por rebotes) en vez de TREND_DOWN
+- **Solución**: Usar macro direction directo en liquidity_guardian (no esperar clasificación TREND_DOWN)
+
+**c) Liquidity Guardian — Macro Direction Directo (`liquidity_guardian.py`)**
+- En vez de leer `regime == "TREND_DOWN"`, lee `macro.direction == "DOWN"` directamente
+- Si macro.score >= 0.6 y macro.direction == "DOWN" → usa l2_ratio_min_trend_down (2.0)
+- Esto bypassa la síntesis del MarketRegimeSensor
+
+**d) Confidence Escalation (`core_detector.py`)**
+- Cuando macro-alone declara TREND, usa `max(abs_score, macro.score * 0.6)` en vez de solo `abs_score`
+
+#### 3. Iteraciones y Resultados
+
+| # | Config | Net Taker | vs Baseline |
+|---|--------|-----------|-------------|
+| 0 | Original (sin mejoras) | -0.0625% | Baseline |
+| 1 | +weights, +grades | -0.0464% | +0.0161% |
+| 2 | +grade estricto | -0.0492% | +0.0133% |
+| 3 | +sensor estricto | -0.0646% | -0.0021% |
+| 4 | +best uniform | -0.0626% | -0.0001% |
+| 5 | z=3.5 + l2=0.5 | -0.0479% | +0.0146% |
+| 6 | MarketRegimeSensor (net ratio + slow drift) | -0.0487% | +0.0138% |
+| 7 | Sin slow drift | -0.0839% | -0.0214% |
+| 8 | Slow drift 120c + macro | -0.0591% | +0.0034% |
+| **9** | **Slow drift 60c + macro** | **-0.0321%** | **+0.0304%** ✅ |
+
+#### 4. Métricas Comparativas
+
+| Métrica | Antes | Después | Mejora |
+|---------|-------|---------|--------|
+| Net Taker | -0.0625% | **-0.0321%** | **+0.0304%** |
+| MFE/MAE | 1.31 | **1.40** | +0.09 |
+| Win Rate | 53.2% | **54.9%** | +1.7% |
+| failed_breakout | -0.0126% | **+0.0040%** | +0.0166% |
+| Net Maker | -0.0225% | **+0.0079%** | +0.0304% |
+
+#### 5. Archivos Modificados
+- `sensors/regime/market/trend_calc.py` — Net direction ratio en Macro Layer
+- `sensors/regime/market/volatility_calc.py` — Slow drift override 60c
+- `sensors/regime/market/core_detector.py` — Confidence escalation
+- `decision/guardians/liquidity_guardian.py` — Macro direction directo para l2_ratio_min
+- `config/coin_profiles.py` — l2_ratio_min_trend_down = 2.0
+
+#### 6. Commits de la Sesión
+```
+6be7d0c feat: best config - slow drift 60c + macro direction for l2_ratio
+6a8e161 feat: MarketRegimeSensor improvements + slow drift override
+ad8b3b4 docs: add regime filter and liquidity filter to roadmap
+ab77742 feat: add perfil_changelog.md + optimize VOLATIL_BAJO_FLOW profile
+5ac4a72 docs: update memory.md with perfil_changelog reference
+```
+
+#### 7. Próximos Pasos
+1. **Mejorar MarketRegimeSensor**: Revisar síntesis para detectar BEAR correctamente
+2. Filtro de liquidez: Activar/desactivar absorción según profundidad del order book
+3. Cross-validation: Validar robustez de parámetros por perfil
+4. Multi-asset tuning: Optimizar perfiles con más datos
+5. Investigación ETH: Por qué no logra Net Taker positivo
+
+---
+
 ### [2026-05-28 FULL SESSION] — v8.4 Crystal Reforge: Full Profile System + Quality Pipeline (Branch: v8.4-agent-friendly-refactor)
 ### Summary: Sesión completa de arquitectura. Quality Pipeline reemplaza guardianes, profile system para Crystal Layer completa, exhaustion gate, dynamic targets, proximity analysis.
 
