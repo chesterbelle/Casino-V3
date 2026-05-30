@@ -9,10 +9,10 @@ from sensors.regime.market.volatility_calc import _PriceCircuitBreaker
 
 logger = logging.getLogger("MarketRegimeSensor")
 
-# Regime thresholds
+# Regime thresholds - Iteration 1: Reduce confidence thresholds for better TREND detection
 TRANSITION_CONFIDENCE_MIN = 0.30  # Min confidence to declare TRANSITION (from 0.40)
-TREND_CONFIDENCE_MIN = 0.65  # Min confidence to declare TREND
-BALANCE_MAX_CONFIDENCE = 0.20  # Max directional confidence to stay in BALANCE (from 0.35)
+TREND_CONFIDENCE_MIN = 0.55  # Min confidence to declare TREND (reduced from 0.65)
+BALANCE_MAX_CONFIDENCE = 0.15  # Max directional confidence to stay in BALANCE (reduced from 0.20)
 
 
 class MarketRegimeSensor(SensorV3):
