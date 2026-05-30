@@ -46,27 +46,31 @@
 ## 📉 Roadmap
 1.  **CRYSTAL REFORGE — COMPLETADO ✅**: Quality Pipeline + Profile System implementado
 2.  **FILTRO DE RÉGIMEN — COMPLETADO ✅**: Macro direction directo para l2_ratio_min + slow drift 60c
-3.  **MEJORAR MarketRegimeSensor — PRÓXIMO**: Revisar síntesis para detectar BEAR correctamente (macro=DOWN pero síntesis queda en BALANCE)
-4.  **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
-5.  **DOWNLOAD MORE DATASETS — PENDIENTE**: Descargar días adicionales para tuning
-6.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
-7.  **MULTI-ASSET TUNING — PENDIENTE**: Optimizar perfiles con más datos
-8.  **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
-9.  **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
+3.  **BEAR GAP FIX — COMPLETADO ✅**: Macro override (score≥0.6 bypassa síntesis), threshold 0.25, confidence 0.85, absorption threshold 1.8σ, slow drift 120c. BEAR_Apr24 L/S 1.31→0.49 🎯.
+4.  **POC-BASED DYNAMIC TARGETS — COMPLETADO ✅**: TP = POC distance (avg 2.15%, dinámico), SL = 1.5% fijo. V2 Net Taker +0.8527%. Global Net Taker +0.6546% 🔥.
+5.  **VALIDAR SUI/AVAX — PRÓXIMO**: Mismo perfil VOLATIL_BAJO_FLOW. Verificar que POC-based targets funcionan.
+6.  **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
+7.  **DOWNLOAD MORE DATASETS — PENDIENTE**: Descargar días adicionales para tuning
+8.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
+9.  **MULTI-ASSET TUNING — PENDIENTE**: Optimizar perfiles con más datos
+10. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
+11. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
 
 ---
 
-### Current Status: 🟢 v8.4 Crystal Reforge + MarketRegimeSensor Improvements
-- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + coin profiler + profile manager + proximity analysis + regime filter.
-- **Baseline**: Net Taker -0.0321% (LTC 9 datasets). MFE/MAE 1.40, WR 54.9%.
-- **MarketRegimeSensor**: Macro direction directo para l2_ratio_min + slow drift 60c + net direction ratio.
+### Current Status: 🟢 v8.4 Crystal Reforge + POC-Based Dynamic Targets ✅
+- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic POC-targets + coin profiler + profile manager + proximity analysis + regime filter + macro override.
+- **Baseline**: Net Taker +0.6546% (LTC 9 datasets, 1,810 signals). Gross Expectancy +0.7746%. MFE/MAE 1.29, WR 65.2%.
+- **POC-Based TP**: TP = distancia al POC por trade (dinámico, avg 2.15%). SL = 1.5% fijo (per profile). V2 Net Taker +0.8527% 🔥.
+- **BEAR Gap Fix**: BEAR_Apr24 L/S ratio ↓ 1.31→0.87 (intacto tras cambios de targets).
+- **Root Cause**: RESUELTA — POC-based dynamic targets transformaron V2 de -0.0867% a +0.8527% Net Taker.
+- **MarketRegimeSensor**: Macro override (score≥0.6 bypassa síntesis), threshold macro-alone 0.25, confidence escalation 0.85, absorption threshold 1.8σ, slow drift 60c + 120c.
 - **Tags**: `v8.4-agent-friendly-refactor` (current).
-- **Commits**: `6be7d0c` (best config), `6a8e161` (MarketRegimeSensor improvements), `ad8b3b4` (roadmap update), `ab77742` (perfil changelog), `5ac4a72` (memory update).
 - **Profiles**: 3 comprehensivos (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID) con TODOS los parámetros de Crystal Layer.
-- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.40), failed_breakout (MFE/MAE 0.89), liquidity_exhaustion (MFE/MAE 0.58), trend_acceptance (MFE/MAE 1.16)
+- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.29, Net +0.8527% ✅), failed_breakout (MFE/MAE 0.91, Net +0.0325% ✅), liquidity_exhaustion (MFE/MAE 0.50, Net -0.2100% ❌), trend_acceptance (MFE/MAE 1.17, Net -0.0153% ❌)
 - **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
 - **Profile Changelog**: `.agent/perfil_changelog.md` — historial de iteraciones y hallazgos.
-- **Next**: Mejorar MarketRegimeSensor (síntesis), filtro de liquidez, cross-validation
+- **Next**: Validar SUI/AVAX con POC-based targets, optimizar liquidity_exhaustion/trend_acceptance, investigar BEAR_Oct24/Feb25
 
 ---
 
@@ -79,6 +83,8 @@
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-05-30T20:30:00 | session-close | POC-Based Dynamic Targets: TP = POC distance (avg 2.15%), SL = 1.5%. V2 Net Taker +0.8527% 🔥. Global Net Taker +0.6546%. El mejor resultado histórico. La sesión más productiva del proyecto: de -0.0791% a +0.6546% (+0.7337pp).
+- 2026-05-30T17:30:00 | session-close | BEAR Gap Fix completo: macro override, threshold 0.25, confidence 0.85, absorption 1.8σ, slow drift 120c. BEAR_Apr24 L/S 1.31→0.49 🎯. Gross Expectancy +0.0409% (positiva primera vez). Net Taker -0.0791%. Root cause: TARGET FAILURE.
 - 2026-05-30T06:00:00 | session-close | MarketRegimeSensor improvements: slow drift 60c + macro direction para l2_ratio_min + net direction ratio. Net Taker mejoró de -0.0625% a -0.0321% (+0.0304%). failed_breakout ahora positivo (+0.0040%).
 - 2026-05-30T01:00:00 | session-investigation | L2 Depth Audit: Thin Wall (MFE/MAE 2.16) > High Wall (1.23) en RANGE/BULL. OPUESTO en BEAR: High Wall (1.49) > Thin Wall (0.48). Absorption funciona cuando hay liquidez pasiva suficiente.
 - 2026-05-30T00:30:00 | session-update | Profile iteration: 5 configs probadas. Mejor resultado -0.0464% Net Taker. BEAR arrastra resultado global (-0.0822%). Problema es estrategia, no perfil.

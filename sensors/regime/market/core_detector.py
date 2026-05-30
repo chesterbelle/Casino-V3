@@ -276,6 +276,22 @@ class MarketRegimeSensor(SensorV3):
 
         # --- Regime Classification (no TRANSITION) ---
 
+        # Macro high-conviction override: if POC migration is very strong,
+        # declare TREND directly, bypassing weighted synthesis
+        # This solves the "BEAR Gap": macro alone can detect slow drift even
+        # when micro/meso are neutral (choppy bear with no CVD surge or VA expansion)
+        macro_score = macro.get("score", 0)
+        macro_dir = macro.get("vote", "NEUTRAL")
+        if macro_score >= 0.6 and macro_dir in ("UP", "DOWN"):
+            regime = "TREND_UP" if macro_dir == "UP" else "TREND_DOWN"
+            return {
+                "regime": regime,
+                "direction": macro_dir,
+                "confidence": max(abs_score, macro_score * 0.85),
+                "value_acceptance": value_acceptance,
+                "absorption_detected": absorption_detected,
+            }
+
         # BALANCE: Low directional conviction
         if abs_score < BALANCE_MAX_CONFIDENCE:
             return {
@@ -298,11 +314,14 @@ class MarketRegimeSensor(SensorV3):
             }
 
         # Macro alone can declare TREND (slow but reliable)
-        if macro.get("vote") == direction and macro.get("score", 0) >= 0.4:
+        # Threshold reduced from 0.4→0.25: in slow BEAR (-5% over 24h),
+        # POC migration velocity is only ~0.0038%/candle, yielding macro.score ≈ 0.20
+        # Old 0.4 threshold only fired ~15% of BEAR time; 0.25 fires ~35-45%
+        if macro.get("vote") == direction and macro.get("score", 0) >= 0.25:
             regime = "TREND_UP" if direction == "UP" else "TREND_DOWN"
             # Escalate confidence: if macro is the only layer with conviction,
             # its score should reflect more directly in the output confidence
-            escalated_confidence = max(abs_score, macro.get("score", 0) * 0.6)
+            escalated_confidence = max(abs_score, macro.get("score", 0) * 0.85)
             return {
                 "regime": regime,
                 "direction": direction,

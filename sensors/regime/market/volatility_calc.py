@@ -8,7 +8,9 @@ CIRCUIT_BREAKER_LOOKBACK = 10  # Candles to measure price displacement
 CIRCUIT_BREAKER_TREND_PCT = 0.02  # 2% move in 10 candles = TREND (no Z-score needed)
 CIRCUIT_BREAKER_CRASH_PCT = 0.04  # 4% move in 10 candles = TREND_DOWN (crash override)
 CIRCUIT_BREAKER_SLOW_LOOKBACK = 60  # 60 candles (1 hour) for slow drift detection
-CIRCUIT_BREAKER_DRIFT_PCT = 0.008  # 0.8% drift in 120 candles = slow TREND
+CIRCUIT_BREAKER_DRIFT_PCT = 0.008  # 0.8% drift in 60 candles = slow TREND
+CIRCUIT_BREAKER_SLOW_LOOKBACK_2 = 120  # 120 candles (2 hours) for very slow drift detection
+CIRCUIT_BREAKER_DRIFT_PCT_2 = 0.010  # 1.0% drift in 120 candles = very slow TREND
 
 
 class _PriceCircuitBreaker:
@@ -34,6 +36,7 @@ class _PriceCircuitBreaker:
     def __init__(self):
         self.price_history: deque = deque(maxlen=CIRCUIT_BREAKER_LOOKBACK + 2)
         self.price_history_slow: deque = deque(maxlen=CIRCUIT_BREAKER_SLOW_LOOKBACK + 2)
+        self.price_history_slow_2: deque = deque(maxlen=CIRCUIT_BREAKER_SLOW_LOOKBACK_2 + 2)
         # Persistence state
         self._active: bool = False
         self._active_direction: str = "NEUTRAL"
@@ -46,6 +49,7 @@ class _PriceCircuitBreaker:
         if close > 0:
             self.price_history.append((ts, close))
             self.price_history_slow.append((ts, close))
+            self.price_history_slow_2.append((ts, close))
 
     def evaluate(self) -> dict:
         """
@@ -127,7 +131,7 @@ class _PriceCircuitBreaker:
                 "reason": "trend_override",
             }
 
-        # Slow drift detection: 0.8% in 120 candles (2 hours)
+        # Slow drift detection: 0.8% in 60 candles (1 hour)
         if len(self.price_history_slow) >= CIRCUIT_BREAKER_SLOW_LOOKBACK:
             oldest_slow = self.price_history_slow[0][1]
             displacement_slow = (current_price - oldest_slow) / oldest_slow
@@ -147,6 +151,29 @@ class _PriceCircuitBreaker:
                     "confidence": round(confidence, 3),
                     "displacement_pct": round(displacement_slow * 100, 3),
                     "reason": "slow_drift_override",
+                }
+
+        # Very slow drift detection: 1.0% in 120 candles (2 hours)
+        # Catches BEAR drifts too slow for the 60-candle window
+        if len(self.price_history_slow_2) >= CIRCUIT_BREAKER_SLOW_LOOKBACK_2:
+            oldest_slow_2 = self.price_history_slow_2[0][1]
+            displacement_slow_2 = (current_price - oldest_slow_2) / oldest_slow_2
+            abs_displacement_slow_2 = abs(displacement_slow_2)
+            direction_slow_2 = "UP" if displacement_slow_2 > 0 else "DOWN"
+
+            if abs_displacement_slow_2 >= CIRCUIT_BREAKER_DRIFT_PCT_2:
+                confidence = min(0.5, abs_displacement_slow_2 / (CIRCUIT_BREAKER_DRIFT_PCT_2 * 3))
+                self._active = True
+                self._active_direction = direction_slow_2
+                self._active_confidence = confidence
+                self._active_reason = "slow_drift_override_2h"
+                self._reference_price = current_price
+                return {
+                    "triggered": True,
+                    "direction": direction_slow_2,
+                    "confidence": round(confidence, 3),
+                    "displacement_pct": round(displacement_slow_2 * 100, 3),
+                    "reason": "slow_drift_override_2h",
                 }
 
         # --- Persistence: if still active, maintain the signal ---

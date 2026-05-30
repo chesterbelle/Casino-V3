@@ -67,7 +67,7 @@ COIN_PROFILES = {
             "grade_thresholds": {"A": 0.7, "B": 0.4},
         },
         "targets": {
-            "TacticalAbsorptionV2": {"tp_pct": 0.009, "sl_pct": 0.009},  # 0.90% (auditor optimal)
+            "TacticalAbsorptionV2": {"tp_pct": 0.009, "sl_pct": 0.015},  # 0.90% fallback, SL=1.50% (POC-optimized)
             "failed_breakout": {"tp_pct": 0.01, "sl_pct": 0.01},  # 1.00% (auditor optimal)
             "liquidity_exhaustion": {"tp_pct": 0.006, "sl_pct": 0.006},
             "trend_acceptance": {"tp_pct": 0.009, "sl_pct": 0.009},

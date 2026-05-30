@@ -61,6 +61,11 @@ class TargetingMixin:
             tp_pct = grid_floor["tp"]
             sl_pct = grid_floor["sl"]
 
+        # POC-based dynamic TP for TacticalAbsorptionV2 (AMT reversion anchor)
+        if scenario == "TacticalAbsorptionV2" and is_reversion and poc > 0:
+            poc_dist = abs(poc - price) / price
+            tp_pct = max(poc_dist, 0.001)  # floor 0.1%, unbounded upside
+
         if side == "LONG":
             tp_price = price * (1.0 + tp_pct)
             sl_price = price * (1.0 - sl_pct)

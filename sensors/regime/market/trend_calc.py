@@ -8,7 +8,8 @@ logger = logging.getLogger("MarketRegimeSensor.Trend")
 
 # Layer 1 — Micro: tick-level flow momentum
 MICRO_FLOW_WINDOW_SECONDS = 10.0  # Rolling window for delta accumulation
-MICRO_SURGE_Z_THRESHOLD = 1.2  # Z-score to declare directional flow surge
+MICRO_SURGE_Z_THRESHOLD = 1.2  # Z-score to declare directional flow surge (aligned price+delta)
+MICRO_ABSORPTION_Z_THRESHOLD = 1.8  # Higher threshold for absorption (spoofing protection, VOLATIL_BAJO_FLOW)
 MICRO_SNAPSHOT_HZ = 4.0  # Snapshots per second
 
 # Layer 2 — Meso: VA expansion rate
@@ -47,6 +48,10 @@ class _MicroLayer:
         # Rolling Z-score of delta velocity to normalize across symbols
         self.delta_vel_zscore = RollingZScore(window_size=200)
         self.price_vel_zscore = RollingZScore(window_size=200)
+
+        # Absorption persistence counter: requires 2+ consecutive snapshots
+        # to declare absorption (prevents single-tick spoofing from triggering reversals)
+        self._absorption_snapshots = 0
 
     def on_tick(self, price: float, qty: float, is_buyer_maker: bool, ts: float):
         """Update CVD on every tick."""
@@ -111,18 +116,34 @@ class _MicroLayer:
         # Case 2: High delta velocity but price not moving → absorption
         # Direction is OPPOSITE to CVD: buyers absorbed (CVD up, price flat) → reversal DOWN
         # sellers absorbed (CVD down, price flat) → reversal UP
-        if dv_z > MICRO_SURGE_Z_THRESHOLD and pv_z < 1.0:
+        # Uses higher Z threshold (1.8 vs 1.2) to filter spoofing in thin books (VOLATIL_BAJO_FLOW)
+        if dv_z > MICRO_ABSORPTION_Z_THRESHOLD and pv_z < 1.0:
+            self._absorption_snapshots += 1
             direction = "DOWN" if delta_vel > 0 else "UP"  # opposite of aggressive flow
             score = min(0.8, dv_z / 4.0)  # proportional to delta strength, capped below surge
+
+            if self._absorption_snapshots >= 2:
+                # Confirmed: 2+ consecutive snapshots showing absorption → genuine reversal setup
+                return {
+                    "vote": direction,
+                    "score": round(score, 3),
+                    "reason": "absorption_detected",
+                    "delta_vel": round(delta_vel, 2),
+                    "dv_z": round(dv_z, 2),
+                }
+
+            # First snapshot: potential absorption, not yet confirmed
+            # Return NEUTRAL with low score to avoid triggering reversal on noise
             return {
-                "vote": direction,
-                "score": round(score, 3),
-                "reason": "absorption_detected",
+                "vote": "NEUTRAL",
+                "score": round(score * 0.3, 3),
+                "reason": "absorption_candidate",
                 "delta_vel": round(delta_vel, 2),
                 "dv_z": round(dv_z, 2),
             }
 
         # Case 3: Weak or neutral flow
+        self._absorption_snapshots = 0  # Reset absorption counter
         return {
             "vote": "NEUTRAL",
             "score": 0.0,
@@ -156,6 +177,11 @@ class _MesoLayer:
         self.ib_break_ts: float = 0.0
         self.ib_break_decay = 120.0  # IB break signal decays after 2 minutes
 
+        # Latest VA extremes for directional expansion detection
+        self._latest_val: float = 0.0
+        self._latest_vah: float = 0.0
+        self._latest_close: float = 0.0
+
     def on_candle(
         self,
         poc: float,
@@ -171,6 +197,10 @@ class _MesoLayer:
         """Update on each new candle with current VA levels."""
         if poc <= 0 or vah <= 0 or val <= 0:
             return
+
+        self._latest_vah = vah
+        self._latest_val = val
+        self._latest_close = close
 
         va_width_pct = (vah - val) / poc if poc > 0 else 0.0
         self.va_width_history.append((ts, va_width_pct))
@@ -222,8 +252,22 @@ class _MesoLayer:
 
         if expansion_rate > MESO_EXPANSION_THRESHOLD:
             # VA is expanding — market leaving balance
-            # Direction from IB break if available, else ambiguous
-            direction = ib_vote if ib_vote != "NEUTRAL" else "NEUTRAL"
+            # Direction determined by close position within the expanding VA:
+            #   close near VAH (>75th percentile) + VA expanding → UP expansion
+            #   close near VAL (<25th percentile) + VA expanding → DOWN expansion
+            #   close in middle → ambiguous (use IB break or NEUTRAL)
+            direction = "NEUTRAL"
+            if self._latest_vah > self._latest_val:
+                va_width = self._latest_vah - self._latest_val
+                va_bias = (self._latest_close - self._latest_val) / va_width  # 0.0=VAL, 1.0=VAH
+                if va_bias > 0.75:
+                    direction = ib_vote if ib_vote != "NEUTRAL" else "UP"
+                elif va_bias < 0.25:
+                    direction = ib_vote if ib_vote != "NEUTRAL" else "DOWN"
+
+            if direction == "NEUTRAL" and ib_vote != "NEUTRAL":
+                direction = ib_vote
+
             base_score = min(0.6, expansion_rate / (MESO_EXPANSION_THRESHOLD * 3))
             total_score = min(1.0, base_score + ib_score)
             return {
