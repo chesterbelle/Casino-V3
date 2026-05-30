@@ -45,11 +45,13 @@
 
 ## 📉 Roadmap
 1.  **CRYSTAL REFORGE — COMPLETADO ✅**: Quality Pipeline + Profile System implementado
-2.  **DOWNLOAD MORE DATASETS — PRÓXIMO**: Descargar días adicionales para tuning
-3.  **CROSS-VALIDATION — PRÓXIMO**: Validar robustez de parámetros por perfil
-4.  **MULTI-ASSET TUNING — PRÓXIMO**: Optimizar perfiles con más datos
-5.  **INVESTIGACIÓN ETH — PRÓXIMO**: Investigar por qué ETH no logra Net Taker positivo
-6.  **LIVE / PAPER TRADING — PRÓXIMO**: Conexión al Testnet/Live
+2.  **FILTRO DE RÉGIMEN — PRÓXIMO**: Detectar BEAR/BULL/RANGE y ajustar l2_ratio_min dinámicamente (Thin Wall en BULL/RANGE, High Wall en BEAR)
+3.  **FILTRO DE LIQUIDEZ — PRÓXIMO**: Activar/desactivar absorción según profundidad total del order book
+4.  **DOWNLOAD MORE DATASETS — PENDIENTE**: Descargar días adicionales para tuning
+5.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
+6.  **MULTI-ASSET TUNING — PENDIENTE**: Optimizar perfiles con más datos
+7.  **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
+8.  **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
 
 ---
 
@@ -76,6 +78,8 @@
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-05-30T01:00:00 | session-investigation | L2 Depth Audit: Thin Wall (MFE/MAE 2.16) > High Wall (1.23) en RANGE/BULL. OPUESTO en BEAR: High Wall (1.49) > Thin Wall (0.48). Absorption funciona cuando hay liquidez pasiva suficiente.
+- 2026-05-30T00:30:00 | session-update | Profile iteration: 5 configs probadas. Mejor resultado -0.0464% Net Taker. BEAR arrastra resultado global (-0.0822%). Problema es estrategia, no perfil.
 - 2026-05-28T09:00:00 | session-close | v8.4 Crystal Reforge implementado: Quality Pipeline + Exhaustion Core. 177 signals, 37% WR, Net Taker +0.0012%. Necesita threshold tuning.
 - 2026-05-28T06:00:00 | session-update | Edge Audit LTCUSDT: 3 signals, Net Taker +0.1739%. Diagnóstico: 98.7% guardian rejection rate (195/198).
 - 2026-05-28T06:30:00 | session-update | Forense guardian chain: 917 ABS signals → 229 guardian rejections → 723 passed → 720 killed by in-trade lock → 3 trades.
