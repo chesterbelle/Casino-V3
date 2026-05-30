@@ -8,7 +8,7 @@ CIRCUIT_BREAKER_LOOKBACK = 10  # Candles to measure price displacement
 CIRCUIT_BREAKER_TREND_PCT = 0.02  # 2% move in 10 candles = TREND (no Z-score needed)
 CIRCUIT_BREAKER_CRASH_PCT = 0.04  # 4% move in 10 candles = TREND_DOWN (crash override)
 CIRCUIT_BREAKER_SLOW_LOOKBACK = 60  # 60 candles (1 hour) for slow drift detection
-CIRCUIT_BREAKER_DRIFT_PCT = 0.008  # 0.8% drift in 60 candles = slow TREND
+CIRCUIT_BREAKER_DRIFT_PCT = 0.008  # 0.8% drift in 120 candles = slow TREND
 
 
 class _PriceCircuitBreaker:
@@ -127,7 +127,7 @@ class _PriceCircuitBreaker:
                 "reason": "trend_override",
             }
 
-        # Slow drift detection: 0.8% in 60 candles (1 hour)
+        # Slow drift detection: 0.8% in 120 candles (2 hours)
         if len(self.price_history_slow) >= CIRCUIT_BREAKER_SLOW_LOOKBACK:
             oldest_slow = self.price_history_slow[0][1]
             displacement_slow = (current_price - oldest_slow) / oldest_slow

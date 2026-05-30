@@ -25,19 +25,31 @@ def check_liquidity_heatmap(symbol: str, side: str, target_price: float, context
     l2_ratio = context_registry.get_l2_ratio(symbol, side)
     metrics["l2_ratio"] = l2_ratio
 
-    # Get L2 ratio threshold from profile (dynamic based on regime)
+    # Get L2 ratio threshold from profile (dynamic based on macro direction)
     try:
         from decision.engine.profile_manager import profile_manager
 
         guardian_params = profile_manager.get_guardian_params(symbol)
 
-        # Check regime for dynamic l2_ratio_min
+        # Read macro layer direction directly from regime data
+        # This is more reliable than waiting for regime classification
         # BULL/RANGE: Thin Wall (l2_ratio_min) works better
-        # BEAR (TREND_DOWN): High Wall (l2_ratio_min_trend_down) works better
+        # BEAR (macro DOWN): High Wall (l2_ratio_min_trend_down) works better
         regime_v2_data = getattr(context_registry, "_regime_v2", {}).get(symbol)
-        regime = regime_v2_data.get("regime", "BALANCE") if regime_v2_data else "BALANCE"
 
-        if regime == "TREND_DOWN":
+        # Extract macro direction and score from regime data
+        macro_direction = "NEUTRAL"
+        macro_score = 0.0
+        if regime_v2_data and "layers" in regime_v2_data:
+            macro_layer = regime_v2_data["layers"].get("macro", {})
+            macro_direction = macro_layer.get("vote", "NEUTRAL")
+            macro_score = macro_layer.get("score", 0.0)
+
+        # Use macro direction directly for l2_ratio_min decision
+        # More reliable than regime classification (which requires 2+ layers)
+        MACRO_THRESHOLD = 0.6  # Minimum macro score to activate High Wall
+
+        if macro_direction == "DOWN" and macro_score >= MACRO_THRESHOLD:
             l2_ratio_min = guardian_params.get(
                 "l2_ratio_min_trend_down", guardian_params.get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
             )
