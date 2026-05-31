@@ -1,14 +1,14 @@
 ---
-description: Profile Validation Protocol (LTC × 3 Market Conditions × 3 Days)
+description: Profile Validation Protocol (LTC × 3 Conditions × 2 Days — Set A)
 ---
 
-# Profile Validation Protocol — LTC × 3 Conditions × 3 Days
+# Profile Validation Protocol — LTC × 3 Conditions × 2 Days (Set A)
 
 // turbo-all
 
 ## Overview
 Validates that the coin profile system works correctly using LTCUSDT across multiple market conditions.
-Runs 9 backtests across three distinct conditions (3 days each) and validates:
+Runs 6 backtests across three distinct conditions (2 days each) using Set A and validates:
 - Profile assignment correctness
 - Performance consistency
 - L2 depth predictive power
@@ -18,14 +18,12 @@ Runs 9 backtests across three distinct conditions (3 days each) and validates:
 |-------|--------|---------|-----|
 | **LTC** | LTC/USDT:USDT | VOLATIL_BAJO_FLOW | Baseline asset, naturally mean-reverting |
 
-**Market Conditions & Datasets:**
-
-### LTC (Day 1s from Tardis Free Tier)
+**Market Conditions & Datasets (Set A):**
 | Condition | Datasets |
 |-----------|----------|
-| **RANGE** | LTC_RANGE_2024-02-01.db, LTC_RANGE_2024-05-01.db, LTC_RANGE_2024-08-01.db |
-| **BEAR**  | LTC_BEAR_2024-04-01.db, LTC_BEAR_2024-10-01.db, LTC_BEAR_2025-02-01.db |
-| **BULL**  | LTC_BULL_2024-03-01.db, LTC_BULL_2024-12-01.db, LTC_BULL_2025-05-01.db |
+| **TREND_UP** | LTC_TREND_UP_2023-02-01.db, LTC_TREND_UP_2025-05-01.db |
+| **TREND_DOWN** | LTC_TREND_DOWN_2024-04-01.db, LTC_TREND_DOWN_2024-10-01.db |
+| **BALANCE** | LTC_BALANCE_2024-02-01.db, LTC_BALANCE_2024-05-01.db |
 
 **Statistical Goal**: n ≥ 100 signals total, n ≥ 25 per condition
 
@@ -41,17 +39,14 @@ Runs 9 backtests across three distinct conditions (3 days each) and validates:
 
 ## Step 1: Verify Datasets Exist
 ```bash
-echo "=== LTC Datasets ==="
+echo "=== LTC Set A Datasets ==="
 for f in \
-  data/datasets/backtest_ready/LTC_RANGE_2024-02-01.db \
-  data/datasets/backtest_ready/LTC_RANGE_2024-05-01.db \
-  data/datasets/backtest_ready/LTC_RANGE_2024-08-01.db \
-  data/datasets/backtest_ready/LTC_BEAR_2024-04-01.db \
-  data/datasets/backtest_ready/LTC_BEAR_2024-10-01.db \
-  data/datasets/backtest_ready/LTC_BEAR_2025-02-01.db \
-  data/datasets/backtest_ready/LTC_BULL_2024-03-01.db \
-  data/datasets/backtest_ready/LTC_BULL_2024-12-01.db \
-  data/datasets/backtest_ready/LTC_BULL_2025-05-01.db; do
+  data/datasets/backtest_ready/LTC_TREND_UP_2023-02-01.db \
+  data/datasets/backtest_ready/LTC_TREND_UP_2025-05-01.db \
+  data/datasets/backtest_ready/LTC_TREND_DOWN_2024-04-01.db \
+  data/datasets/backtest_ready/LTC_TREND_DOWN_2024-10-01.db \
+  data/datasets/backtest_ready/LTC_BALANCE_2024-02-01.db \
+  data/datasets/backtest_ready/LTC_BALANCE_2024-05-01.db; do
   if [ -f "$f" ]; then
     echo "✅ $(basename $f): $(du -h $f | cut -f1)"
   else
@@ -73,25 +68,23 @@ done
 mkdir -p logs
 ```
 > **🤖 REGLA DE EJECUCIÓN AUTÓNOMA PARA EL AGENTE (No Negociable):**
-> Como este proceso puede durar horas procesando 9 meses de datos, el agente **DEBE** actuar de manera 100% autónoma y reportar el progreso periódicamente al usuario, sin que este deba pedirlo o ejecutar comandos manualmente.
+> Como este proceso puede durar horas procesando 6 meses de datos, el agente **DEBE** actuar de manera 100% autónoma y reportar el progreso periódicamente al usuario, sin que este deba pedirlo o ejecutar comandos manualmente.
 >
 > Sigue EXACTAMENTE esta secuencia:
 > 1. Lanza el orquestador en **segundo plano** redirigiendo la salida para poder monitorearla:
 >    ```bash
->    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol long-range > logs/orchestrator_run.log 2>&1
+>    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a > logs/orchestrator_run.log 2>&1
 >    ```
 > 2. Implementa un mecanismo de monitoreo en segundo plano (ej. un script de loop, tarea programada o revisión periódica) para leer el log cada 5 minutos.
-> 3. En cada revisión, haz `tail -n 20 logs/orchestrator_run.log`, extrae qué dataset está procesándose y su tamaño, e **imprime un reporte en el chat para el usuario** (Ej: "📊 Progreso: LTC_BEAR - 2/9 completados").
+> 3. En cada revisión, haz `tail -n 20 logs/orchestrator_run.log`, extrae qué dataset está procesándose y su tamaño, e **imprime un reporte en el chat para el usuario** (Ej: "📊 Progreso: LTC_TREND_UP - 2/6 completados").
 > 4. Cuando el log indique que el proceso ha finalizado, detén tu monitoreo y continúa al Step 3.
 
 
 ---
 
-## Step 3: Merge Databases & Verify Data Collection
-```bash
-# Consolidate all historian_<condition>_<date>.db into master historian.db
-.venv/bin/python utils/merge_historian.py
-```
+## Step 3: Verify Data Collection
+_Nota: el orquestador ya corre merge_historian.py automáticamente al finalizar._
+
 ```bash
 .venv/bin/python -c "
 import sqlite3
@@ -102,7 +95,7 @@ print(f'Signals: {s}, Price Samples: {p}')
 print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 "
 ```
-**Minimum**: Signals ≥ 100 total. If fewer, mark as INSUFFICIENT DATA.
+**Minimum**: Signals ≥ 100 total, ≥ 25 per condition. If fewer, mark as INSUFFICIENT DATA.
 
 ---
 
@@ -261,11 +254,11 @@ After Step 8, the agent **MUST STOP COMPLETELY** and present:
 
 | Condition | Profile Match | Performance | L2 Depth | Verdict |
 |-----------|---------------|-------------|----------|---------|
-| Range | ✅ | Expectancy > 0.36% | High Wall > Thin Wall | **CERTIFIED** |
-| Range | ✅ | Expectancy > 0.12% | — | **WATCH** |
-| Range | ❌ | Any | — | **PROFILE WRONG** |
-| Bear/Bull | ✅ | Expectancy > 0.12% | — | **GUARDIAN OK** |
-| Bear/Bull | ❌ | Any | — | **PROFILE INCONSISTENT** |
+| BALANCE | ✅ | Expectancy > 0.12% | High Wall > Thin Wall | **CERTIFIED** |
+| BALANCE | ✅ | Expectancy > 0.12% | — | **WATCH** |
+| BALANCE | ❌ | Any | — | **PROFILE WRONG** |
+| TREND_UP / TREND_DOWN | ✅ | Expectancy > 0.12% | — | **GUARDIAN OK** |
+| TREND_UP / TREND_DOWN | ❌ | Any | — | **PROFILE INCONSISTENT** |
 
 ---
 
@@ -280,10 +273,11 @@ Current characteristics:
 
 Current parameters:
 ```python
-z_score_min: 2.5
+z_score_min: 3.5
 concentration_min: 0.40
 noise_max: 0.40
-TP (TacticalAbsorption): 0.90%
-SL (TacticalAbsorption): 0.90%
-l2_ratio_min: 1.5
+TP (TacticalAbsorption): per-regime (UP=1.2%, DOWN=2.0%, BALANCE=0.8%)
+SL (TacticalAbsorption): per-regime (UP=4.0%, DOWN=5.0%, BALANCE=4.0%)
+fallback TP/SL: 2.4%/2.5%
+l2_ratio_min: 1.0
 ```
