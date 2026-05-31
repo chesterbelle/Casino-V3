@@ -87,9 +87,18 @@ class ProfileManager:
         """Get quality scorer parameters for a symbol."""
         return self.get_param(symbol, "quality_scorer") or {}
 
-    def get_target_params(self, symbol: str, scenario: str) -> Dict:
-        """Get target parameters for a specific scenario and symbol."""
-        return self.get_param(symbol, "targets", scenario) or {}
+    def get_target_params(self, symbol: str, scenario: str, regime: str = None) -> Dict:
+        """Get target parameters for a specific scenario and symbol.
+
+        If regime is provided and per-regime targets exist, returns regime-specific
+        targets. Falls back to generic targets if no per-regime override.
+        """
+        targets = self.get_param(symbol, "targets", scenario) or {}
+        if regime and "regime" in targets:
+            regime_targets = targets["regime"]
+            if regime in regime_targets:
+                return regime_targets[regime]
+        return targets
 
     def get_guardian_params(self, symbol: str) -> Dict:
         """Get guardian parameters for a symbol."""

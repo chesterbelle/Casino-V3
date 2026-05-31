@@ -69,6 +69,32 @@ PROTOCOLS = {
         "run_type": "audit",
         "max_workers": 1,
     },
+    "set_a": {
+        "datasets": [
+            "LTC_TREND_UP_2023-02-01.db",
+            "LTC_TREND_UP_2025-05-01.db",
+            "LTC_TREND_DOWN_2024-04-01.db",
+            "LTC_TREND_DOWN_2024-10-01.db",
+            "LTC_BALANCE_2024-02-01.db",
+            "LTC_BALANCE_2024-05-01.db",
+        ],
+        "symbol": "LTC/USDT:USDT",
+        "run_type": "audit",
+        "max_workers": 3,
+    },
+    "set_b": {
+        "datasets": [
+            "LTC_TREND_UP_2025-10-01.db",
+            "LTC_TREND_UP_2024-03-01.db",
+            "LTC_TREND_DOWN_2025-12-01.db",
+            "LTC_TREND_DOWN_2025-02-01.db",
+            "LTC_BALANCE_2023-08-01.db",
+            "LTC_BALANCE_2025-03-01.db",
+        ],
+        "symbol": "LTC/USDT:USDT",
+        "run_type": "audit",
+        "max_workers": 3,
+    },
 }
 
 DB_DIR = "data/datasets/backtest_ready"
@@ -166,7 +192,7 @@ def run_protocol(protocol_name, symbol=None):
         return
 
     tasks = []
-    if protocol_name == "long-range":
+    if protocol_name in ("long-range", "cross-validation", "set_a", "set_b"):
         for db_file in config["datasets"]:
             tasks.append(
                 {

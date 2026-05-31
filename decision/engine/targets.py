@@ -48,8 +48,14 @@ class TargetingMixin:
         # Determine mode
         is_reversion = setup_mode.value == "reversion" if hasattr(setup_mode, "value") else setup_mode != "continuation"
 
-        # Get targets from profile or use defaults
-        profile_targets = profile_manager.get_target_params(symbol, scenario)
+        # Get regime from context for per-regime targeting
+        regime = "BALANCE"
+        if self.context_registry:
+            regime_data = self.context_registry.get_regime_v2(symbol)
+            regime = regime_data.get("regime", "BALANCE")
+
+        # Get targets from profile (regime-specific if available)
+        profile_targets = profile_manager.get_target_params(symbol, scenario, regime)
         if profile_targets:
             tp_pct = profile_targets.get("tp_pct", 0.009)
             sl_pct = profile_targets.get("sl_pct", 0.009)
@@ -60,11 +66,6 @@ class TargetingMixin:
             )
             tp_pct = grid_floor["tp"]
             sl_pct = grid_floor["sl"]
-
-        # POC-based dynamic TP for TacticalAbsorptionV2 (AMT reversion anchor)
-        if scenario == "TacticalAbsorptionV2" and is_reversion and poc > 0:
-            poc_dist = abs(poc - price) / price
-            tp_pct = max(poc_dist, 0.001)  # floor 0.1%, unbounded upside
 
         if side == "LONG":
             tp_price = price * (1.0 + tp_pct)

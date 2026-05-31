@@ -104,3 +104,45 @@
 - 2026-05-27T21:00:00 | session-update | Validator fixes: 3 fixed, 1 deleted, 10/10 PASS. validate-all.md v8.5.
 - 2026-05-27T22:00:00 | session-update | Edge auditor: calibrator removed (250 lines). 3 workflows updated. merge_historian.py verified.
 - 2026-05-27T22:16:00 | session-close | Full session documented. 18 commits, -2,857 líneas netas, Net Taker +0.1334% preservado. Commit `f036fbd`.
+
+
+## v8.5-fixed (Fixed Targets 2.4%/2.5%)
+
+**Retracción completa de v8.5-profitable (POC-based TP).**
+
+### El Bug del Expectancy con TP Variable
+- El auditor usaba `WR% × AvgTP_overall − (1−WR%) × AvgSL` para calcular expectancy.
+- Con TP fijo, esta fórmula es correcta (TP constante para todos los trades).
+- Con POC-based TP (TP = POC distance por trade), la fórmula es **incorrecta** porque:
+  - Las trades que ganan tienen POC cerca → TP pequeño (avg 0.68%)
+  - Las trades que pierden/expiran tienen POC lejano → TP grande (avg 3.7%)
+  - `AvgTP_overall` (2.15%) incluye TPs de señales que NUNCA ganan, inflando la expectancy
+- **Expectancy real de POC-based**: −0.14% Net (con cálculo per-signal correcto)
+
+### Por qué POC-based no funciona
+- Solo **45.3%** de los trades alcanzan su POC distance (MFE ≥ POC)
+- Las ganadoras rinden 0.68% avg; las perdedoras pierden 1.5-2.5%
+- R:R de ~0.45:1 no alcanza ni con 67.8% WR
+
+### Solución: Targets Fijos TP=2.4% SL=2.5%
+- V2: 303W 221L 972TO, WR 57.8%, **Net +0.2134%** ✅
+- Overall (todos los setups): **Net +0.1248%** ✅
+- El cálculo es exacto porque TP y SL son constantes
+
+### Por régimen (targets fijos)
+| Régimen | Mejor Fixed | Net |
+|---------|------------|-----|
+| RANGE   | TP=2.7% SL=2.5% | +0.53% |
+| BULL    | TP=2.7% SL=2.5% | +0.63% |
+| BEAR    | todos negativos | -0.03% |
+| BEAR (POC>2.87%) | TP=3.0% SL=2.5% | +1.05% |
+
+### Archivos modificados
+- `decision/engine/targets.py`: removido POC-based TP override (líneas 64-67)
+- `config/coin_profiles.py`: `tp_pct: 0.009→0.024`, `sl_pct: 0.015→0.025`
+
+### Lecciones aprendidas
+1. **No usar TP dinámico** con N pequeño y distribución sesgada — el expectancy es imposible de calcular correctamente sin per-signal PnL
+2. **Targets fijos son más robustos** y su evaluación es determinista
+3. **RANGE y BULL** son buenos para V2; **BEAR** es estructuralmente negativo — requiere filtrado por POC distance
+4. **Desde AMT**, BEAR/BULL son trending simétricos — no tratarlos diferente
