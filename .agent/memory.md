@@ -24,7 +24,7 @@
 
 ### 1. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢]
 *   **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + profile system
-*   **Profiles**: VOLATIL_BAJO_FLOW (SUI, AVAX, LTC), EFICIENTE_MEGACAP (BTC, ETH), BALANCED_MID (SOL, ADA, BNB, LINK, DOGE)
+*   **Profiles**: 5 perfiles microestructura — MEGA_LIQUID (BTC, ETH), MAJOR_LIQUID (SOL, BNB, XRP), MID_LIQUID (LTC, ADA, LINK, DOGE — iter 3 validated), THIN_VOLATILE (AVAX, SUI, NEAR, APT, OP, ARB — TAV/FB disabled), ILLIQUID_SPEC (long-tail, disabled)
 *   **Métrica Forense (LTCUSDT 24h)**: Net Taker +0.06%, MFE/MAE 1.63, Win Rate 59.8%
 *   **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC). Edge instrument-dependiente.
 *   **Exhaustion Gate**: Bloquea agresores intensificándose (delta_ratio > 1.5)
@@ -67,7 +67,7 @@
 - **Global Net Set A**: **+0.2713% Net Taker** (+0.3913% Gross) with **81.2% Win Rate** across 1,118 signals.
 - **Discrete-Touch Reexhaustion**: Successfully rewrote `liquidity_exhaustion` to require clean bounces away from VAH/VAL before counting new touches, avoiding absorption micro-noise.
 - **failed_breakout expectation**: Turned positive from borderline flat/negative to **+0.4400% Net Taker** with **68% WR** (74 signals) using 2.0% TP / 2.5% SL.
-- **Profiles**: 3 comprehensivos (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID).
+- **Profiles**: 5 perfiles microestructura (MEGA/MAJOR/MID/THIN/ILLIQUID), 5 dims (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h).
 - **Per Setup**: TacticalAbsorptionV2 (Net +0.3262% ✅), failed_breakout (Net +0.4400% ✅), trend_acceptance (Net +0.2040% ✅).
 - **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
 - **Next**: Re-ejecutar `/profile-validation-volatil-bajo-flow` completo (fix skip_clean activo). Luego: TREND_DOWN LONG veto + trend_acceptance target formula.
@@ -83,11 +83,13 @@
 15. **No es Reversion Clásica**: 0/927 señales V2 revierten en <15 min. Es flujo direccional que se extiende por horas (mediana time-to-TP = 110 min). El nombre "TacticalAbsorptionV2" probablemente está mal.
 16. **Timeout Rate ~60%**: Es el drag principal del sistema. Cada timeout cuesta −0.12% fee. Optimizar targets es la prioridad #1.
 17. **skip_clean Bug (Orquestador)**: `clean_temp_data()` borra `historian.db*` al inicio de cada protocolo. Si se encadenan protocolos sin `skip_clean=True`, el DB mergeado previo se destruye. Fix: `set_a_avax` y `set_a_sui` tienen `skip_clean=True` — solo borran temporales.
+18. **DEFAULT_PROFILE = MID_LIQUID Bug**: `match_profile` y `find_closest_profile` saltaban MID_LIQUID porque `if profile_name == DEFAULT_PROFILE: continue`. Cualquier perfil que fuera DEFAULT no se podía matchear. Removido el skip — ahora DEFAULT_PROFILE es solo un fallback label, no afecta matching.
 
 ---
 
 ## 📝 Timeline de Sesiones Recientes
 - 2026-06-01 | session-close | **PROFILE VALIDATION VOLATIL_BAJO_FLOW — FINAL**: 6 iteraciones de parameter tuning + baseline. **Iter 3 GANADOR** (TAV SL tightening): Net Taker **+0.0455%** (de -0.1066% baseline, +0.152pp). AVAX TAV -0.44→-0.19 (+0.25pp), LTC TAV +0.21→+0.38 (+0.17pp). SUI TAV -0.58pp regresión. **Iter 1, 4, 5, 6 REVERTIDOS**. **Iter 2 MAINTAINED** (concentration_min 0.40→0.50, +0.009pp). Descubrimiento crítico: AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son **ENTRY FAILURE** (MFE/MAE <1.2, best uniform 0.20/0.20% sin edge). Imposible fix con parámetros. Config final: concentration_min=0.50, TAV SL=2.5/3.0/2.5%, l2_ratio_min=0.5, l2_ratio_min_trend_down=2.0, FB=2.0/2.5%. Próximo paso: entry logic changes.
+- 2026-06-01 | session-close | **5-PROFILE MICROSTRUCTURE REFACTOR**: 3→5 perfiles con 5 dims (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h). Clasificación validada: LTC→MID ✓, SUI→THIN ✓, AVAX→MID (borderline vol 1.06%, SUI fue el caso de falla real de TAV). **Bug fix crítico**: `match_profile` y `find_closest_profile` saltaban `DEFAULT_PROFILE = MID_LIQUID`. Removido. Diagnostic ahora online (fetches klines + computes 4 new metrics). Commit `c85dd30`.
 - 2026-06-01 | session-close | Orquestador multi-asset: +set_a_avax (6 datasets), +set_a_sui (2 datasets), skip_merge, skip_clean. Bug crítico encontrado y corregido: clean_temp_data() destruía historian.db encadenado. Workflow profile-validation-volatil-bajo-flow actualizado para 3 activos en sucesión. Pendiente re-run completo.
 - 2026-05-30T20:30:00 | session-close | POC-Based Dynamic Targets: TP = POC distance (avg 2.15%), SL = 1.5%. V2 Net Taker +0.8527% 🔥. Global Net Taker +0.6546%. El mejor resultado histórico. La sesión más productiva del proyecto: de -0.0791% a +0.6546% (+0.7337pp).
 - 2026-05-30T17:30:00 | session-close | BEAR Gap Fix completo: macro override, threshold 0.25, confidence 0.85, absorption 1.8σ, slow drift 120c. BEAR_Apr24 L/S 1.31→0.49 🎯. Gross Expectancy +0.0409% (positiva primera vez). Net Taker -0.0791%. Root cause: TARGET FAILURE.
