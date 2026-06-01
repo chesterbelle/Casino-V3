@@ -9,7 +9,7 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
-*   **Current Branch**: `v8.4-agent-friendly-refactor` (v8.4 Crystal Reforge, commit `432ab03`)
+*   **Current Branch**: `8.6-Alphareloaded` (v8.5-per-regime-targets + hard block revertido, commit `3a78d3c`)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
 
@@ -47,30 +47,29 @@
 1.  **CRYSTAL REFORGE — COMPLETADO ✅**: Quality Pipeline + Profile System implementado
 2.  **FILTRO DE RÉGIMEN — COMPLETADO ✅**: Macro direction directo para l2_ratio_min + slow drift 60c
 3.  **BEAR GAP FIX — COMPLETADO ✅**: Macro override (score≥0.6 bypassa síntesis), threshold 0.25, confidence 0.85, absorption threshold 1.8σ, slow drift 120c. BEAR_Apr24 L/S 1.31→0.49 🎯.
-4.  **POC-BASED DYNAMIC TARGETS — COMPLETADO ✅**: TP = POC distance (avg 2.15%, dinámico), SL = 1.5% fijo. V2 Net Taker +0.8527%. Global Net Taker +0.6546% 🔥.
-5.  **VALIDAR SUI/AVAX — PRÓXIMO**: Mismo perfil VOLATIL_BAJO_FLOW. Verificar que POC-based targets funcionan.
-6.  **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
-7.  **DOWNLOAD MORE DATASETS — PENDIENTE**: Descargar días adicionales para tuning
-8.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
-9.  **MULTI-ASSET TUNING — PENDIENTE**: Optimizar perfiles con más datos
-10. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
-11. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
+4.  **PER-REGIME TARGETS — COMPLETADO ✅**: TP/SL asimétricos por régimen. V2 Set A +0.456%, Set B +0.482%.
+5.  **AUTOPSIA TREND_DOWN — COMPLETADO ✅**: LONGS en TREND_DOWN = 6% WR (tóxico). Hard block revertido — no mata edge de SHORTS.
+6.  **PROHIBIR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Corregir entry lógica para bloquear contra-tendencia en DOWN.
+7.  **REDUCIR TIMEOUT RATE — PRÓXIMO 🔴**: Optimizar targets para bajar ~60% timeout. Es el drag principal.
+8.  **RE-EVALUAR NOMBRE DEL SETUP — PRÓXIMO**: TacticalAbsorptionV2 → InstitutionalFlowV2?
+9.  **VALIDAR SUI/AVAX — EN PROGRESO 🟡**: Workflow multi-asset listo. Pendiente re-run con fix skip_clean activo.
+10. **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
+11. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
+12. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
+13. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
 
 ---
 
-### Current Status: 🟢 v8.4 Crystal Reforge + POC-Based Dynamic Targets ✅
-- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic POC-targets + coin profiler + profile manager + proximity analysis + regime filter + macro override.
-- **Baseline**: Net Taker +0.6546% (LTC 9 datasets, 1,810 signals). Gross Expectancy +0.7746%. MFE/MAE 1.29, WR 65.2%.
-- **POC-Based TP**: TP = distancia al POC por trade (dinámico, avg 2.15%). SL = 1.5% fijo (per profile). V2 Net Taker +0.8527% 🔥.
-- **BEAR Gap Fix**: BEAR_Apr24 L/S ratio ↓ 1.31→0.87 (intacto tras cambios de targets).
-- **Root Cause**: RESUELTA — POC-based dynamic targets transformaron V2 de -0.0867% a +0.8527% Net Taker.
-- **MarketRegimeSensor**: Macro override (score≥0.6 bypassa síntesis), threshold macro-alone 0.25, confidence escalation 0.85, absorption threshold 1.8σ, slow drift 60c + 120c.
-- **Tags**: `v8.4-agent-friendly-refactor` (current).
-- **Profiles**: 3 comprehensivos (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID) con TODOS los parámetros de Crystal Layer.
-- **Per Setup**: TacticalAbsorptionV2 (MFE/MAE 1.29, Net +0.8527% ✅), failed_breakout (MFE/MAE 0.91, Net +0.0325% ✅), liquidity_exhaustion (MFE/MAE 0.50, Net -0.2100% ❌), trend_acceptance (MFE/MAE 1.17, Net -0.0153% ❌)
+### Current Status: 🟢 v8.6 Strategic Reversion Calibration (Set A E2E certified)
+- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + coin profiler + profile manager + regime filter + macro override + discrete-touch exhaustion logic.
+- **Branch**: `8.6-Alphareloaded`
+- **Global Net Set A**: **+0.2713% Net Taker** (+0.3913% Gross) with **81.2% Win Rate** across 1,118 signals.
+- **Discrete-Touch Reexhaustion**: Successfully rewrote `liquidity_exhaustion` to require clean bounces away from VAH/VAL before counting new touches, avoiding absorption micro-noise.
+- **failed_breakout expectation**: Turned positive from borderline flat/negative to **+0.4400% Net Taker** with **68% WR** (74 signals) using 2.0% TP / 2.5% SL.
+- **Profiles**: 3 comprehensivos (VOLATIL_BAJO_FLOW, EFICIENTE_MEGACAP, BALANCED_MID).
+- **Per Setup**: TacticalAbsorptionV2 (Net +0.3262% ✅), failed_breakout (Net +0.4400% ✅), trend_acceptance (Net +0.2040% ✅).
 - **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
-- **Profile Changelog**: `.agent/perfil_changelog.md` — historial de iteraciones y hallazgos.
-- **Next**: Validar SUI/AVAX con POC-based targets, optimizar liquidity_exhaustion/trend_acceptance, investigar BEAR_Oct24/Feb25
+- **Next**: Re-ejecutar `/profile-validation-volatil-bajo-flow` completo (fix skip_clean activo). Luego: TREND_DOWN LONG veto + trend_acceptance target formula.
 
 ---
 
@@ -79,10 +78,15 @@
 11. **Historian Cumulative Runs**: Usar `--historian-db` para aislar archivos SQLite por run.
 12. **Parallel Audit SQLite Write Locks**: Usar archivos temporales y consolidar al final.
 13. **Break-Even Cost Fallacy**: El Break-Even estático mata el Edge (93.75% winners perdidos). Todo SL debe ser estructural.
+14. **TREND_DOWN LONG Tóxico**: LONGS en TREND_DOWN tienen 6% WR (5 TP vs 79 SL). Deberían prohibirse explícitamente. SHORTS en TREND_DOWN: 92% WR.
+15. **No es Reversion Clásica**: 0/927 señales V2 revierten en <15 min. Es flujo direccional que se extiende por horas (mediana time-to-TP = 110 min). El nombre "TacticalAbsorptionV2" probablemente está mal.
+16. **Timeout Rate ~60%**: Es el drag principal del sistema. Cada timeout cuesta −0.12% fee. Optimizar targets es la prioridad #1.
+17. **skip_clean Bug (Orquestador)**: `clean_temp_data()` borra `historian.db*` al inicio de cada protocolo. Si se encadenan protocolos sin `skip_clean=True`, el DB mergeado previo se destruye. Fix: `set_a_avax` y `set_a_sui` tienen `skip_clean=True` — solo borran temporales.
 
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-01 | session-close | Orquestador multi-asset: +set_a_avax (6 datasets), +set_a_sui (2 datasets), skip_merge, skip_clean. Bug crítico encontrado y corregido: clean_temp_data() destruía historian.db encadenado. Workflow profile-validation-volatil-bajo-flow actualizado para 3 activos en sucesión. Pendiente re-run completo.
 - 2026-05-30T20:30:00 | session-close | POC-Based Dynamic Targets: TP = POC distance (avg 2.15%), SL = 1.5%. V2 Net Taker +0.8527% 🔥. Global Net Taker +0.6546%. El mejor resultado histórico. La sesión más productiva del proyecto: de -0.0791% a +0.6546% (+0.7337pp).
 - 2026-05-30T17:30:00 | session-close | BEAR Gap Fix completo: macro override, threshold 0.25, confidence 0.85, absorption 1.8σ, slow drift 120c. BEAR_Apr24 L/S 1.31→0.49 🎯. Gross Expectancy +0.0409% (positiva primera vez). Net Taker -0.0791%. Root cause: TARGET FAILURE.
 - 2026-05-30T06:00:00 | session-close | MarketRegimeSensor improvements: slow drift 60c + macro direction para l2_ratio_min + net direction ratio. Net Taker mejoró de -0.0625% a -0.0321% (+0.0304%). failed_breakout ahora positivo (+0.0040%).

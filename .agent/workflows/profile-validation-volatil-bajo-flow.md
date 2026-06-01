@@ -1,31 +1,33 @@
 ---
-description: Profile Validation Protocol (LTC × 3 Conditions × 2 Days — Set A)
+description: Profile Validation Protocol (VOLATIL_BAJO_FLOW Profile — LTC, SUI, AVAX × Set A)
 ---
 
-# Profile Validation Protocol — LTC × 3 Conditions × 2 Days (Set A)
+# Profile Validation Protocol — VOLATIL_BAJO_FLOW Profile (Set A)
 
 // turbo-all
 
 ## Overview
-Validates that the coin profile system works correctly using LTCUSDT across multiple market conditions.
-Runs 6 backtests across three distinct conditions (2 days each) using Set A and validates:
+Validates that the coin profile system works correctly for the VOLATIL_BAJO_FLOW profile using its constituent assets (LTC, SUI, AVAX) across multiple market conditions.
+Runs backtests across three distinct conditions using Set A and validates:
 - Profile assignment correctness
 - Performance consistency
 - L2 depth predictive power
 
-**Asset:**
+**Asset Cluster:**
 | Asset | Symbol | Profile | Why |
 |-------|--------|---------|-----|
 | **LTC** | LTC/USDT:USDT | VOLATIL_BAJO_FLOW | Baseline asset, naturally mean-reverting |
+| **SUI** | SUI/USDT:USDT | VOLATIL_BAJO_FLOW | Mid-cap, clean volume flows and structural reversion |
+| **AVAX** | AVAX/USDT:USDT | VOLATIL_BAJO_FLOW | Clean sub-minute trends, high structural level respect |
 
 **Market Conditions & Datasets (Set A):**
-| Condition | Datasets |
-|-----------|----------|
-| **TREND_UP** | LTC_TREND_UP_2023-02-01.db, LTC_TREND_UP_2025-05-01.db |
-| **TREND_DOWN** | LTC_TREND_DOWN_2024-04-01.db, LTC_TREND_DOWN_2024-10-01.db |
-| **BALANCE** | LTC_BALANCE_2024-02-01.db, LTC_BALANCE_2024-05-01.db |
+| Asset | Datasets | Protocol |
+|-------|----------|----------|
+| **LTC** | LTC_TREND_UP_2023-02-01.db, LTC_TREND_UP_2025-05-01.db, LTC_TREND_DOWN_2024-04-01.db, LTC_TREND_DOWN_2024-10-01.db, LTC_BALANCE_2024-02-01.db, LTC_BALANCE_2024-05-01.db | `set_a` |
+| **AVAX** | 2023-02-01_AVAXUSDT.db, 2024-02-01_AVAXUSDT.db, 2024-04-01_AVAXUSDT.db, 2024-05-01_AVAXUSDT.db, 2024-10-01_AVAXUSDT.db, 2025-05-01_AVAXUSDT.db | `set_a_avax` |
+| **SUI** | 2024-02-01_SUIUSDT.db, 2024-05-01_SUIUSDT.db | `set_a_sui` |
 
-**Statistical Goal**: n ≥ 100 signals total, n ≥ 25 per condition
+**Statistical Goal**: n ≥ 100 signals total per asset, n ≥ 25 per condition
 
 ---
 
@@ -47,43 +49,76 @@ for f in \
   data/datasets/backtest_ready/LTC_TREND_DOWN_2024-10-01.db \
   data/datasets/backtest_ready/LTC_BALANCE_2024-02-01.db \
   data/datasets/backtest_ready/LTC_BALANCE_2024-05-01.db; do
-  if [ -f "$f" ]; then
-    echo "✅ $(basename $f): $(du -h $f | cut -f1)"
-  else
-    echo "❌ MISSING: $f"
-  fi
+  [ -f "$f" ] && echo "✅ $(basename $f): $(du -h $f | cut -f1)" || echo "❌ MISSING: $f"
+done
+
+echo ""
+echo "=== AVAX Set A Datasets ==="
+for f in \
+  data/datasets/backtest_ready/2023-02-01_AVAXUSDT.db \
+  data/datasets/backtest_ready/2024-02-01_AVAXUSDT.db \
+  data/datasets/backtest_ready/2024-04-01_AVAXUSDT.db \
+  data/datasets/backtest_ready/2024-05-01_AVAXUSDT.db \
+  data/datasets/backtest_ready/2024-10-01_AVAXUSDT.db \
+  data/datasets/backtest_ready/2025-05-01_AVAXUSDT.db; do
+  [ -f "$f" ] && echo "✅ $(basename $f): $(du -h $f | cut -f1)" || echo "❌ MISSING: $f"
+done
+
+echo ""
+echo "=== SUI Set A Datasets ==="
+for f in \
+  data/datasets/backtest_ready/2024-02-01_SUIUSDT.db \
+  data/datasets/backtest_ready/2024-05-01_SUIUSDT.db; do
+  [ -f "$f" ] && echo "✅ $(basename $f): $(du -h $f | cut -f1)" || echo "❌ MISSING: $f"
 done
 ```
-**⛔ STOP if any dataset is missing.** Re-download with:
+**⛔ STOP if any dataset is missing.** Re-download + process with:
 ```bash
-# .venv/bin/python utils/data/tardis_fetcher.py --symbol LTCUSDT --start YYYY-MM-01
-# .venv/bin/python utils/data/l2_processor.py --name <PATTERN> --symbol LTCUSDT
+# .venv/bin/python utils/data/tardis_fetcher.py --symbol <SYM> --start YYYY-MM-01
+# .venv/bin/python utils/data/l2_processor.py --name <PATTERN> --symbol <SYM>
 ```
 
 ---
 
-## Step 2: Setup Environment & Run Audit
+## Step 2: Setup Environment & Run Audit (3 Assets en Sucesión)
 
 ```bash
 mkdir -p logs
 ```
+
 > **🤖 REGLA DE EJECUCIÓN AUTÓNOMA PARA EL AGENTE (No Negociable):**
-> Como este proceso puede durar horas procesando 6 meses de datos, el agente **DEBE** actuar de manera 100% autónoma y reportar el progreso periódicamente al usuario, sin que este deba pedirlo o ejecutar comandos manualmente.
+> Los tres protocolos corren secuencialmente. Los dos primeros (`set_a` y `set_a_avax`) tienen `skip_merge=True` — el merge se hace UNA SOLA VEZ al final, tras completar los tres. El agente DEBE actuar de manera 100% autónoma y reportar el progreso periódicamente.
 >
 > Sigue EXACTAMENTE esta secuencia:
-> 1. Lanza el orquestador en **segundo plano** redirigiendo la salida para poder monitorearla:
->    ```bash
->    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a > logs/orchestrator_run.log 2>&1
->    ```
-> 2. Implementa un mecanismo de monitoreo en segundo plano (ej. un script de loop, tarea programada o revisión periódica) para leer el log cada 5 minutos.
-> 3. En cada revisión, haz `tail -n 20 logs/orchestrator_run.log`, extrae qué dataset está procesándose y su tamaño, e **imprime un reporte en el chat para el usuario** (Ej: "📊 Progreso: LTC_TREND_UP - 2/6 completados").
-> 4. Cuando el log indique que el proceso ha finalizado, detén tu monitoreo y continúa al Step 3.
-
+>
+> **① LTC — set_a** (6 datasets, ~3 workers, merge omitido internamente)
+> ```bash
+> PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a \
+>   > logs/orchestrator_ltc.log 2>&1
+> ```
+>
+> **② AVAX — set_a_avax** (6 datasets, ~3 workers, merge omitido internamente)
+> ```bash
+> PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a_avax \
+>   > logs/orchestrator_avax.log 2>&1
+> ```
+>
+> **③ SUI — set_a_sui** (2 datasets, ~2 workers, merge omitido internamente)
+> ```bash
+> PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a_sui \
+>   > logs/orchestrator_sui.log 2>&1
+> ```
+>
+> **④ Merge único final** (una vez que los 3 protocolos hayan terminado exitosamente)
+> ```bash
+> .venv/bin/python utils/merge_historian.py
+> ```
+>
+> En cada revisión (cada 5 min), haz `tail -n 20 logs/orchestrator_<asset>.log` y reporta al usuario el progreso activo.
 
 ---
 
 ## Step 3: Verify Data Collection
-_Nota: el orquestador ya corre merge_historian.py automáticamente al finalizar._
 
 ```bash
 .venv/bin/python -c "
@@ -92,10 +127,17 @@ conn = sqlite3.connect('data/historian.db')
 s = conn.execute('SELECT COUNT(*) FROM signals').fetchone()[0]
 p = conn.execute('SELECT COUNT(*) FROM price_samples').fetchone()[0]
 print(f'Signals: {s}, Price Samples: {p}')
+
+# Por moneda
+rows = conn.execute('SELECT symbol, COUNT(*) FROM signals GROUP BY symbol').fetchall()
+for sym, cnt in rows:
+    print(f'  {sym}: {cnt} signals')
+
+print()
 print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 "
 ```
-**Minimum**: Signals ≥ 100 total, ≥ 25 per condition. If fewer, mark as INSUFFICIENT DATA.
+**Minimum**: Signals ≥ 100 total, ≥ 25 per condition per asset.
 
 ---
 
@@ -106,9 +148,9 @@ print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 **Output**: Real metrics vs profile characteristics, verdict (MATCH/REASSIGN/CREATE)
 
 **What to look for:**
-- Does LTCUSDT match VOLATIL_BAJO_FLOW?
-- Are the real metrics within the profile's characteristics?
-- If not, what's the recommended action?
+- ¿LTCUSDT, AVAXUSDT, SUIUSDT → todos asignados a VOLATIL_BAJO_FLOW?
+- ¿Las métricas reales (spread_ratio, depth_ratio, speed) están dentro de los rangos del perfil?
+- Si no, ¿cuál es la acción recomendada?
 
 ---
 
@@ -116,12 +158,12 @@ print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --window 14400 --by-coin
 ```
-**Output**: Win Rate, MFE/MAE, Net Taker per condition
+**Output**: Win Rate, MFE/MAE, Net Taker per condition, por moneda
 
 **What to look for:**
-- Is Net Taker positive?
-- Is MFE/MAE > 1.0?
-- Does performance vary by market condition?
+- ¿Net Taker positivo en cada activo?
+- ¿MFE/MAE > 1.0?
+- ¿Varía el performance por condición de mercado?
 
 ---
 
@@ -129,12 +171,11 @@ print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 ```bash
 .venv/bin/python utils/l2_depth_auditor.py
 ```
-**Output**: Is L2 depth predictive of performance?
+**Output**: ¿El L2 depth predice el performance?
 
 **What to look for:**
-- High Wall (>2.0) has better MFE/MAE than Thin Wall (<1.0)?
-- Is the l2_ratio_min threshold in the profile predictive?
-- Does this validate the depth_ratio characteristic?
+- ¿High Wall (>2.0) tiene mejor MFE/MAE que Thin Wall (<1.0)?
+- ¿Es el threshold `l2_ratio_min` del perfil predictivo?
 
 ---
 
@@ -204,10 +245,10 @@ Compare results from all steps:
 
 | Question | Answer Source |
 |----------|---------------|
-| Does LTCUSDT match VOLATIL_BAJO_FLOW? | Step 4 |
-| Is performance positive? | Step 5 |
-| Is L2 depth predictive? | Step 6 |
-| Are optimal targets consistent? | Step 7 |
+| ¿LTC/AVAX/SUI → VOLATIL_BAJO_FLOW? | Step 4 |
+| ¿Performance positivo en los 3 activos? | Step 5 |
+| ¿L2 depth predictivo? | Step 6 |
+| ¿Targets óptimos consistentes entre activos? | Step 7 |
 
 ---
 
@@ -215,12 +256,12 @@ Compare results from all steps:
 
 After Step 8, the agent **MUST STOP COMPLETELY** and present:
 
-1. **Profile Validation** (Step 4):
+1. **Profile Validation** (Step 4) — por activo:
    - Assigned profile: VOLATIL_BAJO_FLOW
    - Real metrics: spread_ratio, depth_ratio, speed
    - Match status: ✅ or ❌
 
-2. **Performance Results** (Step 5):
+2. **Performance Results** (Step 5) — por activo:
    - Win Rate: X%
    - MFE/MAE: X.XX
    - Net Taker: +X.XX%
@@ -228,9 +269,9 @@ After Step 8, the agent **MUST STOP COMPLETELY** and present:
 
 3. **L2 Depth Analysis** (Step 6):
    - High Wall vs Thin Wall MFE/MAE
-   - Is depth_ratio characteristic predictive?
+   - ¿depth_ratio validado?
 
-4. **Target Optimization** (Step 7):
+4. **Target Optimization** (Step 7) — por activo:
    - Optimal target: X.X%
    - Optimal window: Xh
 
@@ -246,29 +287,29 @@ After Step 8, the agent **MUST STOP COMPLETELY** and present:
    - Create new profile
    - Investigate strategy further
 
-**Do NOT proceed to multi-coin without user approval.**
+**Do NOT proceed to next phase without user approval.**
 
 ---
 
 ## Certification Matrix
 
-| Condition | Profile Match | Performance | L2 Depth | Verdict |
-|-----------|---------------|-------------|----------|---------|
-| BALANCE | ✅ | Expectancy > 0.12% | High Wall > Thin Wall | **CERTIFIED** |
-| BALANCE | ✅ | Expectancy > 0.12% | — | **WATCH** |
-| BALANCE | ❌ | Any | — | **PROFILE WRONG** |
-| TREND_UP / TREND_DOWN | ✅ | Expectancy > 0.12% | — | **GUARDIAN OK** |
-| TREND_UP / TREND_DOWN | ❌ | Any | — | **PROFILE INCONSISTENT** |
+| Asset | Condition | Profile Match | Performance | L2 Depth | Verdict |
+|-------|-----------|---------------|-------------|----------|---------|
+| LTC/AVAX/SUI | BALANCE | ✅ | Expectancy > 0.12% | High Wall > Thin Wall | **CERTIFIED** |
+| LTC/AVAX/SUI | BALANCE | ✅ | Expectancy > 0.12% | — | **WATCH** |
+| LTC/AVAX/SUI | BALANCE | ❌ | Any | — | **PROFILE WRONG** |
+| LTC/AVAX/SUI | TREND_UP / TREND_DOWN | ✅ | Expectancy > 0.12% | — | **GUARDIAN OK** |
+| LTC/AVAX/SUI | TREND_UP / TREND_DOWN | ❌ | Any | — | **PROFILE INCONSISTENT** |
 
 ---
 
-## Appendix: LTCUSDT Profile (VOLATIL_BAJO_FLOW)
+## Appendix: VOLATIL_BAJO_FLOW Profile
 
 Current characteristics:
 ```python
 "spread_ratio": {"min": 0.0, "max": 2.0}
-"depth_ratio": {"min": 0.0, "max": 1.5}
-"speed": {"min": 0.0, "max": 0.04}
+"depth_ratio":  {"min": 0.0, "max": 1.5}
+"speed":        {"min": 0.0, "max": 0.04}
 ```
 
 Current parameters:

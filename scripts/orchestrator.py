@@ -81,6 +81,33 @@ PROTOCOLS = {
         "symbol": "LTC/USDT:USDT",
         "run_type": "audit",
         "max_workers": 3,
+        "skip_merge": False,
+    },
+    "set_a_avax": {
+        "datasets": [
+            "2023-02-01_AVAXUSDT.db",
+            "2024-02-01_AVAXUSDT.db",
+            "2024-04-01_AVAXUSDT.db",
+            "2024-05-01_AVAXUSDT.db",
+            "2024-10-01_AVAXUSDT.db",
+            "2025-05-01_AVAXUSDT.db",
+        ],
+        "symbol": "AVAX/USDT:USDT",
+        "run_type": "audit",
+        "max_workers": 3,
+        "skip_merge": True,
+        "skip_clean": True,
+    },
+    "set_a_sui": {
+        "datasets": [
+            "2024-02-01_SUIUSDT.db",
+            "2024-05-01_SUIUSDT.db",
+        ],
+        "symbol": "SUI/USDT:USDT",
+        "run_type": "audit",
+        "max_workers": 2,
+        "skip_merge": True,
+        "skip_clean": True,
     },
     "set_b": {
         "datasets": [
@@ -94,6 +121,7 @@ PROTOCOLS = {
         "symbol": "LTC/USDT:USDT",
         "run_type": "audit",
         "max_workers": 3,
+        "skip_merge": False,
     },
 }
 
@@ -183,7 +211,20 @@ def run_backtest_task(task_config):
 
 
 def run_protocol(protocol_name, symbol=None):
-    clean_temp_data()
+    config_preview = PROTOCOLS.get(protocol_name, {})
+    if not config_preview.get("skip_clean", False):
+        clean_temp_data()
+    else:
+        # Only clean temp historian_*.db files, preserve historian.db
+        import glob as _glob
+
+        for f in _glob.glob("data/historian_*.db"):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        if not os.path.exists(LOG_DIR):
+            os.makedirs(LOG_DIR)
     print(f"🚀 Starting protocol: {protocol_name}")
 
     config = PROTOCOLS.get(protocol_name)
@@ -192,7 +233,7 @@ def run_protocol(protocol_name, symbol=None):
         return
 
     tasks = []
-    if protocol_name in ("long-range", "cross-validation", "set_a", "set_b"):
+    if protocol_name in ("long-range", "cross-validation", "set_a", "set_b", "set_a_avax", "set_a_sui"):
         for db_file in config["datasets"]:
             tasks.append(
                 {
@@ -264,12 +305,15 @@ def run_protocol(protocol_name, symbol=None):
     if all(results):
         print(f"\n🎉 All backtests for {protocol_name} complete.")
 
-        if config["run_type"] == "audit" and protocol_name != "single-coin":
+        skip_merge = config.get("skip_merge", False)
+        if config["run_type"] == "audit" and protocol_name != "single-coin" and not skip_merge:
             print("🔗 Merging historian databases...")
             subprocess.run([venv_python, "utils/merge_historian.py"])
 
             print("📊 Running full edge auditor analysis...")
             subprocess.run([venv_python, "utils/setup_edge_auditor.py", "--window", "14400"])
+        elif skip_merge:
+            print("⏭️  Merge skipped (skip_merge=True). Run merge manually after all protocols complete.")
 
         print("✅ Protocol complete.")
     else:
