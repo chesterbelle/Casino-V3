@@ -96,13 +96,21 @@ def main():
     # 1. Get all IN_VALUE TacticalAbsorption signals
     # We filter out rejected ones by joining with decision_traces (only getting EXECUTED)
     # Wait, we can just get all signals and trace them
-    signals = hist_conn.execute(
+    rows = hist_conn.execute(
         """
         SELECT symbol, timestamp, side, price, metadata
         FROM signals
-        WHERE setup_type = 'TacticalAbsorptionV2'
     """
     ).fetchall()
+
+    signals = []
+    for sym, ts, side, price, meta_str in rows:
+        try:
+            meta = json.loads(meta_str) if meta_str else {}
+        except Exception:
+            meta = {}
+        if meta.get("scenario") == "TacticalAbsorptionV2":
+            signals.append((sym, ts, side, price, meta_str))
 
     print(f"[*] Found {len(signals)} signals. Correlating with L2 Depth... This may take a minute.")
 

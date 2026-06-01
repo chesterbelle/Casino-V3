@@ -85,8 +85,39 @@ async def fetch_exchange_l2(symbol: str) -> Optional[Dict]:
         return None
 
 
-def compute_spread_ratio_from_exchange(order_book: Dict) -> Optional[float]:
-    """Compute spread_ratio from exchange order book."""
+async def fetch_exchange_klines(symbol: str, interval: str = "4h", limit: int = 200) -> Optional[List]:
+    """Fetch historical klines (candlesticks) from exchange."""
+    try:
+        import aiohttp
+
+        base_url = "https://testnet.binancefuture.com"
+        endpoint = "/fapi/v1/klines"
+
+        if "/" in symbol:
+            binance_symbol = symbol.split("/")[0] + "USDT"
+        elif symbol.endswith(":USDT"):
+            binance_symbol = symbol.replace(":USDT", "")
+        else:
+            binance_symbol = symbol
+
+        url = f"{base_url}{endpoint}"
+        params = {"symbol": binance_symbol, "interval": interval, "limit": limit}
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    print(f"  ⚠️ Klines API returned status {response.status}")
+                    return None
+
+    except Exception as e:
+        print(f"  ⚠️ Error fetching klines: {e}")
+        return None
+
+
+def compute_spread_bps_from_exchange(order_book: Dict) -> Optional[float]:
+    """Compute absolute spread in basis points from exchange order book."""
     try:
         bids = order_book.get("bids", [])
         asks = order_book.get("asks", [])
@@ -94,32 +125,56 @@ def compute_spread_ratio_from_exchange(order_book: Dict) -> Optional[float]:
         if not bids or not asks or len(bids) == 0 or len(asks) == 0:
             return None
 
-        # Current spread
         bid_price = float(bids[0][0])
         ask_price = float(asks[0][0])
         current_spread = ask_price - bid_price
-
-        # For spread_ratio, we need historical data to compare
-        # With single snapshot, we can only report the absolute spread
-        # Return 1.0 as neutral (can't compute ratio without history)
-        # But we can compute spread as percentage of mid price
         mid_price = (bid_price + ask_price) / 2
-        spread_pct = current_spread / mid_price * 100
 
-        # Map spread percentage to a ratio-like metric
-        # Typical spreads: BTC ~0.01%, ALT ~0.03-0.1%
-        # Spread ratio > 1.0 means wider than normal
-        if spread_pct < 0.02:
-            return 0.8  # Very tight (BTC-like)
-        elif spread_pct < 0.05:
-            return 1.0  # Normal
-        elif spread_pct < 0.10:
-            return 1.3  # Wide
-        else:
-            return 1.8  # Very wide
+        spread_pct = current_spread / mid_price * 100
+        spread_bps = spread_pct * 100  # 1% = 100 bps
+        return spread_bps
 
     except Exception as e:
-        print(f"  ⚠️ Error computing spread_ratio: {e}")
+        print(f"  ⚠️ Error computing spread_bps: {e}")
+        return None
+
+
+def compute_vol_realized_4h(klines: List) -> Optional[float]:
+    """Compute realized volatility (std of log returns) over the kline window, expressed as % per candle."""
+    try:
+        if not klines or len(klines) < 2:
+            return None
+        import math
+
+        closes = [float(k[4]) for k in klines]
+        log_rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
+        if len(log_rets) < 2:
+            return None
+        mean = sum(log_rets) / len(log_rets)
+        variance = sum((r - mean) ** 2 for r in log_rets) / (len(log_rets) - 1)
+        std = math.sqrt(variance)
+        return std * 100  # as percentage
+    except Exception as e:
+        print(f"  ⚠️ Error computing vol_realized_4h: {e}")
+        return None
+
+
+def compute_avg_trade_size(klines: List) -> Optional[float]:
+    """Compute average trade size in USD (quote_volume / num_trades), filtering empty candles."""
+    try:
+        if not klines:
+            return None
+        sizes = []
+        for k in klines:
+            quote_vol = float(k[7])  # field 7 = quote asset volume
+            num_trades = float(k[8])  # field 8 = number of trades
+            if num_trades > 0:
+                sizes.append(quote_vol / num_trades)
+        if not sizes:
+            return None
+        return sum(sizes) / len(sizes)
+    except Exception as e:
+        print(f"  ⚠️ Error computing avg_trade_size: {e}")
         return None
 
 
@@ -300,9 +355,6 @@ def compute_speed(conn: sqlite3.Connection, symbol: str) -> Optional[float]:
 def match_profile(metrics: Dict) -> Optional[str]:
     """Try to match coin metrics against profiles. Returns profile name or None."""
     for profile_name, profile_config in COIN_PROFILES.items():
-        if profile_name == DEFAULT_PROFILE:
-            continue
-
         characteristics = profile_config.get("characteristics", {})
         match = True
 
@@ -332,9 +384,6 @@ def find_closest_profile(metrics: Dict) -> Tuple[str, List[str]]:
     mismatches = []
 
     for profile_name, profile_config in COIN_PROFILES.items():
-        if profile_name == DEFAULT_PROFILE:
-            continue
-
         characteristics = profile_config.get("characteristics", {})
         score = 0
         profile_mismatches = []
@@ -365,18 +414,21 @@ def find_closest_profile(metrics: Dict) -> Tuple[str, List[str]]:
 
 
 def suggest_new_profile(metrics: Dict, symbol: str) -> Dict:
-    """Suggest parameters for a new profile based on metrics."""
-    spread = metrics.get("spread_ratio", 1.0)
+    """Suggest parameters for a new profile based on 5-dim metrics."""
+    spread_bps = metrics.get("spread_bps", 5.0)
     depth = metrics.get("depth_ratio", 1.0)
     speed = metrics.get("speed", 0.05)
+    vol_4h = metrics.get("vol_realized_4h", 2.0)
+    avg_size = metrics.get("avg_trade_size", 1000)
 
-    # Suggest characteristics with some margin
     suggested = {
         "name": f"CUSTOM_{symbol.split('/')[0] if '/' in symbol else symbol}",
         "characteristics": {
-            "spread_ratio": {"min": 0.0, "max": round(spread * 1.3, 2)},
-            "depth_ratio": {"min": 0.0, "max": round(depth * 1.3, 2)},
+            "spread_bps": {"min": 0.0, "max": round(spread_bps * 1.3, 2)},
+            "depth_ratio": {"min": 0.0, "max": round(depth * 1.3, 3)},
             "speed": {"min": 0.0, "max": round(speed * 1.3, 4)},
+            "vol_realized_4h": {"min": 0.0, "max": round(vol_4h * 1.3, 3)},
+            "avg_trade_size": {"min": 0, "max": round(avg_size * 1.3, 0)},
         },
         "parameters": {
             "z_score_min": 2.5,
@@ -388,7 +440,6 @@ def suggest_new_profile(metrics: Dict, symbol: str) -> Dict:
         },
     }
 
-    # Adjust parameters based on depth
     if depth < 1.0:
         suggested["parameters"]["z_score_min"] = 2.0
         suggested["parameters"]["concentration_min"] = 0.35
@@ -402,12 +453,12 @@ def suggest_new_profile(metrics: Dict, symbol: str) -> Dict:
 
 
 async def diagnose_symbol_exchange(symbol: str) -> Dict:
-    """Run diagnosis using exchange L2 data."""
+    """Run diagnosis using exchange L2 data + klines for 5 dimensions."""
     print(f"\n{'═' * 65}")
     print(f"  PROFILE DIAGNOSTIC — {symbol} (Exchange Data)")
     print(f"{'═' * 65}")
 
-    print(f"\n  Fetching L2 data from exchange...")
+    print(f"\n  Fetching L2 + klines data from exchange...")
 
     # Fetch order book from exchange
     order_book = await fetch_exchange_l2(symbol)
@@ -416,9 +467,14 @@ async def diagnose_symbol_exchange(symbol: str) -> Dict:
         print(f"  ⚠️ Could not fetch L2 data from exchange")
         return {"symbol": symbol, "verdict": "EXCHANGE_ERROR"}
 
-    # Compute metrics from exchange data
-    spread_ratio = compute_spread_ratio_from_exchange(order_book)
+    # Fetch klines (4h candles, 200 = ~33 days of history)
+    klines = await fetch_exchange_klines(symbol, interval="4h", limit=200)
+
+    # Compute 5 dimensions
+    spread_bps = compute_spread_bps_from_exchange(order_book)
     depth_ratio = compute_depth_ratio_from_exchange(order_book)
+    vol_realized_4h = compute_vol_realized_4h(klines) if klines else None
+    avg_trade_size = compute_avg_trade_size(klines) if klines else None
 
     # Get speed from DB if available
     speed = None
@@ -430,15 +486,28 @@ async def diagnose_symbol_exchange(symbol: str) -> Dict:
         pass
 
     metrics = {
-        "spread_ratio": spread_ratio,
+        "spread_bps": spread_bps,
         "depth_ratio": depth_ratio,
         "speed": speed,
+        "vol_realized_4h": vol_realized_4h,
+        "avg_trade_size": avg_trade_size,
     }
 
-    print(f"\n  Real Metrics (Exchange):")
-    print(f"    spread_ratio:  {spread_ratio:.3f}" if spread_ratio else "    spread_ratio:  ⚠️ No data")
-    print(f"    depth_ratio:   {depth_ratio:.3f}" if depth_ratio else "    depth_ratio:   ⚠️ No data")
-    print(f"    speed:         {speed:.4f}" if speed else "    speed:         ⚠️ No data (from DB)")
+    print(f"\n  Real Metrics (Exchange + Klines):")
+    print(f"    spread_bps:        {spread_bps:.2f}" if spread_bps is not None else "    spread_bps:        ⚠️ No data")
+    print(
+        f"    depth_ratio:       {depth_ratio:.3f}" if depth_ratio is not None else "    depth_ratio:       ⚠️ No data"
+    )
+    print(f"    speed:             {speed:.4f}" if speed is not None else "    speed:             ⚠️ No data (from DB)")
+    print(
+        f"    vol_realized_4h:   {vol_realized_4h:.3f}%"
+        if vol_realized_4h is not None
+        else "    vol_realized_4h:   ⚠️ No data"
+    )
+    if avg_trade_size is not None:
+        print(f"    avg_trade_size:    ${avg_trade_size:,.0f}")
+    else:
+        print(f"    avg_trade_size:    ⚠️ No data")
 
     # Show raw order book info
     bids = order_book.get("bids", [])
@@ -457,10 +526,15 @@ async def diagnose_symbol_exchange(symbol: str) -> Dict:
         print(f"    Bid Levels:    {len(bids)}")
         print(f"    Ask Levels:    {len(asks)}")
 
+    if klines:
+        print(f"\n  Klines (4h):")
+        print(f"    Samples:       {len(klines)}")
+        print(f"    Date range:    {klines[0][0]} → {klines[-1][0]}")
+
     # Check if we have enough data
     available_metrics = [v for v in metrics.values() if v is not None]
-    if len(available_metrics) < 2:
-        print(f"\n  ⚠️ Insufficient metrics data (need ≥2, have {len(available_metrics)})")
+    if len(available_metrics) < 3:
+        print(f"\n  ⚠️ Insufficient metrics data (need ≥3, have {len(available_metrics)})")
         return {"symbol": symbol, "verdict": "INSUFFICIENT_DATA", "metrics": metrics}
 
     # Match against profiles
@@ -495,9 +569,6 @@ async def diagnose_symbol_exchange(symbol: str) -> Dict:
 
     # Check all profiles
     for profile_name, profile_config in COIN_PROFILES.items():
-        if profile_name == DEFAULT_PROFILE:
-            continue
-
         characteristics = profile_config.get("characteristics", {})
         match = True
         failing_features = []
@@ -619,9 +690,6 @@ def diagnose_symbol(conn: sqlite3.Connection, symbol: str) -> Dict:
 
     # Check all profiles
     for profile_name, profile_config in COIN_PROFILES.items():
-        if profile_name == DEFAULT_PROFILE:
-            continue
-
         characteristics = profile_config.get("characteristics", {})
         match = True
         failing_features = []

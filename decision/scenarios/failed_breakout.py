@@ -57,9 +57,17 @@ class FailedBreakoutDetector:
         # === PHASE 1: Detect new breakouts ===
         pending = self.pending_breaks.get(symbol)
 
+        # Dynamic profile parameters
+        from decision.engine.profile_manager import profile_manager
+
+        params = profile_manager.get_sensor_params(symbol, "failed_breakout")
+        min_break_distance_pct = params.get("min_break_distance_pct", self.min_break_distance_pct)
+        max_break_age = params.get("max_break_age", self.max_break_age)
+        cvd_divergence_threshold = params.get("cvd_divergence_threshold", self.cvd_divergence_threshold)
+
         if not pending:
             # Check if price is breaking VAH (potential SHORT setup)
-            if price > vah * (1 + self.min_break_distance_pct):
+            if price > vah * (1 + min_break_distance_pct):
                 self.pending_breaks[symbol] = {
                     "direction": "ABOVE",  # Broke above VAH
                     "side": "SHORT",  # Trade direction if it fails
@@ -71,7 +79,7 @@ class FailedBreakoutDetector:
                 return None
 
             # Check if price is breaking VAL (potential LONG setup)
-            if price < val * (1 - self.min_break_distance_pct):
+            if price < val * (1 - min_break_distance_pct):
                 self.pending_breaks[symbol] = {
                     "direction": "BELOW",  # Broke below VAL
                     "side": "LONG",  # Trade direction if it fails
@@ -88,7 +96,7 @@ class FailedBreakoutDetector:
         elapsed = timestamp - pending["break_ts"]
 
         # Expired — breakout held too long, it's probably real
-        if elapsed > self.max_break_age:
+        if elapsed > max_break_age:
             del self.pending_breaks[symbol]
             return None
 
@@ -126,10 +134,10 @@ class FailedBreakoutDetector:
 
         if direction == "ABOVE":
             # Break above VAH: confirming = CVD positive & significant
-            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
+            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
         else:
             # Break below VAL: confirming = CVD negative & significant
-            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
+            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
 
         if not is_divergent:
             # Delta confirmed the break — it was real, don't fade it

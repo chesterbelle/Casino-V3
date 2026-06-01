@@ -40,6 +40,7 @@ class LiquidityExhaustionDetector:
         # Track if we're currently at a level vs bounced away
         self._at_level: Dict[str, Optional[str]] = {}  # symbol -> level_key or None
         self._last_test_ts: Dict[str, float] = defaultdict(float)
+        self.is_inside_level: Dict[str, Dict[str, bool]] = defaultdict(lambda: defaultdict(bool))
 
     def _level_key(self, price: float) -> str:
         """Quantize price to create a level key (0.05% buckets)."""
@@ -52,6 +53,16 @@ class LiquidityExhaustionDetector:
         """Evaluate on each tick."""
         if not context_registry:
             return None
+
+        # Load dynamic profile parameters
+        from decision.engine.profile_manager import profile_manager
+
+        params = profile_manager.get_sensor_params(symbol, "liquidity_exhaustion")
+        level_tolerance_pct = params.get("level_tolerance_pct", self.level_tolerance_pct)
+        test_memory_seconds = params.get("test_memory_seconds", self.test_memory_seconds)
+        min_tests = params.get("min_tests", self.min_tests)
+        declining_threshold = params.get("declining_threshold", self.declining_threshold)
+        min_bounce_pct = params.get("min_bounce_pct", self.min_bounce_pct)
 
         poc, vah, val = context_registry.get_structural(symbol)
         if poc <= 0:
@@ -72,45 +83,48 @@ class LiquidityExhaustionDetector:
             structural_levels.append(("VAH", vah, "SHORT"))  # Tests of VAH → SHORT signal
 
         for level_name, level_price, signal_side in structural_levels:
-            tolerance = level_price * self.level_tolerance_pct
+            tolerance = level_price * level_tolerance_pct
             at_level = abs(price - level_price) <= tolerance
 
             level_key = f"{level_name}_{int(level_price * 100)}"
             tests = self.level_tests[symbol][level_key]
 
             # Prune old tests
-            cutoff = timestamp - self.test_memory_seconds
+            cutoff = timestamp - test_memory_seconds
             self.level_tests[symbol][level_key] = [t for t in tests if t["ts"] > cutoff]
             tests = self.level_tests[symbol][level_key]
 
             if at_level:
-                # We're at the level — record test if enough time since last
-                if timestamp - self._last_test_ts.get(f"{symbol}_{level_key}", 0) > 5.0:
-                    # Step 1.1 Fix (AMT V10): Use CVD slope as proxy for instant delta (non-accumulated)
-                    # get_delta_at_level(price) was returning cumulative session delta.
-                    cvd_slope = footprint.get_cvd_slope(window_seconds=3)
-                    current_delta = abs(cvd_slope)
+                # We're at the level — only record a new test if we transitioned from outside
+                if not self.is_inside_level[symbol][level_key]:
+                    if timestamp - self._last_test_ts.get(f"{symbol}_{level_key}", 0) > 5.0:
+                        # Step 1.1 Fix (AMT V10): Use CVD slope as proxy for instant delta (non-accumulated)
+                        # get_delta_at_level(price) was returning cumulative session delta.
+                        cvd_slope = footprint.get_cvd_slope(window_seconds=3)
+                        current_delta = abs(cvd_slope)
 
-                    tests.append(
-                        {
-                            "ts": timestamp,
-                            "delta": current_delta,
-                            "cvd_slope": cvd_slope,
-                            "price": price,
-                        }
-                    )
-                    self._last_test_ts[f"{symbol}_{level_key}"] = timestamp
-                    self._at_level[symbol] = level_key
+                        tests.append(
+                            {
+                                "ts": timestamp,
+                                "delta": current_delta,
+                                "cvd_slope": cvd_slope,
+                                "price": price,
+                            }
+                        )
+                        self._last_test_ts[f"{symbol}_{level_key}"] = timestamp
+                        self._at_level[symbol] = level_key
+                        self.is_inside_level[symbol][level_key] = True
 
             elif self._at_level.get(symbol) == level_key:
-                # We just bounced away from the level
+                # We just bounced away from the level (outside tolerance zone)
+                self.is_inside_level[symbol][level_key] = False
                 bounce_pct = abs(price - level_price) / level_price
-                if bounce_pct >= self.min_bounce_pct and len(tests) >= self.min_tests:
+                if bounce_pct >= min_bounce_pct and len(tests) >= min_tests:
                     # Check if delta is declining across tests
                     is_declining = True
                     for i in range(1, len(tests)):
                         # Step 1.1 Fix: Stricter declining check using the non-accumulated delta
-                        if tests[i]["delta"] >= tests[i - 1]["delta"] * self.declining_threshold:
+                        if tests[i]["delta"] >= tests[i - 1]["delta"] * declining_threshold:
                             is_declining = False
                             break
 

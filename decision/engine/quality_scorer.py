@@ -84,11 +84,9 @@ def _score_regime(symbol: str, side: str, signal: dict, context_registry) -> Tup
 
     result = check_regime_alignment(symbol, side, signal, context_registry)
 
-    # Convert guardian result to quality score
     if not result.passed:
         return 0.0, result.reason, SetupMode.NEUTRAL, "UNKNOWN"
 
-    # Use guardian's score directly (already 0.0-1.0)
     score = result.score
     setup_mode = result.setup_mode
     value_position = result.metrics.get("value_position", "OUT_OF_VALUE") if result.metrics else "OUT_OF_VALUE"

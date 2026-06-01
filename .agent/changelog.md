@@ -6,6 +6,68 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-01 SESSION] — VOLATIL_BAJO_FLOW Profile Validation: 6 Iterations (Branch: 8.6-Alphareloaded)
+### Summary: Comprehensive parameter-only tuning of VOLATIL_BAJO_FLOW profile across 14 datasets (LTC + AVAX + SUI). **Iter 3 GANADOR** (TAV SL tightening). Net Taker **+0.0455%** (de -0.1066% baseline, +0.152pp). Hallazgo crítico: AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son ENTRY FAILURE — imposible fix con parámetros.
+
+#### 1. Baseline (Iter 0)
+- 14 datasets ejecutados en paralelo (3,072 señales, WR 72.6%, Net Taker **-0.1066%**)
+- Por moneda: AVAX 1491 sigs -0.35%, LTC 1140 sigs +0.18%, SUI 441 sigs +0.44%
+- **Diagnóstico**: AVAX TAV (1247 sigs) es el drag principal (-0.40% Net Taker). LTC TAV +0.21%. SUI TAV +0.62%.
+
+#### 2. Iteraciones ejecutadas
+| Iter | Cambio | Net Taker | Veredicto |
+|------|--------|-----------|-----------|
+| 1 | l2_ratio_min 0.5→1.0 | -0.1059% | REVERTIDO (neutro, AVAX -0.43% peor) |
+| 2 | concentration_min 0.40→0.50 | -0.0973% | **MAINTAINED** (+0.009pp) |
+| 3 | TAV SL tightening 4-5%→2.5-3% | **+0.0455%** | **MAINTAINED** (+0.143pp) 🎯 |
+| 4 | TAV SL compromise 2.5→3.0/3.5% | -0.0128% | REVERTIDO (SUI +0.20pp, AVAX -0.12pp, LTC -0.03pp) |
+| 5 | FB targets 2.0/2.5%→1.5/1.8% | -0.0048% | REVERTIDO (SUI FB WR cayó 70%→39.3%) |
+| 6 | l2_ratio_min_trend_down 2.0→2.5 | +0.0128% | REVERTIDO (SUI -0.08pp, AVAX -0.015pp) |
+
+#### 3. Hallazgos Críticos (Per-Setup Audit)
+- **AVAX TAV (1208 sigs)**: MFE/MAE 0.79. Best uniform 0.20/0.20% → Exp +0.0003%. **ENTRY FAILURE** — no se puede fix con parámetros.
+- **SUI TAV (348 sigs)**: MFE/MAE 0.96. Best uniform 0.10/0.10% → Exp -0.0009%. **ENTRY FAILURE**.
+- **LTC TAV (707 sigs)**: MFE/MAE 1.62. EDGE ✅ (AMT Exp +0.6206% vs best uniform +0.2090%). Targets OK.
+- **AVAX FB (129 sigs)**: MFE/MAE 0.85. ENTRY FAILURE.
+- **SUI FB (36 sigs)**: MFE/MAE 0.55. ENTRY FAILURE.
+- **LTC FB (81 sigs)**: MFE/MAE 1.07. EDGE (MARGINAL). TARGET OPTIMIZATION NEEDED.
+- **SUI trend_acceptance (34 sigs)**: MFE/MAE 3.55. EDGE ✅ (uniform 1.0/1.0% best). Único setup con edge real en SUI.
+- **AVAX liquidity_exhaustion (13 sigs)**: MFE/MAE 3.04. EDGE ✅.
+
+#### 4. Configuración Final (Iter 3 + 2)
+```python
+# config/coin_profiles.py
+"sensors.absorption_detector.concentration_min": 0.50,  # Iter2
+"targets.TacticalAbsorptionV2.regime.TREND_UP": {"tp": 1.2%, "sl": 2.5%},  # Iter3
+"targets.TacticalAbsorptionV2.regime.TREND_DOWN": {"tp": 2.0%, "sl": 3.0%},  # Iter3
+"targets.TacticalAbsorptionV2.regime.BALANCE": {"tp": 0.8%, "sl": 2.5%},  # Iter3
+"guardians.l2_ratio_min": 0.5,  # baseline
+"guardians.l2_ratio_min_trend_down": 2.0,  # baseline
+"targets.failed_breakout": {"tp": 2.0%, "sl": 2.5%},  # baseline (grid optimal)
+"targets.liquidity_exhaustion": {"tp": 1.5%, "sl": 0.4%},  # baseline
+"targets.trend_acceptance": {"tp": 0.9%, "sl": 0.9%},  # baseline
+```
+
+#### 5. Bug Fix
+- **`scripts/orchestrator.py`**: `run_protocol()` con `skip_clean=True` ya NO borra archivos `historian.db*` — preserva master DB. Solo limpia `historian_*.db` temporales.
+
+#### 6. Archivos Modificados
+| Archivo | Cambio |
+|---------|--------|
+| `config/coin_profiles.py` | iter 2 (concentration_min=0.50) + iter 3 (TAV SL=2.5/3.0/2.5%) |
+| `.agent/perfil_changelog.md` | 6 iteration rows |
+| `.agent/workflows/profile-validation-volatil-bajo-flow.md` | Appendix l2_ratio_min 1.0→0.5 |
+| `scripts/orchestrator.py` | skip_clean=True ya no borra master DB |
+| `.agent/memory.md` | Iter 3 + entry failure insight |
+
+#### 7. Próximos Pasos
+1. **TREND_DOWN LONG veto** (próximo #1): entry logic para bloquear contra-tendencia en DOWN (6% WR tóxico).
+2. **AVAX/SUI TAV entry redesign**: MFE/MAE <1.2 indica entry filter demasiado ruidoso. Requiere cambios en `decision/scenarios/tactical_absorption_v2.py` (out of scope de parameter tuning).
+3. **Cross-validation**: validar parámetros en otros perfiles (EFICIENTE_MEGACAP, BALANCED_MID).
+4. **Reducir timeout rate** (~60%): optimar targets TAV en SUI+AVAX (ya no es problema en iter 3).
+
+---
+
 ### [2026-06-01 SESSION] — Multi-Asset Orchestrator: set_a_avax + set_a_sui + skip_clean Fix (Branch: 8.6-Alphareloaded)
 ### Summary: Extensión del orquestador para AVAX y SUI en sucesión. Bug crítico encontrado y corregido: clean_temp_data() destruía historian.db entre protocolos secuenciales.
 

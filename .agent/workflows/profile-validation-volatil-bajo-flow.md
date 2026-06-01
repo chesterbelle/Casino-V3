@@ -312,7 +312,7 @@ Current characteristics:
 "speed":        {"min": 0.0, "max": 0.04}
 ```
 
-Current parameters:
+Current parameters (per `config/coin_profiles.py`):
 ```python
 z_score_min: 3.5
 concentration_min: 0.40
@@ -320,5 +320,7 @@ noise_max: 0.40
 TP (TacticalAbsorption): per-regime (UP=1.2%, DOWN=2.0%, BALANCE=0.8%)
 SL (TacticalAbsorption): per-regime (UP=4.0%, DOWN=5.0%, BALANCE=4.0%)
 fallback TP/SL: 2.4%/2.5%
-l2_ratio_min: 1.0
+l2_ratio_min: 0.5                # Thin Wall para BALANCE/UP
+l2_ratio_min_trend_down: 2.0     # High Wall para BEAR (asimetría régimen-aware)
+spread_max_ratio: 2.0
 ```

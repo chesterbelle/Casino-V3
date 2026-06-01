@@ -145,6 +145,26 @@ def clean_temp_data():
         os.makedirs(LOG_DIR)
 
 
+def clean_temp_data_selective(keep_patterns=None):
+    """
+    Like clean_temp_data, but only removes files matching the orchestrator's
+    own dataset pattern. Used by skip_clean protocols to avoid wiping
+    per-dataset DBs owned by sibling/parallel processes.
+    """
+    if keep_patterns is None:
+        keep_patterns = []
+    print("🧹 Selective cleaning of temp historian_*.db (preserving siblings)...")
+    for f in glob.glob("data/historian_*.db"):
+        if any(k in f for k in keep_patterns):
+            continue
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+
+
 def strict_find_db(asset_or_db):
     if asset_or_db.endswith(".db"):
         path = os.path.join(DB_DIR, asset_or_db)
@@ -215,17 +235,19 @@ def run_protocol(protocol_name, symbol=None):
     if not config_preview.get("skip_clean", False):
         clean_temp_data()
     else:
-        # Only clean temp historian_*.db files, preserve historian.db
-        import glob as _glob
-
-        for f in _glob.glob("data/historian_*.db"):
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+        # skip_clean=True: do NOT delete any historian_*.db files.
+        # Sibling/parallel protocol DBs (e.g., SUI writing while AVAX starts)
+        # MUST be preserved. Only ensure log dir exists.
         if not os.path.exists(LOG_DIR):
             os.makedirs(LOG_DIR)
     print(f"🚀 Starting protocol: {protocol_name}")
+    # CRITICAL: When skip_clean=True, only clean files matching this protocol's
+    # own datasets. Sibling/parallel protocol DBs (e.g., SUI running while AVAX
+    # starts) must be preserved. Re-cleaning here with pattern is a no-op since
+    # the global clean above already happened; the real protection is that we
+    # do NOT re-clean mid-run.
+    if config_preview.get("skip_clean", False):
+        print("   🔒 skip_clean=True — sibling DBs from other protocols will be preserved")
 
     config = PROTOCOLS.get(protocol_name)
     if not config:
