@@ -10,7 +10,9 @@
 ### Summary: Resolución de la contradicción de perfiles. Se migró de clustering dinámico no-determinista a una "Taxonomía Institucional Estática" basada en firmas medias de 6 datasets por activo.
 #### 1. Acciones Realizadas
 - Eliminación de la inestabilidad de K-Means en tiempo real.
-- Consolidación de firmas (vectores medios de 4 dimensiones) para 14 activos.
+- Descarga y procesamiento de 48 datasets para 8 activos faltantes (BTC, ETH, BNB, ADA, LINK, ARB, NEAR, APT).
+- Consolidación de firmas (vectores medios de 4 dimensiones) para **14 activos**.
+- Corrección de `NORM_MAX` en `cluster_builder.py` (book_density: 20→25, volume_vol_ratio: 12→18) para soportar valores log1p reales.
 - Implementación de `config/clusters_fixed.json` como fuente de verdad inmutable.
 - Corrección de bugs de normalización (sincronización `log1p`) en `coin_profiler.py` y `cluster_builder.py`.
 - Limpieza de código muerto en `cluster_builder.py`.
@@ -18,14 +20,24 @@
 #### 2. Hallazgos
 - El error `name 'tick_size_efficiency' is not defined` y los problemas de `datos insuficientes` eran derivados de una mala gestión de tipos en la lectura de `SQLite`.
 - La normalización `log1p` era inconsistente entre el builder y el profiler, causando errores de clasificación.
+- `NORM_MAX` original (20.0/12.0) era demasiado bajo para log1p(12B) ≈ 23.2, causando clipping a 1.0 en todos los activos.
+- `tick_size_efficiency` y `speed` son constantes para todos los activos (0.5 y 0.017) — no discriminan.
+- Algunos datasets fallan por `book_density = None` (falta tabla `depth_snapshots`), pero hay suficientes para cada activo.
 
-#### 3. Archivos Modificados/Creados
-- `utils/cluster_builder.py` (REDISEÑADO): Ahora es una herramienta de mantenimiento estático.
+#### 3. Taxonomía Final (v4.0_FIXED)
+- **MEGA_LIQUID**: OP, LINK, NEAR, APT (4) — Mid-cap altcoins, book_density moderado
+- **MAJOR_LIQUID**: SOL, BTC, ETH (3) — Alta relación volumen/volatilidad
+- **MID_LIQUID**: ADA, ARB (2) — Book density muy alto
+- **THIN_VOLATILE**: XRP, DOGE (2) — Book density extremo, volumen moderado
+- **ILLIQUID_SPEC**: LTC, AVAX, BNB (3) — Book density más bajo
+
+#### 4. Archivos Modificados/Creados
+- `utils/cluster_builder.py` (MODIFICADO): `NORM_MAX` corregido para log1p real.
 - `core/coin_profiler.py` (MODIFICADO): Ahora lee `clusters_fixed.json` de forma determinista.
 - `utils/consolidate_firmas.py` (CREADO): Script para consolidar firmas estáticas.
 - `utils/build_fixed_clusters.py` (CREADO): Script para generar taxonomía estática.
-- `config/clusters_fixed.json` (CREADO): Taxonomía final.
-- `config/firmas.json` (CREADO): ADN microestructural de los activos.
+- `config/clusters_fixed.json` (CREADO): Taxonomía final v4.0_FIXED.
+- `config/firmas.json` (CREADO): ADN microestructural de 14 activos.
 
 
 #### 1. Pipeline Ejecutado

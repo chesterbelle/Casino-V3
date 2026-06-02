@@ -44,8 +44,8 @@ NORM_MIN = {
 }
 NORM_MAX = {
     "tick_size_efficiency": 1.0,
-    "book_density": 20.0,  # Will use log1p scaled values
-    "volume_vol_ratio": 12.0,  # Will use log1p scaled values
+    "book_density": 25.0,  # log1p(12B) ≈ 23.2, headroom to 25
+    "volume_vol_ratio": 18.0,  # log1p(31M) ≈ 17.3, headroom to 18
     "speed": 500.0,
 }
 

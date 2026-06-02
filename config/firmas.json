@@ -34,5 +34,53 @@
     "book_density": 199296332.9998752,
     "volume_vol_ratio": 111753.17875947148,
     "speed": 0.01667824878387769
+  },
+  "BTCUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 11952295.179015098,
+    "volume_vol_ratio": 31246167.312107623,
+    "speed": 0.01667824878387769
+  },
+  "ETHUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 44095202.60281467,
+    "volume_vol_ratio": 11162968.229569236,
+    "speed": 0.01667824878387769
+  },
+  "BNBUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 20451421.77917848,
+    "volume_vol_ratio": 829834.3619008706,
+    "speed": 0.01667824878387769
+  },
+  "ADAUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 7558551291.166949,
+    "volume_vol_ratio": 283460.0026577134,
+    "speed": 0.01667824878387769
+  },
+  "LINKUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 160649729.57409602,
+    "volume_vol_ratio": 256510.25523257576,
+    "speed": 0.01667824878387769
+  },
+  "ARBUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 3918239573.799934,
+    "volume_vol_ratio": 80922.04251836355,
+    "speed": 0.01667824878387769
+  },
+  "NEARUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 505466614.66669077,
+    "volume_vol_ratio": 99962.1543331226,
+    "speed": 0.01667824878387769
+  },
+  "APTUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 82208639.74284671,
+    "volume_vol_ratio": 108617.39735265174,
+    "speed": 0.01667824878387769
   }
 }

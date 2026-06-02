@@ -4,32 +4,50 @@
     "MEGA_LIQUID": {
       "centroid": {
         "tick_size_efficiency": 0.5,
-        "book_density": 19.110303390632886,
-        "volume_vol_ratio": 11.624056905597458,
+        "book_density": 19.067700970532105,
+        "volume_vol_ratio": 11.796784436384133,
         "speed": 0.01667824878387769
       },
       "members": [
-        "OPUSDT"
+        "OPUSDT",
+        "LINKUSDT",
+        "NEARUSDT",
+        "APTUSDT"
       ],
-      "n_members": 1
+      "n_members": 4
     },
     "MAJOR_LIQUID": {
       "centroid": {
         "tick_size_efficiency": 0.5,
-        "book_density": 16.966947615257155,
-        "volume_vol_ratio": 12.0,
+        "book_density": 17.31709494923446,
+        "volume_vol_ratio": 16.15294179183533,
         "speed": 0.01667824878387769
       },
       "members": [
-        "LTCUSDT"
+        "SOLUSDT",
+        "BTCUSDT",
+        "ETHUSDT"
       ],
-      "n_members": 1
+      "n_members": 3
     },
     "MID_LIQUID": {
       "centroid": {
         "tick_size_efficiency": 0.5,
-        "book_density": 20.0,
-        "volume_vol_ratio": 12.0,
+        "book_density": 22.417426841285952,
+        "volume_vol_ratio": 11.928041862795048,
+        "speed": 0.01667824878387769
+      },
+      "members": [
+        "ADAUSDT",
+        "ARBUSDT"
+      ],
+      "n_members": 2
+    },
+    "THIN_VOLATILE": {
+      "centroid": {
+        "tick_size_efficiency": 0.5,
+        "book_density": 22.818428551550348,
+        "volume_vol_ratio": 14.141236850395938,
         "speed": 0.01667824878387769
       },
       "members": [
@@ -38,29 +56,19 @@
       ],
       "n_members": 2
     },
-    "THIN_VOLATILE": {
-      "centroid": {
-        "tick_size_efficiency": 0.5,
-        "book_density": 18.052989308287117,
-        "volume_vol_ratio": 12.0,
-        "speed": 0.01667824878387769
-      },
-      "members": [
-        "SOLUSDT"
-      ],
-      "n_members": 1
-    },
     "ILLIQUID_SPEC": {
       "centroid": {
         "tick_size_efficiency": 0.5,
-        "book_density": 16.684664425050588,
-        "volume_vol_ratio": 12.0,
+        "book_density": 16.828391683964885,
+        "volume_vol_ratio": 12.982700025438925,
         "speed": 0.01667824878387769
       },
       "members": [
-        "AVAXUSDT"
+        "LTCUSDT",
+        "AVAXUSDT",
+        "BNBUSDT"
       ],
-      "n_members": 1
+      "n_members": 3
     }
   }
 }

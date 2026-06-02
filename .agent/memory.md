@@ -69,7 +69,8 @@
 ### Current Status: 🟢 v8.6 Profile System v3.1 (Deterministic Static Taxonomy) — RESOLVED
 - **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + static centroid-based profiler + regime filter + macro override + discrete-touch exhaustion logic.
 - **Branch**: `8.6-Alphareloaded`
-- **Profile System v3.1**: Taxonomía institucional estática. Contradicciones resueltas mediante firmas deterministas (promedio de 6 datasets por activo) y normalización unificada.
+- **Profile System v3.1**: Taxonomía institucional estática v4.0_FIXED con 14 activos y 5 clusters balanceados. Normalización log1p corregida (NORM_MAX: book_density=25, volume_vol_ratio=18).
+- **Taxonomía**: MEGA_LIQUID(OP,LINK,NEAR,APT) | MAJOR_LIQUID(SOL,BTC,ETH) | MID_LIQUID(ADA,ARB) | THIN_VOLATILE(XRP,DOGE) | ILLIQUID_SPEC(LTC,AVAX,BNB)
 - **Next**: Prohibir LONGS en TREND_DOWN (Corregir entry lógica).
 
 ---
