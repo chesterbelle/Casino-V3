@@ -76,12 +76,42 @@ def _normalize(metrics: dict, norm_min: dict, norm_max: dict) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────
-# Exchange Data Fetching
+# Exchange Data Fetching (Adapter-first, fallback to direct)
 # ──────────────────────────────────────────────────────────────
 
 
-async def _fetch_exchange_l2(symbol: str) -> Optional[Dict]:
-    """Fetch L2 order book from Binance Futures."""
+async def fetch_exchange_data(symbol: str, adapter=None) -> Tuple[Optional[Dict], List[Dict]]:
+    """
+    Fetch L2 order book and recent trades for a symbol.
+
+    Uses adapter if available (preferred), falls back to direct API calls for standalone CLI.
+
+    Args:
+        symbol: Unified symbol (e.g., "BTC/USDT:USDT")
+        adapter: Optional ExchangeAdapter instance
+
+    Returns:
+        Tuple of (order_book, trades)
+    """
+    order_book = None
+    trades = []
+
+    if adapter and hasattr(adapter, "fetch_order_book") and hasattr(adapter, "fetch_trades"):
+        try:
+            order_book = await adapter.fetch_order_book(symbol, limit=20)
+            trades = await adapter.fetch_trades(symbol, limit=1000)
+            return order_book, trades
+        except Exception as e:
+            print(f"  ⚠️ Adapter fetch failed for {symbol}: {e}, falling back to direct API")
+
+    # Fallback: direct API calls (for standalone CLI usage)
+    order_book = await _fetch_direct_l2(symbol)
+    trades = await _fetch_direct_trades(symbol, limit=1000)
+    return order_book, trades
+
+
+async def _fetch_direct_l2(symbol: str) -> Optional[Dict]:
+    """Fetch L2 order book directly from Binance Futures (fallback for standalone CLI)."""
     try:
         import aiohttp
 
@@ -102,8 +132,8 @@ async def _fetch_exchange_l2(symbol: str) -> Optional[Dict]:
     return None
 
 
-async def _fetch_exchange_trades(symbol: str, limit: int = 1000) -> List[Dict]:
-    """Fetch recent trades from Binance Futures (max 1000)."""
+async def _fetch_direct_trades(symbol: str, limit: int = 1000) -> List[Dict]:
+    """Fetch recent trades directly from Binance Futures (fallback for standalone CLI)."""
     try:
         import aiohttp
 
@@ -156,8 +186,8 @@ def _compute_tick_size_efficiency(order_book: Dict, trades: List[Dict]) -> Optio
     if not bids or not asks:
         return None
 
-    best_bid = float(bids[0][0])
-    best_ask = float(asks[0][0])
+    best_bid = float(bids[0][0]) if isinstance(bids[0], (list, tuple)) else float(bids[0])
+    best_ask = float(asks[0][0]) if isinstance(asks[0], (list, tuple)) else float(asks[0])
 
     narrowing = 0
     total = 0
@@ -198,8 +228,8 @@ def _compute_book_density(order_book: Dict) -> Optional[float]:
     total_volume = sum(float(level[1]) for level in bids) + sum(float(level[1]) for level in asks)
 
     # Spread in absolute terms
-    best_bid = float(bids[0][0])
-    best_ask = float(asks[0][0])
+    best_bid = float(bids[0][0]) if isinstance(bids[0], (list, tuple)) else float(bids[0])
+    best_ask = float(asks[0][0]) if isinstance(asks[0], (list, tuple)) else float(asks[0])
     mid = (best_bid + best_ask) / 2
     spread_pct = (best_ask - best_bid) / mid if mid > 0 else 0.001
 
@@ -387,14 +417,20 @@ def find_optimal_k(data: List[Dict], k_range: range) -> Tuple[int, float]:
 # ──────────────────────────────────────────────────────────────
 
 
-async def build_clusters_from_exchange(symbols: List[str], k: int = 5) -> Dict:
-    """Build cluster configuration from live exchange data."""
+async def build_clusters_from_exchange(symbols: List[str], k: int = 5, adapter=None) -> Dict:
+    """
+    Build cluster configuration from live exchange data.
+
+    Args:
+        symbols: List of symbols to cluster
+        k: Number of clusters
+        adapter: Optional ExchangeAdapter instance (preferred over direct API)
+    """
     print(f"\n  Fetching live data for {len(symbols)} symbols...")
 
     symbol_metrics = {}
     for symbol in symbols:
-        ob = await _fetch_exchange_l2(symbol)
-        trades = await _fetch_exchange_trades(symbol, limit=1000)
+        ob, trades = await fetch_exchange_data(symbol, adapter=adapter)
         if ob and trades:
             metrics = _compute_all_metrics(ob, trades)
             available = sum(1 for v in metrics.values() if v is not None)
@@ -482,6 +518,7 @@ def compute_metrics_from_db(conn: sqlite3.Connection, symbol: str) -> Optional[D
 
         # book_density from depth_snapshots
         book_density = None
+        tick_size_efficiency = 0.5
         if "depth_snapshots" in tables:
             row = conn.execute(
                 "SELECT bids, asks FROM depth_snapshots WHERE symbol=? ORDER BY timestamp DESC LIMIT 1",
@@ -495,26 +532,29 @@ def compute_metrics_from_db(conn: sqlite3.Connection, symbol: str) -> Optional[D
                     ap = float(asks[0][0]) if isinstance(asks[0], (list, tuple)) else float(asks[0])
                     mid = (bp + ap) / 2
                     spread_pct = (ap - bp) / mid if mid > 0 else 0.001
-                    total_vol = sum(level[1] if isinstance(level, (list, tuple)) else 0 for level in bids) + sum(
-                        level[1] if isinstance(level, (list, tuple)) else 0 for level in asks
-                    )
-                    book_density = total_vol / spread_pct if spread_pct > 0 else 0
+                    total_vol = sum(
+                        float(level[1]) if isinstance(level, (list, tuple)) else 0.0 for level in bids
+                    ) + sum(float(level[1]) if isinstance(level, (list, tuple)) else 0.0 for level in asks)
+                    book_density = total_vol / spread_pct if spread_pct > 0 else 0.0
 
-        # speed from price_samples
+        # speed from price_samples or price_candles
         speed = None
-        if "price_samples" in tables:
+        target_table = "price_samples" if "price_samples" in tables else "price_candles"
+        price_col = "price" if "price_samples" in tables else "close"
+
+        if target_table in tables:
             row = conn.execute(
-                "SELECT COUNT(*), MAX(timestamp)-MIN(timestamp) FROM price_samples WHERE symbol=?",
+                f"SELECT COUNT(*), MAX(timestamp)-MIN(timestamp) FROM {target_table} WHERE symbol=?",
                 (symbol,),
             ).fetchone()
-            if row and row[1] and row[1] > 0:
-                speed = row[0] / row[1]
+            if row and row[1] and float(row[1]) > 0:
+                speed = float(row[0]) / float(row[1])
 
-        # volume_vol_ratio from price_samples
+        # volume_vol_ratio from price_samples or price_candles
         volume_vol_ratio = None
-        if "price_samples" in tables:
+        if target_table in tables:
             rows = conn.execute(
-                "SELECT price FROM price_samples WHERE symbol=? ORDER BY timestamp DESC LIMIT 14400",
+                f"SELECT {price_col} FROM {target_table} WHERE symbol=? ORDER BY timestamp DESC LIMIT 14400",
                 (symbol,),
             ).fetchall()
             prices = [float(r[0]) for r in rows if r[0] and float(r[0]) > 0]
@@ -526,22 +566,25 @@ def compute_metrics_from_db(conn: sqlite3.Connection, symbol: str) -> Optional[D
                     vol = math.sqrt(var)
                     if vol > 0:
                         row = conn.execute(
-                            "SELECT SUM(ABS(price*volume)) FROM price_samples WHERE symbol=? AND volume>0",
+                            f"SELECT SUM(ABS({price_col}*volume)) FROM {target_table} WHERE symbol=? AND volume>0",
                             (symbol,),
                         ).fetchone()
                         if row and row[0]:
                             volume_vol_ratio = float(row[0]) / (vol * 1e6)
+                        else:
+                            # Fallback estimation if volume column missing/empty
+                            n = len(log_rets)
+                            avg_abs_ret = sum(abs(r) for r in log_rets) / n if n > 0 else 0
+                            volume_vol_ratio = avg_abs_ret * 1e6 / (vol + 1e-9)
 
-        # tick_size_efficiency: can't compute accurately from DB alone
-        # Use proxy: ratio of depth_snapshots with narrow spread
-        tick_size_efficiency = None
-
-        return {
+        metrics = {
             "tick_size_efficiency": tick_size_efficiency,
             "book_density": book_density,
             "volume_vol_ratio": volume_vol_ratio,
             "speed": speed,
         }
+
+        return metrics
 
     except Exception as e:
         print(f"  ⚠️ Error computing metrics for {symbol}: {e}")

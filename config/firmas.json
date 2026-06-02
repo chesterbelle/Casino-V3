@@ -1,0 +1,38 @@
+{
+  "LTCUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 23369622.95032877,
+    "volume_vol_ratio": 374328.80072007823,
+    "speed": 0.01667824878387769
+  },
+  "AVAXUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 17622100.24999023,
+    "volume_vol_ratio": 264665.2738712655,
+    "speed": 0.01667824878387769
+  },
+  "SOLUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 69233076.73187712,
+    "volume_vol_ratio": 3182906.1121793976,
+    "speed": 0.01667824878387769
+  },
+  "XRPUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 5300120784.555103,
+    "volume_vol_ratio": 1373568.1219938777,
+    "speed": 0.01667824878387769
+  },
+  "DOGEUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 12460900962.123966,
+    "volume_vol_ratio": 1396598.054090318,
+    "speed": 0.01667824878387769
+  },
+  "OPUSDT": {
+    "tick_size_efficiency": 0.5,
+    "book_density": 199296332.9998752,
+    "volume_vol_ratio": 111753.17875947148,
+    "speed": 0.01667824878387769
+  }
+}

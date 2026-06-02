@@ -25,6 +25,7 @@
 ### 1. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢]
 *   **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + profile system
 *   **Profiles**: 5 perfiles microestructura — MEGA_LIQUID (BTC, ETH), MAJOR_LIQUID (SOL, BNB, XRP), MID_LIQUID (LTC, ADA, LINK, DOGE — iter 3 validated), THIN_VOLATILE (AVAX, SUI, NEAR, APT, OP, ARB — TAV/FB disabled), ILLIQUID_SPEC (long-tail, disabled)
+*   **ILLIQUID_SPEC Backtest** (2026-06-02): SOL +0.24% Net Taker (edge marginal), XRP -0.05%, DOGE -0.13%. Solo SOL tiene potencial. **PERO**: profile system los clasifica como MAJOR_LIQUID, no ILLIQUID_SPEC — contradicción con clustering real.
 *   **Métrica Forense (LTCUSDT 24h)**: Net Taker +0.06%, MFE/MAE 1.63, Win Rate 59.8%
 *   **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC). Edge instrument-dependiente.
 *   **Exhaustion Gate**: Bloquea agresores intensificándose (delta_ratio > 1.5)
@@ -50,27 +51,26 @@
 3.  **BEAR GAP FIX — COMPLETADO ✅**: Macro override (score≥0.6 bypassa síntesis), threshold 0.25, confidence 0.85, absorption threshold 1.8σ, slow drift 120c. BEAR_Apr24 L/S 1.31→0.49 🎯.
 4.  **PER-REGIME TARGETS — COMPLETADO ✅**: TP/SL asimétricos por régimen. V2 Set A +0.456%, Set B +0.482%.
 5.  **AUTOPSIA TREND_DOWN — COMPLETADO ✅**: LONGS en TREND_DOWN = 6% WR (tóxico). Hard block revertido — no mata edge de SHORTS.
-6.  **PROFILE VALIDATION VOLATIL_BAJO_FLOW — COMPLETADO ✅** (2026-06-01): 6 iteraciones + baseline. **Ganador: iter 3** (TAV SL tightening 2.5/3.0/2.5%). Net Taker **+0.0455%** (de -0.1066% baseline). AVAX TAV -0.44%→-0.19%, LTC TAV +0.21%→+0.38%. SUI TAV -0.58pp regresión pero compensada por AVAX+LTC.
-7.  **PROFILE SYSTEM V3 — COMPLETADO ✅** (2026-06-01): Rediseño a 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed). Clustering K-Means automático desde exchange. Silhouette 0.538. LTC y SUI en clusters separados.
-8.  **PROHIBIR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Corregir entry lógica para bloquear contra-tendencia en DOWN.
-9.  **REDUCIR TIMEOUT RATE — PRÓXIMO 🔴**: Optimizar targets para bajar ~60% timeout. Es el drag principal.
-10. **RE-EVALUAR NOMBRE DEL SETUP — PRÓXIMO**: TacticalAbsorptionV2 → InstitutionalFlowV2?
-11. **ARQUITECTURA ENTRY — PRÓXIMO 🔴** (descubierto en iter 6): AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son **ENTRY FAILURE** (MFE/MAE < 1.2, best uniform TP/SL 0.20/0.20% no genera edge). No se puede fix con parámetros. Requiere cambios en entry logic.
-12. **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
-13. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
-14. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
-15. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
+6.  **PROFILE VALIDATION VOLATIL_BAJO_FLOW — COMPLETADO ✅** (2026-06-01): 6 iteraciones + baseline. **Ganador: iter 3** (TAV SL tightening 2.5/3.0/2.5%). Net Taker **+0.0455%** (de -0.1066% baseline).
+7.  **PROFILE SYSTEM V3 — COMPLETADO ✅** (2026-06-01): Rediseño a 4 dimensiones institucionales. Clustering K-Means automático desde exchange. Silhouette 0.538.
+8.  **ILLIQUID_SPEC BACKTEST — COMPLETADO ✅** (2026-06-02): SOL +0.24% (edge marginal), XRP -0.05%, DOGE -0.13%. **PROBLEMA**: Profile contradiction — clustering no produce ILLIQUID_SPEC naturalmente.
+9.  **RESOLVER PROFILE CONTRADICTION — PRÓXIMO 🔴**: K-Means no-determinista produce clusters diferentes cada corrida. SOL/XRP/DOGE clasificados como MAJOR_LIQUID por diagnostic pero THIN/MID por clustering. Necesitar: approach determinista para clustering o redefinición de perfiles.
+10. **PROHIBIR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Corregir entry lógica para bloquear contra-tendencia en DOWN.
+11. **REDUCIR TIMEOUT RATE — PRÓXIMO 🔴**: Optimizar targets para bajar ~60% timeout. Es el drag principal.
+12. **RE-EVALUAR NOMBRE DEL SETUP — PRÓXIMO**: TacticalAbsorptionV2 → InstitutionalFlowV2?
+13. **ARQUITECTURA ENTRY — PRÓXIMO 🔴** (descubierto en iter 6): AVAX TAV y SUI TAV son **ENTRY FAILURE**. No se puede fix con parámetros. Requiere cambios en entry logic.
+14. **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
+15. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
+16. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
+17. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
 
 ---
 
-### Current Status: 🟢 v8.6 Profile System v3 (Institutional Clustering)
-- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + centroid-based profiler + profile manager + regime filter + macro override + discrete-touch exhaustion logic.
+### Current Status: 🟢 v8.6 Profile System v3.1 (Deterministic Static Taxonomy) — RESOLVED
+- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + static centroid-based profiler + regime filter + macro override + discrete-touch exhaustion logic.
 - **Branch**: `8.6-Alphareloaded`
-- **Global Net Set A**: **+0.2713% Net Taker** (+0.3913% Gross) with **81.2% Win Rate** across 1,118 signals.
-- **Profile System v3**: 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed). Clustering K-Means automático desde exchange. Silhouette 0.538.
-- **Per Setup**: TacticalAbsorptionV2 (Net +0.3262% ✅), failed_breakout (Net +0.4400% ✅), trend_acceptance (Net +0.2040% ✅).
-- **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
-- **Next**: Re-ejecutar clustering con más monedas. Luego: TREND_DOWN LONG veto + trend_acceptance target formula.
+- **Profile System v3.1**: Taxonomía institucional estática. Contradicciones resueltas mediante firmas deterministas (promedio de 6 datasets por activo) y normalización unificada.
+- **Next**: Prohibir LONGS en TREND_DOWN (Corregir entry lógica).
 
 ---
 
@@ -84,10 +84,14 @@
 16. **Timeout Rate ~60%**: Es el drag principal del sistema. Cada timeout cuesta −0.12% fee. Optimizar targets es la prioridad #1.
 17. **skip_clean Bug (Orquestador)**: `clean_temp_data()` borra `historian.db*` al inicio de cada protocolo. Si se encadenan protocolos sin `skip_clean=True`, el DB mergeado previo se destruye. Fix: `set_a_avax` y `set_a_sui` tienen `skip_clean=True` — solo borran temporales.
 18. **DEFAULT_PROFILE = MID_LIQUID Bug**: `match_profile` y `find_closest_profile` saltaban MID_LIQUID porque `if profile_name == DEFAULT_PROFILE: continue`. Cualquier perfil que fuera DEFAULT no se podía matchear. Removido el skip — ahora DEFAULT_PROFILE es solo un fallback label, no afecta matching.
+19. **K-Means No-Determinista**: Cada corrida de `cluster_builder.py --exchange` produce clusters diferentes. Los nombres (MEGA_LIQUID, etc.) son fijos pero los miembros cambian. SOL puede estar en THIN_VOLATILE en una corrida y en MAJOR_LIQUID en otra.
+20. **Profile vs Clustering Contradiction**: `profile_diagnostic.py` clasifica SOL/XRP/DOGE como MAJOR_LIQUID, pero `cluster_builder.py` reciente los pone en THIN/MID. El profile system fue calibrado con una corrida previa que ya no es válida.
+21. **price_samples sin columna volume**: El historian.db del backtest no tiene `volume` en `price_samples`. `profile_diagnostic.py` fue parcheado para usar fallback estimation.
 
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-02 | session-close | **ILLIQUID_SPEC BACKTEST + PROFILE CONTRADICTION**: Backtest completo SOL/XRP/DOGE (18 datasets). SOL +0.24% Net Taker (edge marginal), XRP -0.05%, DOGE -0.13%. Global +0.0144%. **DESCUBRIMIENTO CRÍTICO**: profile_diagnostic.py clasifica SOL/XRP/DOGE como MAJOR_LIQUID, pero cluster_builder.py los pone en THIN/MID. K-Means no-determinista produce clusters diferentes en cada corrida. ILLIQUID_SPEC como profile es cuestionado — el clustering no produce ese grupo naturalmente. Archivos: price_history_analyzer.py (CREADO), profile_diagnostic.py (PATCH volume column), orchestrator.py (+3 protocols). Próximo: resolver determinismo del clustering.
 - 2026-06-01 | session-close | **PROFILE SYSTEM V3 — INSTITUTIONAL CLUSTERING**: Rediseño completo del sistema de perfiles. De 5 dimensiones manuales a 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed). Clustering K-Means automático desde exchange. Silhouette 0.538. LTC y SUI en clusters separados. Archivos: cluster_builder.py (CREADO), coin_profiler.py (MODIFICADO), profile_diagnostic.py (MODIFICADO), coin_profiles.py (MODIFICADO — removido characteristics), clusters.json (CREADO). Backward compatibility maintenida.
 - 2026-06-01 | session-close | **PROFILE VALIDATION VOLATIL_BAJO_FLOW — FINAL**: 6 iteraciones de parameter tuning + baseline. **Iter 3 GANADOR** (TAV SL tightening): Net Taker **+0.0455%** (de -0.1066% baseline, +0.152pp). AVAX TAV -0.44→-0.19 (+0.25pp), LTC TAV +0.21→+0.38 (+0.17pp). SUI TAV -0.58pp regresión. **Iter 1, 4, 5, 6 REVERTIDOS**. **Iter 2 MAINTAINED** (concentration_min 0.40→0.50, +0.009pp). Descubrimiento crítico: AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son **ENTRY FAILURE** (MFE/MAE <1.2, best uniform 0.20/0.20% sin edge). Imposible fix con parámetros. Config final: concentration_min=0.50, TAV SL=2.5/3.0/2.5%, l2_ratio_min=0.5, l2_ratio_min_trend_down=2.0, FB=2.0/2.5%. Próximo paso: entry logic changes.
 - 2026-06-01 | session-close | **5-PROFILE MICROSTRUCTURE REFACTOR**: 3→5 perfiles con 5 dims (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h). Clasificación validada: LTC→MID ✓, SUI→THIN ✓, AVAX→MID (borderline vol 1.06%, SUI fue el caso de falla real de TAV). **Bug fix crítico**: `match_profile` y `find_closest_profile` saltaban `DEFAULT_PROFILE = MID_LIQUID`. Removido. Diagnostic ahora online (fetches klines + computes 4 new metrics). Commit `c85dd30`.

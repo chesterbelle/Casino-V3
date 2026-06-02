@@ -6,6 +6,107 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-02 SESSION] — Profile System v3.1: Deterministic Static Taxonomy (Branch: 8.6-Alphareloaded)
+### Summary: Resolución de la contradicción de perfiles. Se migró de clustering dinámico no-determinista a una "Taxonomía Institucional Estática" basada en firmas medias de 6 datasets por activo.
+#### 1. Acciones Realizadas
+- Eliminación de la inestabilidad de K-Means en tiempo real.
+- Consolidación de firmas (vectores medios de 4 dimensiones) para 14 activos.
+- Implementación de `config/clusters_fixed.json` como fuente de verdad inmutable.
+- Corrección de bugs de normalización (sincronización `log1p`) en `coin_profiler.py` y `cluster_builder.py`.
+- Limpieza de código muerto en `cluster_builder.py`.
+
+#### 2. Hallazgos
+- El error `name 'tick_size_efficiency' is not defined` y los problemas de `datos insuficientes` eran derivados de una mala gestión de tipos en la lectura de `SQLite`.
+- La normalización `log1p` era inconsistente entre el builder y el profiler, causando errores de clasificación.
+
+#### 3. Archivos Modificados/Creados
+- `utils/cluster_builder.py` (REDISEÑADO): Ahora es una herramienta de mantenimiento estático.
+- `core/coin_profiler.py` (MODIFICADO): Ahora lee `clusters_fixed.json` de forma determinista.
+- `utils/consolidate_firmas.py` (CREADO): Script para consolidar firmas estáticas.
+- `utils/build_fixed_clusters.py` (CREADO): Script para generar taxonomía estática.
+- `config/clusters_fixed.json` (CREADO): Taxonomía final.
+- `config/firmas.json` (CREADO): ADN microestructural de los activos.
+
+
+#### 1. Pipeline Ejecutado
+- **Paso 0**: Análisis de precios históricos con `price_history_analyzer.py` → recomendó 6 meses por coin
+- **Paso 1**: Descarga de 18 raw datasets (trades + L2) vía `tardis_fetcher.py`
+- **Paso 2**: Procesamiento a `.db` vía `l2_processor.py` → 18 archivos en `data/datasets/backtest_ready/`
+- **Paso 3**: Backtest audit vía `orchestrator.py` (protocolos `set_a_sol`, `set_a_xrp`, `set_a_doge`)
+- **Paso 4**: Merge de 18 historian temporales → `data/historian.db` (18 MB)
+
+#### 2. Resultados Backtest (setup_edge_auditor.py --by-coin)
+
+**Per-Coin Veredicto:**
+| Coin | Signals | WR% | Exp% | Net Taker | Veredicto |
+|------|---------|-----|------|-----------|-----------|
+| SOL | 1,157 | 70.4% | +0.36% | +0.24% ✅ | ENTRY FAIL* |
+| XRP | 1,353 | 63.2% | +0.07% | -0.05% ❌ | ENTRY FAIL |
+| DOGE | 1,133 | 61.9% | -0.01% | -0.13% ❌ | ENTRY FAIL |
+| LTC (referencia) | 1,938 | 76.9% | +0.51% | +0.39% ✅ | EDGE ✅ |
+
+**Per-Setup Breakdown:**
+| Setup | Coin | MFE/MAE | Best Uniform | Net Taker | Veredicto |
+|-------|------|---------|--------------|-----------|-----------|
+| TacticalAbsorptionV2 | SOL | ✅ | 0.90/0.90% | +0.33% | TARGETS ⚠️ |
+| TacticalAbsorptionV2 | XRP | ✅ | 0.90/0.90% | +0.003% | TARGET FAIL |
+| TacticalAbsorptionV2 | DOGE | ❌ | - | -0.28% | ENTRY FAIL |
+| trend_acceptance | SOL | ❌ 34.5% WR | - | -0.48% | ENTRY FAIL |
+| trend_acceptance | XRP | ❌ 36.7% WR | - | -0.41% | ENTRY FAIL |
+
+**Global Summary (6 coins, 9,374 signals):**
+- Overall WR: 65.8%
+- Gross Expectancy: +0.1344%
+- Net Taker: +0.0144% ✅
+- Root Cause: TARGET FAILURE
+
+#### 3. Hallazgo Crítico: Profile Contradiction
+
+**profile_diagnostic.py --exchange (live):**
+| Coin | Match | Distance |
+|------|-------|----------|
+| SOL | MAJOR_LIQUID | 0.169 ✅ |
+| XRP | MAJOR_LIQUID | 0.147 ✅ |
+| DOGE | MAJOR_LIQUID | 0.148 ✅ |
+
+**cluster_builder.py --exchange --k 5 (nuevo):**
+| Cluster | Members |
+|---------|---------|
+| MEGA_LIQUID | LTC, ADA, NEAR, APT, ARB |
+| MAJOR_LIQUID | BTC |
+| MID_LIQUID | XRP, AVAX, DOGE, LINK |
+| THIN_VOLATILE | SOL, SUI, OP |
+| ILLIQUID_SPEC | ETH, BNB |
+
+**Contradicción:** K-Means NO agrupa SOL/XRP/DOGE juntos. SOL→THIN_VOLATILE, XRP/DOGE→MID_LIQUID, ETH/BNB→ILLIQUID_SPEC. El profile system actual clasifica SOL/XRP/DOGE como "illiquid" pero el clustering real dice que son "major liquid" o "mid liquid".
+
+**Causa raíz:** ILLIQUID_SPEC fue asignado a SOL/XRP/DOGE por una corrida previa de cluster_builder con datos diferentes, no por el clustering actual. K-Means es no-determinista — cada corrida con datos del momento produce clusters diferentes.
+
+#### 4. Archivos Modificados/Creados
+- `utils/data/price_history_analyzer.py` (CREADO): Analiza precios históricos, clasifica meses por régimen, recomienda datasets
+- `utils/data/tardis_fetcher.py` (MODIFICADO): Descarga raw L2+trades de Tardis/Binance
+- `utils/data/l2_processor.py` (EXISTENTE): Procesa raw a .db
+- `scripts/orchestrator.py` (MODIFICADO): Protocolos `set_a_sol`, `set_a_xrp`, `set_a_doge` agregados
+- `config/coin_profiles.py` (EXISTENTE): Perfiles ILLIQUID_SPEC con parámetros de iteración anterior
+- `.agent/backtesting_config.md` (MODIFICADO): Documentación de pipeline Paso 0 + Paso 1
+- `.agent/workflows/profile-validation-illiquid-spec.md` (MODIFICADO): Assets SOL/XRP/DOGE, paths, orchestrator
+- `utils/profile_diagnostic.py` (MODIFICADO): Fix para columna `volume` faltante en price_samples
+
+#### 5. Lecciones Aprendidas
+1. **K-Means es no-determinista**: Cada corrida produce clusters diferentes. Los nombres de cluster son fijos pero los miembros cambian.
+2. **Profile assignment ≠ Clustering result**: El profile system puede asignar coins a clusters que el algoritmo no produce naturalmente.
+3. **SOL no es "illiquid"**: Speed=6.3, book_density=20.0 — comportamiento de mercado líquido.
+4. **XRP/DOGE son "mid liquid"**: Speed=5.6, book_density=20.0 — similares a AVAX/LINK.
+5. **ILLIQUID_SPEC real = ETH/BNB**: Speed=22.4 pero book_density=17.8 — alta actividad pero libro menos profundo.
+6. **Audit mode no registra trades**: historian.db tiene signals+decision_traces pero trades=0. El edge se mide por MFE/MAE, no por PnL real.
+
+#### 6. Próximos Pasos (Pendientes de Discusión)
+1. **RESOLVER PROFILE CONTRADICTION**: Cómo hacer clustering determinista. Opciones: centroids fijos, reglas por dimensión, o hybrid approach.
+2. **Re-evaluar ILLIQUID_SPEC**: Si SOL/XRP/DOGE no son illiquid, ¿tiene sentido mantener el profile?
+3. **SOL como candidato live**: Net Taker +0.24% con 70.4% WR — el mejor de los 3. ¿Merece validación más profunda?
+
+---
+
 ### [2026-06-01 SESSION] — Profile System v3: Institutional 4-Dimension Clustering (Branch: 8.6-Alphareloaded)
 ### Summary: Rediseño completo del sistema de perfiles de clasificación microestructural. De 5 dimensiones manuales a 4 dimensiones institucionales con clustering K-Means. Los perfiles ahora se generan automáticamente desde datos del exchange en vez de rangos fijos manuales.
 

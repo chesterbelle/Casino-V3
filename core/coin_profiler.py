@@ -25,7 +25,7 @@ from config.coin_profiles import DEFAULT_PROFILE
 
 logger = logging.getLogger("CoinProfiler")
 
-CLUSTERS_PATH = Path("config/clusters.json")
+CLUSTERS_PATH = Path("config/clusters_fixed.json")
 
 
 def _load_clusters() -> dict:
@@ -49,6 +49,9 @@ def _normalize(metrics: dict, norm_min: dict, norm_max: dict) -> dict:
         if value is None:
             normalized[key] = 0.5
             continue
+        # Apply log1p scaling for huge-range dimensions to match cluster_builder
+        if key in ("book_density", "volume_vol_ratio") and value > 0:
+            value = math.log1p(value)
         min_val = norm_min.get(key, 0)
         max_val = norm_max.get(key, 1)
         if max_val <= min_val:
