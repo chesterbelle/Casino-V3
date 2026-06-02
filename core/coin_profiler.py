@@ -43,14 +43,14 @@ def _euclidean_distance(a: dict, b: dict) -> float:
     return math.sqrt(sum((a.get(k, 0) - b.get(k, 0)) ** 2 for k in keys))
 
 
-def _normalize(metrics: dict, norm_min: dict, norm_max: dict) -> dict:
+def _normalize(metrics: dict, norm_min: dict, norm_max: dict, skip_log1p: bool = False) -> dict:
     normalized = {}
     for key, value in metrics.items():
         if value is None:
             normalized[key] = 0.5
             continue
-        # Apply log1p scaling for huge-range dimensions to match cluster_builder
-        if key in ("book_density", "volume_vol_ratio") and value > 0:
+        # Apply log1p scaling for huge-range dimensions (skip if already log1p'd)
+        if not skip_log1p and key in ("book_density", "volume_vol_ratio") and value > 0:
             value = math.log1p(value)
         min_val = norm_min.get(key, 0)
         max_val = norm_max.get(key, 1)
@@ -73,6 +73,14 @@ class CoinProfiler:
         self.dimensions = self.config.get("dimensions", [])
         self.norm_min = self.config.get("normalization", {}).get("min", {})
         self.norm_max = self.config.get("normalization", {}).get("max", {})
+        # Fallback to cluster_builder defaults if normalization missing from config
+        if not self.norm_min or not self.norm_max:
+            from utils.cluster_builder import NORM_MAX, NORM_MIN
+
+            if not self.norm_min:
+                self.norm_min = NORM_MIN
+            if not self.norm_max:
+                self.norm_max = NORM_MAX
         self.threshold = self.config.get("threshold", {}).get("max_distance", 0.35)
         self.coin_cache: Dict[str, str] = {}
 
@@ -103,13 +111,17 @@ class CoinProfiler:
         normalized = _normalize(aliased, self.norm_min, self.norm_max)
 
         # Compute distance to each centroid
+        # Centroids are stored in log1p space (de-normalized from [0,1]).
+        # Normalize with skip_log1p=True since they're already log1p'd.
         distances = {}
         for cluster_name, cluster_data in self.clusters.items():
             centroid = cluster_data.get("centroid", {})
             if not centroid:
                 continue
             centroid_norm = {
-                k: v for k, v in _normalize(centroid, self.norm_min, self.norm_max).items() if k in normalized
+                k: v
+                for k, v in _normalize(centroid, self.norm_min, self.norm_max, skip_log1p=True).items()
+                if k in normalized
             }
             norm_filtered = {k: v for k, v in normalized.items() if k in centroid_norm}
             dist = _euclidean_distance(norm_filtered, centroid_norm)
@@ -147,13 +159,17 @@ class CoinProfiler:
 
         normalized = _normalize(aliased, self.norm_min, self.norm_max)
 
+        # Centroids are stored in log1p space (de-normalized from [0,1]).
+        # Normalize with skip_log1p=True since they're already log1p'd.
         distances = {}
         for cluster_name, cluster_data in self.clusters.items():
             centroid = cluster_data.get("centroid", {})
             if not centroid:
                 continue
             centroid_norm = {
-                k: v for k, v in _normalize(centroid, self.norm_min, self.norm_max).items() if k in normalized
+                k: v
+                for k, v in _normalize(centroid, self.norm_min, self.norm_max, skip_log1p=True).items()
+                if k in normalized
             }
             norm_filtered = {k: v for k, v in normalized.items() if k in centroid_norm}
             distances[cluster_name] = _euclidean_distance(norm_filtered, centroid_norm)

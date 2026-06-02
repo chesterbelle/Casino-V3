@@ -11,9 +11,6 @@ Dimensions (institutional):
   4. speed: trades per second
 
 Usage:
-    # Build clusters from exchange data (live)
-    python utils/cluster_builder.py --exchange --k 5
-
     # Build clusters from DB data
     python utils/cluster_builder.py --db data/historian.db --k 5
 
@@ -22,9 +19,9 @@ Usage:
 """
 
 import argparse
-import asyncio
 import json
 import math
+import random
 import sqlite3
 import sys
 from pathlib import Path
@@ -57,14 +54,14 @@ def _euclidean_distance(a: dict, b: dict) -> float:
     return math.sqrt(sum((a.get(k, 0) - b.get(k, 0)) ** 2 for k in keys))
 
 
-def _normalize(metrics: dict, norm_min: dict, norm_max: dict) -> dict:
+def _normalize(metrics: dict, norm_min: dict, norm_max: dict, skip_log1p: bool = False) -> dict:
     normalized = {}
     for key, value in metrics.items():
         if value is None:
             normalized[key] = 0.5
             continue
-        # Apply log1p scaling for huge-range dimensions
-        if key in ("book_density", "volume_vol_ratio") and value > 0:
+        # Apply log1p scaling for huge-range dimensions (skip if already log1p'd)
+        if not skip_log1p and key in ("book_density", "volume_vol_ratio") and value > 0:
             value = math.log1p(value)
         min_val = norm_min.get(key, 0)
         max_val = norm_max.get(key, 1)
@@ -76,91 +73,8 @@ def _normalize(metrics: dict, norm_min: dict, norm_max: dict) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────
-# Exchange Data Fetching (Adapter-first, fallback to direct)
+# Metric Computation
 # ──────────────────────────────────────────────────────────────
-
-
-async def fetch_exchange_data(symbol: str, adapter=None) -> Tuple[Optional[Dict], List[Dict]]:
-    """
-    Fetch L2 order book and recent trades for a symbol.
-
-    Uses adapter if available (preferred), falls back to direct API calls for standalone CLI.
-
-    Args:
-        symbol: Unified symbol (e.g., "BTC/USDT:USDT")
-        adapter: Optional ExchangeAdapter instance
-
-    Returns:
-        Tuple of (order_book, trades)
-    """
-    order_book = None
-    trades = []
-
-    if adapter and hasattr(adapter, "fetch_order_book") and hasattr(adapter, "fetch_trades"):
-        try:
-            order_book = await adapter.fetch_order_book(symbol, limit=20)
-            trades = await adapter.fetch_trades(symbol, limit=1000)
-            return order_book, trades
-        except Exception as e:
-            print(f"  ⚠️ Adapter fetch failed for {symbol}: {e}, falling back to direct API")
-
-    # Fallback: direct API calls (for standalone CLI usage)
-    order_book = await _fetch_direct_l2(symbol)
-    trades = await _fetch_direct_trades(symbol, limit=1000)
-    return order_book, trades
-
-
-async def _fetch_direct_l2(symbol: str) -> Optional[Dict]:
-    """Fetch L2 order book directly from Binance Futures (fallback for standalone CLI)."""
-    try:
-        import aiohttp
-
-        base_url = "https://fapi.binance.com"
-        if "/" in symbol:
-            binance_symbol = symbol.split("/")[0] + "USDT"
-        elif symbol.endswith(":USDT"):
-            binance_symbol = symbol.replace(":USDT", "")
-        else:
-            binance_symbol = symbol
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base_url}/fapi/v1/depth", params={"symbol": binance_symbol, "limit": 20}) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return {"bids": data.get("bids", []), "asks": data.get("asks", [])}
-    except Exception as e:
-        print(f"  ⚠️ L2 fetch error for {symbol}: {e}")
-    return None
-
-
-async def _fetch_direct_trades(symbol: str, limit: int = 1000) -> List[Dict]:
-    """Fetch recent trades directly from Binance Futures (fallback for standalone CLI)."""
-    try:
-        import aiohttp
-
-        base_url = "https://fapi.binance.com"
-        if "/" in symbol:
-            binance_symbol = symbol.split("/")[0] + "USDT"
-        elif symbol.endswith(":USDT"):
-            binance_symbol = symbol.replace(":USDT", "")
-        else:
-            binance_symbol = symbol
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{base_url}/fapi/v1/trades", params={"symbol": binance_symbol, "limit": min(limit, 1000)}
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if isinstance(data, list):
-                        return data
-                    else:
-                        print(f"  ⚠️ API error for {symbol}: {data}")
-                        return []
-                else:
-                    print(f"  ⚠️ HTTP {resp.status} for {symbol}")
-                    return []
-    except Exception as e:
-        print(f"  ⚠️ Trades fetch error for {symbol}: {e}")
-        return []
 
 
 # ──────────────────────────────────────────────────────────────
@@ -317,7 +231,6 @@ def _compute_all_metrics(order_book: Dict, trades: List[Dict]) -> Dict:
 
 def kmeans(data: List[Dict], k: int, max_iter: int = 100, seed: int = 42) -> Tuple[List[Dict], List[int]]:
     """K-Means clustering on normalized vectors."""
-    import random
 
     random.seed(seed)
 
@@ -415,81 +328,6 @@ def find_optimal_k(data: List[Dict], k_range: range) -> Tuple[int, float]:
 # ──────────────────────────────────────────────────────────────
 # Build Clusters
 # ──────────────────────────────────────────────────────────────
-
-
-async def build_clusters_from_exchange(symbols: List[str], k: int = 5, adapter=None) -> Dict:
-    """
-    Build cluster configuration from live exchange data.
-
-    Args:
-        symbols: List of symbols to cluster
-        k: Number of clusters
-        adapter: Optional ExchangeAdapter instance (preferred over direct API)
-    """
-    print(f"\n  Fetching live data for {len(symbols)} symbols...")
-
-    symbol_metrics = {}
-    for symbol in symbols:
-        ob, trades = await fetch_exchange_data(symbol, adapter=adapter)
-        if ob and trades:
-            metrics = _compute_all_metrics(ob, trades)
-            available = sum(1 for v in metrics.values() if v is not None)
-            if available >= 3:
-                symbol_metrics[symbol] = metrics
-                print(f"    ✅ {symbol}: {available}/4 dims")
-            else:
-                print(f"    ⚠️ {symbol}: only {available}/4 dims (skipped)")
-        else:
-            print(f"    ❌ {symbol}: no data")
-
-    if len(symbol_metrics) < 2:
-        print(f"\n  ⚠️ Not enough symbols ({len(symbol_metrics)})")
-        return {}
-
-    all_metrics = list(symbol_metrics.values())
-    dims = list(all_metrics[0].keys())
-    normalized = [_normalize(m, NORM_MIN, NORM_MAX) for m in all_metrics]
-
-    actual_k = min(k, len(symbol_metrics))
-    print(f"\n  Running K-Means (k={actual_k})...")
-    centroids, assignments = kmeans(normalized, actual_k)
-    silhouette = compute_silhouette(normalized, assignments, centroids)
-    print(f"  Silhouette score: {silhouette:.3f}")
-
-    symbols_list = list(symbol_metrics.keys())
-    cluster_names = _generate_cluster_names(actual_k)
-
-    clusters = {}
-    for c_idx in range(actual_k):
-        members = [symbols_list[i] for i in range(len(symbols_list)) if assignments[i] == c_idx]
-        denorm_centroid = {}
-        for dim in dims:
-            min_v = NORM_MIN.get(dim, 0)
-            max_v = NORM_MAX.get(dim, 1)
-            denorm_centroid[dim] = centroids[c_idx].get(dim, 0.5) * (max_v - min_v) + min_v
-
-        clusters[cluster_names[c_idx]] = {
-            "centroid": denorm_centroid,
-            "members": members,
-            "n_members": len(members),
-        }
-
-    config = {
-        "version": "3.0",
-        "description": "Institutional 4-dimension microstructure clusters.",
-        "dimensions": dims,
-        "normalization": {"min": NORM_MIN, "max": NORM_MAX},
-        "clusters": clusters,
-        "threshold": {"max_distance": 0.35},
-        "metadata": {
-            "created": __import__("datetime").datetime.now().isoformat(),
-            "algorithm": "kmeans",
-            "k": actual_k,
-            "silhouette_score": silhouette,
-        },
-    }
-
-    return config
 
 
 def _generate_cluster_names(k: int) -> List[str]:
@@ -601,31 +439,8 @@ def main():
     parser.add_argument("--db", default="data/historian.db", help="Database path")
     parser.add_argument("--k", type=int, default=5, help="Number of clusters")
     parser.add_argument("--optimize-k", action="store_true", help="Find optimal k using silhouette")
-    parser.add_argument("--exchange", action="store_true", help="Build clusters from live exchange data")
-    parser.add_argument(
-        "--symbols",
-        type=str,
-        default="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,LTCUSDT,AVAXUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,NEARUSDT,SUIUSDT,APTUSDT,OPUSDT,ARBUSDT",
-        help="Comma-separated symbols for exchange mode",
-    )
     parser.add_argument("--output", default="config/clusters.json", help="Output file")
     args = parser.parse_args()
-
-    if args.exchange:
-        print(f"\n{'═' * 65}")
-        print(f"  BUILDING CLUSTERS FROM EXCHANGE (k={args.k})")
-        print(f"{'═' * 65}")
-        symbols = [s.strip() for s in args.symbols.split(",")]
-        config = asyncio.run(build_clusters_from_exchange(symbols, args.k))
-        if config:
-            output_path = Path(args.output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w") as f:
-                json.dump(config, f, indent=2)
-            print(f"\n  ✅ Saved to {output_path}")
-            for name, cluster in config["clusters"].items():
-                print(f"    {name}: {cluster['n_members']} members — {cluster['members']}")
-        return
 
     if args.optimize_k:
         print(f"\n{'═' * 65}")

@@ -1,10 +1,10 @@
-# Perfil Changelog — VOLATIL_BAJO_FLOW
+# Perfil Changelog — ILLIQUID_SPEC
 
-> Registro de iteraciones y hallazgos para evitar repetir trabajo en otros perfiles (SUI, AVAX).
+> Registro de iteraciones y hallazgos. Basado en datos de LTC.
 
 ## Parámetros Actuales (Código — `config/coin_profiles.py`)
 
-> **Resincronizado**: 2026-06-01 — Refleja el estado actual del código, no iteraciones anteriores obsoletas.
+> **Resincronizado**: 2026-06-01 — Refleja el estado actual del código.
 
 ### Sensores — `absorption_detector`
 ```python
@@ -92,60 +92,6 @@
 
 ---
 
-## Historial de Iteraciones (Post-2026-06-01)
-
-> **Sesión Profile Validation — Multi-Asset (LTC + AVAX + SUI)**
-
-### Run Baseline (3,072 señales, 14 datasets)
-
-**Config**: parámetros del código sin cambios (z=3.5, conc=0.40, l2_ratio_min=0.5, TAV per-regime, FB 2.0/2.5, LE 1.5/0.4, TA 0.9/0.9)
-
-**Global**: 3,072 señales | 1,625 Decided | 1,447 TO (47% TO rate) | WR 72.6% | Gross +0.0134% | **Net Taker -0.1066%** | Net Maker -0.0666%
-
-**Per Coin**:
-
-| Coin | n | WR% | Gross Exp% | Net Taker% | Veredicto |
-|------|:-:|:---:|:----------:|:----------:|:---------:|
-| AVAX/USDT:USDT | 1,491 | 64.6% | -0.2315% | **-0.3515%** | ❌ ENTRY FAIL |
-| LTC/USDT:USDT  | 1,140 | 79.5% | +0.2977% | **+0.1777%** | ✅ EDGE |
-| SUI/USDT:USDT  |   441 | 82.6% | +0.5568% | **+0.4368%** | ✅ EDGE (mejor) |
-
-**Per Setup × Coin**:
-
-| Setup | LTC Net | AVAX Net | SUI Net |
-|-------|:-------:|:--------:|:-------:|
-| TAV | +0.2097% ✅ | **-0.4404%** ❌ | +0.6213% ✅ |
-| FB | +0.4954% ✅ | +0.1992% ✅ | **-1.2137%** ❌ |
-| LE | n/a (<25) | -0.0047% | n/a |
-| TA | +0.1922% ✅ | +0.1192% ✅ | +0.3982% ✅ |
-
-**L2 Depth (2,292 señales con L2 data)**:
-| L2 Ratio (Wall) | Trades | MFE/MAE |
-|-----------------|:------:|:-------:|
-| High Wall (>2.0) | 893 | 1.15 |
-| Balanced (1.0-2.0) | 191 | 1.03 |
-| Thin Wall (<1.0) | 1,208 | 0.94 |
-
-**Conclusiones Baseline**:
-1. **AVAX TAV** es el drag principal (-0.44% con 1,247 señales — 41% del total)
-2. **SUI FB** está roto (33 señales, WR 31%, -1.21%)
-3. **Thin Wall** actual (l2_ratio_min=0.5) tiene MFE/MAE **peor** que High Wall — contradice análisis histórico LTC
-4. **SUI TAV** es el mejor setup individual (+0.62%) — confirma edge de SUI/AVAX cluster
-5. **Target failure** persiste: 47% TO rate es el drag secundario
-6. **47% WR total** está OK pero el edge está mal distribuido (AVAX destruye valor)
-
-| # | Cambio | Config antes → después | Net Taker Set A | Net Taker Set B | Conclusión |
-|---|--------|------------------------|-----------------|-----------------|------------|
-| 0 | Baseline | código actual | **-0.1066%** | — | AVAX TAV drag principal |
-| 1 | l2_ratio_min 0.5→1.0 | guardia más estricta | **-0.1059%** | — | REVERTIDO: LTC mejor (+0.18→+0.32%) pero AVAX peor (-0.35→-0.43%). Neto neutral. Filter bloquea buenas señales AVAX. |
-| 2 | concentration_min 0.40→0.50 | filtro absorción más estricto | **-0.0973%** | — | MEJORA +0.0093pp: LTC +0.18→+0.31 (+0.13pp), AVAX -0.35→-0.40 (-0.05pp), SUI +0.44→+0.45. Neto positivo. AVAX TAV sigue siendo el drag principal. |
-| 3 | TAV SL tightening | TREND_UP 4→2.5%, TREND_DOWN 5→3%, BALANCE 4→2.5% | **+0.0455%** | — | 🎯 **GRAN MEJORA +0.143pp**: AVAX TAV -0.44→-0.19 (+0.25pp), LTC TAV +0.21→+0.38 (+0.17pp). PERO SUI TAV colapsa +0.62→+0.04 (-0.58pp, 92% perdido). SUI necesita SL más amplio. |
-| 4 | TAV SL compromise | TREND_UP 2.5→3.0%, TREND_DOWN 3.0→3.5%, BALANCE 2.5→3.0% | **-0.0128%** | — | REVERTIDO: peor que iter 3 (-0.058pp). SUI recuperó +0.20pp pero AVAX perdió -0.12pp y LTC -0.03pp. El compromise no balancea bien. |
-| 5 | FB targets tightening | 2.0/2.5% → 1.5/1.8% | **-0.0048%** | — | REVERTIDO: peor que iter 3 (-0.05pp). SUI FB destruida (WR cayó de 70% a 39.3%, -0.62pp). El MFE/MAE 0.55 indica que SUI FB ya no tenía edge. |
-| 6 | l2_ratio_min_trend_down tightening | 2.0 → 2.5 | **+0.0128%** | — | REVERTIDO: peor que iter 3 (-0.033pp). Mejoró LTC marginalmente pero rompió SUI (-0.08pp) y AVAX (-0.015pp). Filtros estrictos en BEAR no ayudan con el desbalanceo de entrada. |
-
----
-
 ## Hallazgos Clave (Acumulados)
 
 ### 1. Quality Scorer tiene impacto marginal
@@ -175,12 +121,7 @@ Los weights producen diferencia < 0.01% en Net Taker.
 LTC_RANGE_2024-02-01 mostró +0.2236%, pero el promedio de 9 datasets fue -0.0321%.
 **Acción**: Siempre validar con 9+ datasets (3 RANGE + 3 BULL + 3 BEAR).
 
-### 6. Configuración multi-asset confirmada
-- Perfil VOLATIL_BAJO_FLOW agrupa LTC, AVAX, SUI correctamente
-- Edge instrument-dependiente (3/10 coins con edge)
-- SUI/AVAX/LTC validados como cluster
-
-### 7. Liquidity Exhaustion y Trend Acceptance pendientes
+### 6. Liquidity Exhaustion y Trend Acceptance pendientes
 - `liquidity_exhaustion` (47 señales) Net Taker -0.21% — necesita re-tuning
 - `trend_acceptance` (98 señales) Net Taker -0.015% — borderline
 
@@ -190,11 +131,11 @@ LTC_RANGE_2024-02-01 mostró +0.2236%, pero el promedio de 9 datasets fue -0.032
 
 1. **Empezar con l2_ratio_min**: 0.5 actual es bajo — probar 0.8-1.2 (riesgo bajo)
 2. **concentration_min**: 0.40 puede ser muy permisivo — probar 0.45-0.55
-3. **Per-regime targets**: Re-calibrar con datos de Set A multi-asset
+3. **Per-regime targets**: Re-calibrar con datos multi-asset
 4. **failed_breakout**: tp=2.0%/sl=2.5% ya validado, mantener
-5. **No overfittear a 1 dataset** — siempre usar 14 datasets (6 LTC + 6 AVAX + 2 SUI)
+5. **No overfittear a 1 dataset** — siempre usar 9+ datasets (3 RANGE + 3 BULL + 3 BEAR)
 6. **Métrica primary**: Net Taker global (no WR, no MFE/MAE)
-7. **Validación cruzada**: Set B (LTC datos no usados) mide overfitting
+7. **Validación cruzada**: Set B (datos no usados) mide overfitting
 
 ---
 

@@ -661,6 +661,34 @@ class BaseConnector(ABC):
         """Fetch order book for a symbol."""
         pass
 
+    async def fetch_trades(self, symbol: str, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Fetch recent public trades for a symbol.
+
+        Used for microstructure analysis (tick_size_efficiency, volume_vol_ratio, speed).
+
+        Args:
+            symbol: Unified symbol (e.g., "BTC/USDT:USDT")
+            limit: Number of trades to fetch (default 500, max 1000)
+
+        Returns:
+            List of trade dicts with normalized format:
+            [
+                {
+                    "id": "trade_id",
+                    "price": 50000.0,
+                    "qty": 0.1,
+                    "time": 1234567890123,  # ms timestamp
+                    "isBuyerMaker": True
+                },
+                ...
+            ]
+
+        Raises:
+            NotImplementedError: If not implemented by the connector
+        """
+        raise NotImplementedError(f"{self.exchange_name} connector does not implement fetch_trades")
+
     @abstractmethod
     def get_load_factor(self) -> float:
         """

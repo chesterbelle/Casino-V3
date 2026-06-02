@@ -55,7 +55,7 @@
 7.  **PROFILE SYSTEM V3 — COMPLETADO ✅** (2026-06-01): Rediseño a 4 dimensiones institucionales. Clustering K-Means automático desde exchange. Silhouette 0.538.
 8.  **ILLIQUID_SPEC BACKTEST — COMPLETADO ✅** (2026-06-02): SOL +0.24% (edge marginal), XRP -0.05%, DOGE -0.13%. **PROBLEMA**: Profile contradiction — clustering no produce ILLIQUID_SPEC naturalmente.
 9.  **RESOLVER PROFILE CONTRADICTION — PRÓXIMO 🔴**: K-Means no-determinista produce clusters diferentes cada corrida. SOL/XRP/DOGE clasificados como MAJOR_LIQUID por diagnostic pero THIN/MID por clustering. Necesitar: approach determinista para clustering o redefinición de perfiles.
-10. **PROHIBIR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Corregir entry lógica para bloquear contra-tendencia en DOWN.
+10. **INVESTIGAR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Investigar por qué LONGS en TREND_DOWN tienen solo 6% WR (5 TP vs 79 SL). ¿Es filtro de calidad, ruido del regime sensor, o edge real negativo?
 11. **REDUCIR TIMEOUT RATE — PRÓXIMO 🔴**: Optimizar targets para bajar ~60% timeout. Es el drag principal.
 12. **RE-EVALUAR NOMBRE DEL SETUP — PRÓXIMO**: TacticalAbsorptionV2 → InstitutionalFlowV2?
 13. **ARQUITECTURA ENTRY — PRÓXIMO 🔴** (descubierto en iter 6): AVAX TAV y SUI TAV son **ENTRY FAILURE**. No se puede fix con parámetros. Requiere cambios en entry logic.
@@ -71,7 +71,7 @@
 - **Branch**: `8.6-Alphareloaded`
 - **Profile System v3.1**: Taxonomía institucional estática v4.0_FIXED con 14 activos y 5 clusters balanceados. Normalización log1p corregida (NORM_MAX: book_density=25, volume_vol_ratio=18).
 - **Taxonomía**: MEGA_LIQUID(OP,LINK,NEAR,APT) | MAJOR_LIQUID(SOL,BTC,ETH) | MID_LIQUID(ADA,ARB) | THIN_VOLATILE(XRP,DOGE) | ILLIQUID_SPEC(LTC,AVAX,BNB)
-- **Next**: Prohibir LONGS en TREND_DOWN (Corregir entry lógica).
+- **Next**: Investigar LONGS en TREND_DOWN (por qué 6% WR, si es fixable o debe prohibirse).
 
 ---
 

@@ -1,31 +1,31 @@
 ---
-description: Profile Validation Protocol (MID_LIQUID Profile — LTC, AVAX × Set A, no SUI)
+description: Profile Validation Protocol (ILLIQUID_SPEC Profile — LTC × Set A)
 ---
 
-# Profile Validation Protocol — MID_LIQUID Profile (Set A)
+# Profile Validation Protocol — ILLIQUID_SPEC Profile (Set A)
 
 // turbo-all
 
 ## Overview
-Validates that the coin profile system works correctly for the MID_LIQUID profile using its constituent assets (LTC, AVAX) across multiple market conditions.
+Validates that the coin profile system works correctly for the ILLIQUID_SPEC profile using its constituent assets (LTC) across multiple market conditions.
 Runs backtests across distinct conditions using Set A and validates:
-- Profile assignment correctness (MID_LIQUID via 5-dim microstructure)
+- Profile assignment correctness (ILLIQUID_SPEC via 4-dim institutional clustering)
 - Performance consistency
 - L2 depth predictive power
 
 **Asset Cluster:**
 | Asset | Symbol | Profile | Why |
 |-------|--------|---------|-----|
-| **LTC** | LTC/USDT:USDT | MID_LIQUID | Baseline asset, validated iter 3 |
-| **AVAX** | AVAX/USDT:USDT | MID_LIQUID | Borderline (vol 1.06%), included for coverage |
-
-> **Note**: SUI excluded — TAV entry failure (MFE/MAE 0.83), separately classified THIN_VOLATILE.
+| **LTC** | LTC/USDT:USDT | ILLIQUID_SPEC | Book density más bajo |
+| **AVAX** | AVAX/USDT:USDT | ILLIQUID_SPEC | Book density más bajo |
+| **BNB** | BNB/USDT:USDT | ILLIQUID_SPEC | Book density más bajo |
 
 **Market Conditions & Datasets (Set A):**
 | Asset | Datasets | Protocol |
 |-------|----------|----------|
 | **LTC** | LTC_TREND_UP_2023-02-01.db, LTC_TREND_UP_2025-05-01.db, LTC_TREND_DOWN_2024-04-01.db, LTC_TREND_DOWN_2024-10-01.db, LTC_BALANCE_2024-02-01.db, LTC_BALANCE_2024-05-01.db | `set_a` |
 | **AVAX** | 2023-02-01_AVAXUSDT.db, 2024-02-01_AVAXUSDT.db, 2024-04-01_AVAXUSDT.db, 2024-05-01_AVAXUSDT.db, 2024-10-01_AVAXUSDT.db, 2025-05-01_AVAXUSDT.db | `set_a_avax` |
+| **BNB** | 2024-05-01_BNBUSDT.db, 2025-01-01_BNBUSDT.db, 2025-07-01_BNBUSDT.db, 2025-09-01_BNBUSDT.db, 2025-11-01_BNBUSDT.db, 2026-02-01_BNBUSDT.db | `set_a_bnb` |
 
 **Statistical Goal**: n ≥ 100 signals total per asset, n ≥ 25 per condition
 
@@ -41,26 +41,26 @@ Runs backtests across distinct conditions using Set A and validates:
 
 ## Step 1: Verify Datasets Exist
 ```bash
-echo "=== LTC Set A Datasets ==="
+echo "=== ILLIQUID_SPEC Set A Datasets ==="
 for f in \
   data/datasets/backtest_ready/LTC_TREND_UP_2023-02-01.db \
   data/datasets/backtest_ready/LTC_TREND_UP_2025-05-01.db \
   data/datasets/backtest_ready/LTC_TREND_DOWN_2024-04-01.db \
   data/datasets/backtest_ready/LTC_TREND_DOWN_2024-10-01.db \
   data/datasets/backtest_ready/LTC_BALANCE_2024-02-01.db \
-  data/datasets/backtest_ready/LTC_BALANCE_2024-05-01.db; do
-  [ -f "$f" ] && echo "✅ $(basename $f): $(du -h $f | cut -f1)" || echo "❌ MISSING: $f"
-done
-
-echo ""
-echo "=== AVAX Set A Datasets ==="
-for f in \
+  data/datasets/backtest_ready/LTC_BALANCE_2024-05-01.db \
   data/datasets/backtest_ready/2023-02-01_AVAXUSDT.db \
   data/datasets/backtest_ready/2024-02-01_AVAXUSDT.db \
   data/datasets/backtest_ready/2024-04-01_AVAXUSDT.db \
   data/datasets/backtest_ready/2024-05-01_AVAXUSDT.db \
   data/datasets/backtest_ready/2024-10-01_AVAXUSDT.db \
-  data/datasets/backtest_ready/2025-05-01_AVAXUSDT.db; do
+  data/datasets/backtest_ready/2025-05-01_AVAXUSDT.db \
+  data/datasets/backtest_ready/2024-05-01_BNBUSDT.db \
+  data/datasets/backtest_ready/2025-01-01_BNBUSDT.db \
+  data/datasets/backtest_ready/2025-07-01_BNBUSDT.db \
+  data/datasets/backtest_ready/2025-09-01_BNBUSDT.db \
+  data/datasets/backtest_ready/2025-11-01_BNBUSDT.db \
+  data/datasets/backtest_ready/2026-02-01_BNBUSDT.db; do
   [ -f "$f" ] && echo "✅ $(basename $f): $(du -h $f | cut -f1)" || echo "❌ MISSING: $f"
 done
 ```
@@ -72,66 +72,43 @@ done
 
 ---
 
-## Step 2: Profile Diagnostic (Pre-flight — Validate MID_LIQUID Assignment)
-
-Run exchange-based diagnostic for each test coin BEFORE the audit. Both should match MID_LIQUID.
-
-```bash
-mkdir -p logs
-
-for sym in LTC/USDT:USDT AVAX/USDT:USDT; do
-  echo "═════════════════════════════════════════════════════════════════"
-  echo "  DIAGNOSTIC: $sym"
-  echo "═════════════════════════════════════════════════════════════════"
-  .venv/bin/python utils/profile_diagnostic.py --symbol "$sym" --exchange
-  echo ""
-done
-```
-
-**What to look for:**
-- ¿Ambos coins → `✅ MATCH: MID_LIQUID`?
-- ¿Las 5 dimensiones reales (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h) están dentro de los rangos MID_LIQUID?
-- Si AVAX no matchea MID, **STOP** — reconsiderar si AVAX pertenece a este workflow (probablemente debería ir a un workflow `profile-validation-thin-volatile.md`).
-
-**Mid-flight stop criteria:**
-- ❌ Cualquier coin sin `MATCH: MID_LIQUID` → STOP y discutir con el usuario
-- ⚠️ Métricas borderline (ej. AVAX vol ~1.0%) → continuar con nota
-
----
-
-## Step 3: Setup Environment & Run Audit (2 Assets, No SUI)
+## Step 2: Setup Environment & Run Audit
 
 ```bash
 mkdir -p logs
 ```
 
 > **🤖 REGLA DE EJECUCIÓN AUTÓNOMA PARA EL AGENTE (No Negociable):**
-> Los dos protocolos corren secuencialmente. Ambos tienen `skip_merge=True` — el merge se hace UNA SOLA VEZ al final. El agente DEBE actuar de manera 100% autónoma y reportar el progreso periódicamente.
+> El protocolo corre de manera autónoma. El agente DEBE actuar de manera 100% autónoma y reportar el progreso periódicamente.
 >
-> Sigue EXACTAMENTE esta secuencia:
->
-> **① LTC — set_a** (6 datasets, ~3 workers, merge omitido internamente)
+> **① LTC — set_a** (6 datasets, ~3 workers)
 > ```bash
 > PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a \
 >   > logs/orchestrator_ltc.log 2>&1
 > ```
 >
-> **② AVAX — set_a_avax** (6 datasets, ~3 workers, merge omitido internamente)
+> **② AVAX — set_a_avax** (6 datasets, ~3 workers)
 > ```bash
 > PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a_avax \
 >   > logs/orchestrator_avax.log 2>&1
 > ```
 >
-> **③ Merge único final** (una vez que los 2 protocolos hayan terminado exitosamente)
+> **③ BNB — set_a_bnb** (6 datasets, ~3 workers)
+> ```bash
+> PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol set_a_bnb \
+>   > logs/orchestrator_bnb.log 2>&1
+> ```
+>
+> **④ Merge final**
 > ```bash
 > .venv/bin/python utils/merge_historian.py
 > ```
 >
-> En cada revisión (cada 5 min), haz `tail -n 20 logs/orchestrator_<asset>.log` y reporta al usuario el progreso activo.
+> En cada revisión (cada 5 min), haz `tail -n 20 logs/orchestrator_*.log` y reporta al usuario el progreso activo.
 
 ---
 
-## Step 4: Verify Data Collection
+## Step 3: Verify Data Collection
 
 ```bash
 .venv/bin/python -c "
@@ -154,7 +131,7 @@ print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 
 ---
 
-## Step 5: Profile Diagnostic (Post-audit — Confirm)
+## Step 4: Profile Diagnostic (Post-audit — Confirm)
 
 ```bash
 .venv/bin/python utils/profile_diagnostic.py --db data/historian.db --all
@@ -162,26 +139,25 @@ print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 **Output**: Real metrics vs profile characteristics, verdict (MATCH/REASSIGN/CREATE)
 
 **What to look for:**
-- ¿LTCUSDT, AVAXUSDT → todos asignados a MID_LIQUID?
-- ¿Las métricas reales (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h) están dentro de los rangos MID?
-- Si no, ¿cuál es la acción recomendada?
+- ¿LTCUSDT, AVAXUSDT, BNBUSDT → asignado a ILLIQUID_SPEC?
+- ¿Las métricas reales están dentro de los rangos del perfil?
 
 ---
 
-## Step 6: Edge Audit (Performance)
+## Step 5: Edge Audit (Performance)
 ```bash
 .venv/bin/python utils/setup_edge_auditor.py --db data/historian.db --window 14400 --by-coin
 ```
 **Output**: Win Rate, MFE/MAE, Net Taker per condition, por moneda
 
 **What to look for:**
-- ¿Net Taker positivo en cada activo?
+- ¿Net Taker positivo?
 - ¿MFE/MAE > 1.0?
 - ¿Varía el performance por condición de mercado?
 
 ---
 
-## Step 7: L2 Depth Audit (Validar depth_ratio)
+## Step 6: L2 Depth Audit (Validar l2_ratio_min)
 ```bash
 .venv/bin/python utils/l2_depth_auditor.py
 ```
@@ -193,7 +169,7 @@ print('✅ OK' if s >= 100 else '⚠️ INSUFFICIENT DATA')
 
 ---
 
-## Step 8: Multi-Window Target Grid
+## Step 7: Multi-Window Target Grid
 ```bash
 .venv/bin/python -c "
 import sqlite3, collections
@@ -254,15 +230,15 @@ for window in windows:
 
 ---
 
-## Step 9: Correlation Analysis
+## Step 8: Correlation Analysis
 Compare results from all steps:
 
 | Question | Answer Source |
 |----------|---------------|
-| ¿LTC/AVAX → MID_LIQUID? | Step 2 (pre-flight) + Step 5 (post-audit) |
-| ¿Performance positivo en los 2 activos? | Step 6 |
+| ¿LTC → ILLIQUID_SPEC? | Step 4 (post-audit) |
+| ¿Performance positivo? | Step 6 |
 | ¿L2 depth predictivo? | Step 7 |
-| ¿Targets óptimos consistentes entre activos? | Step 8 |
+| ¿Targets óptimos consistentes? | Step 8 |
 
 ---
 
@@ -270,22 +246,22 @@ Compare results from all steps:
 
 After Step 9, the agent **MUST STOP COMPLETELY** and present:
 
-1. **Profile Validation** (Steps 2 + 5) — por activo:
-   - Assigned profile: MID_LIQUID
-   - Real metrics: spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h
+1. **Profile Validation** (Step 4):
+   - Assigned profile: ILLIQUID_SPEC
+   - Real metrics: tick_size_efficiency, book_density, volume_vol_ratio, speed
    - Match status: ✅ or ❌
 
-2. **Performance Results** (Step 6) — por activo:
+2. **Performance Results** (Step 5):
    - Win Rate: X%
    - MFE/MAE: X.XX
    - Net Taker: +X.XX%
    - Per-condition breakdown
 
-3. **L2 Depth Analysis** (Step 7):
+3. **L2 Depth Analysis** (Step 6):
    - High Wall vs Thin Wall MFE/MAE
-   - ¿depth_ratio validado?
+   - ¿l2_ratio_min validado?
 
-4. **Target Optimization** (Step 8) — por activo:
+4. **Target Optimization** (Step 7):
    - Optimal target: X.X%
    - Optimal window: Xh
 
@@ -293,7 +269,7 @@ After Step 9, the agent **MUST STOP COMPLETELY** and present:
    - Profile correct + Performance good → System working
    - Profile correct + Performance bad → Strategy issue
    - Profile wrong → Adjust profile
-   - L2 depth predictive → depth_ratio validated
+   - L2 depth predictive → l2_ratio_min validated
 
 6. **Recommendations**:
    - Keep profile as-is
@@ -309,39 +285,40 @@ After Step 9, the agent **MUST STOP COMPLETELY** and present:
 
 | Asset | Condition | Profile Match | Performance | L2 Depth | Verdict |
 |-------|-----------|---------------|-------------|----------|---------|
-| LTC/AVAX | BALANCE | ✅ | Expectancy > 0.12% | High Wall > Thin Wall | **CERTIFIED** |
-| LTC/AVAX | BALANCE | ✅ | Expectancy > 0.12% | — | **WATCH** |
-| LTC/AVAX | BALANCE | ❌ | Any | — | **PROFILE WRONG** |
-| LTC/AVAX | TREND_UP / TREND_DOWN | ✅ | Expectancy > 0.12% | — | **GUARDIAN OK** |
-| LTC/AVAX | TREND_UP / TREND_DOWN | ❌ | Any | — | **PROFILE INCONSISTENT** |
+| LTC | BALANCE | ✅ | Expectancy > 0.12% | High Wall > Thin Wall | **CERTIFIED** |
+| AVAX | BALANCE | ✅ | Expectancy > 0.12% | — | **WATCH** |
+| BNB | BALANCE | ✅ | Expectancy > 0.12% | — | **WATCH** |
+| * | BALANCE | ❌ | Any | — | **PROFILE WRONG** |
+| * | TREND_UP / TREND_DOWN | ✅ | Expectancy > 0.12% | — | **GUARDIAN OK** |
+| * | TREND_UP / TREND_DOWN | ❌ | Any | — | **PROFILE INCONSISTENT** |
 
 ---
 
-## Appendix: MID_LIQUID Profile (current characteristics)
+## Appendix: ILLIQUID_SPEC Profile (current)
 
-5-dim microstructure characteristics (per `config/coin_profiles.py`):
+4-dim institutional microstructure (per `config/clusters.json`):
 ```python
-"spread_bps":      {"min": 0.0, "max": 15.0}
-"depth_ratio":     {"min": 0.0, "max": 100.0}
-"speed":           {"min": 0.0, "max": 100.0}
-"avg_trade_size":  {"min": 500, "max": 10000}
-"vol_realized_4h": {"min": 0.0, "max": 1.2}
+"tick_size_efficiency": 0.48   # How fast spread clears
+"book_density": 19.8          # Total volume / spread
+"volume_vol_ratio": 5.6       # Energy to move price
+"speed": 6.0                  # Trades per second
 ```
 
-Current parameters (iter 3 validated, per `config/coin_profiles.py`):
+Current parameters (per `config/coin_profiles.py`):
 ```python
 # Sensors
 z_score_min: 3.5
-concentration_min: 0.50   # Iter2: 0.40→0.50
+concentration_min: 0.40
 noise_max: 0.40
 # Targets (per-regime for TacticalAbsorptionV2)
-TP:  per-regime (UP=1.2%, DOWN=2.0%, BALANCE=0.8%)
-SL:  per-regime (UP=2.5%, DOWN=3.0%, BALANCE=2.5%)   # Iter3: 4-5%→2.5-3%
+TREND_UP:   TP 1.2% / SL 4.0%
+TREND_DOWN: TP 2.0% / SL 5.0%
+BALANCE:    TP 0.8% / SL 4.0%
+Fallback:   TP 2.4% / SL 2.5%
 # Guardians
 l2_ratio_min: 0.5
 l2_ratio_min_trend_down: 2.0
 spread_max_ratio: 2.0
 ```
 
-**Membership**: LTC, ADA, LINK, DOGE.
-**Excluded**: SUI (THIN_VOLATILE, TAV entry failure), AVAX borderline but included for coverage.
+**Membership**: LTC, AVAX, BNB (from clusters_fixed.json).

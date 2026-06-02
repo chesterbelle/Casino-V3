@@ -15,12 +15,11 @@ Dimensions (institutional):
   4. speed: trades per second
 
 Usage:
-    python utils/profile_diagnostic.py --symbol LTCUSDT --exchange
+    python utils/profile_diagnostic.py --symbol LTCUSDT
     python utils/profile_diagnostic.py --db data/historian.db --all
 """
 
 import argparse
-import asyncio
 import json
 import math
 import sqlite3
@@ -30,6 +29,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, ".")
 
 from core.coin_profiler import CoinProfiler
+from utils.cluster_builder import NORM_MAX, NORM_MIN, _normalize
 
 
 def format_symbol(symbol: str) -> str:
@@ -39,146 +39,6 @@ def format_symbol(symbol: str) -> str:
         base = symbol[:-4]
         return f"{base}/USDT:USDT"
     return symbol
-
-
-# ──────────────────────────────────────────────────────────────
-# Exchange Data
-# ──────────────────────────────────────────────────────────────
-
-
-async def fetch_exchange_l2(symbol: str) -> Optional[Dict]:
-    try:
-        import aiohttp
-
-        base_url = "https://fapi.binance.com"
-        if "/" in symbol:
-            binance_symbol = symbol.split("/")[0] + "USDT"
-        elif symbol.endswith(":USDT"):
-            binance_symbol = symbol.replace(":USDT", "")
-        else:
-            binance_symbol = symbol
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{base_url}/fapi/v1/depth", params={"symbol": binance_symbol, "limit": 20}) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return {"bids": data.get("bids", []), "asks": data.get("asks", [])}
-    except Exception as e:
-        print(f"  ⚠️ L2 fetch error: {e}")
-    return None
-
-
-async def fetch_exchange_trades(symbol: str, limit: int = 1000) -> List[Dict]:
-    try:
-        import aiohttp
-
-        base_url = "https://fapi.binance.com"
-        if "/" in symbol:
-            binance_symbol = symbol.split("/")[0] + "USDT"
-        elif symbol.endswith(":USDT"):
-            binance_symbol = symbol.replace(":USDT", "")
-        else:
-            binance_symbol = symbol
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{base_url}/fapi/v1/trades", params={"symbol": binance_symbol, "limit": min(limit, 1000)}
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data if isinstance(data, list) else []
-    except Exception as e:
-        print(f"  ⚠️ Trades fetch error: {e}")
-    return []
-
-
-# ──────────────────────────────────────────────────────────────
-# Dimension Computation (4 Institutional)
-# ──────────────────────────────────────────────────────────────
-
-
-def compute_tick_size_efficiency(order_book: Dict, trades: List[Dict]) -> Optional[float]:
-    if not trades or len(trades) < 10:
-        return None
-    bids = order_book.get("bids", [])
-    asks = order_book.get("asks", [])
-    if not bids or not asks:
-        return None
-    best_bid = float(bids[0][0])
-    best_ask = float(asks[0][0])
-    narrowing = 0
-    total = 0
-    for trade in trades:
-        price = float(trade.get("price", 0))
-        is_buyer_maker = trade.get("isBuyerMaker", False)
-        if price <= 0:
-            continue
-        total += 1
-        if not is_buyer_maker and price >= best_ask:
-            narrowing += 1
-        elif is_buyer_maker and price <= best_bid:
-            narrowing += 1
-    return narrowing / total if total > 0 else None
-
-
-def compute_book_density(order_book: Dict) -> Optional[float]:
-    bids = order_book.get("bids", [])
-    asks = order_book.get("asks", [])
-    if not bids or not asks:
-        return None
-    total_volume = sum(float(level[1]) for level in bids) + sum(float(level[1]) for level in asks)
-    best_bid = float(bids[0][0])
-    best_ask = float(asks[0][0])
-    mid = (best_bid + best_ask) / 2
-    spread_pct = (best_ask - best_bid) / mid if mid > 0 else 0.001
-    return total_volume / spread_pct if spread_pct > 0 else 0
-
-
-def compute_volume_vol_ratio(trades: List[Dict]) -> Optional[float]:
-    if not trades or len(trades) < 20:
-        return None
-    prices = [float(t["price"]) for t in trades if float(t.get("price", 0)) > 0]
-    volumes = [float(t["qty"]) for t in trades]
-    usd_volumes = [p * v for p, v in zip(prices, volumes)]
-    if len(prices) < 20:
-        return None
-    log_rets = [math.log(prices[i] / prices[i - 1]) for i in range(1, len(prices)) if prices[i - 1] > 0]
-    if not log_rets:
-        return None
-    mean = sum(log_rets) / len(log_rets)
-    var = sum((r - mean) ** 2 for r in log_rets) / len(log_rets)
-    vol = math.sqrt(var)
-    if vol <= 0:
-        return None
-    timestamps = [int(t["time"]) / 1000 for t in trades if t.get("time")]
-    if len(timestamps) >= 2:
-        time_span = max(timestamps) - min(timestamps)
-        if time_span > 0:
-            periods_per_hour = 3600 / time_span
-            vol_hourly = vol * math.sqrt(periods_per_hour)
-        else:
-            vol_hourly = vol
-    else:
-        vol_hourly = vol
-    total_usd = sum(usd_volumes)
-    return total_usd / (vol_hourly * 1e6) if vol_hourly > 0 else None
-
-
-def compute_speed(trades: List[Dict]) -> Optional[float]:
-    if not trades or len(trades) < 10:
-        return None
-    timestamps = [int(t["time"]) / 1000 for t in trades if t.get("time")]
-    if len(timestamps) < 2:
-        return None
-    time_span = max(timestamps) - min(timestamps)
-    return len(trades) / time_span if time_span > 0 else None
-
-
-def compute_all_metrics_exchange(order_book: Dict, trades: List[Dict]) -> Dict:
-    return {
-        "tick_size_efficiency": compute_tick_size_efficiency(order_book, trades),
-        "book_density": compute_book_density(order_book),
-        "volume_vol_ratio": compute_volume_vol_ratio(trades),
-        "speed": compute_speed(trades),
-    }
 
 
 # ──────────────────────────────────────────────────────────────
@@ -234,12 +94,18 @@ def compute_all_metrics_db(conn: sqlite3.Connection, symbol: str) -> Dict:
                 var = sum((r - mean) ** 2 for r in log_rets) / len(log_rets)
                 vol = math.sqrt(var)
                 if vol > 0:
-                    row = conn.execute(
-                        "SELECT SUM(ABS(price*volume)) FROM price_samples WHERE symbol=? AND volume>0",
-                        (symbol,),
-                    ).fetchone()
-                    if row and row[0]:
-                        metrics["volume_vol_ratio"] = float(row[0]) / (vol * 1e6)
+                    try:
+                        row = conn.execute(
+                            "SELECT SUM(ABS(price*volume)) FROM price_samples WHERE symbol=? AND volume>0",
+                            (symbol,),
+                        ).fetchone()
+                        if row and row[0]:
+                            metrics["volume_vol_ratio"] = float(row[0]) / (vol * 1e6)
+                    except sqlite3.OperationalError:
+                        # No volume column — estimate from price movement magnitude
+                        n = len(log_rets)
+                        avg_abs_ret = sum(abs(r) for r in log_rets) / n if n > 0 else 0
+                        metrics["volume_vol_ratio"] = avg_abs_ret * 1e6 / (vol + 1e-9)
 
     # tick_size_efficiency: can't compute from DB alone
     metrics["tick_size_efficiency"] = None
@@ -281,64 +147,6 @@ def print_distance_table(distances: Dict[str, float], threshold: float):
 # ──────────────────────────────────────────────────────────────
 # Diagnosis
 # ──────────────────────────────────────────────────────────────
-
-
-async def diagnose_symbol_exchange(symbol: str) -> Dict:
-    profiler = CoinProfiler()
-
-    print(f"\n{'═' * 65}")
-    print(f"  PROFILE DIAGNOSTIC — {symbol} (Exchange, 4 Institutional Dims)")
-    print(f"{'═' * 65}")
-
-    print(f"\n  Fetching L2 + trades from exchange...")
-    ob = await fetch_exchange_l2(symbol)
-    trades = await fetch_exchange_trades(symbol, limit=1000)
-
-    if not ob or not trades:
-        print(f"  ⚠️ Could not fetch data from exchange")
-        return {"symbol": symbol, "verdict": "EXCHANGE_ERROR"}
-
-    metrics = compute_all_metrics_exchange(ob, trades)
-
-    print(f"\n  Real Microstructure Metrics (4 institutional dimensions):")
-    print(f"  {'─' * 50}")
-    print_metrics(metrics)
-
-    available = sum(1 for v in metrics.values() if v is not None)
-    if available < 3:
-        print(f"\n  ⚠️ Insufficient metrics (need ≥3, have {available})")
-        return {"symbol": symbol, "verdict": "INSUFFICIENT_DATA", "metrics": metrics}
-
-    distances = profiler.get_distances(metrics)
-    threshold = profiler.threshold
-
-    print_distance_table(distances, threshold)
-
-    if distances:
-        closest = min(distances, key=distances.get)
-        min_dist = distances[closest]
-        if min_dist <= threshold:
-            print(f"\n  VERDICT: ✅ MATCH → {closest} (distance: {min_dist:.3f})")
-            return {
-                "symbol": symbol,
-                "verdict": "MATCH",
-                "profile": closest,
-                "distance": min_dist,
-                "metrics": metrics,
-                "distances": distances,
-            }
-        else:
-            print(f"\n  VERDICT: ⚠️ NO MATCH — closest is {closest} (distance: {min_dist:.3f} > {threshold})")
-            return {
-                "symbol": symbol,
-                "verdict": "NO_MATCH",
-                "closest_profile": closest,
-                "distance": min_dist,
-                "metrics": metrics,
-                "distances": distances,
-            }
-
-    return {"symbol": symbol, "verdict": "ERROR", "metrics": metrics}
 
 
 def diagnose_symbol_db(conn: sqlite3.Connection, symbol: str) -> Dict:
@@ -404,7 +212,6 @@ def main():
     parser.add_argument("--db", default="data/historian.db", help="Database path")
     parser.add_argument("--symbol", help="Specific symbol to diagnose")
     parser.add_argument("--all", action="store_true", help="Diagnose all coins in DB")
-    parser.add_argument("--exchange", action="store_true", help="Use exchange data (real-time)")
     args = parser.parse_args()
 
     if not args.symbol and not args.all:
@@ -416,9 +223,7 @@ def main():
     except Exception:
         pass
 
-    if args.exchange and args.symbol:
-        result = asyncio.run(diagnose_symbol_exchange(args.symbol))
-    elif args.symbol:
+    if args.symbol:
         result = diagnose_symbol_db(conn, args.symbol)
     else:
         coins = conn.execute("SELECT DISTINCT symbol FROM signals").fetchall()

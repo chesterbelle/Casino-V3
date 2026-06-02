@@ -13,6 +13,37 @@ El sistema separa los datos en dos capas para evitar borrados accidentales duran
 
 ---
 
+## 📊 Paso 0: Análisis de Precios Históricos
+
+Antes de descargar datasets, usa el analizador para identificar qué meses tienen
+condiciones de mercado variadas (TREND_UP, TREND_DOWN, BALANCE).
+
+### Comando para analizar:
+```bash
+.venv/bin/python utils/data/price_history_analyzer.py --symbol <SYM> --months 24
+```
+
+### Comando para recomendar fechas:
+```bash
+.venv/bin/python utils/data/price_history_analyzer.py --symbol <SYM> --recommend
+```
+
+### Clasificación por condición:
+*   **TREND_UP** 🟢: Subida sostenida >10%, dirección consistente (>55% días directionales)
+*   **TREND_DOWN** 🔴: Bajada sostenida >10%, dirección consistente
+*   **BALANCE** ⚪: Rango lateral <5% variación
+
+### Ejemplo de uso:
+```bash
+# Analizar SOL
+.venv/bin/python utils/data/price_history_analyzer.py --symbol SOL
+
+# Recomendar 6 datasets para ILLIQUID_SPEC
+.venv/bin/python utils/data/price_history_analyzer.py --symbol SOL --recommend
+```
+
+---
+
 ## 📡 Paso 1: Descarga de Datos (Fetcher)
 
 Utilizamos `utils/data/tardis_fetcher.py` para obtener datos de alta fidelidad.

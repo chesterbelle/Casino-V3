@@ -377,6 +377,34 @@ class ExchangeAdapter(NetworkIterator):
             return await self.connector.fetch_book_tickers()
         return {}
 
+    async def fetch_trades(self, symbol: str = None, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Fetch recent public trades for a symbol.
+
+        Used for microstructure analysis (tick_size_efficiency, volume_vol_ratio, speed).
+
+        Args:
+            symbol: Unified symbol (e.g., "BTC/USDT:USDT"). Uses self.symbol if not provided.
+            limit: Number of trades to fetch (default 500, max 1000)
+
+        Returns:
+            List of trade dicts with normalized format:
+            [
+                {
+                    "id": "trade_id",
+                    "price": 50000.0,
+                    "qty": 0.1,
+                    "time": 1234567890123,  # ms timestamp
+                    "isBuyerMaker": True
+                },
+                ...
+            ]
+        """
+        symbol = symbol or self.symbol
+        if hasattr(self.connector, "fetch_trades"):
+            return await self.connector.fetch_trades(symbol, limit)
+        raise NotImplementedError(f"{self.connector.exchange_name} does not implement fetch_trades")
+
     def normalize_symbol(self, symbol: str) -> str:
         """Normalize symbol to exchange format."""
         return self.connector.normalize_symbol(symbol)

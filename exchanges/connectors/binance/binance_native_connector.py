@@ -1255,6 +1255,57 @@ class BinanceNativeConnector(BaseConnector):
             for t in trades
         ]
 
+    async def fetch_trades(self, symbol: str, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Fetch recent public trades for a symbol (REST).
+
+        Used for microstructure analysis (tick_size_efficiency, volume_vol_ratio, speed).
+
+        Args:
+            symbol: Unified symbol (e.g., "BTC/USDT:USDT")
+            limit: Number of trades to fetch (default 500, max 1000)
+
+        Returns:
+            List of trade dicts with normalized format:
+            [
+                {
+                    "id": "trade_id",
+                    "price": 50000.0,
+                    "qty": 0.1,
+                    "time": 1234567890123,  # ms timestamp
+                    "isBuyerMaker": True
+                },
+                ...
+            ]
+        """
+        native_symbol = self._normalize_symbol(symbol)
+        limit = min(limit, 1000)  # Binance max is 1000
+
+        try:
+            data = await self.error_handler.execute_with_breaker(
+                self._market_data_breaker_name,
+                self._request,
+                "GET",
+                "/fapi/v1/trades",
+                params={"symbol": native_symbol, "limit": limit},
+                endpoint_type="market_data",
+                timeout=10,
+            )
+
+            return [
+                {
+                    "id": str(t["id"]),
+                    "price": float(t["price"]),
+                    "qty": float(t["qty"]),
+                    "time": t["time"],
+                    "isBuyerMaker": t["isBuyerMaker"],
+                }
+                for t in data
+            ]
+        except Exception as e:
+            self.logger.error(f"🚨 Fetch Trades failed for {symbol}: {e}")
+            raise
+
     # =========================================================
     # ORDERS - Regular
     # =========================================================
