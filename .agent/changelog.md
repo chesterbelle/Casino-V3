@@ -6,6 +6,67 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-01 SESSION] — Profile System v3: Institutional 4-Dimension Clustering (Branch: 8.6-Alphareloaded)
+### Summary: Rediseño completo del sistema de perfiles de clasificación microestructural. De 5 dimensiones manuales a 4 dimensiones institucionales con clustering K-Means. Los perfiles ahora se generan automáticamente desde datos del exchange en vez de rangos fijos manuales.
+
+#### 1. Problema Identificado
+- El sistema anterior usaba 5 dimensiones manuales (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h) con rangos hardcodeados
+- Clasificación binaria: o matchea todos los rangos o no matchea
+- Los rangos eran inventados, no aprendidos de los datos
+- El diagnostic solo computaba 3 de 5 dimensiones
+- Resultado: SUI, AVAX y LTC caían en el mismo cluster a pesar de ser tradingmente diferentes
+
+#### 2. Solución: 4 Dimensiones Institucionales
+Basado en el approach de desks institucionales (HFT/cuantitativo):
+
+| Dimensión | Qué mide | Fuente |
+|-----------|----------|--------|
+| **tick_size_efficiency** | Qué tan rápido se limpia el spread | Trades que achican vs agrandan spread |
+| **book_density** | Profundidad del libro relativa al spread | Volumen total L2 / spread |
+| **volume_vol_ratio** | Energía para mover precio | Volumen USD / volatilidad |
+| **speed** | Frecuencia de actividad | Trades por segundo |
+
+#### 3. Archivos Modificados/Creados
+- **`utils/cluster_builder.py`** (CREADO): Pipeline offline de clustering con K-Means++. Fetcha L2 + trades del exchange, computa 4 dimensiones, ejecuta clustering, guarda centroides en clusters.json.
+- **`core/coin_profiler.py`** (MODIFICADO): Clasificación por distancia Euclídea a centroides en vez de rangos binarios. Soporta alias para backward compatibility.
+- **`utils/profile_diagnostic.py`** (MODIFICADO): Compute 4 dimensiones, tabla de distancias a cada cluster, diagnóstico por exchange o DB.
+- **`config/coin_profiles.py`** (MODIFICADO): Removida sección `characteristics` (rangos manuales). Solo quedan parámetros (sensors, targets, guardians).
+- **`config/clusters.json`** (CREADO): Centroides de 5 clusters con 4 dimensiones normalizadas.
+
+#### 4. Resultados del Clustering (k=5, silhouette 0.538)
+```
+MEGA_LIQUID (5):   LTC, NEAR, APT, OP, ARB     — tick_eff=0.48, v/v=6, speed=6
+THIN_VOLATILE (5): SOL, BNB, XRP, DOGE, SUI     — tick_eff=0.35, v/v=8, speed=9
+MID_LIQUID (3):    AVAX, ADA, LINK               — tick_eff=0.63, v/v=7, speed=4
+MAJOR_LIQUID (1):  BTC                           — tick_eff=0.45, v/v=11, speed=26
+ILLIQUID_SPEC (1): ETH                           — tick_eff=0.51, v/v=10, speed=27
+```
+
+**Key wins:**
+- LTC y SUI ahora están en clusters separados ✅
+- BTC y ETH separados (microestructuras diferentes) ✅
+- Silhouette score mejoró de 0.341 (7 dims) a 0.538 (4 dims)
+- Clustering es automático desde exchange, no manual
+
+#### 5. Backward Compatibility
+- `profile_manager.py` sin cambios — interface intacta
+- `coin_profiler.classify()` acepta métricas viejas (spread_ratio, depth_ratio, speed) via alias mapping
+- `decision/engine/core.py` funciona sin cambios
+
+#### 6. Uso
+```bash
+# Construir clusters desde exchange (live)
+python utils/cluster_builder.py --exchange --k 5
+
+# Diagnostic de un coin
+python utils/profile_diagnostic.py --symbol LTCUSDT --exchange
+
+# Encontrar K óptimo
+python utils/cluster_builder.py --exchange --optimize-k
+```
+
+---
+
 ### [2026-06-01 SESSION] — VOLATIL_BAJO_FLOW Profile Validation: 6 Iterations (Branch: 8.6-Alphareloaded)
 ### Summary: Comprehensive parameter-only tuning of VOLATIL_BAJO_FLOW profile across 14 datasets (LTC + AVAX + SUI). **Iter 3 GANADOR** (TAV SL tightening). Net Taker **+0.0455%** (de -0.1066% baseline, +0.152pp). Hallazgo crítico: AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son ENTRY FAILURE — imposible fix con parámetros.
 
@@ -1510,3 +1571,63 @@ Se reconstruyó por completo `scripts/orchestrator.py` para solventar problemas 
 1. **Strict Data Sourcing:** El script ya no asume un prefijo de fecha. Realiza un *glob* estricto de los datasets en `data/datasets/backtest_ready/` para las monedas dictadas por el protocolo en curso. Si encuentra ambigüedad (dos DBs para la misma moneda), crashea forzosamente para prevenir ejecución de datos incorrectos.
 2. **Clean Console (Log Isolation):** Se extrajo la salida del `ProcessPoolExecutor` para evitar el "Spaghetti Console" al correr N backtests concurrentes. Los logs de cada moneda viajan aislados a la carpeta `/logs/`.
 3. **Monitor I/O (Anti-Hang):** El orquestador ahora escanea activamente en el bucle principal cada 5s el tamaño en disco de la base de datos temporal en curso (`historian_{coin}.db`), garantizando visibilidad en vivo del avance del *backtest* y evitando la falsa apariencia de un "cuelgue" del sistema.
+
+---
+### [2026-06-01 SESSION] — Microstructure-Based Profiling & Production Diagnostic (Branch: 8.6-Alphareloaded)
+### Summary: Refactorización del sistema de perfiles hacia un modelo de 3 dimensiones estructurales basadas en datos reales de producción. Implementación de recolección masiva (50 coins) para validación de clústeres.
+
+#### 1. Cambios en la Infraestructura de Diagnóstico (`utils/profile_diagnostic.py`)
+- **Production Endpoint**: Cambio de URL de `testnet.binancefuture.com` a `fapi.binance.com` para recolección de datos reales.
+- **ADN Estructural**: Implementación de `fetch_symbol_tick_size` y `compute_spread_in_ticks_from_exchange`.
+- **Métricas**: Sustitución de `spread_bps` y `vol_realized_4h` por `spread_in_ticks` y `relative_tick_bps` (estudio de granularidad de precio).
+- **Tuning**: Ajuste de rangos de clasificación para alinearlos con la escala de ticks reales del mercado.
+
+#### 2. Refactorización de Perfiles (`config/coin_profiles.py`)
+- **Simplificación de Dims**: Reversión de 6 dimensiones \u2192 3 dimensiones fundamentales (`spread_ratio`, `depth_ratio`, `speed`).
+- **Ajuste de Rangos**: Redefinición de los límites de `spread_ratio` y `depth_ratio` para los 5 perfiles (MEGA, MAJOR, MID, THIN, ILLIQUID) basándose en la distribución de datos de producción.
+
+#### 3. Herramientas de Análisis Masivo
+- **`scripts/diagnose_simple.py`**: Nuevo script para recolección masiva de microestructura (50 monedas) y exportación a `data/diagnostic_50.csv`.
+- **Análisis de Clusters**: Ejecución de análisis de densidad sobre 50 activos para validar la existencia de categorías naturales (LTC vs SUI/AVAX).
+
+#### 4. Archivos Modificados
+| Archivo | Cambio |
+|---------|--------|
+| `utils/profile_diagnostic.py` | Implementación de fetch de tick_size, spread_in_ticks y endpoint de producción |
+| `config/coin_profiles.py` | Reversión a 3 dimensiones + ajuste de rangos discriminadores |
+| `scripts/diagnose_simple.py` | **CREAR** \u2014 Recolección masiva de microestructura para 50 símbolos |
+| `data/diagnostic_50.csv` | **CREAR** \u2014 Dataset de microestructura real de producción |
+
+#### 5. Próximos Pasos
+1. **Validación de Clusters**: Analizar la distribución de `depth_ratio` y `spread_in_ticks` para definir los cortes finales de los 5 perfiles.
+2. **Cierre de la Tesis de Clasificación**: Confirmar si la separación estructural es suficiente para diferenciar la "elasticidad" de los activos.
+
+---
+### [2026-06-01 SESSION] — Microstructure DNA Discovery & Profile Refactor (Branch: 8.6-Alphareloaded)
+### Summary: Transición de una clasificación teórica de perfiles a una basada en datos reales de producción. Se identificó que la diferencia clave entre activos es la elasticidad estructural (Price Impact), no solo el tamaño del spread o la volatilidad.
+
+#### 1. Cambios en la Infraestructura de Diagnóstico (`utils/profile_diagnostic.py`)
+- **Production Endpoint**: Cambio de URL de `testnet.binancefuture.com` a `fapi.binance.com` para recolección de datos reales.
+- **ADN Estructural**: Implementación de `fetch_symbol_tick_size` y `compute_spread_in_ticks_from_exchange`.
+- **Métricas**: Sustitución de `spread_bps` y `vol_realized_4h` por `spread_in_ticks` y `relative_tick_bps` (estudio de granularidad de precio).
+- **Tuning**: Ajuste de rangos de clasificación para alinearlos con la escala de ticks reales del mercado.
+
+#### 2. Refactorización de Perfiles (`config/coin_profiles.py`)
+- **Simplificación de Dims**: Reversión de 6 dimensiones \u2192 3 dimensiones fundamentales (`spread_ratio`, `depth_ratio`, `speed`).
+- **Ajuste de Rangos**: Redefinición de los límites de `spread_ratio` y `depth_ratio` para los 5 perfiles (MEGA, MAJOR, MID, THIN, ILLIQUID) basándose en la distribución de datos de producción.
+
+#### 3. Herramientas de Análisis Masivo
+- **`scripts/diagnose_simple.py`**: Nuevo script para recolección masiva de microestructura (50 monedas) y exportación a `data/diagnostic_50.csv`.
+- **Análisis de Clusters**: Ejecución de análisis de densidad sobre 50 activos para validar la existencia de categorías naturales (LTC vs SUI/AVAX).
+
+#### 4. Archivos Modificados
+| Archivo | Cambio |
+|---------|--------|
+| `utils/profile_diagnostic.py` | Implementación de fetch de tick_size, spread_in_ticks y endpoint de producción |
+| `config/coin_profiles.py` | Reversión a 3 dimensiones + ajuste de rangos discriminadores |
+| `scripts/diagnose_simple.py` | **CREAR** \u2014 Recolección masiva de microestructura para 50 símbolos |
+| `data/diagnostic_50.csv` | **CREAR** \u2014 Dataset de microestructura real de producción |
+
+#### 5. Próximos Pasos
+1. **Validación de Clusters**: Analizar la distribución de `depth_ratio` y `spread_in_ticks` para definir los cortes finales de los 5 perfiles.
+2. **Cierre de la Tesis de Clasificación**: Confirmar si la separación estructural es suficiente para diferenciar la "elasticidad" de los activos.

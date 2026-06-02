@@ -1,43 +1,38 @@
 #!/usr/bin/env python3
 """
-Profile Diagnostic — Validate Coin Profile Assignments
+Profile Diagnostic — Validate Coin Profile Assignments (Institutional 4-Dim)
 
-Analyzes real microstructure metrics and compares against current
-profile characteristics. Identifies:
-- Coins that correctly match their profile
-- Coins that should be reassigned to a different profile
-- Coins that don't match any profile (need new profile creation)
+Computes 4 institutional microstructure dimensions and computes distances
+to cluster centroids. Identifies:
+- Coins that correctly match their cluster
+- Coins closest to a different cluster
+- Coins that don't match any cluster
 
-Data sources (in order of preference):
-1. Exchange L2 data (real-time, most accurate)
-2. historian.db depth_snapshots (if available)
-3. historian.db price_samples (speed only)
+Dimensions (institutional):
+  1. tick_size_efficiency: how fast spread clears (0-1)
+  2. book_density: total volume / spread
+  3. volume_vol_ratio: energy to move price
+  4. speed: trades per second
 
 Usage:
-    # Diagnose a specific coin (uses exchange data)
-    python utils/profile_diagnostic.py --symbol LTCUSDT
-
-    # Diagnose all coins in DB
-    python utils/profile_diagnostic.py --db data/historian.db --all
-
-    # Diagnose with exchange data only (no DB required)
     python utils/profile_diagnostic.py --symbol LTCUSDT --exchange
+    python utils/profile_diagnostic.py --db data/historian.db --all
 """
 
 import argparse
 import asyncio
 import json
+import math
 import sqlite3
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 sys.path.insert(0, ".")
 
-from config.coin_profiles import COIN_PROFILES, DEFAULT_PROFILE
+from core.coin_profiler import CoinProfiler
 
 
 def format_symbol(symbol: str) -> str:
-    """Convert symbol to CCXT format (e.g., LTCUSDT -> LTC/USDT:USDT)."""
     if "/" in symbol:
         return symbol
     if symbol.endswith("USDT"):
@@ -46,754 +41,419 @@ def format_symbol(symbol: str) -> str:
     return symbol
 
 
+# ──────────────────────────────────────────────────────────────
+# Exchange Data
+# ──────────────────────────────────────────────────────────────
+
+
 async def fetch_exchange_l2(symbol: str) -> Optional[Dict]:
-    """Fetch L2 depth data from exchange using REST API."""
     try:
         import aiohttp
 
-        # Binance Futures testnet REST API
-        base_url = "https://testnet.binancefuture.com"
-        endpoint = "/fapi/v1/depth"
-
-        # Convert symbol to Binance format (LTCUSDT)
+        base_url = "https://fapi.binance.com"
         if "/" in symbol:
             binance_symbol = symbol.split("/")[0] + "USDT"
         elif symbol.endswith(":USDT"):
             binance_symbol = symbol.replace(":USDT", "")
         else:
             binance_symbol = symbol
-
-        url = f"{base_url}{endpoint}"
-        params = {"symbol": binance_symbol, "limit": 20}
-
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return {
-                        "symbol": binance_symbol,
-                        "bids": data.get("bids", []),
-                        "asks": data.get("asks", []),
-                        "timestamp": data.get("lastUpdateId", 0),
-                    }
-                else:
-                    print(f"  ⚠️ API returned status {response.status}")
-                    return None
-
+            async with session.get(f"{base_url}/fapi/v1/depth", params={"symbol": binance_symbol, "limit": 20}) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return {"bids": data.get("bids", []), "asks": data.get("asks", [])}
     except Exception as e:
-        print(f"  ⚠️ Error fetching exchange L2 data: {e}")
-        return None
-
-
-async def fetch_exchange_klines(symbol: str, interval: str = "4h", limit: int = 200) -> Optional[List]:
-    """Fetch historical klines (candlesticks) from exchange."""
-    try:
-        import aiohttp
-
-        base_url = "https://testnet.binancefuture.com"
-        endpoint = "/fapi/v1/klines"
-
-        if "/" in symbol:
-            binance_symbol = symbol.split("/")[0] + "USDT"
-        elif symbol.endswith(":USDT"):
-            binance_symbol = symbol.replace(":USDT", "")
-        else:
-            binance_symbol = symbol
-
-        url = f"{base_url}{endpoint}"
-        params = {"symbol": binance_symbol, "interval": interval, "limit": limit}
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    print(f"  ⚠️ Klines API returned status {response.status}")
-                    return None
-
-    except Exception as e:
-        print(f"  ⚠️ Error fetching klines: {e}")
-        return None
-
-
-def compute_spread_bps_from_exchange(order_book: Dict) -> Optional[float]:
-    """Compute absolute spread in basis points from exchange order book."""
-    try:
-        bids = order_book.get("bids", [])
-        asks = order_book.get("asks", [])
-
-        if not bids or not asks or len(bids) == 0 or len(asks) == 0:
-            return None
-
-        bid_price = float(bids[0][0])
-        ask_price = float(asks[0][0])
-        current_spread = ask_price - bid_price
-        mid_price = (bid_price + ask_price) / 2
-
-        spread_pct = current_spread / mid_price * 100
-        spread_bps = spread_pct * 100  # 1% = 100 bps
-        return spread_bps
-
-    except Exception as e:
-        print(f"  ⚠️ Error computing spread_bps: {e}")
-        return None
-
-
-def compute_vol_realized_4h(klines: List) -> Optional[float]:
-    """Compute realized volatility (std of log returns) over the kline window, expressed as % per candle."""
-    try:
-        if not klines or len(klines) < 2:
-            return None
-        import math
-
-        closes = [float(k[4]) for k in klines]
-        log_rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
-        if len(log_rets) < 2:
-            return None
-        mean = sum(log_rets) / len(log_rets)
-        variance = sum((r - mean) ** 2 for r in log_rets) / (len(log_rets) - 1)
-        std = math.sqrt(variance)
-        return std * 100  # as percentage
-    except Exception as e:
-        print(f"  ⚠️ Error computing vol_realized_4h: {e}")
-        return None
-
-
-def compute_avg_trade_size(klines: List) -> Optional[float]:
-    """Compute average trade size in USD (quote_volume / num_trades), filtering empty candles."""
-    try:
-        if not klines:
-            return None
-        sizes = []
-        for k in klines:
-            quote_vol = float(k[7])  # field 7 = quote asset volume
-            num_trades = float(k[8])  # field 8 = number of trades
-            if num_trades > 0:
-                sizes.append(quote_vol / num_trades)
-        if not sizes:
-            return None
-        return sum(sizes) / len(sizes)
-    except Exception as e:
-        print(f"  ⚠️ Error computing avg_trade_size: {e}")
-        return None
-
-
-def compute_depth_ratio_from_exchange(order_book: Dict) -> Optional[float]:
-    """Compute depth_ratio from exchange order book: bid_vol / ask_vol within 0.2% of mid."""
-    try:
-        bids = order_book.get("bids", [])
-        asks = order_book.get("asks", [])
-
-        if not bids or not asks or len(bids) == 0 or len(asks) == 0:
-            return None
-
-        # Calculate mid price
-        bid_price = float(bids[0][0])
-        ask_price = float(asks[0][0])
-        mid_price = (bid_price + ask_price) / 2
-
-        # Sum volume within 0.2% of mid
-        tolerance = mid_price * 0.002
-
-        bid_vol = sum(float(level[1]) for level in bids if abs(float(level[0]) - mid_price) <= tolerance)
-
-        ask_vol = sum(float(level[1]) for level in asks if abs(float(level[0]) - mid_price) <= tolerance)
-
-        if ask_vol <= 0:
-            return None
-
-        return bid_vol / ask_vol
-
-    except Exception as e:
-        print(f"  ⚠️ Error computing depth_ratio: {e}")
-        return None
-
-
-def compute_spread_ratio(conn: sqlite3.Connection, symbol: str) -> Optional[float]:
-    """Compute spread_ratio from depth_snapshots: current_spread / avg_5m_spread."""
-    try:
-        # Check if table exists
-        tables = [t[0] for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-        if "depth_snapshots" not in tables:
-            return None
-
-        # Get recent depth snapshots
-        rows = conn.execute(
-            """
-            SELECT timestamp, bids, asks
-            FROM depth_snapshots
-            WHERE symbol = ?
-            ORDER BY timestamp DESC
-            LIMIT 300
-            """,
-            (symbol,),
-        ).fetchall()
-
-        if len(rows) < 10:
-            return None
-
-        spreads = []
-        for ts, bids_json, asks_json in rows:
-            try:
-                bids = json.loads(bids_json) if isinstance(bids_json, str) else bids_json
-                asks = json.loads(asks_json) if isinstance(asks_json, str) else asks_json
-                if bids and asks and len(bids) > 0 and len(asks) > 0:
-                    bid_price = bids[0][0] if isinstance(bids[0], (list, tuple)) else bids[0]
-                    ask_price = asks[0][0] if isinstance(asks[0], (list, tuple)) else asks[0]
-                    spread = ask_price - bid_price
-                    spreads.append((ts, spread))
-            except (json.JSONDecodeError, IndexError, TypeError):
-                continue
-
-        if len(spreads) < 10:
-            return None
-
-        # Current spread (most recent)
-        current_spread = spreads[0][1]
-
-        # Average spread over 5 minutes (300 seconds)
-        recent_spreads = [s[1] for s in spreads[:300]]
-        avg_5m_spread = sum(recent_spreads) / len(recent_spreads) if recent_spreads else 1
-
-        if avg_5m_spread <= 0:
-            return None
-
-        return current_spread / avg_5m_spread
-
-    except Exception as e:
-        print(f"  ⚠️ Error computing spread_ratio for {symbol}: {e}")
-        return None
-
-
-def compute_depth_ratio(conn: sqlite3.Connection, symbol: str) -> Optional[float]:
-    """Compute depth_ratio from depth_snapshots: bid_vol / ask_vol within 0.2% of mid."""
-    try:
-        # Check if table exists
-        tables = [t[0] for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-        if "depth_snapshots" not in tables:
-            return None
-
-        # Get most recent depth snapshot
-        row = conn.execute(
-            """
-            SELECT bids, asks
-            FROM depth_snapshots
-            WHERE symbol = ?
-            ORDER BY timestamp DESC
-            LIMIT 1
-            """,
-            (symbol,),
-        ).fetchone()
-
-        if not row:
-            return None
-
-        bids_json, asks_json = row
-        bids = json.loads(bids_json) if isinstance(bids_json, str) else bids_json
-        asks = json.loads(asks_json) if isinstance(asks_json, str) else asks_json
-
-        if not bids or not asks or len(bids) == 0 or len(asks) == 0:
-            return None
-
-        # Calculate mid price
-        bid_price = bids[0][0] if isinstance(bids[0], (list, tuple)) else bids[0]
-        ask_price = asks[0][0] if isinstance(asks[0], (list, tuple)) else asks[0]
-        mid_price = (bid_price + ask_price) / 2
-
-        # Sum volume within 0.2% of mid
-        tolerance = mid_price * 0.002
-        bid_vol = sum(
-            level[1] if isinstance(level, (list, tuple)) else level
-            for level in bids
-            if abs((level[0] if isinstance(level, (list, tuple)) else level) - mid_price) <= tolerance
-        )
-        ask_vol = sum(
-            level[1] if isinstance(level, (list, tuple)) else level
-            for level in asks
-            if abs((level[0] if isinstance(level, (list, tuple)) else level) - mid_price) <= tolerance
-        )
-
-        if ask_vol <= 0:
-            return None
-
-        return bid_vol / ask_vol
-
-    except Exception as e:
-        print(f"  ⚠️ Error computing depth_ratio for {symbol}: {e}")
-        return None
-
-
-def compute_speed(conn: sqlite3.Connection, symbol: str) -> Optional[float]:
-    """Compute speed (trades per second) from price_samples."""
-    try:
-        # Check if table exists
-        tables = [t[0] for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-        if "price_samples" not in tables:
-            return None
-
-        row = conn.execute(
-            """
-            SELECT COUNT(*) as sample_count,
-                   MAX(timestamp) - MIN(timestamp) as time_span
-            FROM price_samples
-            WHERE symbol = ?
-            """,
-            (symbol,),
-        ).fetchone()
-
-        if not row or row[1] is None or row[1] <= 0:
-            return None
-
-        sample_count, time_span = row
-        return sample_count / time_span
-
-    except Exception as e:
-        print(f"  ⚠️ Error computing speed for {symbol}: {e}")
-        return None
-
-
-def match_profile(metrics: Dict) -> Optional[str]:
-    """Try to match coin metrics against profiles. Returns profile name or None."""
-    for profile_name, profile_config in COIN_PROFILES.items():
-        characteristics = profile_config.get("characteristics", {})
-        match = True
-
-        for feature, ranges in characteristics.items():
-            actual = metrics.get(feature)
-            if actual is None:
-                match = False
-                break
-
-            min_val = ranges.get("min", 0)
-            max_val = ranges.get("max", float("inf"))
-
-            if not (min_val <= actual <= max_val):
-                match = False
-                break
-
-        if match:
-            return profile_name
-
+        print(f"  ⚠️ L2 fetch error: {e}")
     return None
 
 
-def find_closest_profile(metrics: Dict) -> Tuple[str, List[str]]:
-    """Find the closest profile and which features don't match."""
-    best_profile = None
-    best_score = -1
-    mismatches = []
+async def fetch_exchange_trades(symbol: str, limit: int = 1000) -> List[Dict]:
+    try:
+        import aiohttp
 
-    for profile_name, profile_config in COIN_PROFILES.items():
-        characteristics = profile_config.get("characteristics", {})
-        score = 0
-        profile_mismatches = []
-
-        for feature, ranges in characteristics.items():
-            actual = metrics.get(feature)
-            if actual is None:
-                profile_mismatches.append(f"{feature} (no data)")
-                continue
-
-            min_val = ranges.get("min", 0)
-            max_val = ranges.get("max", float("inf"))
-
-            if min_val <= actual <= max_val:
-                score += 1
-            else:
-                if actual < min_val:
-                    profile_mismatches.append(f"{feature} ({actual:.3f} < {min_val})")
-                else:
-                    profile_mismatches.append(f"{feature} ({actual:.3f} > {max_val})")
-
-        if score > best_score:
-            best_score = score
-            best_profile = profile_name
-            mismatches = profile_mismatches
-
-    return best_profile, mismatches
+        base_url = "https://fapi.binance.com"
+        if "/" in symbol:
+            binance_symbol = symbol.split("/")[0] + "USDT"
+        elif symbol.endswith(":USDT"):
+            binance_symbol = symbol.replace(":USDT", "")
+        else:
+            binance_symbol = symbol
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{base_url}/fapi/v1/trades", params={"symbol": binance_symbol, "limit": min(limit, 1000)}
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data if isinstance(data, list) else []
+    except Exception as e:
+        print(f"  ⚠️ Trades fetch error: {e}")
+    return []
 
 
-def suggest_new_profile(metrics: Dict, symbol: str) -> Dict:
-    """Suggest parameters for a new profile based on 5-dim metrics."""
-    spread_bps = metrics.get("spread_bps", 5.0)
-    depth = metrics.get("depth_ratio", 1.0)
-    speed = metrics.get("speed", 0.05)
-    vol_4h = metrics.get("vol_realized_4h", 2.0)
-    avg_size = metrics.get("avg_trade_size", 1000)
+# ──────────────────────────────────────────────────────────────
+# Dimension Computation (4 Institutional)
+# ──────────────────────────────────────────────────────────────
 
-    suggested = {
-        "name": f"CUSTOM_{symbol.split('/')[0] if '/' in symbol else symbol}",
-        "characteristics": {
-            "spread_bps": {"min": 0.0, "max": round(spread_bps * 1.3, 2)},
-            "depth_ratio": {"min": 0.0, "max": round(depth * 1.3, 3)},
-            "speed": {"min": 0.0, "max": round(speed * 1.3, 4)},
-            "vol_realized_4h": {"min": 0.0, "max": round(vol_4h * 1.3, 3)},
-            "avg_trade_size": {"min": 0, "max": round(avg_size * 1.3, 0)},
-        },
-        "parameters": {
-            "z_score_min": 2.5,
-            "concentration_min": 0.45,
-            "noise_max": 0.35,
-            "tp_pct": 0.009,
-            "sl_pct": 0.009,
-            "l2_ratio_min": 1.5,
-        },
+
+def compute_tick_size_efficiency(order_book: Dict, trades: List[Dict]) -> Optional[float]:
+    if not trades or len(trades) < 10:
+        return None
+    bids = order_book.get("bids", [])
+    asks = order_book.get("asks", [])
+    if not bids or not asks:
+        return None
+    best_bid = float(bids[0][0])
+    best_ask = float(asks[0][0])
+    narrowing = 0
+    total = 0
+    for trade in trades:
+        price = float(trade.get("price", 0))
+        is_buyer_maker = trade.get("isBuyerMaker", False)
+        if price <= 0:
+            continue
+        total += 1
+        if not is_buyer_maker and price >= best_ask:
+            narrowing += 1
+        elif is_buyer_maker and price <= best_bid:
+            narrowing += 1
+    return narrowing / total if total > 0 else None
+
+
+def compute_book_density(order_book: Dict) -> Optional[float]:
+    bids = order_book.get("bids", [])
+    asks = order_book.get("asks", [])
+    if not bids or not asks:
+        return None
+    total_volume = sum(float(level[1]) for level in bids) + sum(float(level[1]) for level in asks)
+    best_bid = float(bids[0][0])
+    best_ask = float(asks[0][0])
+    mid = (best_bid + best_ask) / 2
+    spread_pct = (best_ask - best_bid) / mid if mid > 0 else 0.001
+    return total_volume / spread_pct if spread_pct > 0 else 0
+
+
+def compute_volume_vol_ratio(trades: List[Dict]) -> Optional[float]:
+    if not trades or len(trades) < 20:
+        return None
+    prices = [float(t["price"]) for t in trades if float(t.get("price", 0)) > 0]
+    volumes = [float(t["qty"]) for t in trades]
+    usd_volumes = [p * v for p, v in zip(prices, volumes)]
+    if len(prices) < 20:
+        return None
+    log_rets = [math.log(prices[i] / prices[i - 1]) for i in range(1, len(prices)) if prices[i - 1] > 0]
+    if not log_rets:
+        return None
+    mean = sum(log_rets) / len(log_rets)
+    var = sum((r - mean) ** 2 for r in log_rets) / len(log_rets)
+    vol = math.sqrt(var)
+    if vol <= 0:
+        return None
+    timestamps = [int(t["time"]) / 1000 for t in trades if t.get("time")]
+    if len(timestamps) >= 2:
+        time_span = max(timestamps) - min(timestamps)
+        if time_span > 0:
+            periods_per_hour = 3600 / time_span
+            vol_hourly = vol * math.sqrt(periods_per_hour)
+        else:
+            vol_hourly = vol
+    else:
+        vol_hourly = vol
+    total_usd = sum(usd_volumes)
+    return total_usd / (vol_hourly * 1e6) if vol_hourly > 0 else None
+
+
+def compute_speed(trades: List[Dict]) -> Optional[float]:
+    if not trades or len(trades) < 10:
+        return None
+    timestamps = [int(t["time"]) / 1000 for t in trades if t.get("time")]
+    if len(timestamps) < 2:
+        return None
+    time_span = max(timestamps) - min(timestamps)
+    return len(trades) / time_span if time_span > 0 else None
+
+
+def compute_all_metrics_exchange(order_book: Dict, trades: List[Dict]) -> Dict:
+    return {
+        "tick_size_efficiency": compute_tick_size_efficiency(order_book, trades),
+        "book_density": compute_book_density(order_book),
+        "volume_vol_ratio": compute_volume_vol_ratio(trades),
+        "speed": compute_speed(trades),
     }
 
-    if depth < 1.0:
-        suggested["parameters"]["z_score_min"] = 2.0
-        suggested["parameters"]["concentration_min"] = 0.35
-        suggested["parameters"]["l2_ratio_min"] = 1.0
-    elif depth > 3.0:
-        suggested["parameters"]["z_score_min"] = 3.5
-        suggested["parameters"]["concentration_min"] = 0.60
-        suggested["parameters"]["l2_ratio_min"] = 2.5
 
-    return suggested
+# ──────────────────────────────────────────────────────────────
+# DB Metrics
+# ──────────────────────────────────────────────────────────────
+
+
+def compute_all_metrics_db(conn: sqlite3.Connection, symbol: str) -> Dict:
+    metrics = {}
+    tables = [t[0] for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+
+    # book_density
+    metrics["book_density"] = None
+    if "depth_snapshots" in tables:
+        row = conn.execute(
+            "SELECT bids, asks FROM depth_snapshots WHERE symbol=? ORDER BY timestamp DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+        if row:
+            bids = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            asks = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+            if bids and asks:
+                bp = float(bids[0][0]) if isinstance(bids[0], (list, tuple)) else float(bids[0])
+                ap = float(asks[0][0]) if isinstance(asks[0], (list, tuple)) else float(asks[0])
+                mid = (bp + ap) / 2
+                spread_pct = (ap - bp) / mid if mid > 0 else 0.001
+                total_vol = sum(level[1] if isinstance(level, (list, tuple)) else 0 for level in bids)
+                total_vol += sum(level[1] if isinstance(level, (list, tuple)) else 0 for level in asks)
+                metrics["book_density"] = total_vol / spread_pct if spread_pct > 0 else 0
+
+    # speed
+    metrics["speed"] = None
+    if "price_samples" in tables:
+        row = conn.execute(
+            "SELECT COUNT(*), MAX(timestamp)-MIN(timestamp) FROM price_samples WHERE symbol=?",
+            (symbol,),
+        ).fetchone()
+        if row and row[1] and row[1] > 0:
+            metrics["speed"] = row[0] / row[1]
+
+    # volume_vol_ratio
+    metrics["volume_vol_ratio"] = None
+    if "price_samples" in tables:
+        rows = conn.execute(
+            "SELECT price FROM price_samples WHERE symbol=? ORDER BY timestamp DESC LIMIT 14400",
+            (symbol,),
+        ).fetchall()
+        prices = [float(r[0]) for r in rows if r[0] and float(r[0]) > 0]
+        if len(prices) >= 50:
+            log_rets = [math.log(prices[i] / prices[i - 1]) for i in range(1, len(prices)) if prices[i - 1] > 0]
+            if log_rets:
+                mean = sum(log_rets) / len(log_rets)
+                var = sum((r - mean) ** 2 for r in log_rets) / len(log_rets)
+                vol = math.sqrt(var)
+                if vol > 0:
+                    row = conn.execute(
+                        "SELECT SUM(ABS(price*volume)) FROM price_samples WHERE symbol=? AND volume>0",
+                        (symbol,),
+                    ).fetchone()
+                    if row and row[0]:
+                        metrics["volume_vol_ratio"] = float(row[0]) / (vol * 1e6)
+
+    # tick_size_efficiency: can't compute from DB alone
+    metrics["tick_size_efficiency"] = None
+
+    return metrics
+
+
+# ──────────────────────────────────────────────────────────────
+# Display
+# ──────────────────────────────────────────────────────────────
+
+
+def print_metrics(metrics: Dict):
+    labels = {
+        "tick_size_efficiency": ("Tick Size Efficiency", "{:.3f}"),
+        "book_density": ("Book Density", "{:.0f}"),
+        "volume_vol_ratio": ("Volume/Vol Ratio", "{:.0f}"),
+        "speed": ("Speed (trades/s)", "{:.2f}"),
+    }
+    for dim, (label, fmt) in labels.items():
+        val = metrics.get(dim)
+        if val is not None:
+            print(f"    {label:<22} {fmt.format(val)}")
+        else:
+            print(f"    {label:<22} ⚠️ No data")
+
+
+def print_distance_table(distances: Dict[str, float], threshold: float):
+    print(f"\n  Distance to Cluster Centroids:")
+    print(f"  {'─' * 50}")
+    for name, dist in distances.items():
+        bar_len = min(int(dist * 50), 40)
+        bar = "█" * bar_len
+        marker = " ✅" if dist <= threshold else ""
+        print(f"    {name:<20} {dist:.3f}  {bar}{marker}")
+    print(f"\n  Threshold: {threshold:.3f}")
+
+
+# ──────────────────────────────────────────────────────────────
+# Diagnosis
+# ──────────────────────────────────────────────────────────────
 
 
 async def diagnose_symbol_exchange(symbol: str) -> Dict:
-    """Run diagnosis using exchange L2 data + klines for 5 dimensions."""
+    profiler = CoinProfiler()
+
     print(f"\n{'═' * 65}")
-    print(f"  PROFILE DIAGNOSTIC — {symbol} (Exchange Data)")
+    print(f"  PROFILE DIAGNOSTIC — {symbol} (Exchange, 4 Institutional Dims)")
     print(f"{'═' * 65}")
 
-    print(f"\n  Fetching L2 + klines data from exchange...")
+    print(f"\n  Fetching L2 + trades from exchange...")
+    ob = await fetch_exchange_l2(symbol)
+    trades = await fetch_exchange_trades(symbol, limit=1000)
 
-    # Fetch order book from exchange
-    order_book = await fetch_exchange_l2(symbol)
-
-    if not order_book:
-        print(f"  ⚠️ Could not fetch L2 data from exchange")
+    if not ob or not trades:
+        print(f"  ⚠️ Could not fetch data from exchange")
         return {"symbol": symbol, "verdict": "EXCHANGE_ERROR"}
 
-    # Fetch klines (4h candles, 200 = ~33 days of history)
-    klines = await fetch_exchange_klines(symbol, interval="4h", limit=200)
+    metrics = compute_all_metrics_exchange(ob, trades)
 
-    # Compute 5 dimensions
-    spread_bps = compute_spread_bps_from_exchange(order_book)
-    depth_ratio = compute_depth_ratio_from_exchange(order_book)
-    vol_realized_4h = compute_vol_realized_4h(klines) if klines else None
-    avg_trade_size = compute_avg_trade_size(klines) if klines else None
+    print(f"\n  Real Microstructure Metrics (4 institutional dimensions):")
+    print(f"  {'─' * 50}")
+    print_metrics(metrics)
 
-    # Get speed from DB if available
-    speed = None
-    try:
-        conn = sqlite3.connect("data/historian.db")
-        speed = compute_speed(conn, format_symbol(symbol))
-        conn.close()
-    except Exception:
-        pass
-
-    metrics = {
-        "spread_bps": spread_bps,
-        "depth_ratio": depth_ratio,
-        "speed": speed,
-        "vol_realized_4h": vol_realized_4h,
-        "avg_trade_size": avg_trade_size,
-    }
-
-    print(f"\n  Real Metrics (Exchange + Klines):")
-    print(f"    spread_bps:        {spread_bps:.2f}" if spread_bps is not None else "    spread_bps:        ⚠️ No data")
-    print(
-        f"    depth_ratio:       {depth_ratio:.3f}" if depth_ratio is not None else "    depth_ratio:       ⚠️ No data"
-    )
-    print(f"    speed:             {speed:.4f}" if speed is not None else "    speed:             ⚠️ No data (from DB)")
-    print(
-        f"    vol_realized_4h:   {vol_realized_4h:.3f}%"
-        if vol_realized_4h is not None
-        else "    vol_realized_4h:   ⚠️ No data"
-    )
-    if avg_trade_size is not None:
-        print(f"    avg_trade_size:    ${avg_trade_size:,.0f}")
-    else:
-        print(f"    avg_trade_size:    ⚠️ No data")
-
-    # Show raw order book info
-    bids = order_book.get("bids", [])
-    asks = order_book.get("asks", [])
-    if bids and asks:
-        bid_price = float(bids[0][0])
-        ask_price = float(asks[0][0])
-        spread = ask_price - bid_price
-        mid_price = (bid_price + ask_price) / 2
-        spread_pct = spread / mid_price * 100
-
-        print(f"\n  Order Book Snapshot:")
-        print(f"    Best Bid:      {bid_price:.2f}")
-        print(f"    Best Ask:      {ask_price:.2f}")
-        print(f"    Spread:        {spread:.4f} ({spread_pct:.4f}%)")
-        print(f"    Bid Levels:    {len(bids)}")
-        print(f"    Ask Levels:    {len(asks)}")
-
-    if klines:
-        print(f"\n  Klines (4h):")
-        print(f"    Samples:       {len(klines)}")
-        print(f"    Date range:    {klines[0][0]} → {klines[-1][0]}")
-
-    # Check if we have enough data
-    available_metrics = [v for v in metrics.values() if v is not None]
-    if len(available_metrics) < 3:
-        print(f"\n  ⚠️ Insufficient metrics data (need ≥3, have {len(available_metrics)})")
+    available = sum(1 for v in metrics.values() if v is not None)
+    if available < 3:
+        print(f"\n  ⚠️ Insufficient metrics (need ≥3, have {available})")
         return {"symbol": symbol, "verdict": "INSUFFICIENT_DATA", "metrics": metrics}
 
-    # Match against profiles
-    print(f"\n  Profile Comparison:")
-    print(f"  {'─' * 60}")
+    distances = profiler.get_distances(metrics)
+    threshold = profiler.threshold
 
-    matched_profile = match_profile(metrics)
+    print_distance_table(distances, threshold)
 
-    if matched_profile:
-        print(f"  ✅ MATCH: {matched_profile}")
-        print(f"  {'─' * 60}")
-        print(f"\n  VERDICT: ✅ MATCH")
-        print(f"  {symbol} correctly matches {matched_profile}")
-        return {
-            "symbol": symbol,
-            "verdict": "MATCH",
-            "profile": matched_profile,
-            "metrics": metrics,
-        }
+    if distances:
+        closest = min(distances, key=distances.get)
+        min_dist = distances[closest]
+        if min_dist <= threshold:
+            print(f"\n  VERDICT: ✅ MATCH → {closest} (distance: {min_dist:.3f})")
+            return {
+                "symbol": symbol,
+                "verdict": "MATCH",
+                "profile": closest,
+                "distance": min_dist,
+                "metrics": metrics,
+                "distances": distances,
+            }
+        else:
+            print(f"\n  VERDICT: ⚠️ NO MATCH — closest is {closest} (distance: {min_dist:.3f} > {threshold})")
+            return {
+                "symbol": symbol,
+                "verdict": "NO_MATCH",
+                "closest_profile": closest,
+                "distance": min_dist,
+                "metrics": metrics,
+                "distances": distances,
+            }
 
-    # No match - find closest
-    closest_profile, mismatches = find_closest_profile(metrics)
-
-    print(f"  ❌ No exact match found")
-    print(f"\n  Closest profile: {closest_profile}")
-    print(f"  Mismatches:")
-    for m in mismatches:
-        print(f"    - {m}")
-
-    # Check if reassignment is possible
-    print(f"\n  {'─' * 60}")
-
-    # Check all profiles
-    for profile_name, profile_config in COIN_PROFILES.items():
-        characteristics = profile_config.get("characteristics", {})
-        match = True
-        failing_features = []
-
-        for feature, ranges in characteristics.items():
-            actual = metrics.get(feature)
-            if actual is None:
-                match = False
-                failing_features.append(f"{feature} (no data)")
-                continue
-
-            min_val = ranges.get("min", 0)
-            max_val = ranges.get("max", float("inf"))
-
-            if not (min_val <= actual <= max_val):
-                match = False
-                if actual < min_val:
-                    failing_features.append(f"{feature} ({actual:.3f} < {min_val})")
-                else:
-                    failing_features.append(f"{feature} ({actual:.3f} > {max_val})")
-
-        if match:
-            print(f"  ℹ️ Would match {profile_name} if not for:")
-            for f in failing_features:
-                print(f"      - {f}")
-
-    # Suggest new profile
-    suggestion = suggest_new_profile(metrics, symbol)
-
-    print(f"\n  {'═' * 60}")
-    print(f"  VERDICT: ⚠️ CREATE NEW PROFILE")
-    print(f"  {'═' * 60}")
-    print(f"\n  {symbol} does NOT match any existing profile.")
-    print(f"\n  Suggested New Profile:")
-    print(f"    Name: {suggestion['name']}")
-    print(f"    Characteristics:")
-    for feature, ranges in suggestion["characteristics"].items():
-        print(f"      {feature}: < {ranges['max']}")
-    print(f"\n  Suggested Parameters:")
-    for param, value in suggestion["parameters"].items():
-        print(f"      {param}: {value}")
-
-    return {
-        "symbol": symbol,
-        "verdict": "CREATE",
-        "suggestion": suggestion,
-        "metrics": metrics,
-    }
+    return {"symbol": symbol, "verdict": "ERROR", "metrics": metrics}
 
 
-def diagnose_symbol(conn: sqlite3.Connection, symbol: str) -> Dict:
-    """Run full diagnosis for a single symbol from DB."""
+def diagnose_symbol_db(conn: sqlite3.Connection, symbol: str) -> Dict:
+    profiler = CoinProfiler()
+
     print(f"\n{'═' * 65}")
     print(f"  PROFILE DIAGNOSTIC — {symbol}")
     print(f"{'═' * 65}")
 
-    # Get signal count
     signal_count = conn.execute("SELECT COUNT(*) FROM signals WHERE symbol = ?", (symbol,)).fetchone()[0]
-
     print(f"\n  Signals in DB: {signal_count}")
 
     if signal_count < 5:
         print(f"  ⚠️ Insufficient signals (need ≥5, have {signal_count})")
         return {"symbol": symbol, "verdict": "INSUFFICIENT_DATA"}
 
-    # Compute real metrics
-    print(f"\n  Computing real metrics...")
+    print(f"\n  Computing 4 institutional metrics...")
+    metrics = compute_all_metrics_db(conn, symbol)
 
-    spread_ratio = compute_spread_ratio(conn, symbol)
-    depth_ratio = compute_depth_ratio(conn, symbol)
-    speed = compute_speed(conn, symbol)
+    print(f"\n  Real Microstructure Metrics:")
+    print(f"  {'─' * 50}")
+    print_metrics(metrics)
 
-    metrics = {
-        "spread_ratio": spread_ratio,
-        "depth_ratio": depth_ratio,
-        "speed": speed,
-    }
-
-    print(f"\n  Real Metrics:")
-    print(f"    spread_ratio:  {spread_ratio:.3f}" if spread_ratio else "    spread_ratio:  ⚠️ No data")
-    print(f"    depth_ratio:   {depth_ratio:.3f}" if depth_ratio else "    depth_ratio:   ⚠️ No data")
-    print(f"    speed:         {speed:.4f}" if speed else "    speed:         ⚠️ No data")
-
-    # Check if we have enough data
-    available_metrics = [v for v in metrics.values() if v is not None]
-    if len(available_metrics) < 2:
-        print(f"\n  ⚠️ Insufficient metrics data (need ≥2, have {len(available_metrics)})")
+    available = sum(1 for v in metrics.values() if v is not None)
+    if available < 3:
+        print(f"\n  ⚠️ Insufficient metrics (need ≥3, have {available})")
         return {"symbol": symbol, "verdict": "INSUFFICIENT_DATA", "metrics": metrics}
 
-    # Match against profiles
-    print(f"\n  Profile Comparison:")
-    print(f"  {'─' * 60}")
+    distances = profiler.get_distances(metrics)
+    threshold = profiler.threshold
 
-    matched_profile = match_profile(metrics)
+    print_distance_table(distances, threshold)
 
-    if matched_profile:
-        print(f"  ✅ MATCH: {matched_profile}")
-        print(f"  {'─' * 60}")
-        print(f"\n  VERDICT: ✅ MATCH")
-        print(f"  {symbol} correctly matches {matched_profile}")
-        return {
-            "symbol": symbol,
-            "verdict": "MATCH",
-            "profile": matched_profile,
-            "metrics": metrics,
-        }
+    if distances:
+        closest = min(distances, key=distances.get)
+        min_dist = distances[closest]
+        if min_dist <= threshold:
+            print(f"\n  VERDICT: ✅ MATCH → {closest} (distance: {min_dist:.3f})")
+            return {
+                "symbol": symbol,
+                "verdict": "MATCH",
+                "profile": closest,
+                "distance": min_dist,
+                "metrics": metrics,
+                "distances": distances,
+            }
+        else:
+            print(f"\n  VERDICT: ⚠️ NO MATCH — closest is {closest} (distance: {min_dist:.3f} > {threshold})")
+            return {
+                "symbol": symbol,
+                "verdict": "NO_MATCH",
+                "closest_profile": closest,
+                "distance": min_dist,
+                "metrics": metrics,
+                "distances": distances,
+            }
 
-    # No match - find closest
-    closest_profile, mismatches = find_closest_profile(metrics)
-
-    print(f"  ❌ No exact match found")
-    print(f"\n  Closest profile: {closest_profile}")
-    print(f"  Mismatches:")
-    for m in mismatches:
-        print(f"    - {m}")
-
-    # Check if reassignment is possible
-    print(f"\n  {'─' * 60}")
-
-    # Check all profiles
-    for profile_name, profile_config in COIN_PROFILES.items():
-        characteristics = profile_config.get("characteristics", {})
-        match = True
-        failing_features = []
-
-        for feature, ranges in characteristics.items():
-            actual = metrics.get(feature)
-            if actual is None:
-                match = False
-                failing_features.append(f"{feature} (no data)")
-                continue
-
-            min_val = ranges.get("min", 0)
-            max_val = ranges.get("max", float("inf"))
-
-            if not (min_val <= actual <= max_val):
-                match = False
-                if actual < min_val:
-                    failing_features.append(f"{feature} ({actual:.3f} < {min_val})")
-                else:
-                    failing_features.append(f"{feature} ({actual:.3f} > {max_val})")
-
-        if match:
-            print(f"  ℹ️ Would match {profile_name} if not for:")
-            for f in failing_features:
-                print(f"      - {f}")
-
-    # Suggest new profile
-    suggestion = suggest_new_profile(metrics, symbol)
-
-    print(f"\n  {'═' * 60}")
-    print(f"  VERDICT: ⚠️ CREATE NEW PROFILE")
-    print(f"  {'═' * 60}")
-    print(f"\n  {symbol} does NOT match any existing profile.")
-    print(f"\n  Suggested New Profile:")
-    print(f"    Name: {suggestion['name']}")
-    print(f"    Characteristics:")
-    for feature, ranges in suggestion["characteristics"].items():
-        print(f"      {feature}: < {ranges['max']}")
-    print(f"\n  Suggested Parameters:")
-    for param, value in suggestion["parameters"].items():
-        print(f"      {param}: {value}")
-
-    return {
-        "symbol": symbol,
-        "verdict": "CREATE",
-        "suggestion": suggestion,
-        "metrics": metrics,
-    }
+    return {"symbol": symbol, "verdict": "ERROR", "metrics": metrics}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Profile Diagnostic — Validate coin profile assignments")
+    parser = argparse.ArgumentParser(description="Profile Diagnostic — 4 institutional dimensions")
     parser.add_argument("--db", default="data/historian.db", help="Database path")
-    parser.add_argument("--symbol", help="Specific symbol to diagnose (e.g., XRPUSDT)")
+    parser.add_argument("--symbol", help="Specific symbol to diagnose")
     parser.add_argument("--all", action="store_true", help="Diagnose all coins in DB")
-    parser.add_argument("--exchange", action="store_true", help="Use exchange L2 data (real-time)")
+    parser.add_argument("--exchange", action="store_true", help="Use exchange data (real-time)")
     args = parser.parse_args()
 
     if not args.symbol and not args.all:
         parser.error("Must specify --symbol or --all")
 
-    if args.exchange and args.symbol:
-        # Use exchange data mode
-        result = asyncio.run(diagnose_symbol_exchange(args.symbol))
-    else:
-        # Use DB mode
+    conn = None
+    try:
         conn = sqlite3.connect(args.db)
+    except Exception:
+        pass
 
-        if args.symbol:
-            # Single symbol diagnosis
-            result = diagnose_symbol(conn, args.symbol)
-        else:
-            # All coins diagnosis
-            coins = conn.execute("SELECT DISTINCT symbol FROM signals").fetchall()
-            symbols = [c[0] for c in coins]
+    if args.exchange and args.symbol:
+        result = asyncio.run(diagnose_symbol_exchange(args.symbol))
+    elif args.symbol:
+        result = diagnose_symbol_db(conn, args.symbol)
+    else:
+        coins = conn.execute("SELECT DISTINCT symbol FROM signals").fetchall()
+        symbols = [c[0] for c in coins]
 
-            print(f"\n{'═' * 65}")
-            print(f"  PROFILE DIAGNOSTIC — ALL COINS")
-            print(f"{'═' * 65}")
-            print(f"\n  Analyzing {len(symbols)} coins...")
+        print(f"\n{'═' * 65}")
+        print(f"  PROFILE DIAGNOSTIC — ALL COINS (4 institutional dims)")
+        print(f"{'═' * 65}")
+        print(f"\n  Analyzing {len(symbols)} coins...")
 
-            results = []
-            for symbol in sorted(symbols):
-                result = diagnose_symbol(conn, symbol)
-                results.append(result)
+        results = []
+        for symbol in sorted(symbols):
+            result = diagnose_symbol_db(conn, symbol)
+            results.append(result)
 
-            # Summary
-            print(f"\n\n{'═' * 65}")
-            print(f"  SUMMARY")
-            print(f"{'═' * 65}")
+        print(f"\n\n{'═' * 65}")
+        print(f"  SUMMARY")
+        print(f"{'═' * 65}")
 
-            matches = [r for r in results if r["verdict"] == "MATCH"]
-            creates = [r for r in results if r["verdict"] == "CREATE"]
-            insufficient = [r for r in results if r["verdict"] == "INSUFFICIENT_DATA"]
+        matches = [r for r in results if r["verdict"] == "MATCH"]
+        no_match = [r for r in results if r["verdict"] == "NO_MATCH"]
+        insufficient = [r for r in results if r["verdict"] == "INSUFFICIENT_DATA"]
 
-            print(f"\n  ✅ MATCH:     {len(matches)}/{len(results)}")
-            print(f"  ⚠️ CREATE:    {len(creates)}/{len(results)}")
-            print(f"  ⚠️ NO DATA:   {len(insufficient)}/{len(results)}")
+        print(f"\n  ✅ MATCH:      {len(matches)}/{len(results)}")
+        print(f"  ⚠️ NO MATCH:   {len(no_match)}/{len(results)}")
+        print(f"  ⚠️ NO DATA:    {len(insufficient)}/{len(results)}")
 
-            if creates:
-                print(f"\n  Coins needing new profiles:")
-                for r in creates:
-                    print(f"    - {r['symbol']} → {r['suggestion']['name']}")
+        if no_match:
+            print(f"\n  Coins not matching any cluster:")
+            for r in no_match:
+                print(
+                    f"    - {r['symbol']} → closest: {r.get('closest_profile', '?')} (dist: {r.get('distance', '?'):.3f})"
+                )
 
+    if conn:
         conn.close()
 
 

@@ -31,7 +31,8 @@
 *   **Target Proximity**: 0.83 avg, 68.6% achieved
 
 ### 2. Capa de Hierro (Infraestructura) — [CERTIFICADA ✅]
-*   **Profile System**: coin_profiler.py + profile_manager.py + config/coin_profiles.py
+*   **Profile System v3**: coin_profiler.py (centroid-based) + profile_manager.py + config/coin_profiles.py + config/clusters.json
+*   **Clustering**: K-Means con 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed)
 *   **Quality Scoring**: 5 factores ponderados, grade A/B/None
 *   **Dynamic Targets**: TP/SL por perfil y escenario
 *   **Guardianes**: L2 ratio y spread thresholds por perfil
@@ -50,27 +51,26 @@
 4.  **PER-REGIME TARGETS — COMPLETADO ✅**: TP/SL asimétricos por régimen. V2 Set A +0.456%, Set B +0.482%.
 5.  **AUTOPSIA TREND_DOWN — COMPLETADO ✅**: LONGS en TREND_DOWN = 6% WR (tóxico). Hard block revertido — no mata edge de SHORTS.
 6.  **PROFILE VALIDATION VOLATIL_BAJO_FLOW — COMPLETADO ✅** (2026-06-01): 6 iteraciones + baseline. **Ganador: iter 3** (TAV SL tightening 2.5/3.0/2.5%). Net Taker **+0.0455%** (de -0.1066% baseline). AVAX TAV -0.44%→-0.19%, LTC TAV +0.21%→+0.38%. SUI TAV -0.58pp regresión pero compensada por AVAX+LTC.
-7.  **PROHIBIR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Corregir entry lógica para bloquear contra-tendencia en DOWN.
-8.  **REDUCIR TIMEOUT RATE — PRÓXIMO 🔴**: Optimizar targets para bajar ~60% timeout. Es el drag principal.
-9.  **RE-EVALUAR NOMBRE DEL SETUP — PRÓXIMO**: TacticalAbsorptionV2 → InstitutionalFlowV2?
-10. **ARQUITECTURA ENTRY — PRÓXIMO 🔴** (descubierto en iter 6): AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son **ENTRY FAILURE** (MFE/MAE < 1.2, best uniform TP/SL 0.20/0.20% no genera edge). No se puede fix con parámetros. Requiere cambios en entry logic.
-11. **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
-12. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
-13. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
-14. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
+7.  **PROFILE SYSTEM V3 — COMPLETADO ✅** (2026-06-01): Rediseño a 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed). Clustering K-Means automático desde exchange. Silhouette 0.538. LTC y SUI en clusters separados.
+8.  **PROHIBIR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Corregir entry lógica para bloquear contra-tendencia en DOWN.
+9.  **REDUCIR TIMEOUT RATE — PRÓXIMO 🔴**: Optimizar targets para bajar ~60% timeout. Es el drag principal.
+10. **RE-EVALUAR NOMBRE DEL SETUP — PRÓXIMO**: TacticalAbsorptionV2 → InstitutionalFlowV2?
+11. **ARQUITECTURA ENTRY — PRÓXIMO 🔴** (descubierto en iter 6): AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son **ENTRY FAILURE** (MFE/MAE < 1.2, best uniform TP/SL 0.20/0.20% no genera edge). No se puede fix con parámetros. Requiere cambios en entry logic.
+12. **FILTRO DE LIQUIDEZ — PENDIENTE**: Activar/desactivar absorción según profundidad total del order book
+13. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
+14. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
+15. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
 
 ---
 
-### Current Status: 🟢 v8.6 Strategic Reversion Calibration (Set A E2E certified)
-- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + coin profiler + profile manager + regime filter + macro override + discrete-touch exhaustion logic.
+### Current Status: 🟢 v8.6 Profile System v3 (Institutional Clustering)
+- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + centroid-based profiler + profile manager + regime filter + macro override + discrete-touch exhaustion logic.
 - **Branch**: `8.6-Alphareloaded`
 - **Global Net Set A**: **+0.2713% Net Taker** (+0.3913% Gross) with **81.2% Win Rate** across 1,118 signals.
-- **Discrete-Touch Reexhaustion**: Successfully rewrote `liquidity_exhaustion` to require clean bounces away from VAH/VAL before counting new touches, avoiding absorption micro-noise.
-- **failed_breakout expectation**: Turned positive from borderline flat/negative to **+0.4400% Net Taker** with **68% WR** (74 signals) using 2.0% TP / 2.5% SL.
-- **Profiles**: 5 perfiles microestructura (MEGA/MAJOR/MID/THIN/ILLIQUID), 5 dims (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h).
+- **Profile System v3**: 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed). Clustering K-Means automático desde exchange. Silhouette 0.538.
 - **Per Setup**: TacticalAbsorptionV2 (Net +0.3262% ✅), failed_breakout (Net +0.4400% ✅), trend_acceptance (Net +0.2040% ✅).
 - **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC).
-- **Next**: Re-ejecutar `/profile-validation-volatil-bajo-flow` completo (fix skip_clean activo). Luego: TREND_DOWN LONG veto + trend_acceptance target formula.
+- **Next**: Re-ejecutar clustering con más monedas. Luego: TREND_DOWN LONG veto + trend_acceptance target formula.
 
 ---
 
@@ -88,6 +88,7 @@
 ---
 
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-01 | session-close | **PROFILE SYSTEM V3 — INSTITUTIONAL CLUSTERING**: Rediseño completo del sistema de perfiles. De 5 dimensiones manuales a 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed). Clustering K-Means automático desde exchange. Silhouette 0.538. LTC y SUI en clusters separados. Archivos: cluster_builder.py (CREADO), coin_profiler.py (MODIFICADO), profile_diagnostic.py (MODIFICADO), coin_profiles.py (MODIFICADO — removido characteristics), clusters.json (CREADO). Backward compatibility maintenida.
 - 2026-06-01 | session-close | **PROFILE VALIDATION VOLATIL_BAJO_FLOW — FINAL**: 6 iteraciones de parameter tuning + baseline. **Iter 3 GANADOR** (TAV SL tightening): Net Taker **+0.0455%** (de -0.1066% baseline, +0.152pp). AVAX TAV -0.44→-0.19 (+0.25pp), LTC TAV +0.21→+0.38 (+0.17pp). SUI TAV -0.58pp regresión. **Iter 1, 4, 5, 6 REVERTIDOS**. **Iter 2 MAINTAINED** (concentration_min 0.40→0.50, +0.009pp). Descubrimiento crítico: AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son **ENTRY FAILURE** (MFE/MAE <1.2, best uniform 0.20/0.20% sin edge). Imposible fix con parámetros. Config final: concentration_min=0.50, TAV SL=2.5/3.0/2.5%, l2_ratio_min=0.5, l2_ratio_min_trend_down=2.0, FB=2.0/2.5%. Próximo paso: entry logic changes.
 - 2026-06-01 | session-close | **5-PROFILE MICROSTRUCTURE REFACTOR**: 3→5 perfiles con 5 dims (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h). Clasificación validada: LTC→MID ✓, SUI→THIN ✓, AVAX→MID (borderline vol 1.06%, SUI fue el caso de falla real de TAV). **Bug fix crítico**: `match_profile` y `find_closest_profile` saltaban `DEFAULT_PROFILE = MID_LIQUID`. Removido. Diagnostic ahora online (fetches klines + computes 4 new metrics). Commit `c85dd30`.
 - 2026-06-01 | session-close | Orquestador multi-asset: +set_a_avax (6 datasets), +set_a_sui (2 datasets), skip_merge, skip_clean. Bug crítico encontrado y corregido: clean_temp_data() destruía historian.db encadenado. Workflow profile-validation-volatil-bajo-flow actualizado para 3 activos en sucesión. Pendiente re-run completo.

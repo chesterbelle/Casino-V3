@@ -1,0 +1,105 @@
+{
+  "version": "3.0",
+  "description": "Institutional 4-dimension microstructure clusters.",
+  "dimensions": [
+    "tick_size_efficiency",
+    "book_density",
+    "volume_vol_ratio",
+    "speed"
+  ],
+  "normalization": {
+    "min": {
+      "tick_size_efficiency": 0.0,
+      "book_density": 0.0,
+      "volume_vol_ratio": 0.0,
+      "speed": 0.0
+    },
+    "max": {
+      "tick_size_efficiency": 1.0,
+      "book_density": 20.0,
+      "volume_vol_ratio": 12.0,
+      "speed": 500.0
+    }
+  },
+  "clusters": {
+    "MEGA_LIQUID": {
+      "centroid": {
+        "tick_size_efficiency": 0.47859999999999997,
+        "book_density": 19.821943516573576,
+        "volume_vol_ratio": 5.5575857204533,
+        "speed": 6.048694867366892
+      },
+      "members": [
+        "LTCUSDT",
+        "NEARUSDT",
+        "APTUSDT",
+        "OPUSDT",
+        "ARBUSDT"
+      ],
+      "n_members": 5
+    },
+    "MAJOR_LIQUID": {
+      "centroid": {
+        "tick_size_efficiency": 0.45,
+        "book_density": 15.408426501602069,
+        "volume_vol_ratio": 11.090586927126314,
+        "speed": 25.891978679075017
+      },
+      "members": [
+        "BTCUSDT"
+      ],
+      "n_members": 1
+    },
+    "MID_LIQUID": {
+      "centroid": {
+        "tick_size_efficiency": 0.6286666666666667,
+        "book_density": 20.0,
+        "volume_vol_ratio": 6.769584033101619,
+        "speed": 4.030976103206906
+      },
+      "members": [
+        "AVAXUSDT",
+        "ADAUSDT",
+        "LINKUSDT"
+      ],
+      "n_members": 3
+    },
+    "THIN_VOLATILE": {
+      "centroid": {
+        "tick_size_efficiency": 0.3536,
+        "book_density": 19.40041845177961,
+        "volume_vol_ratio": 7.647676844111368,
+        "speed": 8.530646830764082
+      },
+      "members": [
+        "SOLUSDT",
+        "BNBUSDT",
+        "XRPUSDT",
+        "DOGEUSDT",
+        "SUIUSDT"
+      ],
+      "n_members": 5
+    },
+    "ILLIQUID_SPEC": {
+      "centroid": {
+        "tick_size_efficiency": 0.509,
+        "book_density": 19.938195333977163,
+        "volume_vol_ratio": 10.38112189849777,
+        "speed": 27.437100427122957
+      },
+      "members": [
+        "ETHUSDT"
+      ],
+      "n_members": 1
+    }
+  },
+  "threshold": {
+    "max_distance": 0.35
+  },
+  "metadata": {
+    "created": "2026-06-01T20:35:32.242362",
+    "algorithm": "kmeans",
+    "k": 5,
+    "silhouette_score": 0.5375586260986315
+  }
+}

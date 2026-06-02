@@ -1,22 +1,18 @@
 """
-Coin Profiles — 5-tier Microstructure Classification
+Coin Profiles — Parameter Configuration (Per-Cluster)
 =====================================================
 
-Replaces 3-profile system (VOLATIL_BAJO, EFICIENTE_MEGACAP, BALANCED_MID)
-with 5 profiles classified by 5 microstructure dimensions:
+Parameters are organized by cluster (profile name). Classification
+is handled by config/clusters.json (centroid-based).
 
-  - spread_bps:        absolute spread in basis points (cost of liquidity)
-  - depth_ratio:       bid_vol / ask_vol within 0.2% of mid (information in book)
-  - speed:             trades per second (frequency of events)
-  - avg_trade_size:    average USD per trade (retail vs institutional)
-  - vol_realized_4h:   std of log returns over 4h candles (volatility regime)
+Each profile contains:
+  - sensors: absorption_detector, failed_breakout, liquidity_exhaustion, trend_acceptance
+  - scenarios: enabled scenario list
+  - quality_scorer: weights and grade thresholds
+  - targets: per-scenario TP/SL (with optional per-regime overrides)
+  - guardians: L2 ratio, spread thresholds
 
-Profiles:
-  - MEGA_LIQUID:       BTC, ETH (institutional, ultra-deep)
-  - MAJOR_LIQUID:      SOL, BNB, XRP (large-cap, high liquidity)
-  - MID_LIQUID:        LTC, ADA, LINK, DOGE (mid-cap, edge validated)
-  - THIN_VOLATILE:     AVAX, SUI, NEAR, APT, OP, ARB (thin book, high vol)
-  - ILLIQUID_SPEC:     long-tail, new listings (disabled by default)
+Membership is defined in clusters.json, not here.
 """
 
 COIN_PROFILES = {
@@ -26,13 +22,6 @@ COIN_PROFILES = {
     # =========================================================================
     "MEGA_LIQUID": {
         "description": "Mega-cap institucional — BTC, ETH",
-        "characteristics": {
-            "spread_bps": {"min": 0.0, "max": 5.0},
-            "depth_ratio": {"min": 0.0, "max": 100.0},
-            "speed": {"min": 0.0, "max": 100.0},
-            "avg_trade_size": {"min": 50000, "max": 1e9},
-            "vol_realized_4h": {"min": 0.0, "max": 5.0},
-        },
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 3.5,
@@ -82,13 +71,6 @@ COIN_PROFILES = {
     # =========================================================================
     "MAJOR_LIQUID": {
         "description": "Large-cap alta liquidez — SOL, BNB, XRP",
-        "characteristics": {
-            "spread_bps": {"min": 0.0, "max": 15.0},
-            "depth_ratio": {"min": 0.0, "max": 100.0},
-            "speed": {"min": 0.0, "max": 100.0},
-            "avg_trade_size": {"min": 5000, "max": 50000},
-            "vol_realized_4h": {"min": 0.0, "max": 5.0},
-        },
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 3.2,
@@ -147,17 +129,10 @@ COIN_PROFILES = {
     # =========================================================================
     "MID_LIQUID": {
         "description": "Mid-cap, edge validado iter 3 — LTC, ADA, LINK, DOGE",
-        "characteristics": {
-            "spread_bps": {"min": 0.0, "max": 15.0},
-            "depth_ratio": {"min": 0.0, "max": 100.0},
-            "speed": {"min": 0.0, "max": 100.0},
-            "avg_trade_size": {"min": 500, "max": 10000},
-            "vol_realized_4h": {"min": 0.0, "max": 1.2},
-        },
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 3.5,
-                "concentration_min": 0.50,  # Iter2: 0.40→0.50
+                "concentration_min": 0.50,
                 "noise_max": 0.40,
                 "stagnation_floor_pct": 0.08,
             },
@@ -190,7 +165,7 @@ COIN_PROFILES = {
             "TacticalAbsorptionV2": {
                 "tp_pct": 0.024,
                 "sl_pct": 0.025,
-                "regime": {  # Iter3 validated
+                "regime": {
                     "TREND_UP": {"tp_pct": 0.012, "sl_pct": 0.025},
                     "TREND_DOWN": {"tp_pct": 0.020, "sl_pct": 0.030},
                     "BALANCE": {"tp_pct": 0.008, "sl_pct": 0.025},
@@ -201,7 +176,7 @@ COIN_PROFILES = {
             "trend_acceptance": {"tp_pct": 0.009, "sl_pct": 0.009},
         },
         "guardians": {
-            "l2_ratio_min": 0.5,  # Iter1 reverted
+            "l2_ratio_min": 0.5,
             "l2_ratio_min_trend_down": 2.0,
             "spread_max_ratio": 2.0,
         },
@@ -212,17 +187,10 @@ COIN_PROFILES = {
     # =========================================================================
     "THIN_VOLATILE": {
         "description": "Thin book + high vol — TAV/FB deshabilitados, solo LE/TA",
-        "characteristics": {
-            "spread_bps": {"min": 0.0, "max": 15.0},
-            "depth_ratio": {"min": 0.0, "max": 100.0},
-            "speed": {"min": 0.0, "max": 100.0},
-            "avg_trade_size": {"min": 500, "max": 10000},
-            "vol_realized_4h": {"min": 1.2, "max": 10.0},
-        },
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 4.0,  # más estricto
-                "concentration_min": 0.60,  # más estricto
+                "z_score_min": 4.0,
+                "concentration_min": 0.60,
                 "noise_max": 0.35,
                 "stagnation_floor_pct": 0.10,
             },
@@ -245,7 +213,6 @@ COIN_PROFILES = {
             },
         },
         "scenarios": {
-            # ⚠️ TAV/FB deshabilitados (entry failure MFE/MAE < 1.2)
             "enabled": ["liquidity_exhaustion", "trend_acceptance"],
         },
         "quality_scorer": {
@@ -253,10 +220,9 @@ COIN_PROFILES = {
             "grade_thresholds": {"A": 0.75, "B": 0.45},
         },
         "targets": {
-            # TAV/FB heredan defaults pero no se usan
             "TacticalAbsorptionV2": {"tp_pct": 0.020, "sl_pct": 0.030},
             "failed_breakout": {"tp_pct": 0.020, "sl_pct": 0.025},
-            "liquidity_exhaustion": {"tp_pct": 0.025, "sl_pct": 0.008},  # TP/SL más amplios
+            "liquidity_exhaustion": {"tp_pct": 0.025, "sl_pct": 0.008},
             "trend_acceptance": {"tp_pct": 0.015, "sl_pct": 0.015},
         },
         "guardians": {
@@ -271,13 +237,6 @@ COIN_PROFILES = {
     # =========================================================================
     "ILLIQUID_SPEC": {
         "description": "Ilíquido / especulativo — DESHABILITADO",
-        "characteristics": {
-            "spread_bps": {"min": 0.0, "max": 1000.0},
-            "depth_ratio": {"min": 0.0, "max": 100.0},
-            "speed": {"min": 0.0, "max": 100.0},
-            "avg_trade_size": {"min": 0, "max": 500},
-            "vol_realized_4h": {"min": 0.0, "max": 100.0},
-        },
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 4.5,
@@ -287,7 +246,7 @@ COIN_PROFILES = {
             },
         },
         "scenarios": {
-            "enabled": [],  # nada habilitado
+            "enabled": [],
         },
         "quality_scorer": {
             "weights": {"exhaustion": 0.20, "regime": 0.20, "structure": 0.20, "liquidity": 0.20, "spread": 0.20},
@@ -301,5 +260,4 @@ COIN_PROFILES = {
     },
 }
 
-# Default profile for unknown coins (conservative)
 DEFAULT_PROFILE = "MID_LIQUID"
