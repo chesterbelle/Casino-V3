@@ -1,0 +1,665 @@
+{
+  "meta": {
+    "states": [
+      "BALANCE",
+      "UP",
+      "DOWN"
+    ],
+    "trained": true,
+    "trained_at": "2026-06-03T20:41:14.254514",
+    "datasets": 87,
+    "total_candles": 125280,
+    "total_transitions": 125279,
+    "return_threshold": 0.0005
+  },
+  "transitions": {
+    "BALANCE": {
+      "BALANCE": 0.5678,
+      "UP": 0.2139,
+      "DOWN": 0.2183
+    },
+    "UP": {
+      "BALANCE": 0.4095,
+      "UP": 0.2849,
+      "DOWN": 0.3056
+    },
+    "DOWN": {
+      "BALANCE": 0.4064,
+      "UP": 0.3078,
+      "DOWN": 0.2858
+    }
+  },
+  "raw_counts": {
+    "BALANCE": {
+      "BALANCE": 34538,
+      "UP": 13009,
+      "DOWN": 13282
+    },
+    "UP": {
+      "BALANCE": 13148,
+      "UP": 9149,
+      "DOWN": 9814
+    },
+    "DOWN": {
+      "BALANCE": 13143,
+      "UP": 9953,
+      "DOWN": 9243
+    }
+  },
+  "state_distribution": {
+    "BALANCE": 60830,
+    "UP": 32111,
+    "DOWN": 32339
+  },
+  "dataset_stats": [
+    {
+      "name": "2023-02-01_AVAXUSDT.db",
+      "candles": 1440,
+      "BALANCE": 548,
+      "UP": 455,
+      "DOWN": 437
+    },
+    {
+      "name": "2024-02-01_AVAXUSDT.db",
+      "candles": 1440,
+      "BALANCE": 576,
+      "UP": 438,
+      "DOWN": 426
+    },
+    {
+      "name": "2024-04-01_AVAXUSDT.db",
+      "candles": 1440,
+      "BALANCE": 562,
+      "UP": 426,
+      "DOWN": 452
+    },
+    {
+      "name": "2024-05-01_AVAXUSDT.db",
+      "candles": 1440,
+      "BALANCE": 447,
+      "UP": 493,
+      "DOWN": 500
+    },
+    {
+      "name": "2024-05-01_BNBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 555,
+      "UP": 421,
+      "DOWN": 464
+    },
+    {
+      "name": "2024-05-01_SOLUSDT.db",
+      "candles": 1440,
+      "BALANCE": 323,
+      "UP": 560,
+      "DOWN": 557
+    },
+    {
+      "name": "2024-08-01_ETHUSDT.db",
+      "candles": 1440,
+      "BALANCE": 784,
+      "UP": 343,
+      "DOWN": 313
+    },
+    {
+      "name": "2024-09-01_ETHUSDT.db",
+      "candles": 1440,
+      "BALANCE": 856,
+      "UP": 288,
+      "DOWN": 296
+    },
+    {
+      "name": "2024-10-01_APTUSDT.db",
+      "candles": 1440,
+      "BALANCE": 369,
+      "UP": 527,
+      "DOWN": 544
+    },
+    {
+      "name": "2024-10-01_AVAXUSDT.db",
+      "candles": 1440,
+      "BALANCE": 565,
+      "UP": 423,
+      "DOWN": 452
+    },
+    {
+      "name": "2024-10-01_DOGEUSDT.db",
+      "candles": 1440,
+      "BALANCE": 500,
+      "UP": 457,
+      "DOWN": 483
+    },
+    {
+      "name": "2024-10-01_ETHUSDT.db",
+      "candles": 1440,
+      "BALANCE": 798,
+      "UP": 311,
+      "DOWN": 331
+    },
+    {
+      "name": "2024-10-01_OPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 435,
+      "UP": 506,
+      "DOWN": 499
+    },
+    {
+      "name": "2024-10-01_XRPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 691,
+      "UP": 368,
+      "DOWN": 381
+    },
+    {
+      "name": "2024-11-01_ADAUSDT.db",
+      "candles": 1440,
+      "BALANCE": 514,
+      "UP": 480,
+      "DOWN": 446
+    },
+    {
+      "name": "2024-11-01_APTUSDT.db",
+      "candles": 1440,
+      "BALANCE": 622,
+      "UP": 387,
+      "DOWN": 431
+    },
+    {
+      "name": "2024-11-01_ARBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 636,
+      "UP": 404,
+      "DOWN": 400
+    },
+    {
+      "name": "2024-11-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 898,
+      "UP": 270,
+      "DOWN": 272
+    },
+    {
+      "name": "2024-11-01_DOGEUSDT.db",
+      "candles": 1440,
+      "BALANCE": 397,
+      "UP": 513,
+      "DOWN": 530
+    },
+    {
+      "name": "2024-11-01_ETHUSDT.db",
+      "candles": 1440,
+      "BALANCE": 839,
+      "UP": 300,
+      "DOWN": 301
+    },
+    {
+      "name": "2024-11-01_LINKUSDT.db",
+      "candles": 1440,
+      "BALANCE": 582,
+      "UP": 418,
+      "DOWN": 440
+    },
+    {
+      "name": "2024-11-01_NEARUSDT.db",
+      "candles": 1440,
+      "BALANCE": 598,
+      "UP": 412,
+      "DOWN": 430
+    },
+    {
+      "name": "2024-11-01_OPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 627,
+      "UP": 390,
+      "DOWN": 423
+    },
+    {
+      "name": "2024-11-01_SOLUSDT.db",
+      "candles": 1440,
+      "BALANCE": 700,
+      "UP": 367,
+      "DOWN": 373
+    },
+    {
+      "name": "2024-11-01_XRPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 819,
+      "UP": 325,
+      "DOWN": 296
+    },
+    {
+      "name": "2024-12-01_APTUSDT.db",
+      "candles": 1440,
+      "BALANCE": 545,
+      "UP": 439,
+      "DOWN": 456
+    },
+    {
+      "name": "2024-12-01_DOGEUSDT.db",
+      "candles": 1440,
+      "BALANCE": 501,
+      "UP": 480,
+      "DOWN": 459
+    },
+    {
+      "name": "2024-12-01_NEARUSDT.db",
+      "candles": 1440,
+      "BALANCE": 551,
+      "UP": 451,
+      "DOWN": 438
+    },
+    {
+      "name": "2024-12-01_OPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 495,
+      "UP": 476,
+      "DOWN": 469
+    },
+    {
+      "name": "2025-01-01_BNBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1160,
+      "UP": 144,
+      "DOWN": 136
+    },
+    {
+      "name": "2025-01-01_DOGEUSDT.db",
+      "candles": 1440,
+      "BALANCE": 769,
+      "UP": 353,
+      "DOWN": 318
+    },
+    {
+      "name": "2025-01-01_SOLUSDT.db",
+      "candles": 1440,
+      "BALANCE": 753,
+      "UP": 357,
+      "DOWN": 330
+    },
+    {
+      "name": "2025-01-01_XRPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 542,
+      "UP": 469,
+      "DOWN": 429
+    },
+    {
+      "name": "2025-02-01_ADAUSDT.db",
+      "candles": 1440,
+      "BALANCE": 618,
+      "UP": 392,
+      "DOWN": 430
+    },
+    {
+      "name": "2025-02-01_ARBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 547,
+      "UP": 416,
+      "DOWN": 477
+    },
+    {
+      "name": "2025-02-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1165,
+      "UP": 127,
+      "DOWN": 148
+    },
+    {
+      "name": "2025-02-01_DOGEUSDT.db",
+      "candles": 1440,
+      "BALANCE": 694,
+      "UP": 355,
+      "DOWN": 391
+    },
+    {
+      "name": "2025-02-01_ETHUSDT.db",
+      "candles": 1440,
+      "BALANCE": 776,
+      "UP": 312,
+      "DOWN": 352
+    },
+    {
+      "name": "2025-02-01_LINKUSDT.db",
+      "candles": 1440,
+      "BALANCE": 471,
+      "UP": 434,
+      "DOWN": 535
+    },
+    {
+      "name": "2025-02-01_NEARUSDT.db",
+      "candles": 1440,
+      "BALANCE": 602,
+      "UP": 386,
+      "DOWN": 452
+    },
+    {
+      "name": "2025-02-01_SOLUSDT.db",
+      "candles": 1440,
+      "BALANCE": 666,
+      "UP": 358,
+      "DOWN": 416
+    },
+    {
+      "name": "2025-02-01_XRPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 745,
+      "UP": 353,
+      "DOWN": 342
+    },
+    {
+      "name": "2025-03-01_ADAUSDT.db",
+      "candles": 1440,
+      "BALANCE": 558,
+      "UP": 446,
+      "DOWN": 436
+    },
+    {
+      "name": "2025-04-01_APTUSDT.db",
+      "candles": 1440,
+      "BALANCE": 594,
+      "UP": 436,
+      "DOWN": 410
+    },
+    {
+      "name": "2025-04-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 944,
+      "UP": 258,
+      "DOWN": 238
+    },
+    {
+      "name": "2025-04-01_DOGEUSDT.db",
+      "candles": 1440,
+      "BALANCE": 540,
+      "UP": 467,
+      "DOWN": 433
+    },
+    {
+      "name": "2025-04-01_NEARUSDT.db",
+      "candles": 1440,
+      "BALANCE": 518,
+      "UP": 473,
+      "DOWN": 449
+    },
+    {
+      "name": "2025-04-01_XRPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 553,
+      "UP": 436,
+      "DOWN": 451
+    },
+    {
+      "name": "2025-05-01_ARBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 654,
+      "UP": 410,
+      "DOWN": 376
+    },
+    {
+      "name": "2025-05-01_AVAXUSDT.db",
+      "candles": 1440,
+      "BALANCE": 652,
+      "UP": 409,
+      "DOWN": 379
+    },
+    {
+      "name": "2025-06-01_APTUSDT.db",
+      "candles": 1440,
+      "BALANCE": 642,
+      "UP": 417,
+      "DOWN": 381
+    },
+    {
+      "name": "2025-06-01_ARBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 531,
+      "UP": 465,
+      "DOWN": 444
+    },
+    {
+      "name": "2025-06-01_LINKUSDT.db",
+      "candles": 1440,
+      "BALANCE": 734,
+      "UP": 369,
+      "DOWN": 337
+    },
+    {
+      "name": "2025-06-01_XRPUSDT.db",
+      "candles": 1440,
+      "BALANCE": 914,
+      "UP": 261,
+      "DOWN": 265
+    },
+    {
+      "name": "2025-07-01_ADAUSDT.db",
+      "candles": 1440,
+      "BALANCE": 718,
+      "UP": 345,
+      "DOWN": 377
+    },
+    {
+      "name": "2025-07-01_BNBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1327,
+      "UP": 50,
+      "DOWN": 63
+    },
+    {
+      "name": "2025-07-01_ETHUSDT.db",
+      "candles": 1440,
+      "BALANCE": 992,
+      "UP": 220,
+      "DOWN": 228
+    },
+    {
+      "name": "2025-08-01_LINKUSDT.db",
+      "candles": 1440,
+      "BALANCE": 464,
+      "UP": 465,
+      "DOWN": 511
+    },
+    {
+      "name": "2025-09-01_BNBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 989,
+      "UP": 232,
+      "DOWN": 219
+    },
+    {
+      "name": "2025-09-01_SOLUSDT.db",
+      "candles": 1440,
+      "BALANCE": 590,
+      "UP": 423,
+      "DOWN": 427
+    },
+    {
+      "name": "2025-10-01_ARBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 784,
+      "UP": 323,
+      "DOWN": 333
+    },
+    {
+      "name": "2025-10-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1186,
+      "UP": 131,
+      "DOWN": 123
+    },
+    {
+      "name": "2025-11-01_ADAUSDT.db",
+      "candles": 1440,
+      "BALANCE": 980,
+      "UP": 239,
+      "DOWN": 221
+    },
+    {
+      "name": "2025-11-01_APTUSDT.db",
+      "candles": 1440,
+      "BALANCE": 685,
+      "UP": 388,
+      "DOWN": 367
+    },
+    {
+      "name": "2025-11-01_BNBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1196,
+      "UP": 126,
+      "DOWN": 118
+    },
+    {
+      "name": "2025-11-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1330,
+      "UP": 52,
+      "DOWN": 58
+    },
+    {
+      "name": "2025-11-01_LINKUSDT.db",
+      "candles": 1440,
+      "BALANCE": 780,
+      "UP": 333,
+      "DOWN": 327
+    },
+    {
+      "name": "2025-11-01_SOLUSDT.db",
+      "candles": 1440,
+      "BALANCE": 983,
+      "UP": 226,
+      "DOWN": 231
+    },
+    {
+      "name": "2026-02-01_BNBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 684,
+      "UP": 357,
+      "DOWN": 399
+    },
+    {
+      "name": "2026-02-01_NEARUSDT.db",
+      "candles": 1440,
+      "BALANCE": 394,
+      "UP": 498,
+      "DOWN": 548
+    },
+    {
+      "name": "2026-04-01_ARBUSDT.db",
+      "candles": 1440,
+      "BALANCE": 575,
+      "UP": 439,
+      "DOWN": 426
+    },
+    {
+      "name": "2026-05-01_ADAUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1059,
+      "UP": 199,
+      "DOWN": 182
+    },
+    {
+      "name": "2026-05-01_APTUSDT.db",
+      "candles": 1440,
+      "BALANCE": 673,
+      "UP": 377,
+      "DOWN": 390
+    },
+    {
+      "name": "2026-05-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1194,
+      "UP": 136,
+      "DOWN": 110
+    },
+    {
+      "name": "2026-05-01_NEARUSDT.db",
+      "candles": 1440,
+      "BALANCE": 608,
+      "UP": 415,
+      "DOWN": 417
+    },
+    {
+      "name": "LTC_BALANCE_2023-08-01.db",
+      "candles": 1440,
+      "BALANCE": 788,
+      "UP": 326,
+      "DOWN": 326
+    },
+    {
+      "name": "LTC_BALANCE_2024-02-01.db",
+      "candles": 1440,
+      "BALANCE": 1021,
+      "UP": 214,
+      "DOWN": 205
+    },
+    {
+      "name": "LTC_BALANCE_2024-05-01.db",
+      "candles": 1440,
+      "BALANCE": 571,
+      "UP": 437,
+      "DOWN": 432
+    },
+    {
+      "name": "LTC_BALANCE_2025-03-01.db",
+      "candles": 1440,
+      "BALANCE": 591,
+      "UP": 418,
+      "DOWN": 431
+    },
+    {
+      "name": "LTC_TREND_DOWN_2024-04-01.db",
+      "candles": 1440,
+      "BALANCE": 415,
+      "UP": 515,
+      "DOWN": 510
+    },
+    {
+      "name": "LTC_TREND_DOWN_2024-10-01.db",
+      "candles": 1440,
+      "BALANCE": 746,
+      "UP": 342,
+      "DOWN": 352
+    },
+    {
+      "name": "LTC_TREND_DOWN_2025-02-01.db",
+      "candles": 1440,
+      "BALANCE": 531,
+      "UP": 438,
+      "DOWN": 471
+    },
+    {
+      "name": "LTC_TREND_DOWN_2025-12-01.db",
+      "candles": 1440,
+      "BALANCE": 554,
+      "UP": 435,
+      "DOWN": 451
+    },
+    {
+      "name": "LTC_TREND_UP_2023-02-01.db",
+      "candles": 1440,
+      "BALANCE": 541,
+      "UP": 464,
+      "DOWN": 435
+    },
+    {
+      "name": "LTC_TREND_UP_2024-03-01.db",
+      "candles": 1440,
+      "BALANCE": 562,
+      "UP": 447,
+      "DOWN": 431
+    },
+    {
+      "name": "LTC_TREND_UP_2025-05-01.db",
+      "candles": 1440,
+      "BALANCE": 801,
+      "UP": 353,
+      "DOWN": 286
+    },
+    {
+      "name": "LTC_TREND_UP_2025-10-01.db",
+      "candles": 1440,
+      "BALANCE": 843,
+      "UP": 317,
+      "DOWN": 280
+    }
+  ]
+}

@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from sensors.base import SensorV3
 from sensors.regime.market.trend_calc import _MacroLayer, _MesoLayer, _MicroLayer
+from sensors.regime.markov_detector import MarkovRegimeDetector
 
 logger = logging.getLogger("MarketRegimeSensor")
 
@@ -58,6 +59,10 @@ class MarketRegimeSensor(SensorV3):
         # Candle volume history for avg calculation
         self._candle_vol_history: Dict[str, deque] = {}
 
+        # Markov regime memory (Bayesian prior for synthesis)
+        self._markov: Dict[str, MarkovRegimeDetector] = {}
+        self._markov_config_path = "config/markov_transition.json"
+
     @property
     def name(self) -> str:
         return "MarketRegime"
@@ -69,6 +74,16 @@ class MarketRegimeSensor(SensorV3):
             self._meso[symbol] = _MesoLayer()
             self._macro[symbol] = _MacroLayer()
             self._candle_vol_history[symbol] = deque(maxlen=20)
+            # Initialize Markov detector for this symbol
+            markov = MarkovRegimeDetector()
+            try:
+                markov.load(self._markov_config_path)
+                logger.info(f"Loaded Markov matrix for {symbol}")
+            except FileNotFoundError:
+                logger.warning(f"No Markov matrix found — {symbol} running without memory")
+            except Exception as e:
+                logger.warning(f"Failed to load Markov matrix: {e}")
+            self._markov[symbol] = markov
         return self._micro[symbol], self._meso[symbol], self._macro[symbol]
 
     def on_tick(self, tick_data: dict) -> Optional[dict]:
@@ -126,13 +141,24 @@ class MarketRegimeSensor(SensorV3):
         meso.on_candle(poc, vah, val, ib_high, ib_low, close, volume, avg_volume, ts)
         macro.on_candle(poc, ts)
 
+        # Update Markov memory with candle return
+        markov = self._markov.get(symbol)
+        if markov and markov._trained:
+            if not hasattr(self, "_prev_close"):
+                self._prev_close = {}
+            if symbol in self._prev_close and self._prev_close[symbol] > 0:
+                ret = (close - self._prev_close[symbol]) / self._prev_close[symbol]
+                markov.update(ret)
+            self._prev_close[symbol] = close
+
         # Evaluate all layers
         micro_result = micro.evaluate()
         meso_result = meso.evaluate(ts)
         macro_result = macro.evaluate()
 
         # Normal path: use microstructure layers
-        synth = self._synthesize(micro_result, meso_result, macro_result)
+        markov = self._markov.get(symbol)
+        synth = self._synthesize(micro_result, meso_result, macro_result, markov)
         regime = synth["regime"]
         direction = synth["direction"]
         confidence = synth["confidence"]
@@ -198,6 +224,15 @@ class MarketRegimeSensor(SensorV3):
         reversion_allowed = value_acceptance != "ACCEPTING"
 
         # Build output
+        markov_data = {}
+        if markov and markov._trained:
+            priors = markov.get_prior()
+            markov_data = {
+                "prior_BALANCE": round(priors["BALANCE"], 3),
+                "prior_UP": round(priors["UP"], 3),
+                "prior_DOWN": round(priors["DOWN"], 3),
+            }
+
         output = {
             "type": "MarketRegime_V2",
             "regime": regime,
@@ -211,6 +246,7 @@ class MarketRegimeSensor(SensorV3):
                 "meso": meso_result,
                 "macro": macro_result,
             },
+            "markov": markov_data,
             "va_expansion_rate": meso_result.get("expansion_rate", 0.0),
             "poc_velocity": macro_result.get("velocity_per_candle", 0.0),
             "flow_momentum": micro_result.get("dv_z", 0.0),
@@ -228,12 +264,17 @@ class MarketRegimeSensor(SensorV3):
         # Log regime transitions prominently
         if regime != last and last != "":
             emoji = {"BALANCE": "⚖️", "TREND_UP": "🚀", "TREND_DOWN": "📉"}.get(regime, "🔄")
+            markov_str = ""
+            if markov and markov._trained:
+                priors = markov.get_prior()
+                markov_str = f" | Markov: B={priors['BALANCE']:.2f} U={priors['UP']:.2f} D={priors['DOWN']:.2f}"
             logger.warning(
                 f"{emoji} [REGIME] {symbol}: {last} → {regime} "
                 f"(confidence={confidence:.2f}, dir={direction}) | "
                 f"micro={micro_result['vote']}({micro_result['score']:.2f}) "
                 f"meso={meso_result['vote']}({meso_result['score']:.2f}) "
                 f"macro={macro_result['vote']}({macro_result['score']:.2f})"
+                f"{markov_str}"
             )
 
         return {
@@ -247,37 +288,39 @@ class MarketRegimeSensor(SensorV3):
         micro: dict,
         meso: dict,
         macro: dict,
+        markov: Optional[MarkovRegimeDetector] = None,
     ) -> dict:
         """
-        Hierarchical Synthesis v2: Macro leads → Meso confirms → Micro filters.
+        Hierarchical Synthesis v3: Bayesian Markov + Macro leads → Meso confirms → Micro filters.
 
-        Replaces the old equal-weight voting model which suffered from:
-        - Layers operating on inconmensurable timeframes (10s vs 3-10c vs 20c)
-        - Micro being noise, not signal
-        - Meso having ambiguous direction in mid-VA closes
-        - Consensus almost never reached → chronic BALANCE bias
+        Now includes Markov prior for regime persistence:
+        - If Markov P(UP) > 0.5 → macro threshold reduced (easier to declare UP)
+        - If Markov P(DOWN) > 0.5 → macro threshold reduced (easier to declare DOWN)
+        - If Markov P(BALANCE) > 0.6 → macro threshold raised (harder to declare trend)
 
-        New model:
-        Level 1 — MACRO (Lead Detector):
-          POC migration is the most reliable indicator of sustained trend.
-          If macro.score >= 0.25 and vote != NEUTRAL → declares TREND.
-
-        Level 2 — MESO (Confirmator / Veto):
-          If meso votes OPPOSITE with score >= 0.3 → vetoes, degrades to BALANCE.
-          If meso votes SAME or NEUTRAL → confirms, confidence escalates.
-
-        Level 3 — MICRO (Noise Filter):
-          Does NOT vote for regime. Only detects absorption.
-          If absorption_detected → marks value_acceptance = "REJECTING".
+        This gives the sensor memory without ad-hoc persistence rules.
         """
         # Level 3: Micro = absorption detection only
         absorption_detected = micro.get("reason") == "absorption_detected"
 
-        # Level 1: Macro leads
+        # Level 1: Macro leads — with Markov-adjusted threshold
         macro_score = macro.get("score", 0)
         macro_vote = macro.get("vote", "NEUTRAL")
 
-        if macro_score < 0.15 or macro_vote == "NEUTRAL":
+        # Markov-adjusted macro threshold
+        macro_threshold = 0.15  # Default
+        if markov and markov._trained:
+            dominant = markov.get_dominant()
+            confidence = markov.get_confidence()
+
+            # If Markov has strong conviction for a trend, lower the threshold
+            if dominant in ("UP", "DOWN") and confidence > 0.45:
+                macro_threshold = 0.10  # Easier to declare trend
+            # If Markov strongly favors BALANCE, raise the threshold
+            elif dominant == "BALANCE" and confidence > 0.55:
+                macro_threshold = 0.20  # Harder to declare trend
+
+        if macro_score < macro_threshold or macro_vote == "NEUTRAL":
             # Macro has no conviction → BALANCE
             return {
                 "regime": "BALANCE",
