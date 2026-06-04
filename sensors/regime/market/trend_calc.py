@@ -362,9 +362,11 @@ class _MacroLayer:
         has_direction = net_ratio > 0.55  # >55% candles agree on direction
 
         # Score: combination of velocity magnitude and directional conviction
-        vel_score = min(0.5, abs(velocity_per_candle) / (MACRO_POC_VELOCITY_THRESHOLD * 4))
-        # Map net_ratio 0.55→0.0 to 0.80→0.5 (linear)
-        direction_score = min(0.5, max(0.0, (net_ratio - 0.55) / 0.50))
+        # vel_score ceiling raised from 0.5→0.7: macro needs more expressive range
+        # to reach the synthesis threshold without being capped artificially.
+        vel_score = min(0.7, abs(velocity_per_candle) / (MACRO_POC_VELOCITY_THRESHOLD * 3))
+        # Map net_ratio 0.55→0.0 to 0.80→0.3 (linear, capped to keep total ≤1.0)
+        direction_score = min(0.3, max(0.0, (net_ratio - 0.55) / 0.83))
         total_score = vel_score + direction_score
 
         if abs(velocity_per_candle) > MACRO_POC_VELOCITY_THRESHOLD and has_direction:
