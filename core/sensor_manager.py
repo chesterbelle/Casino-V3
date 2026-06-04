@@ -731,13 +731,15 @@ class SensorManager:
         from sensors.absorption.absorption_detector import AbsorptionDetector
         from sensors.debug_heartbeat import DebugHeartbeatV3
         from sensors.footprint.session import SessionValueArea
-        from sensors.regime.market import MarketRegimeSensor  # Phase 2100
+        from sensors.regime.market_v2 import (
+            MarketRegimeSensorV2,  # V2: 2-layer architecture
+        )
         from sensors.regime.one_timeframing import (
             OneTimeframingSensor,  # Legacy fallback
         )
 
         return [
-            MarketRegimeSensor,  # Phase 2100: 3-layer anticipatory regime
+            MarketRegimeSensorV2,  # V2: Price Action + Volume Profile + Markov
             OneTimeframingSensor,  # Legacy fallback (disabled in config by default)
             SessionValueArea,
             AbsorptionDetector,  # Phase 2300: Unified LTA V7 Absorption
