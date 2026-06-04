@@ -54,7 +54,7 @@ class MarketRegimeSensor(SensorV3):
         self._persistent_direction: Dict[str, str] = {}
         self._persistent_reference: Dict[str, float] = {}
         self._persistent_count: Dict[str, int] = {}
-        self._persistence_reset_threshold = 0.005  # 0.5% reversal to reset
+        self._persistence_reset_threshold = 0.004  # 0.4% reversal to reset (decreased from 0.5% for faster resets)
 
         # Candle volume history for avg calculation
         self._candle_vol_history: Dict[str, deque] = {}
@@ -202,7 +202,7 @@ class MarketRegimeSensor(SensorV3):
                 self._persistent_direction[symbol] = direction if regime.startswith("TREND") else prev_direction
                 self._persistent_reference[symbol] = close
                 self._persistent_count[symbol] = 0
-            elif persist_count < 5:
+            elif persist_count < 6:  # Increased from 5 to allow more time for regime confirmation
                 # No macro confirmation but within decay window → maintain
                 self._persistent_count[symbol] = persist_count + 1
                 regime = prev_regime
@@ -308,14 +308,14 @@ class MarketRegimeSensor(SensorV3):
         macro_vote = macro.get("vote", "NEUTRAL")
 
         # Markov-adjusted macro threshold
-        macro_threshold = 0.15  # Default
+        macro_threshold = 0.15  # Default (original value)
         if markov and markov._trained:
             dominant = markov.get_dominant()
             confidence = markov.get_confidence()
 
             # If Markov has strong conviction for a trend, lower the threshold
             if dominant in ("UP", "DOWN") and confidence > 0.45:
-                macro_threshold = 0.10  # Easier to declare trend
+                macro_threshold = 0.10  # Easier to declare trend (original value)
             # If Markov strongly favors BALANCE, raise the threshold
             elif dominant == "BALANCE" and confidence > 0.55:
                 macro_threshold = 0.20  # Harder to declare trend

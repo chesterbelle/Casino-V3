@@ -19,9 +19,9 @@ MESO_EXPANSION_THRESHOLD = 0.05  # 5% faster expansion
 MESO_IB_BREAK_WEIGHT = 0.4  # Extra weight if IB is broken with volume
 
 # Layer 3 — Macro: POC migration velocity
-MACRO_POC_HISTORY_WINDOW = 20  # Candles to measure POC velocity
-MACRO_POC_VELOCITY_THRESHOLD = 0.0001  # 0.01% per candle
-MACRO_CONSECUTIVE_MIGRATION = 3  # N consecutive candles migrating = conviction
+MACRO_POC_HISTORY_WINDOW = 20  # Candles to measure POC velocity (original value)
+MACRO_POC_VELOCITY_THRESHOLD = 0.0001  # 0.01% per candle (original value)
+MACRO_CONSECUTIVE_MIGRATION = 3  # N consecutive candles migrating = conviction (original value)
 
 
 class _MicroLayer:
@@ -359,7 +359,7 @@ class _MacroLayer:
         dominant_count = ups if direction == "UP" else downs
         # net_ratio: 0.50 = balanced, 1.00 = all candles in one direction
         net_ratio = dominant_count / max(1, total_moves)
-        has_direction = net_ratio > 0.55  # >55% candles agree on direction
+        has_direction = net_ratio > 0.55  # >55% candles agree on direction (original value)
 
         # Score: combination of velocity magnitude and directional conviction
         # vel_score ceiling raised from 0.5→0.7: macro needs more expressive range
