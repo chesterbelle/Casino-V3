@@ -1,5 +1,5 @@
 """
-Scenario ③: Liquidity Exhaustion — "Multiple Tests with Declining Delta"
+Scenario 3: Liquidity Exhaustion -- "Multiple Tests with Declining Delta"
 
 AMT Narrative:
     A structural level is tested repeatedly. Each test has LESS aggressive
@@ -7,154 +7,91 @@ AMT Narrative:
     ammunition. The level will likely hold.
 
 Entry conditions:
-    1. >=3 touches of the same level (±0.05% tolerance) in last 120s
+    1. >=min_tests touches of the same level (tolerance_pct) in test_memory_seconds
     2. Delta at each successive test is DECLINING (|delta_n| < |delta_n-1|)
     3. Price bounced from the level (not consolidating AT the level)
 
-Signal: After 2nd+ test with declining delta + bounce
+Signal: After min_tests+ test with declining delta
 """
 
 import logging
 from collections import defaultdict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("AMTScenarios.LiquidityExhaustion")
 
 
 class LiquidityExhaustionDetector:
-    def __init__(self) -> None:
+    def __init__(self, pressure_engine) -> None:
         self.name = "LiquidityExhaustion"
-        # Track level tests: {symbol: {level_key: [test1, test2, ...]}}
-        # Each test: {ts, delta, price, cvd}
-        self.level_tests: Dict[str, Dict[str, list]] = defaultdict(lambda: defaultdict(list))
+        self.pressure = pressure_engine
+        self.level_tests: Dict[str, Dict[str, List[dict]]] = defaultdict(lambda: defaultdict(list))
         self.last_fire_ts: Dict[str, float] = defaultdict(float)
         self.cooldown = 30.0
+        self.level_tolerance_pct = 0.0005
+        self.test_memory_seconds = 120.0
+        self.min_tests = 3
+        self.declining_threshold = 0.7
+        self.min_bounce_pct = 0.0003
 
-        # Configuration
-        self.level_tolerance_pct = 0.0005  # 0.05% tolerance for "same level"
-        self.test_memory_seconds = 120.0  # How long to remember tests
-        self.min_tests = 3  # Minimum tests to trigger (raised from 2 after Phase B audit)
-        self.declining_threshold = 0.7  # Each test must have < 70% of previous delta
-        self.min_bounce_pct = 0.0003  # 0.03% bounce from level to confirm rejection
+    def _prune_old_tests(self, tests: List[dict], now_ts: float) -> List[dict]:
+        cutoff = now_ts - self.test_memory_seconds
+        pruned = [t for t in tests if t["ts"] >= cutoff]
+        return pruned
 
-        # Track if we're currently at a level vs bounced away
-        self._at_level: Dict[str, Optional[str]] = {}  # symbol -> level_key or None
-        self._last_test_ts: Dict[str, float] = defaultdict(float)
-        self.is_inside_level: Dict[str, Dict[str, bool]] = defaultdict(lambda: defaultdict(bool))
-
-    def _level_key(self, price: float) -> str:
-        """Quantize price to create a level key (0.05% buckets)."""
-        bucket = round(price / (price * self.level_tolerance_pct))
-        return str(bucket)
-
-    def on_tick(
-        self, symbol: str, price: float, timestamp: float, context_registry: Any, footprint_registry: Any
-    ) -> Optional[Dict[str, Any]]:
-        """Evaluate on each tick."""
-        if not context_registry:
-            return None
-
-        # Load dynamic profile parameters
-        from decision.engine.profile_manager import profile_manager
-
-        params = profile_manager.get_sensor_params(symbol, "liquidity_exhaustion")
-        level_tolerance_pct = params.get("level_tolerance_pct", self.level_tolerance_pct)
-        test_memory_seconds = params.get("test_memory_seconds", self.test_memory_seconds)
-        min_tests = params.get("min_tests", self.min_tests)
-        declining_threshold = params.get("declining_threshold", self.declining_threshold)
-        min_bounce_pct = params.get("min_bounce_pct", self.min_bounce_pct)
-
-        poc, vah, val = context_registry.get_structural(symbol)
-        if poc <= 0:
-            return None
-
+    def on_tick(self, symbol: str, price: float, timestamp: float, structural_levels: dict) -> Optional[Dict[str, Any]]:
         if timestamp - self.last_fire_ts[symbol] < self.cooldown:
             return None
 
-        footprint = footprint_registry.get_footprint(symbol)
-        if not footprint:
-            return None
+        from decision.engine.profile_manager import profile_manager
 
-        # Check structural levels for tests: POC, VAH, VAL
-        structural_levels = []
-        if val > 0:
-            structural_levels.append(("VAL", val, "LONG"))  # Tests of VAL → LONG signal
-        if vah > 0:
-            structural_levels.append(("VAH", vah, "SHORT"))  # Tests of VAH → SHORT signal
+        sensor_params = profile_manager.get_sensor_params(symbol, "liquidity_exhaustion")
 
-        for level_name, level_price, signal_side in structural_levels:
-            tolerance = level_price * level_tolerance_pct
-            at_level = abs(price - level_price) <= tolerance
+        if sensor_params:
+            self.min_tests = sensor_params.get("min_tests", self.min_tests)
+            self.declining_threshold = sensor_params.get("declining_threshold", self.declining_threshold)
+            self.min_bounce_pct = sensor_params.get("min_bounce_pct", self.min_bounce_pct)
+            self.test_memory_seconds = sensor_params.get("test_memory_seconds", self.test_memory_seconds)
 
-            level_key = f"{level_name}_{int(level_price * 100)}"
-            tests = self.level_tests[symbol][level_key]
+        state = self.pressure.get_state()
 
-            # Prune old tests
-            cutoff = timestamp - test_memory_seconds
-            self.level_tests[symbol][level_key] = [t for t in tests if t["ts"] > cutoff]
-            tests = self.level_tests[symbol][level_key]
+        current_delta = abs(state.cvd_velocity)
 
-            if at_level:
-                # We're at the level — only record a new test if we transitioned from outside
-                if not self.is_inside_level[symbol][level_key]:
-                    if timestamp - self._last_test_ts.get(f"{symbol}_{level_key}", 0) > 5.0:
-                        # Step 1.1 Fix (AMT V10): Use CVD slope as proxy for instant delta (non-accumulated)
-                        # get_delta_at_level(price) was returning cumulative session delta.
-                        cvd_slope = footprint.get_cvd_slope(window_seconds=3)
-                        current_delta = abs(cvd_slope)
+        vah = structural_levels.get("vah", 0.0)
+        val = structural_levels.get("val", 0.0)
 
-                        tests.append(
-                            {
-                                "ts": timestamp,
-                                "delta": current_delta,
-                                "cvd_slope": cvd_slope,
-                                "price": price,
-                            }
-                        )
-                        self._last_test_ts[f"{symbol}_{level_key}"] = timestamp
-                        self._at_level[symbol] = level_key
-                        self.is_inside_level[symbol][level_key] = True
+        for level_name, level_price, signal_side in [
+            ("VAL", val, "LONG"),
+            ("VAH", vah, "SHORT"),
+        ]:
+            if level_price <= 0:
+                continue
 
-            elif self._at_level.get(symbol) == level_key:
-                # We just bounced away from the level (outside tolerance zone)
-                self.is_inside_level[symbol][level_key] = False
-                bounce_pct = abs(price - level_price) / level_price
-                if bounce_pct >= min_bounce_pct and len(tests) >= min_tests:
-                    # Check if delta is declining across tests
-                    is_declining = True
-                    for i in range(1, len(tests)):
-                        # Step 1.1 Fix: Stricter declining check using the non-accumulated delta
-                        if tests[i]["delta"] >= tests[i - 1]["delta"] * declining_threshold:
-                            is_declining = False
-                            break
+            if abs(price - level_price) <= (level_price * self.level_tolerance_pct):
+                level_key = f"{level_name}_{level_price:.2f}"
+                tests = self.level_tests[symbol][level_key]
 
-                    if is_declining:
-                        # CONFIRMED: Liquidity Exhaustion
+                tests.append({"ts": timestamp, "delta": current_delta})
+
+                tests = self._prune_old_tests(tests, timestamp)
+                self.level_tests[symbol][level_key] = tests
+
+                if len(tests) >= self.min_tests:
+                    recent = tests[-self.min_tests:]
+
+                    is_declining = all(
+                        recent[i]["delta"] < recent[i - 1]["delta"] * self.declining_threshold
+                        for i in range(1, len(recent))
+                    )
+
+                    if is_declining and any(t["delta"] > 0 for t in recent):
                         self.last_fire_ts[symbol] = timestamp
-                        self._at_level[symbol] = None
-                        # Clear tests for this level
                         self.level_tests[symbol][level_key] = []
-
-                        deltas_str = [f"{t['delta']:.0f}" for t in tests]
-                        logger.info(
-                            f"⚡ [LIQUIDITY_EXHAUSTION] {symbol} {signal_side} | "
-                            f"{len(tests)} tests at {level_name}={level_price:.2f}, "
-                            f"delta declining: {deltas_str}"
-                        )
-
                         return {
                             "symbol": symbol,
                             "side": signal_side,
                             "price": price,
                             "timestamp": timestamp,
                             "scenario": "liquidity_exhaustion",
-                            "tactical_type": "LiquidityExhaustion",
-                            "level": level_price,
-                            "level_name": level_name,
-                            "n_tests": len(tests),
-                            "deltas": [t["delta"] for t in tests],
                         }
-
-                self._at_level[symbol] = None
-
         return None

@@ -1,0 +1,98 @@
+{
+  "meta": {
+    "states": [
+      "BALANCE",
+      "UP",
+      "DOWN"
+    ],
+    "trained": true,
+    "trained_at": "2026-06-04T07:04:36.542327",
+    "datasets": 6,
+    "total_candles": 8640,
+    "total_transitions": 8639,
+    "return_threshold": 0.0005
+  },
+  "transitions": {
+    "BALANCE": {
+      "BALANCE": 0.8211,
+      "UP": 0.0908,
+      "DOWN": 0.0881
+    },
+    "UP": {
+      "BALANCE": 0.6177,
+      "UP": 0.2004,
+      "DOWN": 0.1819
+    },
+    "DOWN": {
+      "BALANCE": 0.6322,
+      "UP": 0.1781,
+      "DOWN": 0.1897
+    }
+  },
+  "raw_counts": {
+    "BALANCE": {
+      "BALANCE": 5515,
+      "UP": 610,
+      "DOWN": 592
+    },
+    "UP": {
+      "BALANCE": 601,
+      "UP": 195,
+      "DOWN": 177
+    },
+    "DOWN": {
+      "BALANCE": 600,
+      "UP": 169,
+      "DOWN": 180
+    }
+  },
+  "state_distribution": {
+    "BALANCE": 6717,
+    "UP": 974,
+    "DOWN": 949
+  },
+  "dataset_stats": [
+    {
+      "name": "2024-11-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 898,
+      "UP": 270,
+      "DOWN": 272
+    },
+    {
+      "name": "2025-02-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1165,
+      "UP": 127,
+      "DOWN": 148
+    },
+    {
+      "name": "2025-04-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 944,
+      "UP": 258,
+      "DOWN": 238
+    },
+    {
+      "name": "2025-10-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1186,
+      "UP": 131,
+      "DOWN": 123
+    },
+    {
+      "name": "2025-11-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1330,
+      "UP": 52,
+      "DOWN": 58
+    },
+    {
+      "name": "2026-05-01_BTCUSDT.db",
+      "candles": 1440,
+      "BALANCE": 1194,
+      "UP": 136,
+      "DOWN": 110
+    }
+  ]
+}

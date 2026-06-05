@@ -42,12 +42,12 @@ class MarketProfile:
             return
 
         level = self.round_price(price)
-        # Track if this is a new level for sorted list maintenance
         is_new_level = level not in self.profile
         self.profile[level] += volume
         self.total_volume += volume
 
-        # Maintain sorted list for O(log n) VA calculation
+        if self._sorted_prices is not None and is_new_level:
+            self._sorted_prices.add(level)
         if self._sorted_prices is not None and is_new_level:
             self._sorted_prices.add(level)
 

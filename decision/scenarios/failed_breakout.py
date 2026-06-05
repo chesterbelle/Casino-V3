@@ -23,137 +23,118 @@ logger = logging.getLogger("AMTScenarios.FailedBreakout")
 
 
 class FailedBreakoutDetector:
-    def __init__(self) -> None:
+    def __init__(self, pressure_engine=None, profile_params=None) -> None:
         self.name = "FailedBreakout"
-        # Track breakout events per symbol: {symbol: {side, level, break_ts, cvd_at_break, price_at_break}}
-        self.pending_breaks: Dict[str, dict] = {}
-        # Cooldown per symbol to prevent rapid re-fire
-        self.last_fire_ts: Dict[str, float] = defaultdict(float)
-        self.cooldown = 60.0  # 60s cooldown between signals (raised from 30s after Phase B audit)
+        self.pressure = pressure_engine
+        self.pending_breaks = {}
+        self.last_fire_ts = defaultdict(float)
+        self.cooldown = 60.0
 
-        # Configuration
-        self.max_break_age = 60.0  # Break must return within 60s
-        self.min_break_distance_pct = 0.0003  # Price must cross level by at least 0.03%
-        self.cvd_divergence_threshold = 0.3  # CVD move must be < 30% of what a confirming break would show
+        # Configuration - read from profile if provided, else use defaults
+        if profile_params:
+            self.max_break_age = profile_params.get("max_break_age", 60.0)
+            self.min_break_distance_pct = profile_params.get("min_break_distance_pct", 0.0003)
+            self.cvd_divergence_threshold = profile_params.get("cvd_divergence_threshold", 0.3)
+        else:
+            self.max_break_age = 60.0
+            self.min_break_distance_pct = 0.0003
+            self.cvd_divergence_threshold = 0.3
 
     def on_tick(
-        self, symbol: str, price: float, timestamp: float, context_registry: Any, footprint_registry: Any
+        self, symbol: str, price: float, timestamp: float, context_or_levels, footprint=None
     ) -> Optional[Dict[str, Any]]:
-        """Evaluate on each tick. Returns signal dict if pattern completes."""
-        if not context_registry:
-            return None
-
-        poc, vah, val = context_registry.get_structural(symbol)
-        if poc <= 0 or vah <= val:
-            return None
-
-        # Cooldown check
+        """
+        Evaluate on each tick using central PressureEngine or ContextRegistry.
+        """
         if timestamp - self.last_fire_ts[symbol] < self.cooldown:
             return None
 
-        footprint = footprint_registry.get_footprint(symbol)
-        current_cvd = footprint.cvd if footprint else 0.0
+        # Get profile parameters for this symbol
+        from decision.engine.profile_manager import profile_manager
+
+        sensor_params = profile_manager.get_sensor_params(symbol, "failed_breakout")
+
+        # Update parameters from profile if available
+        if sensor_params:
+            self.max_break_age = sensor_params.get("max_break_age", self.max_break_age)
+            self.min_break_distance_pct = sensor_params.get("min_break_distance_pct", self.min_break_distance_pct)
+            self.cvd_divergence_threshold = sensor_params.get("cvd_divergence_threshold", self.cvd_divergence_threshold)
+
+        if hasattr(context_or_levels, "get_pressure_state"):
+            state = context_or_levels.get_pressure_state(symbol)
+            poc, vah, val = context_or_levels.get_structural(symbol)
+        else:
+            state = self.pressure.get_state() if self.pressure else None
+            vah = context_or_levels.get("vah", 0.0)
+            val = context_or_levels.get("val", 0.0)
+
+        if not state or vah <= val:
+            return None
+
+        current_cvd = state.cvd_delta
 
         # === PHASE 1: Detect new breakouts ===
         pending = self.pending_breaks.get(symbol)
-
-        # Dynamic profile parameters
-        from decision.engine.profile_manager import profile_manager
-
-        params = profile_manager.get_sensor_params(symbol, "failed_breakout")
-        min_break_distance_pct = params.get("min_break_distance_pct", self.min_break_distance_pct)
-        max_break_age = params.get("max_break_age", self.max_break_age)
-        cvd_divergence_threshold = params.get("cvd_divergence_threshold", self.cvd_divergence_threshold)
-
         if not pending:
-            # Check if price is breaking VAH (potential SHORT setup)
-            if price > vah * (1 + min_break_distance_pct):
+            if price > vah * (1 + self.min_break_distance_pct):
                 self.pending_breaks[symbol] = {
-                    "direction": "ABOVE",  # Broke above VAH
-                    "side": "SHORT",  # Trade direction if it fails
+                    "direction": "ABOVE",
+                    "side": "SHORT",
                     "level": vah,
                     "break_ts": timestamp,
                     "cvd_at_break": current_cvd,
-                    "price_at_break": price,
                 }
-                return None
-
-            # Check if price is breaking VAL (potential LONG setup)
-            if price < val * (1 - min_break_distance_pct):
+            elif price < val * (1 - self.min_break_distance_pct):
                 self.pending_breaks[symbol] = {
-                    "direction": "BELOW",  # Broke below VAL
-                    "side": "LONG",  # Trade direction if it fails
+                    "direction": "BELOW",
+                    "side": "LONG",
                     "level": val,
                     "break_ts": timestamp,
                     "cvd_at_break": current_cvd,
-                    "price_at_break": price,
                 }
-                return None
-
             return None
 
-        # === PHASE 2: Monitor pending breakout for failure ===
+        # === PHASE 2: Monitor for failure ===
         elapsed = timestamp - pending["break_ts"]
-
-        # Expired — breakout held too long, it's probably real
-        if elapsed > max_break_age:
+        if elapsed > self.max_break_age:
             del self.pending_breaks[symbol]
             return None
 
-        # Check for re-entry into VA (breakout failed)
         level = pending["level"]
         direction = pending["direction"]
-
-        re_entered = False
-        if direction == "ABOVE" and price < level:
-            re_entered = True
-        elif direction == "BELOW" and price > level:
-            re_entered = True
+        re_entered = (direction == "ABOVE" and price < level) or (direction == "BELOW" and price > level)
 
         if not re_entered:
             return None
 
-        # === PHASE 3: Confirm delta divergence & Exhaustion Gate ===
+        # === PHASE 3: Confirmation ===
         cvd_change = current_cvd - pending["cvd_at_break"]
 
-        # Step 1.2 Fix (AMT V10): Compare CVD change against expected change (slope * elapsed)
-        baseline_slope = abs(footprint.get_cvd_slope(window_seconds=10)) if footprint else 0.0
-        expected_change = baseline_slope * elapsed
-        expected_change = max(expected_change, 5.0)  # Minimum expected change for significance
+        # Usamos la velocidad del motor para validar convicción
+        expected_change = abs(state.cvd_velocity * elapsed)
+        expected_change = max(expected_change, 5.0)
 
-        # Exhaustion Gate (Phase B Audit Point 6):
-        # If CVD change is TOO strong in the direction of the break, don't fade it.
-        # This is the "Intensification" check.
-        if direction == "ABOVE" and cvd_change > expected_change * 1.8:
-            # Delta is intensifying - this is likely Trend Acceptance, not a failed break.
-            del self.pending_breaks[symbol]
-            return None
-        if direction == "BELOW" and cvd_change < -expected_change * 1.8:
+        # Exhaustion Gate: CVD demasiado fuerte = Trend Acceptance
+        if (direction == "ABOVE" and cvd_change > expected_change * 1.8) or (
+            direction == "BELOW" and cvd_change < -expected_change * 1.8
+        ):
             del self.pending_breaks[symbol]
             return None
 
+        # Divergencia
         if direction == "ABOVE":
-            # Break above VAH: confirming = CVD positive & significant
-            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
+            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
         else:
-            # Break below VAL: confirming = CVD negative & significant
-            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
+            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
 
         if not is_divergent:
-            # Delta confirmed the break — it was real, don't fade it
             del self.pending_breaks[symbol]
             return None
 
-        # === CONFIRMED: Failed Breakout ===
+        # Confirmado
         side = pending["side"]
         self.last_fire_ts[symbol] = timestamp
         del self.pending_breaks[symbol]
-
-        logger.info(
-            f"🔄 [FAILED_BREAKOUT] {symbol} {side} | "
-            f"Broke {direction} {level:.2f}, returned at {price:.2f} "
-            f"(CVD divergent: Δ={cvd_change:.1f}, elapsed={elapsed:.1f}s)"
-        )
 
         return {
             "symbol": symbol,
@@ -161,9 +142,5 @@ class FailedBreakoutDetector:
             "price": price,
             "timestamp": timestamp,
             "scenario": "failed_breakout",
-            "tactical_type": "FailedBreakout",
             "level": level,
-            "direction": pending["direction"],
-            "cvd_change": cvd_change,
-            "elapsed_s": elapsed,
         }

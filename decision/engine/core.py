@@ -50,10 +50,12 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self._profile_classified: Dict[str, bool] = defaultdict(bool)
 
         # Scenario Orchestrator (Unification of AMT + Absorption)
-        from core.footprint_registry import footprint_registry
+        from core.pressure.engine import PressureEngine
         from decision.scenario_manager import ScenarioManager
 
-        self.scenario_manager = ScenarioManager(footprint_registry, context_registry)
+        # Create PressureEngine for scenarios
+        self.pressure_engine = PressureEngine()
+        self.scenario_manager = ScenarioManager(self.pressure_engine)
 
         # Event Subscriptions
         self.engine.subscribe(EventType.TICK, self.on_tick)
@@ -77,7 +79,12 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
     async def on_candle(self, event):
         """Propagate candle events to ScenarioManager for TrendAcceptance tracking."""
-        self.scenario_manager.on_candle(event.symbol, event.close, event.timestamp)
+        from core.context_registry import ContextRegistry
+
+        reg = ContextRegistry()
+        poc, vah, val = reg.get_structural(event.symbol)
+        structural_levels = {"poc": poc, "vah": vah, "val": val}
+        self.scenario_manager.on_candle(event.symbol, event.close, event.timestamp, structural_levels)
 
     def is_system_warm(self, symbol: str) -> bool:
         """Structural readiness check."""
@@ -116,6 +123,11 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         price = event.price
         timestamp = event.timestamp
 
+        # Update PressureEngine with tick data
+        qty = event.volume
+        is_buyer_maker = event.side == "SELL"
+        self.pressure_engine.update(qty, is_buyer_maker, timestamp, price)
+
         # 1. Warmup & In-Trade Check
         if not self.is_system_warm(symbol):
             return
@@ -129,8 +141,15 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         if not self._profile_classified[symbol]:
             self._classify_and_set_profile(symbol)
 
+        # Get structural levels from ContextRegistry
+        from core.context_registry import ContextRegistry
+
+        reg = ContextRegistry()
+        poc, vah, val = reg.get_structural(symbol)
+        structural_levels = {"poc": poc, "vah": vah, "val": val}
+
         # 3. Evaluate Scenarios via ScenarioManager
-        signal = self.scenario_manager.on_tick(symbol, price, timestamp)
+        signal = self.scenario_manager.on_tick(symbol, price, timestamp, structural_levels)
 
         # 4. Process and Dispatch if signal found
         if signal:
@@ -174,13 +193,8 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         )
 
     async def on_signal(self, event: SignalEvent):
-        """Signal Entry Point: Handles regime updates and external tactical signals."""
+        """Signal Entry Point: Handles external tactical signals."""
         md = event.metadata or {}
-
-        # A. Regime Handling (Priority)
-        if md.get("type") == "MarketRegime_V2":
-            self._handle_regime_update(event)
-            return
 
         # ⚠️ LEGACY: TACTICAL_CONFIRMATION_REQUIRED signals are no longer used.
         if event.side == "TACTICAL_CONFIRMATION_REQUIRED":
@@ -211,27 +225,15 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             if orchestrated_signal:
                 await self._process_signal(orchestrated_signal, trace=trace)
 
-    def _handle_regime_update(self, event):
-        """Updates ContextRegistry with regime sensor data."""
-        md = event.metadata
-        regime_v2 = md.get("regime", "BALANCE")
-        # Mapping logic (Legacy compatibility)
-        legacy_regime_map = {"BALANCE": "NEUTRAL", "TRANSITION": "TRANSITION", "TREND_UP": "UP", "TREND_DOWN": "DOWN"}
-        mapped = legacy_regime_map.get(regime_v2, "NEUTRAL")
-
-        if self.context_registry:
-            self.context_registry.set_regime(event.symbol, mapped)
-            self.context_registry.set_regime_v2(event.symbol, md)
-
-        logger.info(f"🌐 [REGIME_V2] {event.symbol}: {regime_v2} (conf={md.get('confidence', 0):.2f})")
-
     async def _process_signal(self, signal, trace=None):
         """Orchestrates final validation, target calculation, and dispatch."""
         symbol = signal["symbol"]
         side = signal["side"]
         price = signal["price"]
         now = signal["timestamp"]
-        scenario = signal.get("scenario", signal.get("tactical_type", "unknown"))
+        scenario = signal.get(
+            "scenario", signal.get("metadata", {}).get("scenario", signal.get("tactical_type", "unknown"))
+        )
 
         # Unified Decision Trace (UDT): Use existing trace or create new one
         if not trace:

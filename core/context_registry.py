@@ -44,6 +44,7 @@ class ContextRegistry:
         self.micro_state: Dict[str, dict] = {}  # symbol -> {cvd, skewness, z_score, last_update}
         self.ib_levels: Dict[str, dict] = {}  # symbol -> {high, low}  Phase 700: IB levels for proximity gate
         self.active_trades: Dict[str, bool] = defaultdict(bool)  # symbol -> in_trade (Phase 974)
+        self.pressure_state: Dict[str, dict] = {}
 
         # Phase A2: Session-aware structural levels (overwritten by SessionValueArea events)
         self._session_structural: Dict[str, dict] = {}  # symbol -> {poc, vah, val}
@@ -87,6 +88,12 @@ class ContextRegistry:
         self.btc_trend = "NEUTRAL"
 
         logger.info("🏛️ ContextRegistry (Zero-Lag Mirror) initialized.")
+
+    def set_pressure_state(self, symbol: str, state):
+        self.pressure_state[symbol] = state
+
+    def get_pressure_state(self, symbol: str):
+        return self.pressure_state.get(symbol)
 
     def on_tick(self, symbol: str, price: float, volume: float, side: str, timestamp: Optional[float] = None):
         """Update structural and pulse layers synchronously."""

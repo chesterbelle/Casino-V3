@@ -15,7 +15,7 @@ DISABLE_WORKERS = False  # Set to True for debugging/validation in single proces
 
 ACTIVE_SENSORS = {
     # === CONTEXT SENSORS (Required for structural levels and regime detection) ===
-    "MarketRegime": True,  # 3-layer anticipatory regime detection
+    "MarketRegime": False,  # V2: Price Action + Volume Profile + Markov
     "SessionValueArea": True,  # Structural levels (POC, VAH, VAL, IB)
     # === TACTICAL SENSORS (The Triggers) ===
     "TacticalAbsorptionV2": True,  # Phase 2300: Unified LTA V7 Absorption

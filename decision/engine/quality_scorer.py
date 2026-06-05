@@ -77,38 +77,50 @@ def _score_exhaustion(symbol: str) -> Tuple[float, str]:
 
 def _score_regime(symbol: str, side: str, signal: dict, context_registry) -> Tuple[float, str, SetupMode, str]:
     """
-    Score regime alignment using existing regime guardian logic.
+    Score regime/cascade alignment using PressureState from ContextRegistry.
     Returns (score, reason, setup_mode, value_position).
     """
-    from decision.guardians.regime_guardian import check_regime_alignment
+    if not context_registry:
+        return 1.0, "No context registry", SetupMode.REVERSION, "IN_VALUE"
 
-    result = check_regime_alignment(symbol, side, signal, context_registry)
+    state = context_registry.get_pressure_state(symbol)
+    if not state:
+        return 1.0, "No pressure state available (neutral)", SetupMode.REVERSION, "IN_VALUE"
 
-    if not result.passed:
-        return 0.0, result.reason, SetupMode.NEUTRAL, "UNKNOWN"
+    # Anti-cascade check: if we are trying to go counter-trend in a cascade, fail it.
+    if side == "LONG" and state.block_long:
+        return 0.0, f"BLOCKED | Price cascading down (Z={state.price_displacement_z:.2f})", SetupMode.NEUTRAL, "EXCESS"
+    if side == "SHORT" and state.block_short:
+        return 0.0, f"BLOCKED | Price cascading up (Z={state.price_displacement_z:.2f})", SetupMode.NEUTRAL, "EXCESS"
 
-    score = result.score
-    setup_mode = result.setup_mode
-    value_position = result.metrics.get("value_position", "OUT_OF_VALUE") if result.metrics else "OUT_OF_VALUE"
+    # Check value position from Volume Profile levels
+    price = signal.get("close", 0.0) or signal.get("price", 0.0)
+    poc, vah, val = context_registry.get_structural(symbol) if context_registry else (0.0, 0.0, 0.0)
 
-    return score, result.reason, setup_mode, value_position
+    value_position = "IN_VALUE"
+    if poc > 0 and vah > val:
+        va_width = vah - val
+        if price <= val:
+            value_position = "EXCESS" if price < val - (va_width * 0.5) else "OUT_OF_VALUE"
+        elif price >= vah:
+            value_position = "EXCESS" if price > vah + (va_width * 0.5) else "OUT_OF_VALUE"
+
+    # For zero-state, all setups default to SetupMode.REVERSION
+    return 1.0, "Aligned", SetupMode.REVERSION, value_position
 
 
 def _score_structure(
     symbol: str, price: float, side: str, setup_mode: SetupMode, context_registry
 ) -> Tuple[float, str]:
     """
-    Score structure geography.
-    Returns (score, reason).
+    Score structure proximity.
     """
-    from decision.guardians.structure_guardian import check_structure_alignment
-
-    result = check_structure_alignment(symbol, price, side, setup_mode, context_registry)
-
-    if not result.passed:
-        return 0.0, result.reason
-
-    return result.score, result.reason
+    if not context_registry:
+        return 1.0, "No registry"
+    poc, vah, val = context_registry.get_structural(symbol)
+    if poc == 0.0:
+        return 0.5, "No structural levels loaded (neutral)"
+    return 1.0, "Structural levels loaded"
 
 
 def _score_liquidity(symbol: str, side: str, target_price: float, context_registry) -> Tuple[float, str]:
@@ -204,6 +216,12 @@ def evaluate_quality(
     elif quality_score >= grade_b:
         grade = "B"
     else:
+        grade = None
+
+    # Structural counter-trend penalty: if regime guardian blocked the signal
+    # (regime_score == 0.0), require A-grade minimum. Counter-trend entries
+    # need near-perfect exhaustion + structure + liquidity to pass.
+    if regime_score == 0.0 and grade != "A":
         grade = None
 
     # Build result

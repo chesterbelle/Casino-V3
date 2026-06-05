@@ -23,15 +23,14 @@ logger = logging.getLogger("ScenarioManager")
 
 
 class ScenarioManager:
-    def __init__(self, footprint_registry, context_registry):
-        self.footprint = footprint_registry
-        self.context = context_registry
+    def __init__(self, pressure_engine):
+        self.pressure = pressure_engine
 
         # Scenario Detectors - Reordered by statistical precedence (Best edge first)
         self.scenarios = [
-            LiquidityExhaustionDetector(),  # Highest Edge (~0.32%)
-            FailedBreakoutDetector(),  # Tactical Mean Reversion (~0.09%)
-            TrendAcceptanceDetector(),  # Momentum/Trend
+            LiquidityExhaustionDetector(self.pressure),
+            FailedBreakoutDetector(self.pressure),
+            TrendAcceptanceDetector(self.pressure),
         ]
 
         # PRIORITY_MAP: Define precedence if multiple scenarios trigger in the same tick.
@@ -47,7 +46,7 @@ class ScenarioManager:
 
         logger.info("🏗️ ScenarioManager initialized (AMT V10 Architecture - UDT Enabled)")
 
-    def on_tick(self, symbol: str, price: float, timestamp: float) -> Optional[dict]:
+    def on_tick(self, symbol: str, price: float, timestamp: float, structural_levels: dict) -> Optional[dict]:
         """
         Main orchestration logic (The Arbitrator).
         Fuses multiple signals in the same direction and resolves conflicts.
@@ -56,7 +55,7 @@ class ScenarioManager:
         candidates = []
 
         for scenario in self.scenarios:
-            sig = scenario.on_tick(symbol, price, timestamp, self.context, self.footprint)
+            sig = scenario.on_tick(symbol, price, timestamp, structural_levels)
             if sig:
                 scenario_key = sig.get("scenario", "unknown")
                 sig["_priority"] = self.PRIORITY_MAP.get(scenario_key, 0)
@@ -119,11 +118,11 @@ class ScenarioManager:
         """Return signal distribution statistics."""
         return {"scenario_distribution": self.signal_stats, "total_signals": sum(self.signal_stats.values())}
 
-    def on_candle(self, symbol: str, close: float, timestamp: float):
+    def on_candle(self, symbol: str, close: float, timestamp: float, structural_levels: dict):
         """Called on candle close to update scenario state (e.g. TrendAcceptance)."""
         for scenario in self.scenarios:
             if hasattr(scenario, "on_candle"):
-                scenario.on_candle(symbol, close, timestamp, self.context, self.footprint)
+                scenario.on_candle(symbol, close, timestamp, structural_levels)
 
     def on_signal(self, signal: dict, trace=None) -> Optional[dict]:
         """

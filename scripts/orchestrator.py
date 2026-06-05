@@ -1,5 +1,6 @@
 import argparse
 import glob
+import json
 import os
 import signal
 import subprocess
@@ -28,281 +29,39 @@ signal.signal(signal.SIGTERM, handle_exit)
 
 
 # Protocol Configurations
+# Protocol Configurations (Simplificado para ser dinámico)
 PROTOCOLS = {
-    "generalized": {
-        "assets": [
-            "ADAUSDT",
-            "ETHUSDT",
-            "SOLUSDT",
-            "BNBUSDT",
-            "BTCUSDT",
-            "AVAXUSDT",
-            "LINKUSDT",
-            "DOGEUSDT",
-            "LTCUSDT",
-            "SUIUSDT",
-        ],
-        "run_type": "audit",
-        "max_workers": 4,
-    },
-    "long-range": {
-        "datasets": [
-            "LTC_RANGE_2024-02-01.db",
-            "LTC_RANGE_2024-05-01.db",
-            "LTC_RANGE_2024-08-01.db",
-            "LTC_BEAR_2024-04-01.db",
-            "LTC_BEAR_2024-10-01.db",
-            "LTC_BEAR_2025-02-01.db",
-            "LTC_BULL_2024-03-01.db",
-            "LTC_BULL_2024-12-01.db",
-            "LTC_BULL_2025-05-01.db",
-        ],
-        "symbol": "LTC/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-    },
-    "strategy": {
-        "run_type": "trade",
-        "max_workers": 1,
-    },
-    "single-coin": {
-        "run_type": "audit",
-        "max_workers": 1,
-    },
-    "set_a": {
-        "datasets": [
-            "LTC_TREND_UP_2023-02-01.db",
-            "LTC_TREND_UP_2025-05-01.db",
-            "LTC_TREND_DOWN_2024-04-01.db",
-            "LTC_TREND_DOWN_2024-10-01.db",
-            "LTC_BALANCE_2024-02-01.db",
-            "LTC_BALANCE_2024-05-01.db",
-        ],
-        "symbol": "LTC/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": False,
-    },
-    "set_a_avax": {
-        "datasets": [
-            "2023-02-01_AVAXUSDT.db",
-            "2024-02-01_AVAXUSDT.db",
-            "2024-04-01_AVAXUSDT.db",
-            "2024-05-01_AVAXUSDT.db",
-            "2024-10-01_AVAXUSDT.db",
-            "2025-05-01_AVAXUSDT.db",
-        ],
-        "symbol": "AVAX/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_sui": {
-        "datasets": [
-            "2024-02-01_SUIUSDT.db",
-            "2024-05-01_SUIUSDT.db",
-        ],
-        "symbol": "SUI/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 2,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_sol": {
-        "datasets": [
-            "2024-05-01_SOLUSDT.db",
-            "2024-11-01_SOLUSDT.db",
-            "2025-01-01_SOLUSDT.db",
-            "2025-02-01_SOLUSDT.db",
-            "2025-09-01_SOLUSDT.db",
-            "2025-11-01_SOLUSDT.db",
-        ],
-        "symbol": "SOL/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_xrp": {
-        "datasets": [
-            "2024-10-01_XRPUSDT.db",
-            "2024-11-01_XRPUSDT.db",
-            "2025-01-01_XRPUSDT.db",
-            "2025-02-01_XRPUSDT.db",
-            "2025-04-01_XRPUSDT.db",
-            "2025-06-01_XRPUSDT.db",
-        ],
-        "symbol": "XRP/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_doge": {
-        "datasets": [
-            "2024-10-01_DOGEUSDT.db",
-            "2024-11-01_DOGEUSDT.db",
-            "2024-12-01_DOGEUSDT.db",
-            "2025-01-01_DOGEUSDT.db",
-            "2025-02-01_DOGEUSDT.db",
-            "2025-04-01_DOGEUSDT.db",
-        ],
-        "symbol": "DOGE/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_op": {
-        "datasets": [
-            "2024-10-01_OPUSDT.db",
-            "2024-11-01_OPUSDT.db",
-            "2024-12-01_OPUSDT.db",
-        ],
-        "symbol": "OP/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_link": {
-        "datasets": [
-            "2024-11-01_LINKUSDT.db",
-            "2025-02-01_LINKUSDT.db",
-            "2025-06-01_LINKUSDT.db",
-            "2025-08-01_LINKUSDT.db",
-            "2025-11-01_LINKUSDT.db",
-        ],
-        "symbol": "LINK/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_near": {
-        "datasets": [
-            "2024-11-01_NEARUSDT.db",
-            "2024-12-01_NEARUSDT.db",
-            "2025-02-01_NEARUSDT.db",
-            "2025-04-01_NEARUSDT.db",
-            "2026-02-01_NEARUSDT.db",
-            "2026-05-01_NEARUSDT.db",
-        ],
-        "symbol": "NEAR/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_apt": {
-        "datasets": [
-            "2024-10-01_APTUSDT.db",
-            "2024-11-01_APTUSDT.db",
-            "2024-12-01_APTUSDT.db",
-            "2025-04-01_APTUSDT.db",
-            "2025-06-01_APTUSDT.db",
-            "2025-11-01_APTUSDT.db",
-            "2026-05-01_APTUSDT.db",
-        ],
-        "symbol": "APT/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_btc": {
-        "datasets": [
-            "2024-11-01_BTCUSDT.db",
-            "2025-02-01_BTCUSDT.db",
-            "2025-04-01_BTCUSDT.db",
-            "2025-10-01_BTCUSDT.db",
-            "2025-11-01_BTCUSDT.db",
-            "2026-05-01_BTCUSDT.db",
-        ],
-        "symbol": "BTC/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_eth": {
-        "datasets": [
-            "2024-08-01_ETHUSDT.db",
-            "2024-09-01_ETHUSDT.db",
-            "2024-10-01_ETHUSDT.db",
-            "2024-11-01_ETHUSDT.db",
-            "2025-02-01_ETHUSDT.db",
-            "2025-07-01_ETHUSDT.db",
-        ],
-        "symbol": "ETH/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_ada": {
-        "datasets": [
-            "2024-11-01_ADAUSDT.db",
-            "2025-02-01_ADAUSDT.db",
-            "2025-03-01_ADAUSDT.db",
-            "2025-07-01_ADAUSDT.db",
-            "2025-11-01_ADAUSDT.db",
-            "2026-05-01_ADAUSDT.db",
-        ],
-        "symbol": "ADA/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_arb": {
-        "datasets": [
-            "2024-11-01_ARBUSDT.db",
-            "2025-02-01_ARBUSDT.db",
-            "2025-05-01_ARBUSDT.db",
-            "2025-06-01_ARBUSDT.db",
-            "2025-10-01_ARBUSDT.db",
-            "2026-04-01_ARBUSDT.db",
-        ],
-        "symbol": "ARB/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_a_bnb": {
-        "datasets": [
-            "2024-05-01_BNBUSDT.db",
-            "2025-01-01_BNBUSDT.db",
-            "2025-07-01_BNBUSDT.db",
-            "2025-09-01_BNBUSDT.db",
-            "2025-11-01_BNBUSDT.db",
-            "2026-02-01_BNBUSDT.db",
-        ],
-        "symbol": "BNB/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": True,
-        "skip_clean": True,
-    },
-    "set_b": {
-        "datasets": [
-            "LTC_TREND_UP_2025-10-01.db",
-            "LTC_TREND_UP_2024-03-01.db",
-            "LTC_TREND_DOWN_2025-12-01.db",
-            "LTC_TREND_DOWN_2025-02-01.db",
-            "LTC_BALANCE_2023-08-01.db",
-            "LTC_BALANCE_2025-03-01.db",
-        ],
-        "symbol": "LTC/USDT:USDT",
-        "run_type": "audit",
-        "max_workers": 3,
-        "skip_merge": False,
-    },
+    "generalized": {"run_type": "audit", "max_workers": 4, "skip_merge": False},
+    "cluster_mid_liquid": {"run_type": "audit", "max_workers": 4, "skip_merge": False},
+    "cluster_mega_liquid": {"run_type": "audit", "max_workers": 4, "skip_merge": False},
+    "cluster_major_liquid": {"run_type": "audit", "max_workers": 4, "skip_merge": False},
+    "cluster_thin_volatile": {"run_type": "audit", "max_workers": 4, "skip_merge": False},
+    "cluster_illiqid_spec": {"run_type": "audit", "max_workers": 4, "skip_merge": False},
+    "single-coin": {"run_type": "audit", "max_workers": 4, "skip_merge": True},
+    "strategy": {"run_type": "trade", "max_workers": 1, "skip_merge": True},
 }
 
 DB_DIR = "data/datasets/backtest_ready"
+
+
+def get_datasets_for_symbol(symbol, filter_pattern=None):
+    """Descubrimiento dinámico de datasets."""
+    # Normalizar símbolo: AVAXUSDT -> *AVAXUSDT*.db
+    pattern = f"*{symbol.replace('/USDT:USDT', '').replace('USDT', '')}*.db"
+    files = glob.glob(os.path.join(DB_DIR, pattern))
+
+    if filter_pattern:
+        files = [f for f in files if filter_pattern in f]
+
+    return [os.path.basename(f) for f in files]
+
+
+def get_cluster_protocol(cluster_name):
+    with open("config/clusters_fixed.json") as f:
+        data = json.load(f)
+    return data["clusters"].get(cluster_name, {}).get("members", [])
+
+
 LOG_DIR = "logs"
 
 
@@ -426,32 +185,50 @@ def run_protocol(protocol_name, symbol=None):
     if config_preview.get("skip_clean", False):
         print("   🔒 skip_clean=True — sibling DBs from other protocols will be preserved")
 
+
+def run_protocol(protocol_name, symbol=None, filter_pattern=None):
     config = PROTOCOLS.get(protocol_name)
     if not config:
         print(f"❌ Unknown protocol: {protocol_name}")
         return
 
+    # Inicializar limpieza (global o selectiva)
+    if not config.get("skip_clean", False):
+        clean_temp_data()
+    else:
+        if not os.path.exists(LOG_DIR):
+            os.makedirs(LOG_DIR)
+
     tasks = []
-    if protocol_name in (
-        "long-range",
-        "cross-validation",
-        "set_a",
-        "set_b",
-        "set_a_avax",
-        "set_a_sui",
-        "set_a_sol",
-        "set_a_xrp",
-        "set_a_doge",
-        "set_a_op",
-        "set_a_link",
-        "set_a_near",
-        "set_a_apt",
-        "set_a_btc",
-        "set_a_eth",
-        "set_a_ada",
-        "set_a_arb",
-        "set_a_bnb",
-    ):
+    # 1. Caso Cluster
+    if protocol_name.startswith("cluster_"):
+        cluster_key = protocol_name.replace("cluster_", "").upper()
+        members = get_cluster_protocol(cluster_key)
+        for sym in members:
+            datasets = get_datasets_for_symbol(sym, filter_pattern)
+            for db_file in datasets:
+                tasks.append(
+                    {
+                        "task_id": db_file.replace(".db", ""),
+                        "db_path": os.path.join(DB_DIR, db_file),
+                        "symbol": format_ccxt_symbol(sym),
+                        "run_type": config["run_type"],
+                    }
+                )
+    # 2. Caso Moneda Individual
+    elif protocol_name == "single-coin" and symbol:
+        datasets = get_datasets_for_symbol(symbol, filter_pattern)
+        for db_file in datasets:
+            tasks.append(
+                {
+                    "task_id": db_file.replace(".db", ""),
+                    "db_path": os.path.join(DB_DIR, db_file),
+                    "symbol": format_ccxt_symbol(symbol),
+                    "run_type": config["run_type"],
+                }
+            )
+    # 3. Fallback a sets heredados (si alguno queda en PROTOCOLS)
+    elif "datasets" in config:
         for db_file in config["datasets"]:
             tasks.append(
                 {
@@ -461,6 +238,7 @@ def run_protocol(protocol_name, symbol=None):
                     "run_type": config["run_type"],
                 }
             )
+    # ... resto de lógica de tasks existente ...
     elif protocol_name in ["single-coin", "strategy"]:
         if not symbol:
             symbol = "LTCUSDT"  # default if not provided
@@ -541,11 +319,12 @@ def run_protocol(protocol_name, symbol=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Smart Orchestrator for Casino-V3 Audit Protocols")
     parser.add_argument("--protocol", choices=PROTOCOLS.keys(), required=True)
-    parser.add_argument("--symbol", help="Symbol for single-coin or strategy protocol (e.g. LTCUSDT)")
+    parser.add_argument("--symbol", help="Symbol for single-coin protocol")
+    parser.add_argument("--filter", help="Filter pattern for datasets (e.g. 2025)")
     args = parser.parse_args()
 
     try:
-        run_protocol(args.protocol, args.symbol)
+        run_protocol(args.protocol, args.symbol, args.filter)
     except Exception as e:
         print(f"\n❌ FATAL ERROR: {e}")
         sys.exit(1)

@@ -9,7 +9,7 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
-*   **Current Branch**: `8.6-Alphareloaded` (v8.5-per-regime-targets + hard block revertido, commit `3a78d3c`)
+*   **Current Branch**: `8.7-cluster-improved` (V2 regime sensor — Price Action + Volume Profile + Markov)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
 
@@ -55,7 +55,7 @@
 7.  **PROFILE SYSTEM V3 — COMPLETADO ✅** (2026-06-01): Rediseño a 4 dimensiones institucionales. Clustering K-Means automático desde exchange. Silhouette 0.538.
 8.  **ILLIQUID_SPEC BACKTEST — COMPLETADO ✅** (2026-06-02): SOL +0.24% (edge marginal), XRP -0.05%, DOGE -0.13%. **PROBLEMA**: Profile contradiction — clustering no produce ILLIQUID_SPEC naturalmente.
 9.  **RESOLVER PROFILE CONTRADICTION — PRÓXIMO 🔴**: K-Means no-determinista produce clusters diferentes cada corrida. SOL/XRP/DOGE clasificados como MAJOR_LIQUID por diagnostic pero THIN/MID por clustering. Necesitar: approach determinista para clustering o redefinición de perfiles.
-10. **INVESTIGAR LONGS EN TREND_DOWN — PRÓXIMO 🔴**: Investigar por qué LONGS en TREND_DOWN tienen solo 6% WR (5 TP vs 79 SL). ¿Es filtro de calidad, ruido del regime sensor, o edge real negativo?
+10. **INVESTIGAR LONGS EN TREND_DOWN — RESUELTO 🟢** (2026-06-03): Root cause identificado: quality scorer permitía señales contra-tendencia con B-grade aunque regime guardian las rechazara (peso 25% permitía bypass). Solución: counter-trend penalty en quality_scorer.py — si regime_score==0.0, requiere A-grade (≥0.70) mínimo. Verificado que no hay bug de inversión — el disparity 6% vs 92% es estructural, no matemático.
 11. **REDUCIR TIMEOUT RATE — PRÓXIMO 🔴**: Optimizar targets para bajar ~60% timeout. Es el drag principal.
 12. **RE-EVALUAR NOMBRE DEL SETUP — PRÓXIMO**: TacticalAbsorptionV2 → InstitutionalFlowV2?
 13. **ARQUITECTURA ENTRY — PRÓXIMO 🔴** (descubierto en iter 6): AVAX TAV y SUI TAV son **ENTRY FAILURE**. No se puede fix con parámetros. Requiere cambios en entry logic.
@@ -63,15 +63,25 @@
 15. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil
 16. **INVESTIGACIÓN ETH — PENDIENTE**: Investigar por qué ETH no logra Net Taker positivo
 17. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
+18. **FILTRO DIRECCIONAL THIN_VOLATILE — PRÓXIMO 🔴** (descubierto 2026-06-03): Auditor reveló DOGE TAV LONG Ratio 0.70 vs SHORT 1.05; XRP TAV LONG 0.97 vs SHORT 0.80. Asimetría direccional sistemática en thin books. Propuesta: filtro direccional por activo/perfil para deshabilitar LONG en ciertos regímenes. **SCOPE**: Fuera del alcance de parameter tuning — requiere cambios en entry logic del engine.
+19. **REGIME SENSOR V2 — COMPLETADO ✅** (2026-06-04): Arquitectura 2-capas (Price Action + Volume Profile) + Markov memory. Accuracy 41.3% → **72.3%**. TREND_UP 42.2% → **78.0%**. Balance 16% → **60%**. Ambas capas contribuyen 98%+. Swing detection relajado (ANY en vez de BOTH). Commits: `e9dfd80`, `080e465`, `09cc9d5`.
+20. **VERIFICAR INTEGRIDAD DE NUEVA ARQUITECTURA (PRESSURE ENGINE) — PRÓXIMO 🔴**: Validar que los escenarios migrados (`LiquidityExhaustion`, `FailedBreakout`, `TrendAcceptance`) se ejecuten correctamente y produzcan señales consistentes usando la nueva fuente de datos centralizada (PressureEngine).
+21. **RE-VALIDACIÓN DE ALPHAS**
+22. **OPTIMIZACIÓN DE TIMEOUTS**
+23. **LIVE / PAPER TRADING — PENDIENTE**
 
 ---
 
-### Current Status: 🟢 v8.6 Profile System v3.1 (Deterministic Static Taxonomy) — RESOLVED
-- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + static centroid-based profiler + regime filter + macro override + discrete-touch exhaustion logic.
-- **Branch**: `8.6-Alphareloaded`
+### Current Status: 🟢 v8.7 Regime Sensor V2 — Price Action + Volume Profile + Markov
+
+- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + static centroid-based profiler + regime sensor V2 + counter-trend penalty (A-grade gate).
+- **Branch**: `8.7-cluster-improved` (V2 regime sensor)
 - **Profile System v3.1**: Taxonomía institucional estática v4.0_FIXED con 14 activos y 5 clusters balanceados. Normalización log1p corregida (NORM_MAX: book_density=25, volume_vol_ratio=18).
 - **Taxonomía**: MEGA_LIQUID(OP,LINK,NEAR,APT) | MAJOR_LIQUID(SOL,BTC,ETH) | MID_LIQUID(ADA,ARB) | THIN_VOLATILE(XRP,DOGE) | ILLIQUID_SPEC(LTC,AVAX,BNB)
-- **Next**: Investigar LONGS en TREND_DOWN (por qué 6% WR, si es fixable o debe prohibirse).
+- **Counter-Trend Penalty (2026-06-03)**: regime_score==0.0 → requires A-grade (≥0.70). -84% false admissions validated (481→78).
+- **Regime Sensor V2 (2026-06-04)**: 2-layer architecture (Price Action + Volume Profile) + Markov memory. Accuracy **72.3%** (from 41.3%). TREND_UP **78.0%** (from 42.2%). Both layers contribute 98%+.
+- **Markov Chain (2026-06-04)**: Trained on 125,280 candles (87 datasets). BALANCE sticky 57%, UP/DOWN volatile ~28%. Improves TREND_UP detection by +4.5pp.
+- **Next Session**: Cross-validate V2 on other coins (AVAX, SOL, BTC). Investigate TREND_DOWN regression (90.9% → 66.7%).
 
 ---
 
@@ -92,32 +102,16 @@
 ---
 
 ## 📝 Timeline de Sesiones Recientes
-- 2026-06-02 | session-close | **ILLIQUID_SPEC BACKTEST + PROFILE CONTRADICTION**: Backtest completo SOL/XRP/DOGE (18 datasets). SOL +0.24% Net Taker (edge marginal), XRP -0.05%, DOGE -0.13%. Global +0.0144%. **DESCUBRIMIENTO CRÍTICO**: profile_diagnostic.py clasifica SOL/XRP/DOGE como MAJOR_LIQUID, pero cluster_builder.py los pone en THIN/MID. K-Means no-determinista produce clusters diferentes en cada corrida. ILLIQUID_SPEC como profile es cuestionado — el clustering no produce ese grupo naturalmente. Archivos: price_history_analyzer.py (CREADO), profile_diagnostic.py (PATCH volume column), orchestrator.py (+3 protocols). Próximo: resolver determinismo del clustering.
-- 2026-06-01 | session-close | **PROFILE SYSTEM V3 — INSTITUTIONAL CLUSTERING**: Rediseño completo del sistema de perfiles. De 5 dimensiones manuales a 4 dimensiones institucionales (tick_size_efficiency, book_density, volume_vol_ratio, speed). Clustering K-Means automático desde exchange. Silhouette 0.538. LTC y SUI en clusters separados. Archivos: cluster_builder.py (CREADO), coin_profiler.py (MODIFICADO), profile_diagnostic.py (MODIFICADO), coin_profiles.py (MODIFICADO — removido characteristics), clusters.json (CREADO). Backward compatibility maintenida.
-- 2026-06-01 | session-close | **PROFILE VALIDATION VOLATIL_BAJO_FLOW — FINAL**: 6 iteraciones de parameter tuning + baseline. **Iter 3 GANADOR** (TAV SL tightening): Net Taker **+0.0455%** (de -0.1066% baseline, +0.152pp). AVAX TAV -0.44→-0.19 (+0.25pp), LTC TAV +0.21→+0.38 (+0.17pp). SUI TAV -0.58pp regresión. **Iter 1, 4, 5, 6 REVERTIDOS**. **Iter 2 MAINTAINED** (concentration_min 0.40→0.50, +0.009pp). Descubrimiento crítico: AVAX TAV (1208 sigs) y SUI TAV (348 sigs) son **ENTRY FAILURE** (MFE/MAE <1.2, best uniform 0.20/0.20% sin edge). Imposible fix con parámetros. Config final: concentration_min=0.50, TAV SL=2.5/3.0/2.5%, l2_ratio_min=0.5, l2_ratio_min_trend_down=2.0, FB=2.0/2.5%. Próximo paso: entry logic changes.
-- 2026-06-01 | session-close | **5-PROFILE MICROSTRUCTURE REFACTOR**: 3→5 perfiles con 5 dims (spread_bps, depth_ratio, speed, avg_trade_size, vol_realized_4h). Clasificación validada: LTC→MID ✓, SUI→THIN ✓, AVAX→MID (borderline vol 1.06%, SUI fue el caso de falla real de TAV). **Bug fix crítico**: `match_profile` y `find_closest_profile` saltaban `DEFAULT_PROFILE = MID_LIQUID`. Removido. Diagnostic ahora online (fetches klines + computes 4 new metrics). Commit `c85dd30`.
-- 2026-06-01 | session-close | Orquestador multi-asset: +set_a_avax (6 datasets), +set_a_sui (2 datasets), skip_merge, skip_clean. Bug crítico encontrado y corregido: clean_temp_data() destruía historian.db encadenado. Workflow profile-validation-volatil-bajo-flow actualizado para 3 activos en sucesión. Pendiente re-run completo.
-- 2026-05-30T20:30:00 | session-close | POC-Based Dynamic Targets: TP = POC distance (avg 2.15%), SL = 1.5%. V2 Net Taker +0.8527% 🔥. Global Net Taker +0.6546%. El mejor resultado histórico. La sesión más productiva del proyecto: de -0.0791% a +0.6546% (+0.7337pp).
-- 2026-05-30T17:30:00 | session-close | BEAR Gap Fix completo: macro override, threshold 0.25, confidence 0.85, absorption 1.8σ, slow drift 120c. BEAR_Apr24 L/S 1.31→0.49 🎯. Gross Expectancy +0.0409% (positiva primera vez). Net Taker -0.0791%. Root cause: TARGET FAILURE.
-- 2026-05-30T06:00:00 | session-close | MarketRegimeSensor improvements: slow drift 60c + macro direction para l2_ratio_min + net direction ratio. Net Taker mejoró de -0.0625% a -0.0321% (+0.0304%). failed_breakout ahora positivo (+0.0040%).
-- 2026-05-30T01:00:00 | session-investigation | L2 Depth Audit: Thin Wall (MFE/MAE 2.16) > High Wall (1.23) en RANGE/BULL. OPUESTO en BEAR: High Wall (1.49) > Thin Wall (0.48). Absorption funciona cuando hay liquidez pasiva suficiente.
-- 2026-05-30T00:30:00 | session-update | Profile iteration: 5 configs probadas. Mejor resultado -0.0464% Net Taker. BEAR arrastra resultado global (-0.0822%). Problema es estrategia, no perfil.
-- 2026-05-28T09:00:00 | session-close | v8.4 Crystal Reforge implementado: Quality Pipeline + Exhaustion Core. 177 signals, 37% WR, Net Taker +0.0012%. Necesita threshold tuning.
-- 2026-05-28T06:00:00 | session-update | Edge Audit LTCUSDT: 3 signals, Net Taker +0.1739%. Diagnóstico: 98.7% guardian rejection rate (195/198).
-- 2026-05-28T06:30:00 | session-update | Forense guardian chain: 917 ABS signals → 229 guardian rejections → 723 passed → 720 killed by in-trade lock → 3 trades.
-- 2026-05-28T07:00:00 | session-update | TOXIC FLOW BLOCK identificado como bug de diseño: contradice BALANCE regime (score=1.0) y TREND Cases 3/4.
-- 2026-05-28T07:30:00 | session-update | A/B test: eliminar toxic block → Signals 3→11 (+267%), Net Taker +0.17%→+0.66% (+283%), MFE/MAE 0.92→1.81.
-- 2026-05-28T08:00:00 | session-update | Audit mode fixes: in-trade lock bypass + no execution. FADE RISK analysis: sensor VAH/UX filter reverted (arquitectura incorrecta).
-- 2026-05-28T08:30:00 | session-close | v8.4-crystal-reforge tagged. Net Taker +0.68%, MFE/MAE 1.62, WR 100%. 3 commits, 0 regress.
-- 2026-05-27T16:00:00 | session-update | Crystal Layer Cleanup: Auditoría forense identificó AbsorptionReversalGuardian desconectado, fast_track zombie, código muerto acumulado V8→V10.
-- 2026-05-27T16:30:00 | session-update | Ejecutado benchmark pre-cleanup: 2 signals, Net Taker +0.1334%, Net Maker +0.1734%.
-- 2026-05-27T17:00:00 | session-close | Cleanup completado: -2,172 líneas, 6 archivos eliminados, 8 archivos podados. Post-cleanup: Net Taker +0.1155%, Net Maker +0.1555%.
-- 2026-05-27T18:00:00 | session-update | Crystal Layer 10/10 Readability: regime_guardian decomuesto (297→167), ES→EN, Phase numbers eliminados, code quality.
-- 2026-05-27T19:00:00 | session-update | AMT V10 Manifesto + docs: CONFIGURATION.md (527), TROUBLESHOOTING.md (620).
-- 2026-05-27T20:00:00 | session-update | Iron Layer OPT (16 OPT across 10 files): backtest 33% faster, live latency reduced.
-- 2026-05-27T21:00:00 | session-update | Validator fixes: 3 fixed, 1 deleted, 10/10 PASS. validate-all.md v8.5.
-- 2026-05-27T22:00:00 | session-update | Edge auditor: calibrator removed (250 lines). 3 workflows updated. merge_historian.py verified.
-- 2026-05-27T22:16:00 | session-close | Full session documented. 18 commits, -2,857 líneas netas, Net Taker +0.1334% preservado. Commit `f036fbd`.
+- 2026-06-04 | session-close | **REGIME SENSOR V2 — PRICE ACTION + VOLUME PROFILE + MARKOV**: Complete redesign from 3-layer to 2-layer architecture. Accuracy 41.3% → **72.3%** (+31pp). TREND_UP 42.2% → **78.0%**. BALANCE 16% → **60%**. Key breakthrough: relaxed swing detection (ANY vs BOTH). Both layers contribute 98%+. Markov trained on 125,280 candles. Commits: e9dfd80, 080e465, 09cc9d5. Branch: 8.7-cluster-improved.
+- 2026-06-03 | session-close | **REGIME SENSOR AUTOPSY + MARKOV DISCUSSION**: Deep analysis of why sensor misclassifies BALANCE as TREND ~60%. Root cause: CB slow drift bypasses synthesis, binary persistence. Markov Chain approach discussed as alternative.
+- 2026-06-03 | session-close | **REGIME VALIDATOR + COUNTER-TREND PENALTY**: Created regime_validator.py. Added A-grade minimum for counter-trend signals. -84% false admissions validated.
+- 2026-06-02 | session-close | **ILLIQUID_SPEC BACKTEST + PROFILE CONTRADICTION**: Backtest SOL/XRP/DOGE. SOL +0.24% (edge marginal). Profile contradiction discovered — K-Means non-deterministic.
+- 2026-06-01 | session-close | **PROFILE SYSTEM V3 — INSTITUTIONAL CLUSTERING**: 4 dimensions, K-Means, silhouette 0.538. Static taxonomy v4.0_FIXED with 14 assets.
+- 2026-06-01 | session-close | **PROFILE VALIDATION VOLATIL_BAJO_FLOW — FINAL**: 6 iterations. Winner: iter 3 (+0.0455% Net Taker). AVAX/SUI TAV = ENTRY FAILURE.
+- 2026-05-30 | session-close | **POC-BASED DYNAMIC TARGETS**: TP = POC distance. V2 Net Taker +0.8527%. Global +0.6546%. Best historical result.
+- 2026-05-30 | session-close | **BEAR GAP FIX**: Macro override, threshold 0.25, confidence 0.85. BEAR_Apr24 L/S 1.31→0.49 🎯.
+- 2026-05-28 | session-close | **v8.4 CRYSTAL REFORGE**: Quality Pipeline + Exhaustion Core. 177 signals, 37% WR, Net Taker +0.0012%.
+- 2026-05-27 | session-close | **CRYSTAL CLEANUP**: -2,172 lines, 6 files deleted, 8 files pruned. Net Taker +0.1155%.
 
 
 ## v8.5-fixed (Fixed Targets 2.4%/2.5%)

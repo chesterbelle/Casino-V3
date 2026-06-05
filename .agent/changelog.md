@@ -6,6 +6,148 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-04 SESSION] — Regime Sensor V2: Price Action + Volume Profile + Markov Memory (Branch: 8.7-cluster-improved)
+
+### Summary: Complete redesign of the regime sensor from 3-layer (Micro/Meso/Macro) to 2-layer architecture (Price Action + Volume Profile) with Markov Chain memory. Accuracy improved from 41.3% to 72.3% (+31pp). TREND_UP detection jumped from 42.2% to 78.0%. Both layers contribute 98%+ of the time.
+
+#### 1. Problem: 3-Layer Architecture Was Fundamentally Broken
+- **Layer contribution audit**: Micro = 0% (DEAD), Meso = 25% (almost dead), Macro = 60% (only working but lagging)
+- **119 signals analyzed**: Micro layer cast 0 votes in all signals — completely dead code
+- **Root cause**: Over-engineered layers contributed noise, not signal. Only Macro worked but was slow.
+- **Decision**: Replace entire 3-layer architecture with 2-layer (Price Action + Volume Profile)
+
+#### 2. V2 Architecture Design
+- **Price Action Layer** (lead detector): Swing detection (higher highs/lows for UP, lower highs/lows for DOWN) + momentum scoring (consecutive candles)
+- **Volume Profile Layer** (confirmation): POC migration direction, Value Area position, VA expansion detection
+- **Markov Memory**: Bayesian prior from trained transition matrix (BALANCE/UP/DOWN)
+- **Synthesis**: PA vote × 0.6 + VP vote × 0.4, adjusted by Markov prior
+
+#### 3. Key Breakthrough: Relaxed Swing Detection
+- **Original**: Required BOTH higher_high AND higher_low for UP trend → too strict
+- **Fix**: ANY single condition (higher_high OR higher_low) → enough for UP classification
+- **Impact**: Accuracy jumped from 45.3% to 72.3% (+27pp) — single biggest improvement
+
+#### 4. Markov Chain Training
+- **Data**: 87 datasets, 125,280 candles, 14 coins
+- **Transition matrix** (`config/markov_transition.json`):
+  - BALANCE → BALANCE: 57% (sticky)
+  - UP → UP: 28% (volatile)
+  - DOWN → DOWN: 29% (volatile)
+- **Insight**: In crypto, trends are volatile. BALANCE is the most persistent state.
+- **Integration**: Provides Bayesian prior that adjusts confidence in synthesis
+
+#### 5. V2 Results (DOGE 2024-10-01 Backtest)
+
+| Metric | V1 (3-Layer) | V2 (2-Layer) | Change |
+|--------|--------------|--------------|--------|
+| **Overall Accuracy** | 41.3% | **72.3%** | **+31.0pp** ✅ |
+| **TREND_UP Accuracy** | 42.2% | **78.0%** | **+35.8pp** ✅ |
+| **BALANCE Accuracy** | 16.0% | **60.0%** | **+44.0pp** ✅ |
+| **TREND_DOWN Accuracy** | 90.9% | 66.7% | -24.2pp ⚠️ |
+| Price Action Contribution | N/A | 98.1% | NEW |
+| Volume Profile Contribution | N/A | 99.1% | NEW |
+| Processing Time | ~2.5s | ~1.5s | -40% faster |
+
+#### 6. Layer Contribution Analysis
+- **Price Action**: 98.1% non-zero votes (vs old Micro 0%)
+- **Volume Profile**: 99.1% non-zero votes (vs old Meso 25%)
+- **Markov Memory**: Applied as Bayesian prior, improves TREND_UP by +4.5pp
+- **Synthesis**: Both layers actively contributing — no dead code
+
+#### 7. Files Created
+- `sensors/regime/market_v2/core_detector.py`: V2 sensor — Price Action + Volume Profile + Markov + persistence
+- `sensors/regime/market_v2/layers.py`: PriceActionLayer + VolumeProfileLayer implementations
+- `sensors/regime/market_v2/synthesis.py`: Bayesian synthesis combining PA + VP + Markov
+- `sensors/regime/market_v2/__init__.py`: Module export
+- `sensors/regime/markov_detector.py`: MarkovRegimeDetector class
+- `utils/markov_trainer.py`: CLI tool to train transition matrix from all datasets
+
+#### 8. Files Modified
+- `core/sensor_manager.py`: Updated to import MarketRegimeSensorV2
+- `sensors/regime/market/core_detector.py`: V1 sensor (superseded by V2)
+
+#### 9. Commits
+```
+e9dfd80 feat: Markov Chain regime memory layer
+080e465 feat: V1 regime sensor parameter tuning
+09cc9d5 feat: Regime Sensor V2 — Price Action + Volume Profile + Markov
+```
+
+#### 10. Known Issues
+- **TREND_DOWN regression**: 90.9% → 66.7% — needs investigation on other coins
+- **V2 only validated on DOGE**: Needs cross-coin validation (AVAX, SOL, BTC)
+- **Markov matrix trained on ALL coins**: May need coin-specific calibration
+
+#### 11. Next Steps
+1. Cross-validate V2 on other coins (AVAX, SOL, BTC)
+2. Investigate TREND_DOWN detection regression
+3. Consider higher timeframes (5m, 15m) for additional confirmation
+4. Monitor V2 in live/paper trading
+5. Potentially retrain Markov matrix after V2 deployment
+
+---
+
+### [2026-06-03 SESSION V2] — Regime Sensor Autopsy: CB Slow Drift Root Cause + Markov Chain Discussion
+
+### Summary: Deep microstructural analysis of why the MarketRegimeSensor misclassifies BALANCE as TREND ~60% for THIN_VOLATILE (DOGE/XRP). Identified the Circuit Breaker's slow drift (0.8%/60c, 1.0%/120c) as the root cause, not the sensor logic itself. Discussed Markov Chain approaches as a probabilistic alternative to binary CB persistence.
+
+#### 1. Key Findings
+- **No inversion bug — confirmed**: TREND detection accuracy is good (UP 86%, DOWN 78%). The problem is SPECIFICITY in BALANCE.
+- **CB structural flaw**: When ANY level triggers (including slow drift 0.8%/60c), the CB **bypasses `_synthesize()` entirely** (`core_detector.py:137-163`). Micro/meso/macro layer votes are ignored.
+- **CB persistence is binary**: Once triggered, stays ON until price recovers 0.5% from reference. No decay, no probability. In thin-volatile oscillation, this locks TREND for many candles after the move ends.
+- **Slow drift doesn't add value for friction strategy**: The edge comes from tick-level microstrucural friction (absorption, CVD divergence, liquidity asymmetry), not from whether price moved 0.8% in an hour. The slow drift BEAR blocker kills valid counter-trend entries.
+- **CB confidence formula produces TREND for noise**: A 1.5% move in 60c → CB confidence = 0.625, which exceeds TREND_CONFIDENCE_MIN (0.55). For DOGE (ATR ~0.8%/candle), 1.5%/hora is normal balance noise.
+
+#### 2. Proposed Fixes Discussed
+- **Fix 1 (HIGH IMPACT)**: CB votes in synthesis, doesn't bypass. Only crash_rally (>4% in 10c) overrides.
+- **Fix 2 (HIGH IMPACT)**: Volatility-adjusted CB thresholds (× ATR instead of fixed %).
+- **Fix 3 (MED IMPACT)**: Persistence decay (confidence decays 0.1× per candle without re-confirm).
+- **Markov Chain approach** discussed as alternative to binary persistence: P(TREND|state) = sigmoid(displacement/threshold) instead of if/else.
+
+#### 3. Next Session Objective
+Optimize the regime filter — study how to improve regime accuracy so the Guardian doesn't block valid friction entries. Topic open (thresholds, consensus, MC).
+
+#### 4. Files Modified
+- None (analysis-only session)
+- Discussion documented in `.agent/memory.md` roadmap update
+
+---
+
+### [2026-06-03 SESSION] — Regime Validator + Counter-Trend Penalty (Quality Scorer)
+### Summary: Created `utils/regime_validator.py` — Phase 900 Regime Classification Audit. Runs against historian.db to validate entry regime accuracy via price displacement ground truth. Integrated into profile validation workflow as Step 6.
+
+#### 1. Regime Validator Results (Baseline — PRE counter-trend penalty fix)
+- **THIN_VOLATILE**: 2,659 señales analizadas contra ground truth (precio puro)
+- **18.1% de señales son contra-tendencia** (481/2659) — entran en dirección opuesta al régimen real
+- **DOGE TAV LONG en TREND_DOWN**: Ratio 0.39 ❌ (el peor caso del sistema)
+- **DOGE TAV SHORT en TREND_DOWN**: Ratio 1.14 ✅ (con-tendencia funciona)
+- **TREND_DOWN general**: Ratio 0.84 ❌ (todas las señales en down: 544 señales)
+- **BALANCE general**: Ratio 1.00 ⚖️ (esencialmente aleatorio en balance)
+- **Track-aligned (SHORT in DOWN, LONG in UP)**: Consistentemente mejor que counter-trend
+
+#### 2. Files Created/Modified
+- `utils/regime_validator.py` (CREADO): Regime Validator con ground truth por price displacement, cross-reference de señales, false admission detection
+- `decision/engine/quality_scorer.py` (MODIFICADO): counter-trend penalty (regime_score==0.0 → require A-grade)
+
+#### 3. Next Steps
+- Re-run cluster_thin_volatile with counter-trend penalty fix active
+- Run regime_validator post-fix to verify false admission reduction
+- Extend regime_validator to all workflow files
+
+---
+
+### [2026-06-03 SESSION] — Structural Counter-Trend Penalty (Quality Scorer)
+### Summary: Added A-grade minimum for counter-trend signals in quality_scorer.py. When the regime guardian blocks a signal (passed=False), regime_score=0.0 now requires quality_score ≥ grade_a (0.70) instead of allowing B-grade bypass. This prevents LONGs in TREND_DOWN (6% WR) from passing with mediocre scores, while preserving the hard block revert (no absolute veto — exceptional counter-trend with perfect conditions can still pass as A-grade).
+
+#### 1. Files Modified
+- `decision/engine/quality_scorer.py` — Added 5 lines after grade mapping: counter-trend penalty (regime_score==0.0 → require A-grade)
+
+#### 2. Next Steps
+- Re-run `cluster_thin_volatile` edge auditor to validate impact on TREND_DOWN LONG ratio
+- If positive, extend to all profiles (already structural — applies globally)
+
+---
+
 ### [2026-06-02 SESSION] — Profile System v3.1: Deterministic Static Taxonomy (Branch: 8.6-Alphareloaded)
 ### Summary: Resolución de la contradicción de perfiles. Se migró de clustering dinámico no-determinista a una "Taxonomía Institucional Estática" basada en firmas medias de 6 datasets por activo.
 #### 1. Acciones Realizadas

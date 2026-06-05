@@ -35,7 +35,10 @@ def load_data(db_path: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
            json_extract(metadata, '$.value_acceptance') as value_acceptance,
            json_extract(metadata, '$.atr_1m') as atr_pct,
            json_extract(metadata, '$.is_composite') as is_composite,
-           json_extract(metadata, '$.conviction_score') as conviction_score
+           json_extract(metadata, '$.conviction_score') as conviction_score,
+            json_extract(metadata, '$.regime_v2.regime') as sensor_regime,
+            json_extract(metadata, '$.regime_v2.direction') as sensor_direction,
+            json_extract(metadata, '$.regime_v2.confidence') as sensor_confidence
     FROM signals
     ORDER BY timestamp
     """

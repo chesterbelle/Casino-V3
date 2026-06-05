@@ -12,6 +12,8 @@ import os
 from collections import defaultdict, deque
 from typing import Any, Dict, Tuple
 
+from core.pressure.engine import PressureEngine
+
 from .bar_aggregator import BarAggregator
 from .events import (
     CandleEvent,
@@ -58,6 +60,7 @@ class SensorManager:
 
     def __init__(self, engine, timeframe: str = "1m"):
         self.engine = engine
+        self.pressure_engine = PressureEngine()
         self.timeframe = timeframe
         self.cooldown_bars = 5
         self._candle_index = -1
@@ -100,6 +103,19 @@ class SensorManager:
 
         # Load and Distribute Sensors
         self._spawn_workers()
+
+        # Inyectar PressureEngine en escenarios reconstruidos (v8.7+)
+        from decision.scenarios.failed_breakout import FailedBreakoutDetector
+        from decision.scenarios.liquidity_exhaustion import LiquidityExhaustionDetector
+        from decision.scenarios.trend_acceptance import TrendAcceptanceDetector
+        from sensors.absorption.absorption_detector import AbsorptionDetector
+
+        self.scenarios = {
+            "liquidity_exhaustion": LiquidityExhaustionDetector(self.pressure_engine),
+            "failed_breakout": FailedBreakoutDetector(self.pressure_engine),
+            "trend_acceptance": TrendAcceptanceDetector(self.pressure_engine),
+            "tactical_absorption": AbsorptionDetector(self.pressure_engine),
+        }
 
         # Phase 7: Micro-Event Batching to prevent Main Loop stalls
         self._micro_buffer = []
@@ -267,55 +283,62 @@ class SensorManager:
         """
         Phase 410: Broadcast new trades (ticks) to workers.
         Phase 1: Track CVD and emit Microstructure.
-        Phase 2.2: Update FootprintRegistry for Absorption V1.
-        Throttled to prevent IPC explosion.
         """
         self._last_market_time = event.timestamp
+
+        # 1. Inyectar ticks en el PressureEngine (Fuente de Verdad)
+        qty = event.volume
+        is_buyer_maker = event.side == "SELL"
+        self.pressure_engine.update(qty, is_buyer_maker, event.timestamp, event.price)
+
+        from core.context_registry import ContextRegistry
+
+        ContextRegistry().set_pressure_state(event.symbol, self.pressure_engine.get_state())
+
+        # 2. Ejecutar Escenarios Reconstruidos
+        # Extraer niveles desde el ContextRegistry para pasarlos a los escenarios
+        from core.context_registry import ContextRegistry
+
+        reg = ContextRegistry()
+        poc, vah, val = reg.get_structural(event.symbol)
+        structural = {"poc": poc, "vah": vah, "val": val}
+
+        for name, scenario in self.scenarios.items():
+            result = scenario.on_tick(event.symbol, event.price, event.timestamp, structural)
+            if result:
+                await self._emit_signal(result, name, event.symbol)
+
+        # 3. Flujo original de SensorManager (para no romper la arquitectura actual)
         if self._tick_count % 1000 == 0:
             logger.info(f"📥 [SENSOR] Tick received: {event.symbol} at {event.timestamp}")
 
+        # ... (resto del método on_tick original para mantener compatibilidad)
         now = event.timestamp
         sym = event.symbol
         self.last_price[sym] = event.price
 
-        # Phase D1: Synchronous VWAP Update (High-Res/Zero-Lag)
         from core.context_registry import ContextRegistry
 
         ContextRegistry().update_vwap(sym, event.price, event.volume, event.timestamp)
 
-        # Phase 2.2: Update FootprintRegistry (Absorption V1)
         from core.footprint_registry import footprint_registry
         from core.tick_registry import tick_registry
 
-        # Auto-register symbol if not registered
         if sym not in footprint_registry.footprints:
             tick_size = tick_registry.get(sym)
             footprint_registry.register_symbol(sym, tick_size)
-
         footprint_registry.on_trade(sym, event.price, event.volume, event.side, now)
 
-        # Phase 1: CVD Tracking (Incremental Add only - pruning moved to throttled micro_dispatch)
-        delta = 0.0
-        if event.side == "BUY":
-            delta = event.volume
-        elif event.side == "SELL":
-            delta = -event.volume
-        else:
-            if int(now) % 60 == 0:
-                logger.warning(f"⚠️ [SENSOR] Unexpected side: {event.side} for {sym}")
-        self.tick_history[sym].append((now, delta))
-        self.cvd_state[sym] += delta
+        self.tick_history[sym].append((now, qty if event.side == "BUY" else -qty))
+        self.cvd_state[sym] += qty if event.side == "BUY" else -qty
 
         await self._dispatch_micro_state(sym, now, event_data=event)
 
         last_dispatch = self._last_tick_dispatch.get(event.symbol, 0)
-
-        # Throttle to max 1 update per 100ms (Using Market Time)
         if (now - last_dispatch) < (self.throttle_ms / 1000.0):
             return
 
         self._last_tick_dispatch[event.symbol] = now
-
         msg = {
             "event": "tick",
             "symbol": event.symbol,
@@ -327,9 +350,7 @@ class SensorManager:
                 "timestamp": event.timestamp,
             },
         }
-
         loop = asyncio.get_running_loop()
-        # Phase 660: Targeted broadcast (Only to workers that have tick-aware sensors)
         if self.num_workers == 0:
             await self._dispatch_local(msg)
         else:
@@ -558,6 +579,11 @@ class SensorManager:
         metadata = dict(signal_data.get("metadata") or {})
         signal_tf = signal_data.get("timeframe", self.timeframe)
 
+        # Inject scenario type from signal_data into metadata (for proper classification)
+        if "scenario" in signal_data and "scenario" not in metadata:
+            metadata["scenario"] = signal_data["scenario"]
+            logger.debug(f"Injected scenario '{signal_data['scenario']}' into metadata")
+
         # Globally inject OHLC data for the structural guardians
         if isinstance(context, dict):
             candle_1m = context.get(self.timeframe) if self.timeframe in context else context.get("1m")
@@ -726,22 +752,11 @@ class SensorManager:
                 traceback.print_exc()
 
     def _get_all_sensor_classes(self):
-        """Helper to return all sensor classes (moved from original _load_sensors)."""
-        # Context sensors (run in workers for regime/structural data)
-        from sensors.absorption.absorption_detector import AbsorptionDetector
+        """Helper to return all sensor classes (reconstruidos)."""
         from sensors.debug_heartbeat import DebugHeartbeatV3
         from sensors.footprint.session import SessionValueArea
-        from sensors.regime.market_v2 import (
-            MarketRegimeSensorV2,  # V2: 2-layer architecture
-        )
-        from sensors.regime.one_timeframing import (
-            OneTimeframingSensor,  # Legacy fallback
-        )
 
         return [
-            MarketRegimeSensorV2,  # V2: Price Action + Volume Profile + Markov
-            OneTimeframingSensor,  # Legacy fallback (disabled in config by default)
             SessionValueArea,
-            AbsorptionDetector,  # Phase 2300: Unified LTA V7 Absorption
             DebugHeartbeatV3,
         ]
