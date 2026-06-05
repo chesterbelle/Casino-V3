@@ -77,7 +77,7 @@ class LiquidityExhaustionDetector:
                 self.level_tests[symbol][level_key] = tests
 
                 if len(tests) >= self.min_tests:
-                    recent = tests[-self.min_tests:]
+                    recent = tests[-self.min_tests :]
 
                     is_declining = all(
                         recent[i]["delta"] < recent[i - 1]["delta"] * self.declining_threshold
