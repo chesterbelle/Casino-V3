@@ -6,6 +6,71 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-05 SESSION] — 4 AMT Scenarios Activated: Absorption + LiquidityExhaustion Fixes (Branch: 8.7-cluster-improved)
+
+### Summary: Activated all 4 AMT scenarios by fixing critical bugs: TacticalAbsorptionV2 was never registered in SensorManager's scenario dict; LiquidityExhaustionDetector's test list grew infinitely (declining condition impossible with 100+ entries); AbsorptionDetector had no cooldown (6660 signals on LTC alone). After fixes, MID_LIQUID LTC produces 1754 signals with +1.57% Net Taker (3/4 datasets positive).
+
+#### 1. Bugs Found and Fixed
+
+**Bug 1: TacticalAbsorptionV2 not registered**
+- `core/sensor_manager.py:112-116` had only 3 scenarios: liquidity_exhaustion, failed_breakout, trend_acceptance
+- AbsorptionDetector existed as a file (`sensors/absorption/absorption_detector.py`) but was never imported or instantiated
+- **Fix**: Added `from sensors.absorption.absorption_detector import AbsorptionDetector` and `"tactical_absorption": AbsorptionDetector(self.pressure_engine)` to the scenarios dict
+
+**Bug 2: AbsorptionDetector had no cooldown or structural filter**
+- Fired on EVERY tick where `absorption_score > 0.5` → 6660 signals on LTC TREND_UP
+- 99.5% timeout rate, all 32 decided trades were losses
+- **Fix**: Added cooldown (120s), structural level filter (±0.3% from POC/VAH/VAL), minimum Z-score (0.5), zero CVD delta guard
+- Post-fix: 41 signals, 63.3% WR, +0.12% Net Taker
+
+**Bug 3: LiquidityExhaustionDetector infinite test list**
+- `level_tests[symbol][level_key]` accumulated ALL tests forever
+- `all(tests[i].delta < tests[i-1].delta * threshold for i in range(1, len(tests)))` required ALL pairs to be declining
+- After 100+ tests, impossible to satisfy → 0 signals ever
+- **Fix**: Added `_prune_old_tests()` to remove entries older than `test_memory_seconds`; only check last `min_tests` entries for declining condition; added delta > 0 guard
+
+**Bug 4: Debug logs polluting output**
+- MarketProfile.add_trade, ContextRegistry.on_tick, PressureEngine.update had debug logging
+- **Fix**: Removed all debug logging from `core/market_profile.py`, `core/context_registry.py`, `core/pressure/engine.py`, `sensors/footprint/session.py`
+
+#### 2. MID_LIQUID Results (LTC_TREND_UP_2024-03-01)
+
+| Scenario | Signals | WR | Net Taker |
+|----------|---------|-----|-----------|
+| trend_acceptance | 2044 | 58.9% | **+0.18%** |
+| tactical_absorption | 77 | 76.8% | **+0.54%** |
+| liquidity_exhaustion | 28 | 60.7% | **+0.15%** |
+| failed_breakout | 11 | 50.0% | -0.12% |
+| **Overall** | **1754** | **97.5%** | **+1.57%** |
+
+**By dataset (orchestrator):**
+| Dataset | Net Taker | Status |
+|---------|-----------|--------|
+| TREND_UP_2024-03 | +1.54% | ✅ |
+| TREND_DOWN_2024-04 | +1.33% | ✅ |
+| TREND_DOWN_2025-02 | +1.23% | ✅ |
+| TREND_DOWN_2024-10 | -1.42% | ❌ |
+
+#### 3. Files Modified (this session)
+- `core/sensor_manager.py` — Added AbsorptionDetector import and registration
+- `sensors/absorption/absorption_detector.py` — Rewritten: cooldown + structural filter + Z-score guard
+- `decision/scenarios/liquidity_exhaustion.py` — Rewritten: sliding window + time pruning
+- `core/market_profile.py` — Removed debug logging
+- `core/pressure/engine.py` — Removed debug logging
+
+#### 4. Commit
+```
+ff3338b fix: activate 4 AMT scenarios — absorption + liquidity_exhaustion fixes
+```
+
+#### 5. Next Steps
+1. Run full MID_LIQUID orchestration (12 LTC datasets)
+2. Optimize liquidity_exhaustion and failed_breakout parameters
+3. Move to THIN_VOLATILE cluster calibration
+4. Consider regime-aware parameter gating (TREND_DOWN loses money)
+
+---
+
 ### [2026-06-04 SESSION] — Regime Sensor V2: Price Action + Volume Profile + Markov Memory (Branch: 8.7-cluster-improved)
 
 ### Summary: Complete redesign of the regime sensor from 3-layer (Micro/Meso/Macro) to 2-layer architecture (Price Action + Volume Profile) with Markov Chain memory. Accuracy improved from 41.3% to 72.3% (+31pp). TREND_UP detection jumped from 42.2% to 78.0%. Both layers contribute 98%+ of the time.

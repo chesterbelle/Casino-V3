@@ -65,23 +65,21 @@
 17. **LIVE / PAPER TRADING — PENDIENTE**: Conexión al Testnet/Live
 18. **FILTRO DIRECCIONAL THIN_VOLATILE — PRÓXIMO 🔴** (descubierto 2026-06-03): Auditor reveló DOGE TAV LONG Ratio 0.70 vs SHORT 1.05; XRP TAV LONG 0.97 vs SHORT 0.80. Asimetría direccional sistemática en thin books. Propuesta: filtro direccional por activo/perfil para deshabilitar LONG en ciertos regímenes. **SCOPE**: Fuera del alcance de parameter tuning — requiere cambios en entry logic del engine.
 19. **REGIME SENSOR V2 — COMPLETADO ✅** (2026-06-04): Arquitectura 2-capas (Price Action + Volume Profile) + Markov memory. Accuracy 41.3% → **72.3%**. TREND_UP 42.2% → **78.0%**. Balance 16% → **60%**. Ambas capas contribuyen 98%+. Swing detection relajado (ANY en vez de BOTH). Commits: `e9dfd80`, `080e465`, `09cc9d5`.
-20. **VERIFICAR INTEGRIDAD DE NUEVA ARQUITECTURA (PRESSURE ENGINE) — PRÓXIMO 🔴**: Validar que los escenarios migrados (`LiquidityExhaustion`, `FailedBreakout`, `TrendAcceptance`) se ejecuten correctamente y produzcan señales consistentes usando la nueva fuente de datos centralizada (PressureEngine).
-21. **RE-VALIDACIÓN DE ALPHAS**
-22. **OPTIMIZACIÓN DE TIMEOUTS**
+20. **VERIFICAR INTEGRIDAD DE NUEVA ARQUITECTURA (PRESSURE ENGINE) — COMPLETADO ✅**: Los 4 escenarios migrados (`LiquidityExhaustion`, `FailedBreakout`, `TrendAcceptance`, `TacticalAbsorptionV2`) producen señales consistentes. Bugs encontrados y corregidos: TacticalAbsorption no registrado en scenarios, LiquidityExhaustion lista infinita, Absorption sin cooldown. MID_LIQUID LTC: +1.57% Net Taker.
+21. **RE-VALIDACIÓN DE ALPHAS — PRÓXIMO 🔴**: Validar edge en todos los clusters (MEGA, MAJOR, MID, THIN, ILLIQUID). Optimizar liquidity_exhaustion y failed_breakout.
+22. **OPTIMIZACIÓN DE TIMEOUTS — PRÓXIMO**
 23. **LIVE / PAPER TRADING — PENDIENTE**
 
 ---
 
-### Current Status: 🟢 v8.7 Regime Sensor V2 — Price Action + Volume Profile + Markov
+### Current Status: 🟢 PressureEngine — 4 AMT Scenarios Activated (MID_LIQUID)
 
-- **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + per-regime TP/SL targets + static centroid-based profiler + regime sensor V2 + counter-trend penalty (A-grade gate).
-- **Branch**: `8.7-cluster-improved` (V2 regime sensor)
-- **Profile System v3.1**: Taxonomía institucional estática v4.0_FIXED con 14 activos y 5 clusters balanceados. Normalización log1p corregida (NORM_MAX: book_density=25, volume_vol_ratio=18).
-- **Taxonomía**: MEGA_LIQUID(OP,LINK,NEAR,APT) | MAJOR_LIQUID(SOL,BTC,ETH) | MID_LIQUID(ADA,ARB) | THIN_VOLATILE(XRP,DOGE) | ILLIQUID_SPEC(LTC,AVAX,BNB)
-- **Counter-Trend Penalty (2026-06-03)**: regime_score==0.0 → requires A-grade (≥0.70). -84% false admissions validated (481→78).
-- **Regime Sensor V2 (2026-06-04)**: 2-layer architecture (Price Action + Volume Profile) + Markov memory. Accuracy **72.3%** (from 41.3%). TREND_UP **78.0%** (from 42.2%). Both layers contribute 98%+.
-- **Markov Chain (2026-06-04)**: Trained on 125,280 candles (87 datasets). BALANCE sticky 57%, UP/DOWN volatile ~28%. Improves TREND_UP detection by +4.5pp.
-- **Next Session**: Cross-validate V2 on other coins (AVAX, SOL, BTC). Investigate TREND_DOWN regression (90.9% → 66.7%).
+- **Architecture**: PressureEngine (centralized CVD/absorption) + 4 AMT scenarios (trend_acceptance, tactical_absorption, liquidity_exhaustion, failed_breakout) + per-profile params + SetupEngineV4.
+- **Branch**: `8.7-cluster-improved`
+- **PressureEngine**: Centralized CVD velocity Z-score normalization + absorption detection. Updated per-tick from SensorManager.
+- **4 AMT Scenarios**: All registered and firing. `trend_acceptance` (strongest), `tactical_absorption` (cooldown 120s, structural filter), `liquidity_exhaustion` (sliding window), `failed_breakout` (needs tuning).
+- **MID_LIQUID Results** (LTC_TREND_UP_2024-03): 1754 signals, +1.57% Net Taker overall. trend_acceptance +1.68%, tactical_absorption +0.12%, liquidity_exhaustion -0.56%, failed_breakout -1.32%.
+- **Next Session**: Run full MID_LIQUID orchestration (12 datasets). Optimize liquidity_exhaustion/failed_breakout params. Move to THIN_VOLATILE cluster.
 
 ---
 
@@ -98,11 +96,15 @@
 19. **K-Means No-Determinista**: Cada corrida de `cluster_builder.py --exchange` produce clusters diferentes. Los nombres (MEGA_LIQUID, etc.) son fijos pero los miembros cambian. SOL puede estar en THIN_VOLATILE en una corrida y en MAJOR_LIQUID en otra.
 20. **Profile vs Clustering Contradiction**: `profile_diagnostic.py` clasifica SOL/XRP/DOGE como MAJOR_LIQUID, pero `cluster_builder.py` reciente los pone en THIN/MID. El profile system fue calibrado con una corrida previa que ya no es válida.
 21. **price_samples sin columna volume**: El historian.db del backtest no tiene `volume` en `price_samples`. `profile_diagnostic.py` fue parcheado para usar fallback estimation.
+22. **TacticalAbsorptionV2 no registrado en scenarios**: Hasta 2026-06-05, `TacticalAbsorptionV2` nunca se registró en `self.scenarios` de SensorManager. Solo existía como archivo. Fix: agregado import + registro en `core/sensor_manager.py:112`.
+23. **LiquidityExhaustion sliding window bug**: La lista `level_tests` crecía infinitamente. La condición `all(tests[i].delta < tests[i-1].delta * threshold ...)` requería que TODOS los pares fueran decrecientes → imposible con 100+ tests. Fix: poda temporal + revisar solo últimos N.
+24. **AbsorptionDetector sin cooldown**: Disparaba 6660 señales/LTC porque no tenía cooldown ni filtro estructural. Fix: cooldown 120s, filtro VA (±0.3%), min Z-score 0.5.
 
 ---
 
 ## 📝 Timeline de Sesiones Recientes
 - 2026-06-04 | session-close | **REGIME SENSOR V2 — PRICE ACTION + VOLUME PROFILE + MARKOV**: Complete redesign from 3-layer to 2-layer architecture. Accuracy 41.3% → **72.3%** (+31pp). TREND_UP 42.2% → **78.0%**. BALANCE 16% → **60%**. Key breakthrough: relaxed swing detection (ANY vs BOTH). Both layers contribute 98%+. Markov trained on 125,280 candles. Commits: e9dfd80, 080e465, 09cc9d5. Branch: 8.7-cluster-improved.
+- 2026-06-05 | session-close | **4 AMT SCENARIOS ACTIVATED — ABSORPTION + LIQUIDITY EXHAUSTION FIXES**: Registered TacticalAbsorptionV2 in SensorManager. Rewrote AbsorptionDetector with cooldown+structural filter. Rewrote LiquidityExhaustionDetector with sliding window. Cleaned debug logs. PressureEngine architecture operational. MID_LIQUID LTC: 1754 signals, +1.57% Net Taker. 3/4 datasets positive. Commit: ff3338b.
 - 2026-06-03 | session-close | **REGIME SENSOR AUTOPSY + MARKOV DISCUSSION**: Deep analysis of why sensor misclassifies BALANCE as TREND ~60%. Root cause: CB slow drift bypasses synthesis, binary persistence. Markov Chain approach discussed as alternative.
 - 2026-06-03 | session-close | **REGIME VALIDATOR + COUNTER-TREND PENALTY**: Created regime_validator.py. Added A-grade minimum for counter-trend signals. -84% false admissions validated.
 - 2026-06-02 | session-close | **ILLIQUID_SPEC BACKTEST + PROFILE CONTRADICTION**: Backtest SOL/XRP/DOGE. SOL +0.24% (edge marginal). Profile contradiction discovered — K-Means non-deterministic.
