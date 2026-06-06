@@ -18,7 +18,7 @@ ACTIVE_SENSORS = {
     "MarketRegime": False,  # V2: Price Action + Volume Profile + Markov
     "SessionValueArea": True,  # Structural levels (POC, VAH, VAL, IB)
     # === TACTICAL SENSORS (The Triggers) ===
-    "TacticalAbsorptionV2": True,  # Phase 2300: Unified LTA V7 Absorption
+    "tactical_absorption": True,  # Phase 2300: Unified LTA V7 Absorption
 }
 
 # =====================================================
@@ -28,7 +28,7 @@ ACTIVE_SENSORS = {
 SENSOR_TIMEFRAMES = {
     "MarketRegime": ["1m"],
     "SessionValueArea": ["1m"],
-    "TacticalAbsorptionV2": ["1m"],
+    "tactical_absorption": ["1m"],
 }
 
 # =====================================================
@@ -42,7 +42,7 @@ SENSOR_PARAMS = {
     "SessionValueArea": {
         "1m": {"tp_pct": 0.0, "sl_pct": 0.0},  # Context sensor
     },
-    "TacticalAbsorptionV2": {
+    "tactical_absorption": {
         "1m": {"tp_pct": 0.0015, "sl_pct": 0.0010},  # LTA Default TP/SL (Structural override applies later)
     },
     # === DEFAULT FALLBACK ===

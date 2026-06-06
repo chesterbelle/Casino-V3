@@ -289,11 +289,11 @@ class SensorManager:
         # 1. Inyectar ticks en el PressureEngine (Fuente de Verdad)
         qty = event.volume
         is_buyer_maker = event.side == "SELL"
-        self.pressure_engine.update(qty, is_buyer_maker, event.timestamp, event.price)
+        self.pressure_engine.update(event.symbol, qty, is_buyer_maker, event.timestamp, event.price)
 
         from core.context_registry import ContextRegistry
 
-        ContextRegistry().set_pressure_state(event.symbol, self.pressure_engine.get_state())
+        ContextRegistry().set_pressure_state(event.symbol, self.pressure_engine.get_state(event.symbol))
 
         # 2. Ejecutar Escenarios Reconstruidos
         # Extraer niveles desde el ContextRegistry para pasarlos a los escenarios
@@ -366,6 +366,9 @@ class SensorManager:
         now = event.timestamp
         self._last_market_time = now
         sym = event.symbol
+
+        # Phase 410: Update PressureEngine with footprint data from order book
+        self.pressure_engine.update_from_orderbook(event.symbol, event.bids, event.asks, now)
 
         # Phase 1: Skewness tracking moved to throttled micro_dispatch
         await self._dispatch_micro_state(sym, now, event_data=event)

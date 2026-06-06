@@ -25,10 +25,14 @@ COIN_PROFILES = {
         "description": "Mega-cap institucional — BTC, ETH",
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 3.5,
+                "z_score_min": 3.0,
                 "concentration_min": 0.60,
                 "noise_max": 0.25,
                 "stagnation_floor_pct": 0.12,
+                "cooldown": 300.0,
+                "volatility_z_max": 2.0,
+                "displacement_z_max": 2.0,
+                "absorption_score_min": 0.5,
             },
             "failed_breakout": {
                 "min_break_distance_pct": 0.0005,
@@ -49,25 +53,17 @@ COIN_PROFILES = {
             },
         },
         "scenarios": {
-            "enabled": ["TacticalAbsorptionV2", "liquidity_exhaustion", "trend_acceptance"],
+            "enabled": ["tactical_absorption", "liquidity_exhaustion", "trend_acceptance"],
         },
         "quality_scorer": {
             "weights": {"exhaustion": 0.40, "regime": 0.30, "structure": 0.15, "liquidity": 0.10, "spread": 0.05},
             "grade_thresholds": {"A": 0.80, "B": 0.50},
         },
         "targets": {
-            "TacticalAbsorptionV2": {
-                "tp_pct": 0.008,
-                "sl_pct": 0.006,
-                "regime": {
-                    "TREND_UP": {"tp_pct": 0.010, "sl_pct": 0.005},
-                    "TREND_DOWN": {"tp_pct": 0.006, "sl_pct": 0.008},
-                    "BALANCE": {"tp_pct": 0.008, "sl_pct": 0.006},
-                },
-            },
-            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.008},
-            "liquidity_exhaustion": {"tp_pct": 0.006, "sl_pct": 0.005},
-            "trend_acceptance": {"tp_pct": 0.012, "sl_pct": 0.008},
+            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "liquidity_exhaustion": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.040},
         },
         "guardians": {
             "l2_ratio_min": 2.5,
@@ -83,7 +79,7 @@ COIN_PROFILES = {
         "description": "Large-cap alta liquidez — SOL, BNB, XRP, DOGE, SUI",
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 3.2,
+                "z_score_min": 1.8,
                 "concentration_min": 0.55,
                 "noise_max": 0.30,
                 "stagnation_floor_pct": 0.10,
@@ -107,25 +103,17 @@ COIN_PROFILES = {
             },
         },
         "scenarios": {
-            "enabled": ["TacticalAbsorptionV2", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
+            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
         },
         "quality_scorer": {
             "weights": {"exhaustion": 0.35, "regime": 0.28, "structure": 0.17, "liquidity": 0.12, "spread": 0.08},
             "grade_thresholds": {"A": 0.70, "B": 0.45},
         },
         "targets": {
-            "TacticalAbsorptionV2": {
-                "tp_pct": 0.015,
-                "sl_pct": 0.015,
-                "regime": {
-                    "TREND_UP": {"tp_pct": 0.012, "sl_pct": 0.018},
-                    "TREND_DOWN": {"tp_pct": 0.010, "sl_pct": 0.020},
-                    "BALANCE": {"tp_pct": 0.015, "sl_pct": 0.015},
-                },
-            },
-            "failed_breakout": {"tp_pct": 0.018, "sl_pct": 0.015},
-            "liquidity_exhaustion": {"tp_pct": 0.012, "sl_pct": 0.008},
-            "trend_acceptance": {"tp_pct": 0.015, "sl_pct": 0.012},
+            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "liquidity_exhaustion": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.040},
         },
         "guardians": {
             "l2_ratio_min": 1.5,
@@ -142,10 +130,14 @@ COIN_PROFILES = {
         "description": "Mid-cap, edge validado — AVAX, ADA, LINK",
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 3.0,
+                "z_score_min": 2.0,
                 "concentration_min": 0.50,
                 "noise_max": 0.40,
                 "stagnation_floor_pct": 0.08,
+                "cooldown": 180.0,
+                "volatility_z_max": 2.5,
+                "displacement_z_max": 3.0,
+                "absorption_score_min": 0.3,
             },
             "failed_breakout": {
                 "min_break_distance_pct": 0.0012,
@@ -166,25 +158,17 @@ COIN_PROFILES = {
             },
         },
         "scenarios": {
-            "enabled": ["TacticalAbsorptionV2", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
+            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
         },
         "quality_scorer": {
             "weights": {"exhaustion": 0.40, "regime": 0.30, "structure": 0.15, "liquidity": 0.10, "spread": 0.05},
             "grade_thresholds": {"A": 0.70, "B": 0.40},
         },
         "targets": {
-            "TacticalAbsorptionV2": {
-                "tp_pct": 0.020,
-                "sl_pct": 0.020,
-                "regime": {
-                    "TREND_UP": {"tp_pct": 0.015, "sl_pct": 0.025},
-                    "TREND_DOWN": {"tp_pct": 0.012, "sl_pct": 0.030},
-                    "BALANCE": {"tp_pct": 0.020, "sl_pct": 0.020},
-                },
-            },
-            "failed_breakout": {"tp_pct": 0.012, "sl_pct": 0.012},
-            "liquidity_exhaustion": {"tp_pct": 0.015, "sl_pct": 0.010},
-            "trend_acceptance": {"tp_pct": 0.018, "sl_pct": 0.015},
+            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "liquidity_exhaustion": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.040},
         },
         "guardians": {
             "l2_ratio_min": 0.8,
@@ -202,9 +186,12 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.5,
-                "concentration_min": 0.45,
+                "concentration_min": 0.55,
                 "noise_max": 0.35,
                 "stagnation_floor_pct": 0.15,
+                "cooldown": 150.0,
+                "volatility_z_max": 3.0,
+                "displacement_z_max": 3.5,
             },
             "failed_breakout": {
                 "min_break_distance_pct": 0.0010,
@@ -225,17 +212,17 @@ COIN_PROFILES = {
             },
         },
         "scenarios": {
-            "enabled": ["TacticalAbsorptionV2", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
+            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
         },
         "quality_scorer": {
             "weights": {"exhaustion": 0.30, "regime": 0.30, "structure": 0.20, "liquidity": 0.15, "spread": 0.05},
             "grade_thresholds": {"A": 0.65, "B": 0.40},
         },
         "targets": {
-            "TacticalAbsorptionV2": {"tp_pct": 0.025, "sl_pct": 0.030},
-            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.025},
-            "liquidity_exhaustion": {"tp_pct": 0.020, "sl_pct": 0.012},
-            "trend_acceptance": {"tp_pct": 0.018, "sl_pct": 0.015},
+            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "liquidity_exhaustion": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.040},
         },
         "guardians": {
             "l2_ratio_min": 1.0,
@@ -252,10 +239,13 @@ COIN_PROFILES = {
         "description": "Ilíquido / especulativo — parámetros VOLATIL_BAJO_FLOW validados",
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 3.5,
+                "z_score_min": 2.5,
                 "concentration_min": 0.40,
                 "noise_max": 0.40,
                 "stagnation_floor_pct": 0.08,
+                "cooldown": 120.0,
+                "volatility_z_max": 3.5,
+                "displacement_z_max": 3.5,
             },
             "failed_breakout": {
                 "min_break_distance_pct": 0.0008,
@@ -276,25 +266,17 @@ COIN_PROFILES = {
             },
         },
         "scenarios": {
-            "enabled": ["TacticalAbsorptionV2", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
+            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
         },
         "quality_scorer": {
             "weights": {"exhaustion": 0.40, "regime": 0.30, "structure": 0.15, "liquidity": 0.10, "spread": 0.05},
             "grade_thresholds": {"A": 0.70, "B": 0.40},
         },
         "targets": {
-            "TacticalAbsorptionV2": {
-                "tp_pct": 0.024,
-                "sl_pct": 0.025,
-                "regime": {
-                    "TREND_UP": {"tp_pct": 0.012, "sl_pct": 0.040},
-                    "TREND_DOWN": {"tp_pct": 0.020, "sl_pct": 0.050},
-                    "BALANCE": {"tp_pct": 0.008, "sl_pct": 0.040},
-                },
-            },
-            "failed_breakout": {"tp_pct": 0.020, "sl_pct": 0.025},
-            "liquidity_exhaustion": {"tp_pct": 0.015, "sl_pct": 0.004},
-            "trend_acceptance": {"tp_pct": 0.009, "sl_pct": 0.009},
+            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "failed_breakout": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "liquidity_exhaustion": {"tp_pct": 0.010, "sl_pct": 0.010},
+            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.040},
         },
         "guardians": {
             "l2_ratio_min": 0.5,

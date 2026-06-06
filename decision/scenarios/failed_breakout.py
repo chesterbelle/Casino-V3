@@ -64,7 +64,7 @@ class FailedBreakoutDetector:
             state = context_or_levels.get_pressure_state(symbol)
             poc, vah, val = context_or_levels.get_structural(symbol)
         else:
-            state = self.pressure.get_state() if self.pressure else None
+            state = self.pressure.get_state(symbol) if self.pressure else None
             vah = context_or_levels.get("vah", 0.0)
             val = context_or_levels.get("val", 0.0)
 

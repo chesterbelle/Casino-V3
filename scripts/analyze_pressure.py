@@ -18,14 +18,12 @@ def analyze_pressure_distribution():
 
     # Usar datos reales del motor para validar
     engine = PressureEngine()
-    # Para cada fila, actualizar motor y recolectar estado
+    SYM = "LTC/USDT"
     results = []
     for _, row in df.iterrows():
-        # Simulamos un tick: asumimos compra o venta según el volumen si no hay side
-        # En historian.db de velas no hay side, vamos a asumir side basado en dirección precio
         is_buyer_maker = row["close"] < row.get("open", row["close"])
-        engine.update(qty=row["volume"], is_buyer_maker=is_buyer_maker, ts=row["timestamp"], price=row["close"])
-        state = engine.get_state()
+        engine.update(SYM, qty=row["volume"], is_buyer_maker=is_buyer_maker, ts=row["timestamp"], price=row["close"])
+        state = engine.get_state(SYM)
         results.append(state.cvd_velocity)
 
     print(f"DEBUG: Primeiros resultados: {results[:10]}")

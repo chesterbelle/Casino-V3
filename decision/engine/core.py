@@ -53,8 +53,10 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         from core.pressure.engine import PressureEngine
         from decision.scenario_manager import ScenarioManager
 
-        # Create PressureEngine for scenarios
-        self.pressure_engine = PressureEngine()
+        # Shared PressureEngine (per-coin facade) from SensorManager.
+        # SensorManager owns updates; SetupEngine is read-only.
+        sm = getattr(self.engine, "sensor_manager", None)
+        self.pressure_engine = sm.pressure_engine if sm else PressureEngine()
         self.scenario_manager = ScenarioManager(self.pressure_engine)
 
         # Event Subscriptions
@@ -122,11 +124,6 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         symbol = event.symbol
         price = event.price
         timestamp = event.timestamp
-
-        # Update PressureEngine with tick data
-        qty = event.volume
-        is_buyer_maker = event.side == "SELL"
-        self.pressure_engine.update(qty, is_buyer_maker, timestamp, price)
 
         # 1. Warmup & In-Trade Check
         if not self.is_system_warm(symbol):
@@ -207,9 +204,14 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             payload["timestamp"] = payload.get("timestamp") or event.timestamp
             payload["side"] = payload.get("side") or event.side
 
-            # Fast-Lane: TacticalAbsorptionV2 (Scalping) fires immediately
-            if event.sensor_id == "TacticalAbsorptionV2":
-                trace = black_box.create_trace(event.symbol, "TacticalAbsorptionV2", f"SIG_{int(time.time()*1000)}")
+            # Fast-Lane: tactical_absorption fires immediately
+            # Fast-Lane: tactical_absorption fires immediately (instant signal).
+            # No pasa por ScenarioManager — la absorción debe detectarse en el
+            # tick exacto. Los otros 3 escenarios (FB/LE/TA) son señales de
+            # confirmación y pasan por orquestación completa.
+            # Ver ADR-1 en docs/architectural_decisions.md.
+            if event.sensor_id == "tactical_absorption":
+                trace = black_box.create_trace(event.symbol, "tactical_absorption", f"SIG_{int(time.time()*1000)}")
                 await self._process_signal(payload, trace=trace)
                 return
 
@@ -254,16 +256,14 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         setup_mode = quality.setup_mode
         val_pos = quality.value_position
 
-        # Force REVERSION mode for scenarios that are inherently reversion
-        REVERSION_SCENARIOS = {
-            "TacticalAbsorptionV2",
-            "failed_breakout",
-            "liquidity_exhaustion",
-            "AMT_FAILED_BREAKOUT",
-            "AMT_LIQUIDITY_EXHAUSTION",
-        }
+        # Classify scenarios by inherent market dynamic
+        REVERSION_SCENARIOS = {"failed_breakout", "liquidity_exhaustion"}
+        DIRECTIONAL_SCENARIOS = {"tactical_absorption", "trend_acceptance"}
+
         if scenario in REVERSION_SCENARIOS:
             setup_mode = SetupMode.REVERSION
+        elif scenario in DIRECTIONAL_SCENARIOS:
+            setup_mode = SetupMode.CONTINUATION
 
         # 2. Target Calculation
         tp_price, sl_price, setup_name, level_ref, atr_pct = self._calculate_targets(
@@ -296,6 +296,8 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 "price": price,
                 "tp_price": tp_price,
                 "sl_price": sl_price,
+                "tp_distance_pct": abs(tp_price - price) / price * 100 if tp_price and price > 0 else 0.0,
+                "sl_distance_pct": abs(sl_price - price) / price * 100 if sl_price and price > 0 else 0.0,
                 "level_ref": level_ref,
                 "v3_mode": setup_mode.value,
                 "scenario": scenario,
@@ -310,7 +312,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 "vah_price": vah_p,
                 "val_price": val_p,
                 "va_width": va_w,
-                "max_holding_time": (config.ABSORPTION_MAX_HOLDING_SEC if scenario == "TacticalAbsorptionV2" else None),
+                "max_holding_time": (config.ABSORPTION_MAX_HOLDING_SEC if scenario == "tactical_absorption" else None),
             },
             symbol,
         )

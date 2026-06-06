@@ -26,7 +26,8 @@ class ScenarioManager:
     def __init__(self, pressure_engine):
         self.pressure = pressure_engine
 
-        # Scenario Detectors - Reordered by statistical precedence (Best edge first)
+        # Solo 3 escenarios de confirmación (FB/LE/TA). TacticalAbsorption es
+        # instant signal y bypasea ScenarioManager intencionalmente (ver ADR-1).
         self.scenarios = [
             LiquidityExhaustionDetector(self.pressure),
             FailedBreakoutDetector(self.pressure),

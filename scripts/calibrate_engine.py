@@ -26,12 +26,12 @@ def calibrate_clusters():
 
     # Engine para medir presión
     engine = PressureEngine()
+    SYM = "LTC/USDT"
     pressure_values = []
 
-    # Calcular presión simulada sobre el dataset
     for _, row in df.iterrows():
-        engine.update(qty=row["volume"], is_buyer_maker=False, ts=0, price=row["close"])
-        pressure_values.append(engine.get_state().cvd_velocity)
+        engine.update(SYM, qty=row["volume"], is_buyer_maker=False, ts=0, price=row["close"])
+        pressure_values.append(engine.get_state(SYM).cvd_velocity)
 
     pressure_series = pd.Series(pressure_values)
 

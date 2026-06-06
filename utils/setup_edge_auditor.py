@@ -94,10 +94,8 @@ class EdgeAuditor:
             if entry_price <= 0:
                 continue
 
-            # Dynamic window based on setup type
             win = SETUP_WINDOWS.get(setup_type, window_seconds)
 
-            # Get trajectory using trajectory_core
             trajectory = get_trajectory(sig, prices, win)
 
             if trajectory.empty:
@@ -110,40 +108,48 @@ class EdgeAuditor:
                 mae_price = np.min(prices_list)
                 mfe_pct = (mfe_price - entry_price) / entry_price * 100
                 mae_pct = (entry_price - mae_price) / entry_price * 100
-            else:  # SHORT
+            else:
                 mfe_price = np.min(prices_list)
                 mae_price = np.max(prices_list)
                 mfe_pct = (entry_price - mfe_price) / entry_price * 100
                 mae_pct = (mae_price - entry_price) / entry_price * 100
 
-            # Real Strategy Performance (Dynamic TP/SL from Metadata already in sig)
-            real_outcome = "TIMEOUT"
+            final_price = prices_list[-1]
+            if side == "LONG":
+                final_pnl = (final_price - entry_price) / entry_price * 100
+            else:
+                final_pnl = (entry_price - final_price) / entry_price * 100
+
             tp_price = sig.get("tp_price", 0.0)
             sl_price = sig.get("sl_price", 0.0)
             tp_pct = sig.get("tp_distance_pct", 0.0)
             sl_pct = sig.get("sl_distance_pct", 0.0)
 
-            # Fallback: calculate TP/SL pct from absolute prices when metadata missing
-            if tp_pct == 0.0 and tp_price > 0 and entry_price > 0:
-                tp_pct = abs(tp_price - entry_price) / entry_price * 100
-            if sl_pct == 0.0 and sl_price > 0 and entry_price > 0:
-                sl_pct = abs(sl_price - entry_price) / entry_price * 100
+            if tp_pct == 0.0:
+                if tp_price > 0 and entry_price > 0:
+                    tp_pct = abs(tp_price - entry_price) / entry_price * 100
+            if sl_pct == 0.0:
+                if sl_price > 0 and entry_price > 0:
+                    sl_pct = abs(sl_price - entry_price) / entry_price * 100
 
-            # Determine real outcome
+            # Real PnL: first touch TP/SL else final PnL at window expiry
+            real_pnl = final_pnl
+            real_outcome = "TIMEOUT"
             for p in prices_list:
                 if side == "LONG":
                     pnl_pct = (p - entry_price) / entry_price * 100
                 else:
                     pnl_pct = (entry_price - p) / entry_price * 100
                 if pnl_pct >= tp_pct and tp_pct > 0:
+                    real_pnl = tp_pct
                     real_outcome = "WIN"
                     break
                 if pnl_pct <= -sl_pct and sl_pct > 0:
+                    real_pnl = -sl_pct
                     real_outcome = "LOSS"
                     break
 
-            # First Touch Analysis for uniform grids
-            first_touch = {}
+            first_touch_pnl = {}
             for tp_t, sl_t in [
                 (0.1, 0.1),
                 (0.15, 0.15),
@@ -155,25 +161,31 @@ class EdgeAuditor:
                 (0.7, 0.7),
                 (0.8, 0.8),
                 (0.9, 0.9),
-                (0.9, 0.6),  # Historical Asymmetric Standard
-                (0.9, 1.0),  # Historical Asymmetric Standard
+                (0.9, 0.6),
+                (0.9, 1.0),
                 (1.0, 1.0),
+                (1.0, 2.0),
+                (1.0, 3.0),
+                (1.5, 3.0),
+                (2.0, 3.0),
+                (2.0, 4.0),
+                (2.5, 4.0),
+                (2.5, 5.0),
             ]:
-                result = "TIMEOUT"
+                grid_pnl = final_pnl
                 for p in prices_list:
                     if side == "LONG":
                         pnl_pct = (p - entry_price) / entry_price * 100
                     else:
                         pnl_pct = (entry_price - p) / entry_price * 100
                     if pnl_pct >= tp_t:
-                        result = "WIN"
+                        grid_pnl = tp_t
                         break
                     if pnl_pct <= -sl_t:
-                        result = "LOSS"
+                        grid_pnl = -sl_t
                         break
-                first_touch[f"ft_{tp_t}_{sl_t}"] = result
+                first_touch_pnl[f"ft_pnl_{tp_t}_{sl_t}"] = grid_pnl
 
-            # Arbitrator Data (directly from sig)
             is_composite = sig.get("is_composite", False)
             conviction = sig.get("conviction_score", 0)
 
@@ -185,6 +197,7 @@ class EdgeAuditor:
                     "mae": mae_pct,
                     "ratio": mfe_pct / (mae_pct + 1e-9),
                     "real_outcome": real_outcome,
+                    "real_pnl": real_pnl,
                     "tp_price": tp_price,
                     "sl_price": sl_price,
                     "tp_pct": tp_pct,
@@ -192,7 +205,7 @@ class EdgeAuditor:
                     "window": win,
                     "is_composite": is_composite,
                     "conviction": conviction,
-                    **first_touch,
+                    **first_touch_pnl,
                 }
             )
 
@@ -200,7 +213,7 @@ class EdgeAuditor:
         self.print_report(df_results, traces)
 
     def _find_best_uniform(self, group, uniform_grids=None):
-        """Find best uniform TP/SL for a group. Returns (best_exp, best_config, best_wr) or None."""
+        """Find best uniform TP/SL for a group using per-signal PnL."""
         if uniform_grids is None:
             uniform_grids = [
                 (0.1, 0.1),
@@ -216,21 +229,28 @@ class EdgeAuditor:
                 (0.9, 0.6),
                 (0.9, 1.0),
                 (1.0, 1.0),
+                (1.0, 2.0),
+                (1.0, 3.0),
+                (1.5, 3.0),
+                (2.0, 3.0),
+                (2.0, 4.0),
+                (2.5, 4.0),
+                (2.5, 5.0),
             ]
         best_exp = -999
         best_config = None
         best_wr = 0
         for tp_t, sl_t in uniform_grids:
-            col = f"ft_{tp_t}_{sl_t}"
+            col = f"ft_pnl_{tp_t}_{sl_t}"
             if col not in group.columns:
                 continue
-            w = (group[col] == "WIN").sum()
-            losses = (group[col] == "LOSS").sum()
-            d = w + losses
-            if d == 0:
+            pnls = group[col]
+            wins = (pnls > 0).sum()
+            total = len(pnls)
+            if total == 0:
                 continue
-            wr = w / d * 100
-            ev = (wr / 100) * tp_t - ((100 - wr) / 100) * sl_t
+            wr = wins / total * 100
+            ev = pnls.mean()
             if ev > best_exp:
                 best_exp = ev
                 best_config = (tp_t, sl_t)
@@ -243,8 +263,8 @@ class EdgeAuditor:
         if df.empty:
             return
 
-        FEE_TAKER_RT = 0.12
-        FEE_MAKER_RT = 0.08
+        FEE_TAKER_RT = 0.07
+        FEE_MAKER_RT = 0.02
         UNIFORM_GRIDS = [
             # Symmetric (full ladder)
             (0.1, 0.1),
@@ -273,6 +293,13 @@ class EdgeAuditor:
             # Asymmetric conservative (SL > TP)
             (0.5, 0.8),
             (0.6, 1.0),
+            (1.0, 2.0),
+            (1.0, 3.0),
+            (1.5, 3.0),
+            (2.0, 3.0),
+            (2.0, 4.0),
+            (2.5, 4.0),
+            (2.5, 5.0),
         ]
 
         # ── [1] SETUP EDGE BREAKDOWN (MFE/MAE raw) ──
@@ -377,22 +404,15 @@ class EdgeAuditor:
                     print(f"    or accept that this setup type has no edge on this coin.")
                 else:
                     # Entry has edge — check AMT targets vs best uniform
-                    real_w = (group["real_outcome"] == "WIN").sum()
-                    real_l = (group["real_outcome"] == "LOSS").sum()
-                    real_d = real_w + real_l
-                    if real_d > 0:
-                        real_wr = real_w / real_d * 100
-                        real_avg_tp = group["tp_pct"].mean()
-                        real_avg_sl = group["sl_pct"].mean()
-                        real_exp = (real_wr / 100) * real_avg_tp - ((100 - real_wr) / 100) * real_avg_sl
-                        delta = real_exp - best_exp
-                        if delta >= -0.05:
-                            print(f"    AMT Targets:       Exp {real_exp:+.4f}% (within 0.05% of best)")
-                            print(f"    {GREEN}VERDICT: TARGETS OK ✅{RESET}")
-                        else:
-                            print(f"    AMT Targets:       Exp {real_exp:+.4f}% ({delta:+.2f}% vs best uniform)")
-                            print(f"    {YELLOW}VERDICT: TARGET OPTIMIZATION NEEDED ⚠️{RESET}")
-                            print(f"    AMT targets underperform the best uniform. Adjust formula.")
+                    real_exp = group["real_pnl"].mean()
+                    delta = real_exp - best_exp
+                    if delta >= -0.05:
+                        print(f"    AMT Targets:       Exp {real_exp:+.4f}% (within 0.05% of best)")
+                        print(f"    {GREEN}VERDICT: TARGETS OK ✅{RESET}")
+                    else:
+                        print(f"    AMT Targets:       Exp {real_exp:+.4f}% ({delta:+.2f}% vs best uniform)")
+                        print(f"    {YELLOW}VERDICT: TARGET OPTIMIZATION NEEDED ⚠️{RESET}")
+                        print(f"    AMT targets underperform the best uniform. Adjust formula.")
         # ── [4] DECISION TRACE AUDIT (SetupEngine Gates) ──
         if traces is not None and not traces.empty:
             print(f"\n{BOLD}[4] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
@@ -429,22 +449,23 @@ class EdgeAuditor:
                 w = (group["real_outcome"] == "WIN").sum()
                 losses = (group["real_outcome"] == "LOSS").sum()
                 to = (group["real_outcome"] == "TIMEOUT").sum()
-                d = w + losses
-                wr = (w / d * 100) if d > 0 else 0
+                n = len(group)
+                wr = w / n * 100 if n > 0 else 0
 
+                avg_pnl = group["real_pnl"].mean()
                 avg_tp = group["tp_pct"].mean()
                 avg_sl = group["sl_pct"].mean()
-                expectancy = (wr / 100) * avg_tp - ((100 - wr) / 100) * avg_sl if d > 0 else 0
+                expectancy = avg_pnl
                 net_taker = expectancy - FEE_TAKER_RT
                 nc = GREEN if net_taker > 0 else RED
 
                 if self.by_coin:
                     print(
-                        f"{setup:<20} {label:<26} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {nc}{net_taker:>+8.4f}%{RESET}"
+                        f"{setup:<20} {label:<26} {n:<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {nc}{net_taker:>+8.4f}%{RESET}"
                     )
                 else:
                     print(
-                        f"{setup:<20} {len(group):<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {nc}{net_taker:>+8.4f}%{RESET}"
+                        f"{setup:<20} {n:<6} {w:<5} {losses:<5} {to:<5} {wr:>6.1f}%  {avg_tp:>7.3f}%  {avg_sl:>7.3f}%  {expectancy:>+8.4f}%  {nc}{net_taker:>+8.4f}%{RESET}"
                     )
 
         # ── [6] ALPHA FUSION & CONVICTION AUDIT ──
@@ -466,24 +487,24 @@ class EdgeAuditor:
                         label = f"{YELLOW}COMPOSITE (Fused){RESET}" if is_comp else "SOLO (Single)"
                         w = (group["real_outcome"] == "WIN").sum()
                         losses = (group["real_outcome"] == "LOSS").sum()
-                        d = w + losses
-                        wr = (w / d * 100) if d > 0 else 0
+                        n = len(group)
+                        wr = w / n * 100 if n > 0 else 0
                         avg_conv = group["conviction"].mean()
                         v_color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
                         print(
-                            f"{coin:<26} {label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
+                            f"{coin:<26} {label:<30} {n:<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
                         )
             else:
                 for is_comp, group in df.groupby("is_composite"):
                     label = f"{YELLOW}COMPOSITE (Fused){RESET}" if is_comp else "SOLO (Single)"
                     w = (group["real_outcome"] == "WIN").sum()
                     losses = (group["real_outcome"] == "LOSS").sum()
-                    d = w + losses
-                    wr = (w / d * 100) if d > 0 else 0
+                    n = len(group)
+                    wr = w / n * 100 if n > 0 else 0
                     avg_conv = group["conviction"].mean()
                     v_color = GREEN if wr > 55 else (YELLOW if wr > 50 else RED)
                     print(
-                        f"{label:<30} {len(group):<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
+                        f"{label:<30} {n:<6} {w:<5} {losses:<5} {v_color}{wr:>6.1f}%{RESET}   {avg_conv:>8.1f}        {'✅ ALPHA FUSION' if is_comp and wr > 50 else '-'}"
                     )
 
         # ── [7] OVERALL EDGE SUMMARY ──
@@ -494,13 +515,11 @@ class EdgeAuditor:
             total_wins = (df["real_outcome"] == "WIN").sum()
             total_losses = (df["real_outcome"] == "LOSS").sum()
             total_timeouts = (df["real_outcome"] == "TIMEOUT").sum()
-            total_decided = total_wins + total_losses
+            total_n = len(df)
 
-            if total_decided > 0:
-                overall_wr = total_wins / total_decided * 100
-                gross_expectancy = (overall_wr / 100) * df["tp_pct"].mean() - ((100 - overall_wr) / 100) * df[
-                    "sl_pct"
-                ].mean()
+            if total_n > 0:
+                overall_wr = total_wins / total_n * 100
+                gross_expectancy = df["real_pnl"].mean()
                 net_taker = gross_expectancy - FEE_TAKER_RT
                 net_maker = gross_expectancy - FEE_MAKER_RT
                 coins_n = df["symbol"].nunique() if "symbol" in df.columns else 1
@@ -518,24 +537,17 @@ class EdgeAuditor:
                         if best_exp - FEE_TAKER_RT > 0:
                             all_entry_fail = False
                         # Also check real targets vs best
-                        real_w = (group["real_outcome"] == "WIN").sum()
-                        real_l = (group["real_outcome"] == "LOSS").sum()
-                        real_d = real_w + real_l
-                        if real_d > 0:
-                            real_wr = real_w / real_d * 100
-                            real_exp = (real_wr / 100) * group["tp_pct"].mean() - ((100 - real_wr) / 100) * group[
-                                "sl_pct"
-                            ].mean()
-                            if real_exp < best_exp - 0.05:
-                                all_target_ok = False
+                        real_exp = group["real_pnl"].mean()
+                        if real_exp < best_exp - 0.05:
+                            all_target_ok = False
 
-                print(f"Total Signals:        {len(df)} ({coins_n} coins)")
-                print(f"Decided (W+L):        {total_decided} (Timeouts: {total_timeouts})")
+                print(f"Total Signals:        {total_n} ({coins_n} coins)")
+                print(f"Decided (W+L):        {total_wins + total_losses} (Timeouts: {total_timeouts})")
                 print(f"Overall Win Rate:     {overall_wr:.1f}%")
                 print(f"")
                 print(f"{BOLD}Gross Expectancy:     {gross_expectancy:+.4f}%{RESET}")
-                print(f"Net (Taker 0.12%):    {net_taker:+.4f}% {'✅' if net_taker > 0 else '❌'}")
-                print(f"Net (Maker 0.08%):    {net_maker:+.4f}% {'✅' if net_maker > 0 else '❌'}")
+                print(f"Net (Taker {FEE_TAKER_RT:.2f}%):    {net_taker:+.4f}% {'✅' if net_taker > 0 else '❌'}")
+                print(f"Net (Maker {FEE_MAKER_RT:.2f}%):    {net_maker:+.4f}% {'✅' if net_maker > 0 else '❌'}")
                 print(f"")
 
                 if all_entry_fail:
@@ -608,6 +620,40 @@ class EdgeAuditor:
                 print(f"\n{RESET}  Proximity = min(MFE / TP, 1.0). Close = ≥80% of target reached.")
                 print(f"  {'High proximity + low WR = target too tight. Low proximity = entry wrong direction.'}")
 
+            # ── [9] WINDOW ADEQUACY WARNING ──
+            if "real_outcome" in df.columns and "mfe" in df.columns and "tp_pct" in df.columns:
+                truncation_warnings = []
+                for setup, group in df.groupby("setup_type"):
+                    timeouts = group[group["real_outcome"] == "TIMEOUT"]
+                    n_to = len(timeouts)
+                    n_total = len(group)
+                    to_rate = n_to / n_total * 100 if n_total > 0 else 0
+                    if n_to == 0 or to_rate < 10:
+                        continue
+                    # For TIMEOUT signals, check if MFE came close to TP (suggests truncation)
+                    close_count = 0
+                    for _, row in timeouts.iterrows():
+                        mfe = row.get("mfe", 0.0)
+                        tp = row.get("tp_pct", 0.0)
+                        if tp > 0 and mfe / tp >= 0.8:
+                            close_count += 1
+                    pct_close = close_count / n_to * 100 if n_to > 0 else 0
+                    if pct_close >= 30:
+                        truncation_warnings.append(
+                            f"  ⚠️ {setup:<22} {n_to:>4} TO ({to_rate:>5.1f}%), "
+                            f"{close_count:>3}/{n_to} ({pct_close:>4.0f}%) con MFE ≥80% TP "
+                            f"{YELLOW}→ considerar ventana >{int(group['window'].mean())}s{RESET}"
+                        )
+
+                if truncation_warnings:
+                    print(f"\n{BOLD}[9] WINDOW ADEQUACY{RESET}")
+                    print(f"  Señales TIMEOUT cuyo MFE alcanzó ≥80% del TP — probable truncación por ventana.")
+                    for w in truncation_warnings:
+                        print(w)
+                else:
+                    print(f"\n{BOLD}[9] WINDOW ADEQUACY ✅{RESET}")
+                    print(f"  Sin evidencia de truncación — las ventanas son adecuadas.")
+
             # ── Per-Coin Summary (when --by-coin) ──
             if self.by_coin and "symbol" in df.columns:
                 print(f"\n{BOLD}Per-Coin Summary{RESET}")
@@ -619,13 +665,11 @@ class EdgeAuditor:
                     cw = (cg["real_outcome"] == "WIN").sum()
                     cl = (cg["real_outcome"] == "LOSS").sum()
                     cto = (cg["real_outcome"] == "TIMEOUT").sum()
-                    cd = cw + cl
-                    if cd == 0:
+                    cn = len(cg)
+                    if cn == 0:
                         continue
-                    cwr = cw / cd * 100
-                    ctp = cg["tp_pct"].mean()
-                    csl = cg["sl_pct"].mean()
-                    cexp = (cwr / 100) * ctp - ((100 - cwr) / 100) * csl
+                    cwr = cw / cn * 100
+                    cexp = cg["real_pnl"].mean()
                     cnt = cexp - FEE_TAKER_RT
                     best = self._find_best_uniform(cg, UNIFORM_GRIDS)
                     if best is None:

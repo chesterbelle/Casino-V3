@@ -1,3 +1,4 @@
+import argparse
 import json
 import math
 import os
@@ -7,27 +8,58 @@ import time
 HISTORIAN_DB = "data/historian.db"
 DATASETS_DIR = "data/datasets/backtest_ready"
 
+AMT_SCENARIOS = ["tactical_absorption", "trend_acceptance", "liquidity_exhaustion", "failed_breakout"]
+
+# ANSI Colors
+CYAN = "\033[96m"
+BOLD = "\033[1m"
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
+
+# Cache: (dataset_path, min_ts, max_ts)
+_depth_cache = {}
+
+
+def _find_dataset_for_ts(symbol, target_ts):
+    """Find dataset file whose depth_snapshot timestamps bracket target_ts."""
+    base_asset = symbol.split("/")[0]
+    for f in os.listdir(DATASETS_DIR):
+        if base_asset not in f or not f.endswith(".db"):
+            continue
+        path = os.path.join(DATASETS_DIR, f)
+
+        if path in _depth_cache:
+            lo, hi = _depth_cache[path]
+        else:
+            try:
+                conn = sqlite3.connect(path)
+                row = conn.execute("SELECT MIN(timestamp), MAX(timestamp) FROM depth_snapshots").fetchone()
+                conn.close()
+            except Exception:
+                continue
+            if row[0] is None:
+                _depth_cache[path] = (None, None)
+                continue
+            lo, hi = row
+            _depth_cache[path] = (lo, hi)
+
+        if lo is not None and lo <= target_ts <= hi:
+            return path
+    return None
+
 
 def get_depth_snapshot(symbol, target_ts):
-    """Fetches the closest L2 depth snapshot from the dataset."""
-    # Assuming dataset file format: 2024-01-01_SYMBOL.db
-    # We will search for the first matching db for the symbol
-    dataset_file = None
-    for f in os.listdir(DATASETS_DIR):
-        base_asset = symbol.split("/")[0]
-        if base_asset in f and f.endswith(".db"):
-            dataset_file = os.path.join(DATASETS_DIR, f)
-            break
-
+    dataset_file = _find_dataset_for_ts(symbol, target_ts)
     if not dataset_file:
         return None, None
 
     conn = sqlite3.connect(dataset_file)
     try:
-        # Get the closest snapshot before or exactly at the target_ts
-        # We look up to 1 second back
         row = conn.execute(
-            "SELECT bids, asks FROM depth_snapshots WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1", (target_ts,)
+            "SELECT bids, asks FROM depth_snapshots WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1",
+            (target_ts,),
         ).fetchone()
 
         if row:
@@ -82,37 +114,19 @@ def calculate_l2_ratio(bids, asks, price, side, depth_pct=0.002):
         return ask_vol / bid_vol
 
 
-def main():
-    print("======================================================================")
-    print(" L2 DEPTH AUDITOR - Zero-Interference Microstructure Certification")
-    print("======================================================================")
-
-    try:
-        hist_conn = sqlite3.connect(HISTORIAN_DB)
-    except Exception:
-        print("Error: No historian DB found. Run a backtest with --audit first.")
-        return
-
-    # 1. Get all IN_VALUE TacticalAbsorption signals
-    # We filter out rejected ones by joining with decision_traces (only getting EXECUTED)
-    # Wait, we can just get all signals and trace them
-    rows = hist_conn.execute(
-        """
-        SELECT symbol, timestamp, side, price, metadata
-        FROM signals
-    """
-    ).fetchall()
-
+def audit_by_scenario(hist_conn, rows, scenario_name):
     signals = []
     for sym, ts, side, price, meta_str in rows:
         try:
             meta = json.loads(meta_str) if meta_str else {}
         except Exception:
             meta = {}
-        if meta.get("scenario") == "TacticalAbsorptionV2":
+        if meta.get("scenario") == scenario_name:
             signals.append((sym, ts, side, price, meta_str))
 
-    print(f"[*] Found {len(signals)} signals. Correlating with L2 Depth... This may take a minute.")
+    if not signals:
+        print(f"   {YELLOW}⚠️  0 signals found for '{scenario_name}'{RESET}")
+        return
 
     results = {
         "High Wall (>2.0)": {"mfe": [], "mae": []},
@@ -120,57 +134,66 @@ def main():
         "Thin Wall (<1.0)": {"mfe": [], "mae": []},
     }
 
-    processed = 0
     for sym, ts, side, price, meta_str in signals:
-        # Check if it was accepted by StructureGuardian
-
-        # We only audit trades that actually made it through the filters
-        # But for diagnostic purposes, let's just audit them all to see if L2 correlates!
-
         bids, asks = get_depth_snapshot(sym, ts)
         if not bids or not asks:
             continue
-
         ratio = calculate_l2_ratio(bids, asks, price, side)
         mfe, mae = calculate_mfe_mae(hist_conn, sym, ts, price, side)
-
-        # Categorize
         if ratio >= 2.0:
             cat = "High Wall (>2.0)"
         elif ratio >= 1.0:
             cat = "Balanced (1.0-2.0)"
         else:
             cat = "Thin Wall (<1.0)"
-
         results[cat]["mfe"].append(mfe)
         results[cat]["mae"].append(mae)
-        processed += 1
 
-        if processed % 500 == 0:
-            print(f"   ... Processed {processed} signals.")
-
-    print("\n[L2 DEPTH RATIO AUDIT RESULTS]")
-    print(f"{'L2 RATIO (Wall)':<20} | {'TRADES':<8} | {'AVG MFE %':<10} | {'AVG MAE %':<10} | {'RATIO (MFE/MAE)':<15}")
-    print("-" * 70)
-
+    print(f"\n  {BOLD}{scenario_name}{RESET} ({len(signals)} signals)")
+    print(f"  {'L2 RATIO (Wall)':<20} | {'n':<6} | {'AVG MFE%':<10} | {'AVG MAE%':<10} | {'RATIO':<8}")
+    print(f"  {'-'*60}")
     for cat, data in results.items():
         n = len(data["mfe"])
         if n == 0:
             continue
-
         avg_mfe = sum(data["mfe"]) / n * 100
         avg_mae = sum(data["mae"]) / n * 100
         mfe_mae_ratio = abs(avg_mfe / avg_mae) if avg_mae != 0 else 0
+        color = GREEN if mfe_mae_ratio > 1.2 else (RED if mfe_mae_ratio < 0.9 else YELLOW)
+        print(f"  {cat:<20} | {n:<6} | {avg_mfe:>8.3f}% | {avg_mae:>8.3f}% | {color}{mfe_mae_ratio:>7.2f}{RESET}")
 
-        # Terminal colors
-        color = "\033[92m" if mfe_mae_ratio > 1.2 else ("\033[91m" if mfe_mae_ratio < 0.9 else "\033[93m")
-        reset = "\033[0m"
 
-        print(f"{cat:<20} | {n:<8} | {avg_mfe:>9.3f}% | {avg_mae:>9.3f}% | {color}{mfe_mae_ratio:>14.2f}{reset}")
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db", default="data/historian.db", help="Path to historian DB")
+    args = parser.parse_args()
 
-    print("\n[HYPOTHESIS CHECK]")
+    print("=" * 70)
+    print(" L2 DEPTH AUDITOR — All AMT Scenarios")
+    print("=" * 70)
+
+    if not os.path.exists(args.db):
+        print(f"{RED}❌ Database not found: {args.db}{RESET}")
+        print("Run a backtest with --audit first.")
+        return
+
+    hist_conn = sqlite3.connect(args.db)
+
+    rows = hist_conn.execute("SELECT symbol, timestamp, side, price, metadata FROM signals").fetchall()
+
+    print(f"[*] Total signals in DB: {len(rows)}")
+    print(f"[*] Correlating with L2 Depth for each AMT scenario...\n")
+
+    for scenario in AMT_SCENARIOS:
+        audit_by_scenario(hist_conn, rows, scenario)
+
+    print(f"\n{'='*70}")
+    print("[HYPOTHESIS CHECK]")
     print("If 'High Wall' has a significantly better MFE/MAE Ratio (>1.2) than 'Thin Wall',")
     print("it proves that requiring L2 passive support is a mandatory structural edge.")
+    print(f"{'='*70}")
+
+    hist_conn.close()
 
 
 if __name__ == "__main__":

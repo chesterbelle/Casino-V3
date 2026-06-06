@@ -14,7 +14,7 @@ def main():
         """
         SELECT timestamp, symbol, side, price, metadata
         FROM signals
-        WHERE setup_type = 'TacticalAbsorptionV2' AND symbol IN (?, ?, ?, ?)
+        WHERE setup_type = 'tactical_absorption' AND symbol IN (?, ?, ?, ?)
         ORDER BY timestamp
     """,
         symbols_of_interest,

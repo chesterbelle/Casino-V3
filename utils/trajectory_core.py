@@ -316,10 +316,10 @@ def _extract_point_features(point_df: pd.DataFrame, signal_metadata: Dict) -> Di
 
 # Constants for window configuration (shared with setup_edge_auditor)
 SETUP_WINDOWS = {
-    "TacticalAbsorptionV2": 14400,
-    "failed_breakout": 7200,
-    "liquidity_exhaustion": 7200,
-    "trend_acceptance": 14400,
+    "tactical_absorption": 21600,
+    "failed_breakout": 21600,
+    "liquidity_exhaustion": 21600,
+    "trend_acceptance": 21600,
 }
 
-DEFAULT_WINDOW = 14400  # 4 hours default
+DEFAULT_WINDOW = 21600  # 6 hours default

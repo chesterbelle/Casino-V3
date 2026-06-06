@@ -145,7 +145,7 @@ class SensorSignalValidator:
 
         def patched_calculate(self, context: dict):
             """Patched calculate with diagnostics."""
-            sensor_name = "TacticalAbsorptionV2"  # Name in config
+            sensor_name = "tactical_absorption"  # Name in config
             diag = validator.sensor_diagnostics[sensor_name]
             diag["calls"] += 1
 

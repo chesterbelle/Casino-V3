@@ -15,7 +15,7 @@ def main():
         signals = conn.execute(
             """
             SELECT timestamp, side, price, metadata FROM signals
-            WHERE symbol = ? AND setup_type = 'TacticalAbsorptionV2'
+            WHERE symbol = ? AND setup_type = 'tactical_absorption'
         """,
             (sym,),
         ).fetchall()

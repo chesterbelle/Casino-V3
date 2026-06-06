@@ -3,7 +3,10 @@
 # Perfil Changelog — THIN_VOLATILE (XRP, DOGE)
 
 > **Iniciado**: 2026-06-02
-> **Última actualización**: 2026-06-03
+> **Última actualización**: 2026-06-06
+
+> **🔴 CONEXIÓN CON MID_LIQUID — FLUJO DIRECCIONAL (confirmado 2026-06-06):**
+> La asimetría direccional descubierta aquí (DOGE LONG ratio 0.70 vs SHORT 1.05) es síntoma del mismo fenómeno: TAV es flujo direccional, no reversión. En MID_LIQUID se confirmó que SL ancho (4%) captura el edge completo. En THIN_VOLATILE, el ratio <1.0 en un side y >1.0 en el otro sugiere que **el flujo direccional solo existe en un sentido** en libros delgados — el filtro direccional por activo (propuesto en iter 3) es la solución correcta.
 
 ## Historial de Iteraciones
 
@@ -11,7 +14,46 @@
 |---|--------|------------------------|-----------|------------|
 | 1 | Baseline | z=3.8, conc=0.60, l2=1.0 | -0.068% | Entry Failure: Ruido en TacticalAbsorptionV2 |
 | 2 | Sensorial + L2 | z=4.5, conc=0.55, l2=1.5 | **XRP: +0.1098%** DOGE: 0 trades | **XRP**: TAV 0.87→1.11. **DOGE**: parámetros demasiado restrictivos — 0 trades en todos los meses. |
-| 3 | **ENTRY FILTER RELAX** | z=2.5, conc=0.45, stagn=0.15, quality_A=0.65, l2=1.0 | DOGE: -0.0121% XRP: +0.0320% | **TAV mejoró ~6%** (DOGE 0.85→0.91, XRP 0.89→0.94) pero sigue Entry Failure. Hipótesis parcialmente confirmada: menos z_score ayuda, pero no suficiente. trend_acceptance DOGE 2.42 sigue sólido. |
+| 3 | ENTRY FILTER RELAX | z=2.5, conc=0.45, stagn=0.15, quality_A=0.65, l2=1.0 | DOGE: -0.0121% XRP: +0.0320% | TAV mejoró ~6% (DOGE 0.85→0.91, XRP 0.89→0.94) pero sigue Entry Failure. trend_acceptance DOGE 2.42 sigue sólido. |
+| 4 | **PRESSURE ENGINE PER-COIN + DIRECIONAL FIX + WIDE SL** | z=2.5→2.0→2.5, conc=0.55, TAV/TA tp=2.5%/sl=4.0%, FB/LE tp=1.0%/sl=1.0%, bug fix SetupMode (TAV→CONTINUATION), PressureEngine per-coin facade | **−0.3284%** | **3 hallazgos críticos**: (a) DOGE SHORT TAV ratio 1.28 — el edge existe pero se entierra en el promedio global. (b) trend_acceptance es el único setup sano (+0.24% Net). (c) PressureEngine era global (no per-coin) — las optimizaciones de concentration_min no afectaban el engine real. Corregido en esta iteración. |
+
+## Resultados Iteración 4 (Primera ejecución del orquestador — 12 datasets, 4.245 señales)
+
+### Entry Quality (Best Uniform Grid)
+| Setup | n | Best Uniform | Net Taker | Veredicto |
+|-------|---|-------------|-----------|-----------|
+| trend_acceptance | 172 | 2.50/4.00% | **+0.24%** ✅ | Targets OK, coincide con seed |
+| failed_breakout | 98 | 2.50/5.00% | +0.14% ✅ | Target optimization needed (pocas señales) |
+| tactical_absorption | 2.655 | 0.10/0.10% | **−0.07%** ❌ | ENTRY FAILURE global — pero DOGE SHORT R=1.28 (n=370) |
+| liquidity_exhaustion | 1.319 | 0.30/0.30% | **−0.07%** ❌ | ENTRY FAILURE |
+
+### DOGE SHORT TAV — El edge oculto
+| Coin | Side | n | MFE | MAE | Ratio |
+|------|------|---|-----|-----|-------|
+| DOGE | LONG | 750 | 1.59% | 2.24% | 0.71 ❌ |
+| DOGE | SHORT | 370 | 1.43% | 1.12% | **1.28 ✅** |
+| XRP | LONG | 1.169 | 1.03% | 1.64% | 0.63 ❌ |
+| XRP | SHORT | 366 | 0.85% | 2.59% | 0.33 ❌ |
+
+### L2 Depth por wall type
+| Setup | High Wall | Balanced | Thin Wall |
+|-------|-----------|----------|-----------|
+| trend_acceptance | 0.64 | 0.64 | **2.04** |
+| tactical_absorption | 0.98 | 0.96 | 0.83 |
+| liquidity_exhaustion | 0.98 | 0.91 | 0.84 |
+| failed_breakout | 1.18 | **1.73** | 1.17 |
+
+### Cambios en Iteración 4
+| Parámetro | Antes | Después | Razón |
+|-----------|-------|---------|-------|
+| `z_score_min` | 2.5 (iter 3) | 2.5 (mantiene) | Encontramos que DOGE SHORT tiene edge con z=2.0, pero subir a 2.5 puede filtrar ruido |
+| `concentration_min` | 0.45 (iter 3) | 0.55 | Requiere absorción más concentrada para reducir falsos positivos |
+| `targets.tactical_absorption` | 2.5%/3.0% | 2.5%/4.0% | SL ancho para flujo direccional |
+| `targets.trend_acceptance` | 1.8%/1.5% | 2.5%/4.0% | Seed de best uniform grid |
+| `targets.failed_breakout` | 2.5%/2.5% | 1.0%/1.0% | Reversión clásica — SL ajustado |
+| `targets.liquidity_exhaustion` | 2.0%/1.2% | 1.0%/1.0% | Reversión clásica — SL ajustado |
+| `SetupMode` (core.py) | REVERSION for TAV | CONTINUATION for TAV | Bug fix: TAV es direccional |
+| `PressureEngine` | Una instancia global | Per-coin facade + CoinPressureEngine | Bug fix: concentration_min/noise_max ahora se aplican por moneda
 
 ## DOGE — Resultados Detallados (Iteración 2)
 
@@ -74,7 +116,12 @@
 # Perfil Changelog — MID_LIQUID (LTC, AVAX, OP, APT, BNB, LINK)
 
 > **Iniciado**: 2026-06-05
-> **Última actualización**: 2026-06-05
+> **Última actualización**: 2026-06-06
+
+> **🔴 DESCUBRIMIENTO FUNDACIONAL — FLUJO DIRECCIONAL VS REVERSIÓN:**
+> `tactical_absorption` y `trend_acceptance` **NO** son reversión clásica. 0/927 señales revierten en <15 min — es flujo direccional institucional que se extiende por horas (mediana time-to-TP = 110 min). Con SL 4% (grid 2.50/4.00%), el best uniform salta de +0.26% a **+0.71% Net**.
+>
+> `failed_breakout` y `liquidity_exhaustion` SÍ son reversión — SL ajustado (1.00/1.00%) funciona óptimo. **No todos los setups responden a la misma estructura de targets. La naturaleza del edge (direccional vs reversión) determina el target design.**
 
 ## Historial de Iteraciones
 

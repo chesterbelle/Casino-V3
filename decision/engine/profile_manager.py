@@ -60,7 +60,7 @@ class ProfileManager:
 
         Args:
             symbol: Coin symbol
-            *path: Path to the parameter (e.g., "targets", "TacticalAbsorptionV2")
+            *path: Path to the parameter (e.g., "targets", "tactical_absorption")
 
         Returns:
             The parameter value, or None if not found

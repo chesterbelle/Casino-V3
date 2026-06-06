@@ -53,7 +53,7 @@ class LiquidityExhaustionDetector:
             self.min_bounce_pct = sensor_params.get("min_bounce_pct", self.min_bounce_pct)
             self.test_memory_seconds = sensor_params.get("test_memory_seconds", self.test_memory_seconds)
 
-        state = self.pressure.get_state()
+        state = self.pressure.get_state(symbol)
 
         current_delta = abs(state.cvd_velocity)
 

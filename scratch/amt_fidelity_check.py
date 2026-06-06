@@ -16,7 +16,7 @@ def main():
         """
         SELECT symbol, side, price, metadata, setup_type
         FROM signals
-        WHERE setup_type = 'TacticalAbsorptionV2'
+        WHERE setup_type = 'tactical_absorption'
     """
     ).fetchall()
 

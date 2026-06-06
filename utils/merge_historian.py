@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS decision_traces (
 );
 CREATE TABLE IF NOT EXISTS signals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp REAL, symbol TEXT, side TEXT, price REAL,
+    timestamp REAL, symbol TEXT, side TEXT, setup_type TEXT, price REAL,
     metadata TEXT, session_id TEXT, trace_id TEXT
 );
 CREATE TABLE IF NOT EXISTS price_samples (
@@ -69,7 +69,11 @@ def merge_databases():
             continue
         print(f"📦 Processing: {temp_db}...")
 
-        conn.execute(f"ATTACH DATABASE '{temp_db}' AS temp_db;")
+        try:
+            conn.execute(f"ATTACH DATABASE '{temp_db}' AS temp_db;")
+        except sqlite3.OperationalError as e:
+            print(f"  ⚠️ Skipping corrupt DB: {e}")
+            continue
 
         for table in tables:
             try:
