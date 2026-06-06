@@ -5,6 +5,7 @@
 > 2. **Actualizar este archivo al final de cada sesión** con: decisiones tomadas, métricas comparativas y estado de las capas.
 > 3. **REGLA DE ORO DE GIT (NO MERGE):** Hay 3 BOTS DIFERENTES e incompatibles viviendo en distintas ramas. **NUNCA hagas merge ni rebase.**
 > 4. **REGLA DE PUSH (SOLO LOCAL):** NUNCA ejecutes `git push` a menos que el usuario lo ordene expresamente.
+> 5. **REGLA DEL EDGE (NUNCA RENDIRSE):** NUNCA concluyas que "el edge no existe" o "ENTRY FAILURE" como veredicto final. Si no encontramos edge, es porque no hemos ajustado los parámetros correctos — seguimos ajustando sensores, targets, regímenes e infraestructura hasta que aparezca. No existen alphas muertas, solo parámetros no encontrados.
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
@@ -102,7 +103,11 @@
 | failed_breakout | Reversión | 1.0% | 1.0% | Best uniform +0.61% Net |
 | liquidity_exhaustion | Reversión | 1.0% | 1.0% | Best uniform +0.43% Net |
 
-### Fase 2 — THIN_VOLATILE Iter 1 ✅ (2026-06-06)
+### Fase 2 — THIN_VOLATILE
+> **Parámetros actuales**: z_score_min=1.5, concentration_min=0.40, noise_max=0.35
+> **Próximo ajuste**: Relajar z_score hasta que aparezca edge en TAV XRP
+
+#### Iter 1 ✅ — Baseline (2026-06-06)
 - **12 datasets** (6 XRP + 6 DOGE), 4.245 señales, ventana 6h
 - Bug fix: TypeError str/int en `pressure/engine.py:131` (mid price con strings)
 - Ajuste paramétrico: `z_score_min 2.0→2.5`, `concentration_min 0.45→0.55`
@@ -116,6 +121,22 @@
 
 **Hallazgo clave per-coin TAV**:
 ```
+DOGE_LONG   n=750  R=0.71 ❌
+DOGE_SHORT  n=370  R=1.28 ✅  ← edge real
+XRP_LONG    n=1169 R=0.63 ❌
+XRP_SHORT   n=366  R=0.33 ❌
+```
+
+#### Iter 2 🔴 — XRP-only (z=2.5, conc=0.55) — Sobrefiltro (2026-06-06)
+- Solo XRP completó (6 datasets). DOGE nunca terminó por timeout/abort.
+- **Resultado**: 2,244 señales XRP, **0 trades**. Parámetros demasiado restrictivos para XRP.
+- **failed_breakout** con High Wall: el único setup con edge real (+0.39% Net, ratio 2.00)
+- **tactical_absorption** (1,566 señales XRP): sin edge incluso en best uniform (0.10/0.10% → −0.07%)
+- **Conclusión**: El edge TAV es coin-específico. XRP no tiene TAV edge; DOGE SHORT SÍ (R=1.28). z=2.5/conc=0.55 mató TODO en XRP.
+- **Próximo intento**: z=1.5, conc=0.40 — relajar filtro radicalmente
+
+#### Fase de Relajación Radical (Iter 3) — z=1.5, conc=0.40 🔴 PENDIENTE
+- Objetivo: recuperar señales TAV en XRP. Si ni con filtro mínimo hay edge, re-evaluar entry logic.
 DOGE_LONG   n=750  R=0.71 ❌
 DOGE_SHORT  n=370  R=1.28 ✅  ← edge real
 XRP_LONG    n=1169 R=0.63 ❌
@@ -159,7 +180,8 @@ XRP_SHORT   n=366  R=0.33 ❌
 
 ## 📝 Timeline de Sesiones Recientes
 - 2026-06-04 | session-close | **REGIME SENSOR V2 — PRICE ACTION + VOLUME PROFILE + MARKOV**: Complete redesign from 3-layer to 2-layer architecture. Accuracy 41.3% → **72.3%** (+31pp). TREND_UP 42.2% → **78.0%**. BALANCE 16% → **60%**. Key breakthrough: relaxed swing detection (ANY vs BOTH). Both layers contribute 98%+. Markov trained on 125,280 candles. Commits: e9dfd80, 080e465, 09cc9d5. Branch: 8.7-cluster-improved.
-- 2026-06-06 | session-close | **PRESSURE ENGINE PER-COIN DESCUBRIMIENTO + THIN_VOLATILE ITER 1 + BUG FIX DIRECCIONAL**: Se descubrió que PressureEngine es una sola instancia global sin soporte per-coin — `concentration_min` y `noise_max` son iguales para DOGE y BTC. AbsorptionDetector compensa leyendo profile_manager directamente, pero el absorption_score del engine no es perfilable. Bug fix: `tactical_absorption` removido de `REVERSION_SCENARIOS`, creado `DIRECTIONAL_SCENARIOS` en core.py. Seed de baselines con best uniform grids (2.5/4.0% direccional, 1.0/1.0% reversión) en todos los clusters. THIN_VOLATILE iter 1 completa: trend_acceptance es el único setup con edge (2.50/4.00% +0.24% Net), DOGE SHORT TAV tiene ratio 1.28 individual pero se entierra en el promedio global. Bug fix TypeError str/int en engine.py:131.
+- 2026-06-06 | session-close | **THIN_VOLATILE ITER 1 COMPLETA + PRESSURE ENGINE PER-COIN**: Cancelación de la deuda técnica del PressureEngine. 29 commits, 1466 líneas. Se completó THIN_VOLATILE iter 1 (12 datasets, 4245 señales): DOGE SHORT TAV ratio 1.28, trend_acceptance +0.24% Net. Bug fix: dirección TAV (era reversión), TypeError str/int, TASK_TIMEOUT 1800→3600s, ventana 14400→21600s. Docs: architectural_decisions.md (ADR-1/ADR-2), perfil_changelog.md actualizado. Rama: 8.7-cluster-improved.
+- 2026-06-06 | session-close | **THIN_VOLATILE ITER 2 — XRP-ONLY + REGLA DEL EDGE**: Segunda ejecución de THIN_VOLATILE con z=2.5, conc=0.55 produjo 0 trades en XRP — sobrefiltro confirmado. failed_breakout con High Wall (ratio 2.00, +0.39% Net) es el único edge de XRP. Establecida REGLA #5: "Nunca asumas que un edge no existe — sigue ajustando hasta que aparezca". Parámetros movidos a z=1.5, conc=0.40 para próxima iteración.
 - 2026-06-03 | session-close | **REGIME SENSOR AUTOPSY + MARKOV DISCUSSION**: Deep analysis of why sensor misclassifies BALANCE as TREND ~60%. Root cause: CB slow drift bypasses synthesis, binary persistence. Markov Chain approach discussed as alternative.
 - 2026-06-03 | session-close | **REGIME VALIDATOR + COUNTER-TREND PENALTY**: Created regime_validator.py. Added A-grade minimum for counter-trend signals. -84% false admissions validated.
 - 2026-06-02 | session-close | **ILLIQUID_SPEC BACKTEST + PROFILE CONTRADICTION**: Backtest SOL/XRP/DOGE. SOL +0.24% (edge marginal). Profile contradiction discovered — K-Means non-deterministic.

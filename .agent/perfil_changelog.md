@@ -16,6 +16,23 @@
 | 2 | Sensorial + L2 | z=4.5, conc=0.55, l2=1.5 | **XRP: +0.1098%** DOGE: 0 trades | **XRP**: TAV 0.87→1.11. **DOGE**: parámetros demasiado restrictivos — 0 trades en todos los meses. |
 | 3 | ENTRY FILTER RELAX | z=2.5, conc=0.45, stagn=0.15, quality_A=0.65, l2=1.0 | DOGE: -0.0121% XRP: +0.0320% | TAV mejoró ~6% (DOGE 0.85→0.91, XRP 0.89→0.94) pero sigue Entry Failure. trend_acceptance DOGE 2.42 sigue sólido. |
 | 4 | **PRESSURE ENGINE PER-COIN + DIRECIONAL FIX + WIDE SL** | z=2.5→2.0→2.5, conc=0.55, TAV/TA tp=2.5%/sl=4.0%, FB/LE tp=1.0%/sl=1.0%, bug fix SetupMode (TAV→CONTINUATION), PressureEngine per-coin facade | **−0.3284%** | **3 hallazgos críticos**: (a) DOGE SHORT TAV ratio 1.28 — el edge existe pero se entierra en el promedio global. (b) trend_acceptance es el único setup sano (+0.24% Net). (c) PressureEngine era global (no per-coin) — las optimizaciones de concentration_min no afectaban el engine real. Corregido en esta iteración. |
+| 5 | **XRP-ONLY (z=2.5, conc=0.55) — SOBREFILTRO** | TASK_TIMEOUT 1800→3600s (sin efecto — DOGE nunca corrió). Solo 6 datasets XRP procesados. | **0 trades** | TODAS las señales XRP filtradas. Parámetros demasiado restrictivos. failed_breakout con High Wall = única señal con edge real (+0.39% Net, ratio 2.00). TAV XRP (1.566 señales) sin edge incluso en best uniform. |
+| 6 | **PRÓXIMO — RELAJACIÓN RADICAL** | z=1.5, conc=0.40 | — | Si TAV XRP no tiene edge ni con filtro mínimo, re-evaluar entry logic. Si aparece edge, subir gradualmente hasta optimizar. |
+
+## Resultados Iteración 5 — XRP-only (Sobrefiltro confirmado)
+
+### Entry Quality (Best Uniform Grid)
+| Setup | n | Best Uniform | Net Taker | Veredicto |
+|-------|---|-------------|-----------|-----------|
+| failed_breakout | 51 | 1.00/2.00% | **+0.39%** ✅ | High Wall ratio 2.00 |
+| liquidity_exhaustion | 574 | 0.40/0.40% | −0.04% ❌ | Sin edge |
+| tactical_absorption | 1.566 | 0.10/0.10% | −0.07% ❌ | Sobrefiltro confirmado |
+| trend_acceptance | 53 | 0.10/0.10% | −0.06% ❌ | Poca señal |
+
+### Diagnóstico
+- **failed_breakout con High Wall** (ratio 2.00, n=11): es el edge real de XRP. Perfil high-wall necesario.
+- **TAV XRP no tiene edge** ni con parámetros relajados (0.10/0.10% best uniform). Confirma que DOGE SHORT TAV (R=1.28) era **específico de DOGE** — no generalizable a todo THIN_VOLATILE.
+- **Lección**: Los perfiles deben particionar no solo por liquidez sino por edge profile. XRP y DOGE tienen patterns de mercado diferentes aunque liquidez similar.
 
 ## Resultados Iteración 4 (Primera ejecución del orquestador — 12 datasets, 4.245 señales)
 

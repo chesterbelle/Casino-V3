@@ -38,7 +38,7 @@ PROTOCOLS = {
 
 DB_DIR = "data/datasets/backtest_ready"
 LOG_DIR = "logs"
-TASK_TIMEOUT = 1800
+TASK_TIMEOUT = 3600
 
 
 def _p(msg):

@@ -185,8 +185,8 @@ COIN_PROFILES = {
         "description": "Thin book + vol moderada — XRP, DOGE",
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 2.5,
-                "concentration_min": 0.55,
+                "z_score_min": 1.5,
+                "concentration_min": 0.40,
                 "noise_max": 0.35,
                 "stagnation_floor_pct": 0.15,
                 "cooldown": 150.0,
