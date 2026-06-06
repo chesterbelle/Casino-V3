@@ -48,9 +48,14 @@ class CoinPressureEngine:
             params = profile_manager.get_sensor_params(self.symbol, "absorption_detector")
             self.concentration_min = params.get("concentration_min", 0.50) if params else 0.50
             self.noise_max = params.get("noise_max", 0.35) if params else 0.35
+
+            # Load z_block from pressure_thresholds in profile
+            pressure_params = profile_manager.get_pressure_thresholds(self.symbol)
+            self.z_block = pressure_params.get("z_block", 2.0) if pressure_params else 2.0
         except Exception:
             self.concentration_min = 0.50
             self.noise_max = 0.35
+            self.z_block = 2.0
 
     def update(
         self, qty: float, is_buyer_maker: bool, ts: float, price: float, footprint_levels: Optional[Dict] = None
@@ -117,8 +122,8 @@ class CoinPressureEngine:
 
         cvd_sell = self.last_state.cvd_delta < 0
         cvd_buy = self.last_state.cvd_delta > 0
-        displaced_high = self.last_state.price_displacement_z > 2.0
-        displaced_low = self.last_state.price_displacement_z < -2.0
+        displaced_high = self.last_state.price_displacement_z > self.z_block
+        displaced_low = self.last_state.price_displacement_z < -self.z_block
         self.last_state.block_long = cvd_sell and displaced_high
         self.last_state.block_short = cvd_buy and displaced_low
 

@@ -47,7 +47,7 @@ class QualityResult:
     block_reason: str = ""
 
 
-def _score_exhaustion(symbol: str) -> Tuple[float, str]:
+def _score_exhaustion(symbol: str, thresholds: Dict) -> Tuple[float, str]:
     """
     Score exhaustion using footprint metrics.
     Returns (score 0.0-1.0, reason string).
@@ -60,11 +60,16 @@ def _score_exhaustion(symbol: str) -> Tuple[float, str]:
         delta_ratio = exhaustion.get("delta_ratio", 1.0)
         volume_ratio = exhaustion.get("volume_ratio", 1.0)
 
-        if delta_ratio > 1.5:
+        # Parametric thresholds
+        block_thresh = thresholds.get("block", 1.5)
+        perfect_thresh = thresholds.get("perfect", 0.5)
+        vol_bonus_thresh = thresholds.get("vol_bonus", 0.4)
+
+        if delta_ratio > block_thresh:
             return 0.0, f"Agresor intensificándose (δ={delta_ratio:.2f})"
-        elif delta_ratio < 0.5:
+        elif delta_ratio < perfect_thresh:
             score = 1.0
-            if volume_ratio < 0.4:
+            if volume_ratio < vol_bonus_thresh:
                 score = min(score + 0.1, 1.0)  # Bonus for volume drop
             return score, f"Agotamiento perfecto (δ={delta_ratio:.2f}, v={volume_ratio:.2f})"
         else:
@@ -75,7 +80,9 @@ def _score_exhaustion(symbol: str) -> Tuple[float, str]:
         return 0.5, f"Exhaustion error: {e}"
 
 
-def _score_regime(symbol: str, side: str, signal: dict, context_registry) -> Tuple[float, str, SetupMode, str]:
+def _score_regime(
+    symbol: str, side: str, signal: dict, context_registry, thresholds: Dict
+) -> Tuple[float, str, SetupMode, str]:
     """
     Score regime/cascade alignment using PressureState from ContextRegistry.
     Returns (score, reason, setup_mode, value_position).
@@ -100,10 +107,11 @@ def _score_regime(symbol: str, side: str, signal: dict, context_registry) -> Tup
     value_position = "IN_VALUE"
     if poc > 0 and vah > val:
         va_width = vah - val
+        excess_mult = thresholds.get("excess_multiplier", 0.5)
         if price <= val:
-            value_position = "EXCESS" if price < val - (va_width * 0.5) else "OUT_OF_VALUE"
+            value_position = "EXCESS" if price < val - (va_width * excess_mult) else "OUT_OF_VALUE"
         elif price >= vah:
-            value_position = "EXCESS" if price > vah + (va_width * 0.5) else "OUT_OF_VALUE"
+            value_position = "EXCESS" if price > vah + (va_width * excess_mult) else "OUT_OF_VALUE"
 
     # For zero-state, all setups default to SetupMode.REVERSION
     return 1.0, "Aligned", SetupMode.REVERSION, value_position
@@ -123,7 +131,9 @@ def _score_structure(
     return 1.0, "Structural levels loaded"
 
 
-def _score_liquidity(symbol: str, side: str, target_price: float, context_registry) -> Tuple[float, str]:
+def _score_liquidity(
+    symbol: str, side: str, target_price: float, context_registry, thresholds: Dict
+) -> Tuple[float, str]:
     """
     Score liquidity using L2 ratio.
     Returns (score, reason).
@@ -135,12 +145,16 @@ def _score_liquidity(symbol: str, side: str, target_price: float, context_regist
     if l2_ratio is None:
         return 0.5, "No L2 data"
 
-    # Graduated scoring instead of hard block
-    if l2_ratio >= 2.0:
+    # Parametric scoring
+    strong_t = thresholds.get("strong", 2.0)
+    adequate_t = thresholds.get("adequate", 1.5)
+    weak_t = thresholds.get("weak", 1.0)
+
+    if l2_ratio >= strong_t:
         return 1.0, f"Strong wall (L2={l2_ratio:.2f})"
-    elif l2_ratio >= 1.5:
+    elif l2_ratio >= adequate_t:
         return 0.7, f"Adequate wall (L2={l2_ratio:.2f})"
-    elif l2_ratio >= 1.0:
+    elif l2_ratio >= weak_t:
         return 0.4, f"Weak wall (L2={l2_ratio:.2f})"
     else:
         return 0.1, f"Very thin wall (L2={l2_ratio:.2f})"
@@ -167,17 +181,33 @@ def evaluate_quality(
     """
     price = signal.get("close", 0.0) or signal.get("price", 0.0)
 
+    # Get weights and thresholds from profile or use defaults
+    profile_params = profile_manager.get_quality_scorer_params(symbol)
+    weights = profile_params.get("weights", DEFAULT_WEIGHTS)
+    grade_a = profile_params.get("grade_thresholds", {}).get("A", DEFAULT_GRADE_A)
+    grade_b = profile_params.get("grade_thresholds", {}).get("B", DEFAULT_GRADE_B)
+    thresholds = profile_params.get(
+        "thresholds",
+        {
+            "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
+            "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+            "structure": {"excess_multiplier": 0.5},
+        },
+    )
+
     # 1. Exhaustion score (the core)
-    exhaustion_score, exhaustion_reason = _score_exhaustion(symbol)
+    exhaustion_score, exhaustion_reason = _score_exhaustion(symbol, thresholds)
 
     # 2. Regime score
-    regime_score, regime_reason, setup_mode, value_position = _score_regime(symbol, side, signal, context_registry)
+    regime_score, regime_reason, setup_mode, value_position = _score_regime(
+        symbol, side, signal, context_registry, thresholds
+    )
 
     # 3. Structure score
     structure_score, structure_reason = _score_structure(symbol, price, side, setup_mode, context_registry)
 
     # 4. Liquidity score
-    liquidity_score, liquidity_reason = _score_liquidity(symbol, side, price, context_registry)
+    liquidity_score, liquidity_reason = _score_liquidity(symbol, side, price, context_registry, thresholds)
 
     # 5. Spread score (with hard block check)
     spread_score, spread_reason, spread_hard_block = _score_spread(symbol, context_registry)
@@ -194,12 +224,6 @@ def evaluate_quality(
             passed=False,
             block_reason=spread_reason,
         )
-
-    # Get weights from profile or use defaults
-    profile_params = profile_manager.get_quality_scorer_params(symbol)
-    weights = profile_params.get("weights", DEFAULT_WEIGHTS)
-    grade_a = profile_params.get("grade_thresholds", {}).get("A", DEFAULT_GRADE_A)
-    grade_b = profile_params.get("grade_thresholds", {}).get("B", DEFAULT_GRADE_B)
 
     # Calculate weighted quality score
     quality_score = (

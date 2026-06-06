@@ -24,13 +24,19 @@ def check_spread_sanity(symbol: str, context_registry) -> GuardianResult:
     score = 1.0
 
     if avg_5m > 0:
+        # Parametric spread ratio
+        from decision.engine.profile_manager import profile_manager
+
+        guardian_params = profile_manager.get_guardian_params(symbol)
+        spread_max_ratio = guardian_params.get("spread_max_ratio", 2.0)
+
         ratio = current / avg_5m
-        if ratio > 2.0:
+        if ratio > spread_max_ratio:
             passed = False
             score = 0.0
         elif ratio > 1.0:
-            # Linear decay from 1.0 (at ratio=1) to 0.3 (at ratio=2)
-            score = max(0.3, 1.0 - (ratio - 1.0) * 0.7)
+            # Linear decay from 1.0 (at ratio=1) to 0.3 (at ratio=spread_max_ratio)
+            score = max(0.3, 1.0 - (ratio - 1.0) / (spread_max_ratio - 1.0) * 0.7)
         else:
             score = 1.0
 

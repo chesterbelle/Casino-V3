@@ -115,8 +115,14 @@ class FailedBreakoutDetector:
         expected_change = max(expected_change, 5.0)
 
         # Exhaustion Gate: CVD demasiado fuerte = Trend Acceptance
-        if (direction == "ABOVE" and cvd_change > expected_change * 1.8) or (
-            direction == "BELOW" and cvd_change < -expected_change * 1.8
+        # Use parametric multiplier from profile
+        from decision.engine.profile_manager import profile_manager
+
+        sensor_params = profile_manager.get_sensor_params(symbol, "failed_breakout")
+        exhaustion_mult = sensor_params.get("exhaustion_mult", 1.8) if sensor_params else 1.8
+
+        if (direction == "ABOVE" and cvd_change > expected_change * exhaustion_mult) or (
+            direction == "BELOW" and cvd_change < -expected_change * exhaustion_mult
         ):
             del self.pending_breaks[symbol]
             return None

@@ -58,6 +58,14 @@ COIN_PROFILES = {
         "quality_scorer": {
             "weights": {"exhaustion": 0.40, "regime": 0.30, "structure": 0.15, "liquidity": 0.10, "spread": 0.05},
             "grade_thresholds": {"A": 0.80, "B": 0.50},
+            "thresholds": {
+                "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
+                "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+                "structure": {"excess_multiplier": 0.5},
+            },
+        },
+        "pressure_thresholds": {
+            "z_block": 2.0,
         },
         "targets": {
             "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
@@ -108,6 +116,14 @@ COIN_PROFILES = {
         "quality_scorer": {
             "weights": {"exhaustion": 0.35, "regime": 0.28, "structure": 0.17, "liquidity": 0.12, "spread": 0.08},
             "grade_thresholds": {"A": 0.70, "B": 0.45},
+            "thresholds": {
+                "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
+                "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+                "structure": {"excess_multiplier": 0.5},
+            },
+        },
+        "pressure_thresholds": {
+            "z_block": 2.0,
         },
         "targets": {
             "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
@@ -163,6 +179,14 @@ COIN_PROFILES = {
         "quality_scorer": {
             "weights": {"exhaustion": 0.40, "regime": 0.30, "structure": 0.15, "liquidity": 0.10, "spread": 0.05},
             "grade_thresholds": {"A": 0.70, "B": 0.40},
+            "thresholds": {
+                "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
+                "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+                "structure": {"excess_multiplier": 0.5},
+            },
+        },
+        "pressure_thresholds": {
+            "z_block": 2.0,
         },
         "targets": {
             "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
@@ -217,6 +241,14 @@ COIN_PROFILES = {
         "quality_scorer": {
             "weights": {"exhaustion": 0.30, "regime": 0.30, "structure": 0.20, "liquidity": 0.15, "spread": 0.05},
             "grade_thresholds": {"A": 0.65, "B": 0.40},
+            "thresholds": {
+                "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
+                "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+                "structure": {"excess_multiplier": 0.5},
+            },
+        },
+        "pressure_thresholds": {
+            "z_block": 2.0,
         },
         "targets": {
             "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
@@ -271,6 +303,14 @@ COIN_PROFILES = {
         "quality_scorer": {
             "weights": {"exhaustion": 0.40, "regime": 0.30, "structure": 0.15, "liquidity": 0.10, "spread": 0.05},
             "grade_thresholds": {"A": 0.70, "B": 0.40},
+            "thresholds": {
+                "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
+                "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+                "structure": {"excess_multiplier": 0.5},
+            },
+        },
+        "pressure_thresholds": {
+            "z_block": 2.0,
         },
         "targets": {
             "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},

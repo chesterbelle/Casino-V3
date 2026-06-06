@@ -46,15 +46,15 @@ def check_liquidity_heatmap(symbol: str, side: str, target_price: float, context
             macro_score = macro_layer.get("score", 0.0)
 
         # Use macro direction directly for l2_ratio_min decision
-        # More reliable than regime classification (which requires 2+ layers)
-        MACRO_THRESHOLD = 0.6  # Minimum macro score to activate High Wall
+        macro_threshold = guardian_params.get("macro_threshold", 0.6)  # Minimum macro score to activate High Wall
 
-        if macro_direction == "DOWN" and macro_score >= MACRO_THRESHOLD:
+        if macro_direction == "DOWN" and macro_score >= macro_threshold:
             l2_ratio_min = guardian_params.get(
                 "l2_ratio_min_trend_down", guardian_params.get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
             )
         else:
             l2_ratio_min = guardian_params.get("l2_ratio_min", DEFAULT_L2_RATIO_MIN)
+
     except Exception:
         l2_ratio_min = DEFAULT_L2_RATIO_MIN
 

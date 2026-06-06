@@ -104,6 +104,10 @@ class ProfileManager:
         """Get guardian parameters for a symbol."""
         return self.get_param(symbol, "guardians") or {}
 
+    def get_pressure_thresholds(self, symbol: str) -> Dict:
+        """Get pressure engine thresholds for a symbol."""
+        return self.get_param(symbol, "pressure_thresholds") or {}
+
     def get_risk_params(self, symbol: str) -> Dict:
         """Get risk parameters for a symbol."""
         return self.get_param(symbol, "risk") or {}
