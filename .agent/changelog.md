@@ -6,6 +6,86 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-08 SESSION] — Per-Cluster Detector Parametrization + PressureEngine Stagnation Fix (Branch: 8.7-cluster-improved)
+
+### Summary: Audit of `analisis_perfil.md` identified 4 defects in the profile system. Fixed the critical D1 bug (all 4 detectors using DEFAULT_PROFILE=MID_LIQUID for all symbols), the PressureEngine stagnation threshold (absolute $0.10 → percentage-based), connected 10 missing parameters, and aligned taxonomy descriptions. Commit `64a3f2b`.
+
+#### 1. Defect D1 — Detectores con DEFAULT_PROFILE (CRÍTICO)
+- **Root Cause**: `sensor_manager.py:122-136` instantiated all 4 detectors with `profile_manager.default_profile` (MID_LIQUID), ignoring each symbol's actual cluster.
+- **Impact**: XRP/DOGE (THIN_VOLATILE) operated with z_min=2.0 instead of 2.5, noise_max=0.40 instead of 0.35 — ~20% more permissive than configured.
+- **Fix**: Each detector now maintains a `_cluster_cache` and resolves params at runtime via `profile_manager.get_sensor_params(symbol, sensor_name)`.
+- **Pattern**: `_get_params(symbol)` → cache hit on subsequent ticks. Constructor no longer receives params.
+- **Files**: `absorption_detector.py`, `failed_breakout.py`, `liquidity_exhaustion.py`, `trend_acceptance.py`, `sensor_manager.py`
+
+#### 2. PressureEngine Stagnation Bug
+- **Root Cause**: `engine.py:81` used absolute threshold `price_diff < 0.10` — broken for both BTC ($0.10 = 0.00015%) and DOGE ($0.10 = 28.6%).
+- **Fix**: Changed to percentage-based `price_diff_pct < stagnation_floor_pct` using profile param (BTC 0.08%, DOGE 0.15%, ADA 0.12%).
+- **File**: `core/pressure/engine.py`
+
+#### 3. Missing Parameters Connected
+- Added `cooldown` to `failed_breakout` (45-120s per cluster), `liquidity_exhaustion` (20-60s), `trend_acceptance` (600s explicit).
+- Added `level_tolerance_pct` to `liquidity_exhaustion` (0.0003-0.0008 per cluster).
+- Bridged `pullback_tolerance_pct` (pct) → `pullback_bps` (bps) in TrendAcceptanceDetector.
+- **File**: `config/coin_profiles.py`
+
+#### 4. Taxonomy Descriptions Aligned
+- MEGA_LIQUID: ADA, ARB, NEAR (was "BTC, ETH")
+- MAJOR_LIQUID: SOL (was "SOL, BNB, XRP, DOGE, SUI")
+- MID_LIQUID: LTC, AVAX, OP, APT, BNB, LINK (was "AVAX, ADA, LINK")
+- ILLIQUID_SPEC: BTC, ETH (was "Long-tail")
+- **File**: `config/coin_profiles.py`
+
+#### 5. Verification
+- All 7 files pass `py_compile`, black, flake8, isort.
+- Detector cluster resolution verified: DOGE→THIN_VOLATILE (z=2.5, cooldown=150s), ADA→MEGA_LIQUID (z=3.0, cooldown=300s), LTC→MID_LIQUID (z=2.0, cooldown=180s).
+- PressureEngine stagnation_floor_pct loads correctly per cluster.
+
+#### 6. Commit
+```
+64a3f2b fix: per-cluster detector parametrization + PressureEngine stagnation fix
+```
+
+#### 7. Next Steps
+- Re-run THIN_VOLATILE Iter 3 with correct params now flowing to detectors.
+- Re-run MID_LIQUID orchestration to verify no regressions from stagnation fix.
+- Validate that MEGA_LIQUID (ADA/ARB/NEAR) correctly uses stricter thresholds (z=3.0, noise=0.25).
+
+---
+
+### [2026-06-06 SESSION] — THIN_VOLATILE Iteration 2 Audit & Quality Scorer Bug Fix (Branch: 8.7-cluster-improved)
+
+### Summary: Audit of THIN_VOLATILE cluster (Iter 2) revealed a critical bug in QualityScorer: signals were being marked as "Ready" even with scores below Grade B. Fixed the bug, normalized weighted scores, and verified that Grade None signals are now correctly discarded. Audit results for Iter 2 show a negative Net Taker (-0.3260%), with only `trend_acceptance` maintaining a solid edge (+0.3862%).
+
+#### 1. Bug Fix: QualityScorer Filtering
+- **The Bug**: `evaluate_quality()` returned `passed=True` regardless of the resulting grade, allowing low-quality signals to pass the gate.
+- **The Fix**: Updated `QualityResult` to set `passed = grade is not None`.
+- **Weight Normalization**: Implemented `weight_norm` in `evaluate_//quality_scorer.py` to prevent score inflation when weights sum to > 1.0 (fixed THIN_VOLATILE weights from 1.2 $\rightarrow$ 1.0).
+- **Verification**: Created `tests/test_quality_scorer_fix.py` to validate that signals with Grade None are now correctly blocked.
+
+#### 2. THIN_VOLATILE Iter 2 Audit Results
+- **Total Signals**: 4522 (XRP, DOGE)
+- **Overall Net Taker**: -0.3260% ❌
+- **Setup Breakdown**:
+| Setup | Net Taker | Veredicto | Nota |
+|-------|-----------|-----------|------|
+| trend_acceptance | +0.3862% | ✅ YES | Solid edge, targets OK |
+| failed_breakout | -0.1237% | ❌ NO | Entry Failure |
+| liquidity_exhaustion | -0.2200% | ❌ NO | Entry Failure |
+| tactical_absorption | -0.4144% | ❌ NO | Entry Failure |
+
+- **Conclusion**: The "Purge" (elevated thresholds) was not enough to save TAV/LE/FB in thin books. Only `trend_acceptance` is reliable here.
+
+#### 3. Files Modified
+- `decision/engine/quality_scorer.py` — Fixed grading logic and added weight normalization.
+- `config/coin_profiles.py` — Corrected THIN_VOLATILE weights.
+- `.agent/perfil_changelog.md` — Updated Iter 2 status and bug fix note.
+- `.agent/memory.md` — Added Orchestrator Execution gotcha (nohup + &).
+
+#### 4. Next Steps
+- Execute Iteration 3 ("The Scalpel"): Drastically increase entry requirements (Z-score 3.5, Concentration 0.75, Noise 0.20) to rescue the edge in TAV/LE/FB by filtering for only extreme institutional conviction.
+
+---
+
 ### [2026-06-05 SESSION] — 4 AMT Scenarios Activated: Absorption + LiquidityExhaustion Fixes (Branch: 8.7-cluster-improved)
 
 ### Summary: Activated all 4 AMT scenarios by fixing critical bugs: TacticalAbsorptionV2 was never registered in SensorManager's scenario dict; LiquidityExhaustionDetector's test list grew infinitely (declining condition impossible with 100+ entries); AbsorptionDetector had no cooldown (6660 signals on LTC alone). After fixes, MID_LIQUID LTC produces 1754 signals with +1.57% Net Taker (3/4 datasets positive).

@@ -25,7 +25,7 @@
 
 ### 1. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢]
 *   **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + profile system
-*   **Profiles**: 5 perfiles microestructura — MEGA_LIQUID (BTC, ETH), MAJOR_LIQUID (SOL, BNB, XRP), MID_LIQUID (LTC, ADA, LINK, DOGE — iter 3 validated), THIN_VOLATILE (AVAX, SUI, NEAR, APT, OP, ARB — TAV/FB disabled), ILLIQUID_SPEC (long-tail, disabled)
+*   **Profiles**: 5 perfiles microestructura — MEGA_LIQUID (ADA, ARB, NEAR), MAJOR_LIQUID (SOL), MID_LIQUID (LTC, AVAX, OP, APT, BNB, LINK), THIN_VOLATILE (XRP, DOGE), ILLIQUID_SPEC (BTC, ETH)
 *   **ILLIQUID_SPEC Backtest** (2026-06-02): SOL +0.24% Net Taker (edge marginal), XRP -0.05%, DOGE -0.13%. Solo SOL tiene potencial. **PERO**: profile system los clasifica como MAJOR_LIQUID, no ILLIQUID_SPEC — contradicción con clustering real.
 *   **Métrica Forense (LTCUSDT 24h)**: Net Taker +0.06%, MFE/MAE 1.63, Win Rate 59.8%
 *   **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC). Edge instrument-dependiente.
@@ -70,117 +70,32 @@
 21. **RE-VALIDACIÓN DE ALPHAS — PRÓXIMO 🔴**: Validar edge en todos los clusters (MEGA, MAJOR, MID, THIN, ILLIQUID). Optimizar liquidity_exhaustion y failed_breakout.
 22. **OPTIMIZACIÓN DE TIMEOUTS — PRÓXIMO**
 23. **LIVE / PAPER TRADING — PENDIENTE**
+24. **FIX D1: DETECTORES PER-CLUSTER — COMPLETADO ✅** (2026-06-08): Los 4 detectores ahora resuelven el cluster del símbolo en runtime via `_cluster_cache`. XRP/DOGE reciben THIN_VOLATILE params (z=2.5, noise=0.35). PressureEngine stagnation → porcentual. 10 parámetros conectados. Commit `64a3f2b`.
 
 ---
 
-### Current Status: 🟢 PressureEngine — 4 AMT Scenarios Activated (MID_LIQUID)
+### Current Status: 🟢 Per-Cluster Detector Parametrization (D1 Fix)
 
-- **Architecture**: PressureEngine (centralized CVD/absorption) + 4 AMT scenarios (trend_acceptance, tactical_absorption, liquidity_exhaustion, failed_breakout) + per-profile params + SetupEngineV4.
+- **Architecture**: PressureEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
 - **Branch**: `8.7-cluster-improved`
-- **PressureEngine**: Centralized CVD velocity Z-score normalization + absorption detection. Updated per-tick from SensorManager.
-- **4 AMT Scenarios**: All registered and firing. `trend_acceptance` (strongest), `tactical_absorption` (cooldown 120s, structural filter), `liquidity_exhaustion` (sliding window), `failed_breakout` (needs tuning).
-- **MID_LIQUID Results** (LTC_TREND_UP_2024-03): 1754 signals, +1.57% Net Taker overall. trend_acceptance +1.68%, tactical_absorption +0.12%, liquidity_exhaustion -0.56%, failed_breakout -1.32%.
-- **🔑 KEY DISCOVERY — Direccional vs Reversión** (2026-06-06): tactical_absorption y trend_acceptance son **flujo direccional institucional** (0/927 revierten en <15 min). Con SL ancho (4%) saltan de +0.26% → +0.71% Net. failed_breakout y liquidity_exhaustion son **reversión clásica** — SL ajustado (1%) funciona. **No todos los setups son iguales: la naturaleza del edge determina la estructura de targets.**
-- **Next Session**: Run full MID_LIQUID orchestration (12 datasets). Optimize liquidity_exhaustion/failed_breakout params. Move to THIN_VOLATILE cluster.
+- **D1 Fix** (2026-06-08): All 4 detectors now resolve cluster params at runtime via `_cluster_cache`. XRP/DOGE correctly get THIN_VOLATILE params (z=2.5, noise=0.35). PressureEngine stagnation threshold now percentage-based.
+- **4 AMT Scenarios**: All registered and firing with per-cluster params. `trend_acceptance` (strongest), `tactical_absorption` (cooldown 120s, structural filter), `liquidity_exhaustion` (sliding window), `failed_breakout` (needs tuning).
+- **MID_LIQUID Results** (LTC_TREND_UP_2024-03): 1754 signals, +1.57% Net Taker overall.
+- **Next Session**: Re-run THIN_VOLATILE Iter 3 with correct params. Re-run MID_LIQUID orchestration. Validate MEGA_LIQUID thresholds.
 
 ---
 
 ## 🎯 Plan de Iteración Paramétrica (post-descubrimiento flujo direccional)
-
-### Fase 0 — Bug Fix ✅ (2026-06-06)
-- `decision/engine/core.py:260`: `tactical_absorption` sacado de `REVERSION_SCENARIOS`
-- Creado `DIRECTIONAL_SCENARIOS = {"tactical_absorption", "trend_acceptance"}`
-- Estos setups ahora usan `SetupMode.CONTINUATION` en vez de `REVERSION`
-- **Impacto**: targets direccionales usan fallback "continuation" (1.0%) en vez de "reversion" (0.9%), y metadata `v3_mode` ahora refleja correctamente la naturaleza del setup
-
-### Fase 1 — Seed de Baseline ✅ (2026-06-06)
-- Todos los 5 clusters seedeados con **best uniform grid** del MID_LIQUID audit:
-
-| Setup | Clasificación | TP | SL | Base en |
-|-------|--------------|----|----|---------|
-| tactical_absorption | Direccional | 2.5% | 4.0% | Best uniform +0.71% Net |
-| trend_acceptance | Direccional | 2.5% | 4.0% | Best uniform +0.06% Net |
-| failed_breakout | Reversión | 1.0% | 1.0% | Best uniform +0.61% Net |
-| liquidity_exhaustion | Reversión | 1.0% | 1.0% | Best uniform +0.43% Net |
-
+...
 ### Fase 2 — THIN_VOLATILE
 > **Parámetros actuales**: z_score_min=1.5, concentration_min=0.40, noise_max=0.35
-> **Próximo ajuste**: Relajar z_score hasta que aparezca edge en TAV XRP
-
-#### Iter 1 ✅ — Baseline (2026-06-06)
-- **12 datasets** (6 XRP + 6 DOGE), 4.245 señales, ventana 6h
-- Bug fix: TypeError str/int en `pressure/engine.py:131` (mid price con strings)
-- Ajuste paramétrico: `z_score_min 2.0→2.5`, `concentration_min 0.45→0.55`
-
-| Setup | n | Veredicto | Best Uniform | Nota |
-|-------|---|-----------|-------------|------|
-| trend_acceptance | 172 | ✅ Target OK | 2.50/4.00% +0.24% | El único setup sólido en thin books |
-| failed_breakout | 98 | ⚠️ Poco robusto | 2.50/5.00% +0.14% | Solo 98 señales |
-| tactical_absorption | 2.655 | ❌ ENTRY FAILURE global | 0.10/0.10% −0.07% | Pero DOGE SHORT tiene ratio 1.28 (n=370) |
-| liquidity_exhaustion | 1.319 | ❌ ENTRY FAILURE | 0.30/0.30% −0.07% | Sin edge en thin books |
-
-**Hallazgo clave per-coin TAV**:
-```
-DOGE_LONG   n=750  R=0.71 ❌
-DOGE_SHORT  n=370  R=1.28 ✅  ← edge real
-XRP_LONG    n=1169 R=0.63 ❌
-XRP_SHORT   n=366  R=0.33 ❌
-```
-
-#### Iter 2 🔴 — XRP-only (z=2.5, conc=0.55) — Sobrefiltro (2026-06-06)
-- Solo XRP completó (6 datasets). DOGE nunca terminó por timeout/abort.
-- **Resultado**: 2,244 señales XRP, **0 trades**. Parámetros demasiado restrictivos para XRP.
-- **failed_breakout** con High Wall: el único setup con edge real (+0.39% Net, ratio 2.00)
-- **tactical_absorption** (1,566 señales XRP): sin edge incluso en best uniform (0.10/0.10% → −0.07%)
-- **Conclusión**: El edge TAV es coin-específico. XRP no tiene TAV edge; DOGE SHORT SÍ (R=1.28). z=2.5/conc=0.55 mató TODO en XRP.
-- **Próximo intento**: z=1.5, conc=0.40 — relajar filtro radicalmente
-
-#### Fase de Relajación Radical (Iter 3) — z=1.5, conc=0.40 🔴 PENDIENTE
-- Objetivo: recuperar señales TAV en XRP. Si ni con filtro mínimo hay edge, re-evaluar entry logic.
-DOGE_LONG   n=750  R=0.71 ❌
-DOGE_SHORT  n=370  R=1.28 ✅  ← edge real
-XRP_LONG    n=1169 R=0.63 ❌
-XRP_SHORT   n=366  R=0.33 ❌
-```
-
-### Fase 3 — PRESSURE ENGINE PER-COIN REFACTOR ✅ (2026-06-06)
-- **Problema resuelto**: `SensorManager` creaba `PressureEngine()` sin params y sin per-coin. Una sola instancia global con `current_cvd`, `cvd_history`, `price_history` planos — en multi-coin los ticks de DOGE y XRP se sobrescribían mutuamente. El backtest funcionaba porque cada proceso corre una sola moneda, pero en vivo era incorrecto.
-- **Solución**: `PressureEngine` es ahora un facade que mantiene `Dict[symbol, CoinPressureEngine]`. Cada moneda tiene su propia instancia con sus parámetros de perfil (`concentration_min`, `noise_max` desde `profile_manager`).
-- **Instancia compartida**: SensorManager y SetupEngine comparten la misma instancia del facade. SensorManager escribe, SetupEngine solo lee. Sin duplicación de cómputo.
-- **Documentación**: `docs/architectural_decisions.md` con ADR-1 (Instant vs Confirmation) y ADR-2 (PressureEngine Per-Coin).
-- **Archivos modificados**: 10 archivos (~100 líneas). Test existente actualizado y pasa.
-
-### Fase 4 — Análisis Externo Crystal Layer (2026-06-06)
-1. `orchestrator.py --protocol cluster_<name>` con ventana 6h
-2. Leer `setup_edge_auditor.py`: best uniform grid + entry quality por setup
-3. Ajustar TP/SL en `coin_profiles.py` al best uniform de ese cluster
-4. Re-ejecutar y verificar mejora en Net Taker
-5. Documentar en `perfil_changelog.md`
-
----
-
-## ⚠️ Gotchas Críticos
-10. **Taker-Only Execution Mandate**: Toda validación se juzga descontando fees Taker del 0.12%.
-11. **Historian Cumulative Runs**: Usar `--historian-db` para aislar archivos SQLite por run.
-12. **Parallel Audit SQLite Write Locks**: Usar archivos temporales y consolidar al final.
-13. **Break-Even Cost Fallacy**: El Break-Even estático mata el Edge (93.75% winners perdidos). Todo SL debe ser estructural.
-14. **TREND_DOWN LONG Tóxico**: LONGS en TREND_DOWN tienen 6% WR (5 TP vs 79 SL). Deberían prohibirse explícitamente. SHORTS en TREND_DOWN: 92% WR.
-15. **🔴 NO ES REVERSIÓN CLÁSICA — ES FLUJO DIRECCIONAL**: 0/927 señales V2 revierten en <15 min. Es flujo direccional institucional que se extiende por horas (mediana time-to-TP = 110 min). **Implicación**: SL estrecho mata el edge — tactical_absorption necesita SL ancho (3-4%) para capturar el movimiento completo. Best uniform con SL 4% da +0.71% Net vs +0.26% con SL 1%. failed_breakout y liquidity_exhaustion SÍ son reversión (SL ajustado funciona). El nombre "TacticalAbsorptionV2" está mal — debería ser algo como "InstitutionalFlowV2".
-16. **Timeout Rate ~60%**: Es el drag principal del sistema. Cada timeout cuesta −0.12% fee. Optimizar targets es la prioridad #1.
-17. **skip_clean Bug (Orquestador)**: `clean_temp_data()` borra `historian.db*` al inicio de cada protocolo. Si se encadenan protocolos sin `skip_clean=True`, el DB mergeado previo se destruye. Fix: `set_a_avax` y `set_a_sui` tienen `skip_clean=True` — solo borran temporales.
-18. **DEFAULT_PROFILE = MID_LIQUID Bug**: `match_profile` y `find_closest_profile` saltaban MID_LIQUID porque `if profile_name == DEFAULT_PROFILE: continue`. Cualquier perfil que fuera DEFAULT no se podía matchear. Removido el skip — ahora DEFAULT_PROFILE es solo un fallback label, no afecta matching.
-19. **K-Means No-Determinista**: Cada corrida de `cluster_builder.py --exchange` produce clusters diferentes. Los nombres (MEGA_LIQUID, etc.) son fijos pero los miembros cambian. SOL puede estar en THIN_VOLATILE en una corrida y en MAJOR_LIQUID en otra.
-20. **Profile vs Clustering Contradiction**: `profile_diagnostic.py` clasifica SOL/XRP/DOGE como MAJOR_LIQUID, pero `cluster_builder.py` reciente los pone en THIN/MID. El profile system fue calibrado con una corrida previa que ya no es válida.
-21. **price_samples sin columna volume**: El historian.db del backtest no tiene `volume` en `price_samples`. `profile_diagnostic.py` fue parcheado para usar fallback estimation.
-22. **TacticalAbsorptionV2 no registrado en scenarios**: Hasta 2026-06-05, `TacticalAbsorptionV2` nunca se registró en `self.scenarios` de SensorManager. Solo existía como archivo. Fix: agregado import + registro en `core/sensor_manager.py:112`.
-23. **LiquidityExhaustion sliding window bug**: La lista `level_tests` crecía infinitamente. La condición `all(tests[i].delta < tests[i-1].delta * threshold ...)` requería que TODOS los pares fueran decrecientes → imposible con 100+ tests. Fix: poda temporal + revisar solo últimos N.
-24. **AbsorptionDetector sin cooldown**: Disparaba 6660 señales/LTC porque no tenía cooldown ni filtro estructural. Fix: cooldown 120s, filtro VA (±0.3%), min Z-score 0.5.
-
----
-
+> **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
+...
 ## 📝 Timeline de Sesiones Recientes
-- 2026-06-04 | session-close | **REGIME SENSOR V2 — PRICE ACTION + VOLUME PROFILE + MARKOV**: Complete redesign from 3-layer to 2-layer architecture. Accuracy 41.3% → **72.3%** (+31pp). TREND_UP 42.2% → **78.0%**. BALANCE 16% → **60%**. Key breakthrough: relaxed swing detection (ANY vs BOTH). Both layers contribute 98%+. Markov trained on 125,280 candles. Commits: e9dfd80, 080e465, 09cc9d5. Branch: 8.7-cluster-improved.
+- 2026-06-08 | session-close | **PER-CLUSTER DETECTOR PARAMETRIZATION + STAGNATION FIX**: Audited `analisis_perfil.md` findings. Fixed D1 (all 4 detectors using DEFAULT_PROFILE=MID_LIQUID), PressureEngine stagnation (absolute $0.10 → percentage-based), connected 10 missing params, aligned taxonomy. Commit `64a3f2b`. 7 files, +220 -130 lines.
+- 2026-06-06 | session-close | **THIN_VOLATILE Iter 2 Audit & Quality Scorer Bug Fix**: Fixed a critical bug in QualityScorer filtering. Audit of Iter 2 showed a negative Net Taker (-0.3260%), with only `trend_acceptance` as a winner. Established that purely "purging" thresholds isn't enough; need to search for the "golden sliver" of high-conviction signals.
 - 2026-06-06 | session-close | **THIN_VOLATILE ITER 1 COMPLETA + PRESSURE ENGINE PER-COIN**: Cancelación de la deuda técnica del PressureEngine. 29 commits, 1466 líneas. Se completó THIN_VOLATILE iter 1 (12 datasets, 4245 señales): DOGE SHORT TAV ratio 1.28, trend_acceptance +0.24% Net. Bug fix: dirección TAV (era reversión), TypeError str/int, TASK_TIMEOUT 1800→3600s, ventana 14400→21600s. Docs: architectural_decisions.md (ADR-1/ADR-2), perfil_changelog.md actualizado. Rama: 8.7-cluster-improved.
+
 - 2026-06-06 | session-close | **THIN_VOLATILE ITER 2 — XRP-ONLY + REGLA DEL EDGE**: Segunda ejecución de THIN_VOLATILE con z=2.5, conc=0.55 produjo 0 trades en XRP — sobrefiltro confirmado. failed_breakout con High Wall (ratio 2.00, +0.39% Net) es el único edge de XRP. Establecida REGLA #5: "Nunca asumas que un edge no existe — sigue ajustando hasta que aparezca". Parámetros movidos a z=1.5, conc=0.40 para próxima iteración.
 - 2026-06-03 | session-close | **REGIME SENSOR AUTOPSY + MARKOV DISCUSSION**: Deep analysis of why sensor misclassifies BALANCE as TREND ~60%. Root cause: CB slow drift bypasses synthesis, binary persistence. Markov Chain approach discussed as alternative.
 - 2026-06-03 | session-close | **REGIME VALIDATOR + COUNTER-TREND PENALTY**: Created regime_validator.py. Added A-grade minimum for counter-trend signals. -84% false admissions validated.
