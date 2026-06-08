@@ -17,12 +17,12 @@ Membership is defined in clusters.json, not here.
 
 COIN_PROFILES = {
     # =========================================================================
-    # MEGA_LIQUID — BTC, ETH
+    # MEGA_LIQUID — ADA, ARB, NEAR
     # Ultra-deep books, tight spreads, institutional flow
     # Targets tight (market moves slow), quality strict
     # =========================================================================
     "MEGA_LIQUID": {
-        "description": "Mega-cap institucional — BTC, ETH",
+        "description": "Mid-cap alta liquidez — ADA, ARB, NEAR",
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 3.0,
@@ -35,17 +35,21 @@ COIN_PROFILES = {
                 "absorption_score_min": 0.5,
             },
             "failed_breakout": {
+                "cooldown": 120.0,
                 "min_break_distance_pct": 0.0005,
                 "max_break_age": 45.0,
                 "cvd_divergence_threshold": 0.35,
             },
             "liquidity_exhaustion": {
+                "cooldown": 60.0,
+                "level_tolerance_pct": 0.0003,
                 "min_tests": 4,
                 "declining_threshold": 0.70,
                 "min_bounce_pct": 0.0005,
                 "test_memory_seconds": 90.0,
             },
             "trend_acceptance": {
+                "cooldown": 600.0,
                 "min_candles_outside": 4,
                 "cvd_confirmation_threshold": 6.0,
                 "pullback_tolerance_pct": 0.0008,
@@ -79,12 +83,12 @@ COIN_PROFILES = {
         },
     },
     # =========================================================================
-    # MAJOR_LIQUID — SOL, BNB, XRP, DOGE, SUI
+    # MAJOR_LIQUID — SOL
     # Large-cap, high liquidity, vol moderada
     # Balanced parameters
     # =========================================================================
     "MAJOR_LIQUID": {
-        "description": "Large-cap alta liquidez — SOL, BNB, XRP, DOGE, SUI",
+        "description": "Large-cap alta liquidez — SOL",
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 1.8,
@@ -93,17 +97,21 @@ COIN_PROFILES = {
                 "stagnation_floor_pct": 0.10,
             },
             "failed_breakout": {
+                "cooldown": 60.0,
                 "min_break_distance_pct": 0.0006,
                 "max_break_age": 60.0,
                 "cvd_divergence_threshold": 0.30,
             },
             "liquidity_exhaustion": {
+                "cooldown": 30.0,
+                "level_tolerance_pct": 0.0005,
                 "min_tests": 3,
                 "declining_threshold": 0.72,
                 "min_bounce_pct": 0.0007,
                 "test_memory_seconds": 100.0,
             },
             "trend_acceptance": {
+                "cooldown": 600.0,
                 "min_candles_outside": 3,
                 "cvd_confirmation_threshold": 5.0,
                 "pullback_tolerance_pct": 0.001,
@@ -138,12 +146,12 @@ COIN_PROFILES = {
         },
     },
     # =========================================================================
-    # MID_LIQUID — AVAX, ADA, LINK
+    # MID_LIQUID — LTC, AVAX, OP, APT, BNB, LINK
     # Mid-cap, parameters validated in LTC datasets (iter 3)
     # Slightly more aggressive targets
     # =========================================================================
     "MID_LIQUID": {
-        "description": "Mid-cap, edge validado — AVAX, ADA, LINK",
+        "description": "Mid-cap, edge validado — LTC, AVAX, OP, APT, BNB, LINK",
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.0,
@@ -156,17 +164,21 @@ COIN_PROFILES = {
                 "absorption_score_min": 0.3,
             },
             "failed_breakout": {
+                "cooldown": 60.0,
                 "min_break_distance_pct": 0.0012,
                 "max_break_age": 60.0,
                 "cvd_divergence_threshold": 0.35,
             },
             "liquidity_exhaustion": {
+                "cooldown": 30.0,
+                "level_tolerance_pct": 0.0005,
                 "min_tests": 3,
                 "declining_threshold": 0.75,
                 "min_bounce_pct": 0.0010,
                 "test_memory_seconds": 120.0,
             },
             "trend_acceptance": {
+                "cooldown": 600.0,
                 "min_candles_outside": 3,
                 "cvd_confirmation_threshold": 4.0,
                 "pullback_tolerance_pct": 0.001,
@@ -201,7 +213,7 @@ COIN_PROFILES = {
         },
     },
     # =========================================================================
-    # THIN_VOLATILE — BNB
+    # THIN_VOLATILE — XRP, DOGE
     # Thin book, moderate vol
     # Conservative entries, wider stops
     # =========================================================================
@@ -209,8 +221,8 @@ COIN_PROFILES = {
         "description": "Thin book + vol moderada — XRP, DOGE",
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 1.5,
-                "concentration_min": 0.40,
+                "z_score_min": 2.5,
+                "concentration_min": 0.60,
                 "noise_max": 0.35,
                 "stagnation_floor_pct": 0.15,
                 "cooldown": 150.0,
@@ -218,17 +230,21 @@ COIN_PROFILES = {
                 "displacement_z_max": 3.5,
             },
             "failed_breakout": {
-                "min_break_distance_pct": 0.0010,
+                "cooldown": 45.0,
+                "min_break_distance_pct": 0.0015,
                 "max_break_age": 90.0,
                 "cvd_divergence_threshold": 0.30,
             },
             "liquidity_exhaustion": {
+                "cooldown": 20.0,
+                "level_tolerance_pct": 0.0008,
                 "min_tests": 3,
                 "declining_threshold": 0.75,
                 "min_bounce_pct": 0.0015,
                 "test_memory_seconds": 150.0,
             },
             "trend_acceptance": {
+                "cooldown": 600.0,
                 "min_candles_outside": 3,
                 "cvd_confirmation_threshold": 4.5,
                 "pullback_tolerance_pct": 0.0015,
@@ -239,16 +255,16 @@ COIN_PROFILES = {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
         },
         "quality_scorer": {
-            "weights": {"exhaustion": 0.30, "regime": 0.30, "structure": 0.20, "liquidity": 0.15, "spread": 0.05},
-            "grade_thresholds": {"A": 0.65, "B": 0.40},
+            "weights": {"exhaustion": 0.40, "regime": 0.20, "structure": 0.20, "liquidity": 0.15, "spread": 0.05},
+            "grade_thresholds": {"A": 0.85, "B": 0.60},
             "thresholds": {
-                "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
-                "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+                "exhaustion": {"block": 1.2, "perfect": 0.3, "vol_bonus": 0.4},
+                "liquidity": {"strong": 3.0, "adequate": 2.0, "weak": 1.5},
                 "structure": {"excess_multiplier": 0.5},
             },
         },
         "pressure_thresholds": {
-            "z_block": 2.0,
+            "z_block": 1.5,
         },
         "targets": {
             "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
@@ -263,12 +279,12 @@ COIN_PROFILES = {
         },
     },
     # =========================================================================
-    # ILLIQUID_SPEC — Ilíquido / especulativo
-    # Basado en VOLATIL_BAJO_FLOW (penúltima iteración)
+    # ILLIQUID_SPEC — BTC, ETH
+    # Alta actividad pero libro menos profundo
     # SL amplios (4-5%), per-regime asimétrico
     # =========================================================================
     "ILLIQUID_SPEC": {
-        "description": "Ilíquido / especulativo — parámetros VOLATIL_BAJO_FLOW validados",
+        "description": "Alta actividad, libro menos profundo — BTC, ETH",
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.5,
@@ -280,17 +296,21 @@ COIN_PROFILES = {
                 "displacement_z_max": 3.5,
             },
             "failed_breakout": {
+                "cooldown": 90.0,
                 "min_break_distance_pct": 0.0008,
                 "max_break_age": 90.0,
                 "cvd_divergence_threshold": 0.25,
             },
             "liquidity_exhaustion": {
+                "cooldown": 45.0,
+                "level_tolerance_pct": 0.0008,
                 "min_tests": 3,
                 "declining_threshold": 0.75,
                 "min_bounce_pct": 0.0010,
                 "test_memory_seconds": 120.0,
             },
             "trend_acceptance": {
+                "cooldown": 600.0,
                 "min_candles_outside": 3,
                 "cvd_confirmation_threshold": 4.0,
                 "pullback_tolerance_pct": 0.001,

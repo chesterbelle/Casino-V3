@@ -23,42 +23,42 @@ logger = logging.getLogger("AMTScenarios.FailedBreakout")
 
 
 class FailedBreakoutDetector:
-    def __init__(self, pressure_engine=None, profile_params=None) -> None:
+    def __init__(self, pressure_engine=None, params=None) -> None:
         self.name = "FailedBreakout"
         self.pressure = pressure_engine
         self.pending_breaks = {}
         self.last_fire_ts = defaultdict(float)
-        self.cooldown = 60.0
+        self._cluster_cache: Dict[str, dict] = {}
 
-        # Configuration - read from profile if provided, else use defaults
-        if profile_params:
-            self.max_break_age = profile_params.get("max_break_age", 60.0)
-            self.min_break_distance_pct = profile_params.get("min_break_distance_pct", 0.0003)
-            self.cvd_divergence_threshold = profile_params.get("cvd_divergence_threshold", 0.3)
-        else:
-            self.max_break_age = 60.0
-            self.min_break_distance_pct = 0.0003
-            self.cvd_divergence_threshold = 0.3
+        # Fallback defaults
+        self.cooldown = 60.0
+        self.max_break_age = 60.0
+        self.min_break_distance_pct = 0.0003
+        self.cvd_divergence_threshold = 0.3
+
+    def _get_params(self, symbol: str) -> dict:
+        if symbol in self._cluster_cache:
+            return self._cluster_cache[symbol]
+        try:
+            from decision.engine.profile_manager import profile_manager
+
+            params = profile_manager.get_sensor_params(symbol, "failed_breakout")
+        except Exception:
+            params = {}
+        self._cluster_cache[symbol] = params
+        return params
 
     def on_tick(
         self, symbol: str, price: float, timestamp: float, context_or_levels, footprint=None
     ) -> Optional[Dict[str, Any]]:
-        """
-        Evaluate on each tick using central PressureEngine or ContextRegistry.
-        """
-        if timestamp - self.last_fire_ts[symbol] < self.cooldown:
+        params = self._get_params(symbol)
+        cooldown = params.get("cooldown", self.cooldown)
+        max_break_age = params.get("max_break_age", self.max_break_age)
+        min_break_distance_pct = params.get("min_break_distance_pct", self.min_break_distance_pct)
+        cvd_divergence_threshold = params.get("cvd_divergence_threshold", self.cvd_divergence_threshold)
+
+        if timestamp - self.last_fire_ts[symbol] < cooldown:
             return None
-
-        # Get profile parameters for this symbol
-        from decision.engine.profile_manager import profile_manager
-
-        sensor_params = profile_manager.get_sensor_params(symbol, "failed_breakout")
-
-        # Update parameters from profile if available
-        if sensor_params:
-            self.max_break_age = sensor_params.get("max_break_age", self.max_break_age)
-            self.min_break_distance_pct = sensor_params.get("min_break_distance_pct", self.min_break_distance_pct)
-            self.cvd_divergence_threshold = sensor_params.get("cvd_divergence_threshold", self.cvd_divergence_threshold)
 
         if hasattr(context_or_levels, "get_pressure_state"):
             state = context_or_levels.get_pressure_state(symbol)
@@ -76,7 +76,7 @@ class FailedBreakoutDetector:
         # === PHASE 1: Detect new breakouts ===
         pending = self.pending_breaks.get(symbol)
         if not pending:
-            if price > vah * (1 + self.min_break_distance_pct):
+            if price > vah * (1 + min_break_distance_pct):
                 self.pending_breaks[symbol] = {
                     "direction": "ABOVE",
                     "side": "SHORT",
@@ -84,7 +84,7 @@ class FailedBreakoutDetector:
                     "break_ts": timestamp,
                     "cvd_at_break": current_cvd,
                 }
-            elif price < val * (1 - self.min_break_distance_pct):
+            elif price < val * (1 - min_break_distance_pct):
                 self.pending_breaks[symbol] = {
                     "direction": "BELOW",
                     "side": "LONG",
@@ -96,7 +96,7 @@ class FailedBreakoutDetector:
 
         # === PHASE 2: Monitor for failure ===
         elapsed = timestamp - pending["break_ts"]
-        if elapsed > self.max_break_age:
+        if elapsed > max_break_age:
             del self.pending_breaks[symbol]
             return None
 
@@ -115,11 +115,7 @@ class FailedBreakoutDetector:
         expected_change = max(expected_change, 5.0)
 
         # Exhaustion Gate: CVD demasiado fuerte = Trend Acceptance
-        # Use parametric multiplier from profile
-        from decision.engine.profile_manager import profile_manager
-
-        sensor_params = profile_manager.get_sensor_params(symbol, "failed_breakout")
-        exhaustion_mult = sensor_params.get("exhaustion_mult", 1.8) if sensor_params else 1.8
+        exhaustion_mult = params.get("exhaustion_mult", 1.8)
 
         if (direction == "ABOVE" and cvd_change > expected_change * exhaustion_mult) or (
             direction == "BELOW" and cvd_change < -expected_change * exhaustion_mult
@@ -129,9 +125,9 @@ class FailedBreakoutDetector:
 
         # Divergencia
         if direction == "ABOVE":
-            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
+            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
         else:
-            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * self.cvd_divergence_threshold
+            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
 
         if not is_divergent:
             del self.pending_breaks[symbol]

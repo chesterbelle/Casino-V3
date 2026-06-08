@@ -48,6 +48,7 @@ class CoinPressureEngine:
             params = profile_manager.get_sensor_params(self.symbol, "absorption_detector")
             self.concentration_min = params.get("concentration_min", 0.50) if params else 0.50
             self.noise_max = params.get("noise_max", 0.35) if params else 0.35
+            self.stagnation_floor_pct = params.get("stagnation_floor_pct", 0.0008) if params else 0.0008
 
             # Load z_block from pressure_thresholds in profile
             pressure_params = profile_manager.get_pressure_thresholds(self.symbol)
@@ -55,6 +56,7 @@ class CoinPressureEngine:
         except Exception:
             self.concentration_min = 0.50
             self.noise_max = 0.35
+            self.stagnation_floor_pct = 0.0008
             self.z_block = 2.0
 
     def update(
@@ -76,9 +78,9 @@ class CoinPressureEngine:
                     self.velocity_zscore.update(raw_velocity)
                     self.last_state.cvd_velocity = self.velocity_zscore.get_zscore(raw_velocity)
 
-        price_diff = abs(price - self.last_price) if self.last_price > 0 else 0.0
+        price_diff_pct = abs(price - self.last_price) / self.last_price if self.last_price > 0 else 0.0
         is_high_delta = abs(self.last_state.cvd_velocity) > 0.1
-        is_price_stagnant = price_diff < 0.10
+        is_price_stagnant = price_diff_pct < self.stagnation_floor_pct
 
         tick_absorption = 0.3 if (is_high_delta and is_price_stagnant) else 0.0
 

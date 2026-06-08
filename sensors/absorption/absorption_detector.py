@@ -7,12 +7,17 @@ class AbsorptionDetector:
     Absorption Detector v10: Profile-Calibrated + Multi-Factor Filter.
     Consumes PressureEngine centralized state.
     Only fires ONCE per absorption event (not every tick during absorption).
+
+    Resolves cluster-specific params at runtime via profile_manager.
     """
 
-    def __init__(self, pressure_engine) -> None:
+    def __init__(self, pressure_engine, params=None) -> None:
         self.pressure = pressure_engine
         self.name = "tactical_absorption"
         self.last_fire_ts: Dict[str, float] = defaultdict(float)
+        self._cluster_cache: Dict[str, dict] = {}
+
+        # Fallback defaults (used only if profile_manager lookup fails)
         self.cooldown = 180.0
         self.level_tolerance_pct = 0.003
         self.z_score_min = 2.0
@@ -20,37 +25,46 @@ class AbsorptionDetector:
         self.displacement_z_max = 3.0
         self.absorption_score_min = 0.5
 
+    def _get_params(self, symbol: str) -> dict:
+        if symbol in self._cluster_cache:
+            return self._cluster_cache[symbol]
+        try:
+            from decision.engine.profile_manager import profile_manager
+
+            params = profile_manager.get_sensor_params(symbol, "absorption_detector")
+        except Exception:
+            params = {}
+        self._cluster_cache[symbol] = params
+        return params
+
     def on_tick(self, symbol: str, price: float, timestamp: float, structural_levels: dict) -> Optional[Dict[str, Any]]:
-        if timestamp - self.last_fire_ts.get(symbol, 0) < self.cooldown:
+        params = self._get_params(symbol)
+        cooldown = params.get("cooldown", self.cooldown)
+        level_tolerance_pct = params.get("level_tolerance_pct", self.level_tolerance_pct)
+        z_score_min = params.get("z_score_min", self.z_score_min)
+        volatility_z_max = params.get("volatility_z_max", self.volatility_z_max)
+        displacement_z_max = params.get("displacement_z_max", self.displacement_z_max)
+        absorption_score_min = params.get("absorption_score_min", self.absorption_score_min)
+
+        if timestamp - self.last_fire_ts.get(symbol, 0) < cooldown:
             return None
-
-        from decision.engine.profile_manager import profile_manager
-
-        sensor_params = profile_manager.get_sensor_params(symbol, "absorption_detector")
-        if sensor_params:
-            self.z_score_min = sensor_params.get("z_score_min", self.z_score_min)
-            self.cooldown = sensor_params.get("cooldown", self.cooldown)
-            self.level_tolerance_pct = sensor_params.get("level_tolerance_pct", self.level_tolerance_pct)
-            self.volatility_z_max = sensor_params.get("volatility_z_max", self.volatility_z_max)
-            self.displacement_z_max = sensor_params.get("displacement_z_max", self.displacement_z_max)
-            self.absorption_score_min = sensor_params.get("absorption_score_min", self.absorption_score_min)
 
         state = self.pressure.get_state(symbol)
 
         # 1. Absorption score check
-        if state.absorption_score < self.absorption_score_min:
+        if state.absorption_score < absorption_score_min:
             return None
 
         # 2. CVD velocity z-score filter (avoid low-confidence absorption)
-        if abs(state.cvd_velocity) < self.z_score_min:
+        if abs(state.cvd_velocity) < z_score_min:
             return None
 
         # 3. Volatility filter (avoid extreme chop/chaos)
-        if abs(state.volatility_z) > self.volatility_z_max:
+        if abs(state.volatility_z) > volatility_z_max:
             return None
 
         # 4. Price displacement filter (avoid fading extreme moves)
-        if abs(state.price_displacement_z) > self.displacement_z_max:
+        if abs(state.price_displacement_z) > displacement_z_max:
             return None
 
         # 5. Block signals from PressureEngine (anti-fade protection)
@@ -67,9 +81,9 @@ class AbsorptionDetector:
         if poc <= 0:
             return None
 
-        near_poc = abs(price - poc) <= (poc * self.level_tolerance_pct)
-        near_vah = vah > 0 and abs(price - vah) <= (vah * self.level_tolerance_pct)
-        near_val = val > 0 and abs(price - val) <= (val * self.level_tolerance_pct)
+        near_poc = abs(price - poc) <= (poc * level_tolerance_pct)
+        near_vah = vah > 0 and abs(price - vah) <= (vah * level_tolerance_pct)
+        near_val = val > 0 and abs(price - val) <= (val * level_tolerance_pct)
 
         if not (near_poc or near_vah or near_val):
             return None

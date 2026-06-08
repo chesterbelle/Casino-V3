@@ -104,18 +104,21 @@ class SensorManager:
         # Load and Distribute Sensors
         self._spawn_workers()
 
-        # Inyectar PressureEngine en escenarios reconstruidos (v8.7+)
+        # Inyectar PressureEngine y Parámetros en escenarios reconstruidos (v8.7+)
         from decision.scenarios.failed_breakout import FailedBreakoutDetector
         from decision.scenarios.liquidity_exhaustion import LiquidityExhaustionDetector
         from decision.scenarios.trend_acceptance import TrendAcceptanceDetector
         from sensors.absorption.absorption_detector import AbsorptionDetector
 
-        self.scenarios = {
-            "liquidity_exhaustion": LiquidityExhaustionDetector(self.pressure_engine),
-            "failed_breakout": FailedBreakoutDetector(self.pressure_engine),
-            "trend_acceptance": TrendAcceptanceDetector(self.pressure_engine),
-            "tactical_absorption": AbsorptionDetector(self.pressure_engine),
-        }
+        self.scenarios = {}
+
+        # Los escenarios resuelven los parámetros del cluster en runtime via profile_manager.
+        # No se pasan params al constructor — cada detector hace su propio lookup por símbolo.
+
+        self.scenarios["liquidity_exhaustion"] = LiquidityExhaustionDetector(self.pressure_engine)
+        self.scenarios["failed_breakout"] = FailedBreakoutDetector(self.pressure_engine)
+        self.scenarios["trend_acceptance"] = TrendAcceptanceDetector(self.pressure_engine)
+        self.scenarios["tactical_absorption"] = AbsorptionDetector(self.pressure_engine)
 
         # Phase 7: Micro-Event Batching to prevent Main Loop stalls
         self._micro_buffer = []
