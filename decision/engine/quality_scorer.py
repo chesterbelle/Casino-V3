@@ -195,6 +195,9 @@ def evaluate_quality(
         },
     )
 
+    # DEBUG LOGS for parametric verification
+    logger.info(f"DEBUG_PARAMS | Symbol: {symbol} | Weights: {weights} | GradeB: {grade_b} | Thresholds: {thresholds}")
+
     # 1. Exhaustion score (the core)
     exhaustion_score, exhaustion_reason = _score_exhaustion(symbol, thresholds)
 
@@ -226,13 +229,16 @@ def evaluate_quality(
         )
 
     # Calculate weighted quality score
+    total_weight = sum(weights.values())
+    weight_norm = 1.0 / total_weight if total_weight != 1.0 else 1.0
+
     quality_score = (
         exhaustion_score * weights.get("exhaustion", 0.35)
         + regime_score * weights.get("regime", 0.25)
         + structure_score * weights.get("structure", 0.20)
         + liquidity_score * weights.get("liquidity", 0.15)
         + spread_score * weights.get("spread", 0.05)
-    )
+    ) * weight_norm
 
     # Map to grade
     if quality_score >= grade_a:
@@ -268,7 +274,7 @@ def evaluate_quality(
             "liquidity": liquidity_reason,
             "spread": spread_reason,
         },
-        passed=True,
+        passed=grade is not None,
     )
 
     # Trace logging

@@ -23,6 +23,7 @@ classifiers = [
 dependencies = [
     "aiolocks",
     "aiosqlite",
+    "optuna>=3.0",
 ]
 
 [tool.black]

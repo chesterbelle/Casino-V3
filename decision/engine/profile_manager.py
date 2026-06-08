@@ -6,6 +6,7 @@ Each coin is assigned a profile, and all components use that symbol's profile pa
 """
 
 import logging
+import os
 from typing import Any, Dict
 
 from config.coin_profiles import COIN_PROFILES, DEFAULT_PROFILE
@@ -28,6 +29,7 @@ class ProfileManager:
     def set_profile(self, symbol: str, profile_name: str) -> bool:
         """
         Set profile for a specific symbol.
+        If CASINO_FORCE_PROFILE env var is set, overrides the profile.
 
         Args:
             symbol: Coin symbol (e.g., "BTC/USDT:USDT")
@@ -36,6 +38,11 @@ class ProfileManager:
         Returns:
             True if profile was set, False if not found (uses default)
         """
+        # Allow forcing a specific profile via environment variable
+        forced = os.environ.get("CASINO_FORCE_PROFILE")
+        if forced:
+            profile_name = forced
+
         if profile_name in self.profiles:
             self.symbol_profiles[symbol] = profile_name
             logger.info(f"📋 [PROFILE] {symbol} → {profile_name}")
@@ -46,8 +53,26 @@ class ProfileManager:
             return False
 
     def get_profile_name(self, symbol: str) -> str:
-        """Get profile name for a symbol."""
-        return self.symbol_profiles.get(symbol, self.default_profile)
+        """Get profile name for a symbol. If not set, resolves from fixed taxonomy."""
+        if symbol in self.symbol_profiles:
+            return self.symbol_profiles[symbol]
+
+        # Attempt to resolve from fixed taxonomy
+        try:
+            import json
+
+            with open("config/clusters_fixed.json") as f:
+                data = json.load(f)
+
+            # Normalize symbol for lookup
+            norm_sym = symbol.split("/")[0].replace("USDT", "")
+            for profile, info in data["clusters"].items():
+                if norm_sym in info.get("members", []):
+                    return profile
+        except Exception as e:
+            logger.debug(f"Taxonomy lookup failed for {symbol}: {e}")
+
+        return self.default_profile
 
     def get_profile(self, symbol: str) -> dict:
         """Get full profile dict for a symbol."""

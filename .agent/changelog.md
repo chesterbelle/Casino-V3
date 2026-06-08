@@ -6,6 +6,39 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-08 SESSION-CLOSE] — Cluster Optimizer + EdgeAuditor get_metrics() + Bug Fixes (Branch: 8.7-cluster-improved)
+
+#### Summary
+Built full-featured Cluster Optimizer (`scripts/cluster_optimizer.py`) with Bayesian Optimization (Optuna), EdgeAuditor integration, persistent study DB, cross-coin validation, sensitivity analysis, and CPU limiting. Fixed critical profile classification bug (static JSON ignored), added CASINO_FORCE_PROFILE env var, added `get_metrics()` to EdgeAuditor, normalized quality scorer weights, and improved orchestrator CPU management.
+
+#### Files Modified
+- `scripts/cluster_optimizer.py` — Full rebuild: 10 modules (Optuna, param space, profile generation via PYTHONPATH injection, backtest runner, EdgeAuditor eval, composite scoring, sensitivity analysis, cross-coin validation, CPU limiter, output generation). Persistent study DB with `--resume` flag.
+- `utils/setup_edge_auditor.py` — Added `get_metrics()` method returning dict with net_taker, root_cause, mfe/mae ratio, best_uniforms. Used by optimizer for programmatic evaluation.
+- `decision/engine/core.py` — Fixed `_classify_and_set_profile()`: now checks `clusters_fixed.json` BEFORE runtime Euclidean classification. XRP was being misclassified as MID_LIQUID instead of THIN_VOLATILE.
+- `decision/engine/profile_manager.py` — Added `CASINO_FORCE_PROFILE` env var support. Enhanced `get_profile_name()` to resolve from `clusters_fixed.json` if not explicitly set.
+- `decision/engine/quality_scorer.py` — Added weight normalization (weights sum ≠ 1.0 was silently deflating scores). Added debug logging for parametric verification. Fixed `passed` field to respect grade being None.
+- `scripts/orchestrator.py` — Added CPU thread limiting per subprocess (OMP/MKL/OPENBLAS threads=1). Dynamic worker calculation based on host cores. Interactive progress spinner.
+- `pyproject.toml` — Added `optuna>=3.0` dependency.
+
+#### Files Deleted (cleanup)
+- `.agent/workflows/profile-validation-*.md` (5 files) — Orchestrator protocols replaced these.
+- `.agent/parameter_analysis.md` — Superseded by optimizer.
+- `docs/Alpha_Specs.md`, `docs/crystal_layer_analysis.md` — Moved to memory/changelog.
+
+#### Key Findings
+- **Audit mode trades table is EMPTY** — all signal data lives in `signals` and `decision_traces` tables. EdgeAuditor uses these.
+- **Each backtest takes ~10 minutes** for ~846K trades (XRP 2024-11 dataset).
+- **Optuna with persistence** (`sqlite:///`) survives Ctrl+C — `--resume` continues from last completed trial.
+- **PYTHONPATH injection** for profile overrides: generated `coin_profiles.py` in temp dir takes priority over original.
+- **Baseline THIN_VOLATILE** (XRP): Net Taker -0.59%, MFE/MAE 0.71, root_cause TARGET_FAILURE, 217 signals.
+
+#### Commit
+```
+8d7f2a1 feat: cluster optimizer + EdgeAuditor get_metrics + profile classification fix
+```
+
+---
+
 ### [2026-06-08 SESSION] — Per-Cluster Detector Parametrization + PressureEngine Stagnation Fix (Branch: 8.7-cluster-improved)
 
 ### Summary: Audit of `analisis_perfil.md` identified 4 defects in the profile system. Fixed the critical D1 bug (all 4 detectors using DEFAULT_PROFILE=MID_LIQUID for all symbols), the PressureEngine stagnation threshold (absolute $0.10 → percentage-based), connected 10 missing parameters, and aligned taxonomy descriptions. Commit `64a3f2b`.

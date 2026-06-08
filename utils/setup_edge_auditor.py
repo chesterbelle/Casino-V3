@@ -689,6 +689,180 @@ class EdgeAuditor:
 
         print(header("AUDIT COMPLETE"))
 
+    def get_metrics(self, window_seconds=DEFAULT_WINDOW) -> dict:
+        """Run analysis and return key metrics as dict (for programmatic use)."""
+        FEE_TAKER_RT = 0.07
+        UNIFORM_GRIDS = [
+            (0.1, 0.1),
+            (0.2, 0.2),
+            (0.3, 0.3),
+            (0.4, 0.4),
+            (0.5, 0.5),
+            (0.6, 0.6),
+            (0.7, 0.7),
+            (0.8, 0.8),
+            (0.9, 0.9),
+            (1.0, 1.0),
+            (1.2, 1.2),
+            (1.5, 1.5),
+            (2.0, 2.0),
+            (2.5, 2.5),
+            (0.6, 0.3),
+            (0.8, 0.3),
+            (0.9, 0.4),
+            (1.0, 0.3),
+            (1.2, 0.3),
+            (1.5, 0.3),
+            (1.9, 0.2),
+            (2.0, 0.3),
+            (0.5, 0.8),
+            (0.6, 1.0),
+            (1.0, 2.0),
+            (1.0, 3.0),
+            (1.5, 3.0),
+            (2.0, 3.0),
+            (2.0, 4.0),
+            (2.5, 4.0),
+            (2.5, 5.0),
+        ]
+
+        signals, prices, traces = self.load_data()
+        if signals.empty:
+            return {"net_taker": 0.0, "total_signals": 0, "root_cause": "NO_DATA"}
+
+        if self.coin_filter:
+            signals = signals[signals["symbol"] == self.coin_filter]
+
+        results = []
+        for _, sig in signals.iterrows():
+            entry_price = sig["price"]
+            side = sig["side"]
+            setup_type = sig["setup_type"]
+            if entry_price <= 0:
+                continue
+
+            win = self.SETUP_WINDOWS.get(setup_type, window_seconds)
+            trajectory = get_trajectory(sig, prices, win)
+            if trajectory.empty:
+                continue
+
+            prices_list = trajectory["price"].values
+            if side == "LONG":
+                mfe_pct = (np.max(prices_list) - entry_price) / entry_price * 100
+                mae_pct = (entry_price - np.min(prices_list)) / entry_price * 100
+            else:
+                mfe_pct = (entry_price - np.min(prices_list)) / entry_price * 100
+                mae_pct = (np.max(prices_list) - entry_price) / entry_price * 100
+
+            final_price = prices_list[-1]
+            if side == "LONG":
+                final_pnl = (final_price - entry_price) / entry_price * 100
+            else:
+                final_pnl = (entry_price - final_price) / entry_price * 100
+
+            tp_pct = sig.get("tp_distance_pct", 0.0)
+            sl_pct = sig.get("sl_distance_pct", 0.0)
+            if tp_pct == 0.0:
+                tp_price = sig.get("tp_price", 0.0)
+                if tp_price > 0 and entry_price > 0:
+                    tp_pct = abs(tp_price - entry_price) / entry_price * 100
+            if sl_pct == 0.0:
+                sl_price = sig.get("sl_price", 0.0)
+                if sl_price > 0 and entry_price > 0:
+                    sl_pct = abs(sl_price - entry_price) / entry_price * 100
+
+            real_pnl = final_pnl
+            real_outcome = "TIMEOUT"
+            for p in prices_list:
+                if side == "LONG":
+                    pnl_pct = (p - entry_price) / entry_price * 100
+                else:
+                    pnl_pct = (entry_price - p) / entry_price * 100
+                if pnl_pct >= tp_pct and tp_pct > 0:
+                    real_pnl = tp_pct
+                    real_outcome = "WIN"
+                    break
+                if pnl_pct <= -sl_pct and sl_pct > 0:
+                    real_pnl = -sl_pct
+                    real_outcome = "LOSS"
+                    break
+
+            first_touch_pnl = {}
+            for tp_t, sl_t in UNIFORM_GRIDS:
+                grid_pnl = final_pnl
+                for p in prices_list:
+                    if side == "LONG":
+                        pnl_pct = (p - entry_price) / entry_price * 100
+                    else:
+                        pnl_pct = (entry_price - p) / entry_price * 100
+                    if pnl_pct >= tp_t:
+                        grid_pnl = tp_t
+                        break
+                    if pnl_pct <= -sl_t:
+                        grid_pnl = -sl_t
+                        break
+                first_touch_pnl[f"ft_pnl_{tp_t}_{sl_t}"] = grid_pnl
+
+            results.append(
+                {
+                    "setup_type": setup_type,
+                    "symbol": sig["symbol"],
+                    "mfe": mfe_pct,
+                    "mae": mae_pct,
+                    "real_outcome": real_outcome,
+                    "real_pnl": real_pnl,
+                    "tp_pct": tp_pct,
+                    "sl_pct": sl_pct,
+                    **first_touch_pnl,
+                }
+            )
+
+        df = pd.DataFrame(results)
+        if df.empty:
+            return {"net_taker": 0.0, "total_signals": 0, "root_cause": "NO_SIGNALS"}
+
+        total_n = len(df)
+        total_wins = (df["real_outcome"] == "WIN").sum()
+        total_losses = (df["real_outcome"] == "LOSS").sum()
+        gross_expectancy = df["real_pnl"].mean()
+        net_taker = gross_expectancy - FEE_TAKER_RT
+
+        all_entry_fail = True
+        all_target_ok = True
+        best_uniforms = {}
+        for setup, s_group in df.groupby("setup_type"):
+            best = self._find_best_uniform(s_group, UNIFORM_GRIDS)
+            if best is None:
+                continue
+            best_exp, (tp_t, sl_t), best_wr = best
+            best_uniforms[setup] = {"tp": tp_t, "sl": sl_t, "exp": best_exp, "wr": best_wr}
+            if best_exp - FEE_TAKER_RT > 0:
+                all_entry_fail = False
+            real_exp = s_group["real_pnl"].mean()
+            if real_exp < best_exp - 0.05:
+                all_target_ok = False
+
+        if all_entry_fail:
+            root_cause = "ENTRY_FAILURE"
+        elif not all_target_ok:
+            root_cause = "TARGET_FAILURE"
+        elif net_taker > 0:
+            root_cause = "EDGE_CONFIRMED"
+        else:
+            root_cause = "EDGE_MARGINAL"
+
+        return {
+            "net_taker": net_taker,
+            "gross_expectancy": gross_expectancy,
+            "total_signals": total_n,
+            "wins": int(total_wins),
+            "losses": int(total_losses),
+            "win_rate": (total_wins / total_n * 100) if total_n > 0 else 0.0,
+            "root_cause": root_cause,
+            "best_uniforms": best_uniforms,
+            "setup_count": df["setup_type"].nunique(),
+        }
+
 
 def main():
     parser = argparse.ArgumentParser()

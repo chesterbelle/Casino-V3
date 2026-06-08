@@ -158,11 +158,30 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             await self._process_signal(signal, trace=trace)
 
     def _classify_and_set_profile(self, symbol: str):
-        """Classify coin into profile using real microstructure data from ContextRegistry."""
+        """Classify coin into profile. Static JSON takes priority over runtime classification."""
         if not self.context_registry:
             return
 
-        # Get real metrics from ContextRegistry
+        # 1. First: check static assignment in clusters_fixed.json
+        try:
+            import json
+
+            with open("config/clusters_fixed.json") as f:
+                data = json.load(f)
+            # Extract base symbol: "XRP/USDT:USDT" → "XRPUSDT"
+            base = symbol.split("/")[0]
+            if not base.endswith("USDT"):
+                base = base + "USDT"
+            for profile_name, info in data.get("clusters", {}).items():
+                if base in info.get("members", []):
+                    profile_manager.set_profile(symbol, profile_name)
+                    self._profile_classified[symbol] = True
+                    logger.info(f"🏷️ [PROFILE] {symbol} → {profile_name} (static from clusters_fixed.json)")
+                    return
+        except Exception as e:
+            logger.debug(f"Static profile lookup failed for {symbol}: {e}")
+
+        # 2. Fallback: runtime classification via microstructure metrics
         spread_data = self.context_registry.spread_state.get(symbol, {})
         spread_current = spread_data.get("current", 0)
         spread_avg = spread_data.get("avg_5m", 1)
@@ -179,13 +198,12 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             "speed": speed,
         }
 
-        # Classify and set profile
         profile = coin_profiler.classify(symbol, coin_stats)
         profile_manager.set_profile(symbol, profile)
         self._profile_classified[symbol] = True
 
         logger.info(
-            f"🏷️ [PROFILE] {symbol} → {profile} | "
+            f"🏷️ [PROFILE] {symbol} → {profile} (runtime) | "
             f"spread_ratio={spread_ratio:.2f}, depth_ratio={depth_ratio:.2f}, speed={speed:.4f}"
         )
 

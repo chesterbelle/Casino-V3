@@ -6,7 +6,7 @@ import signal
 import subprocess
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 venv_python = os.path.join(_BASE, ".venv", "bin", "python")
@@ -38,7 +38,7 @@ PROTOCOLS = {
 
 DB_DIR = "data/datasets/backtest_ready"
 LOG_DIR = "logs"
-TASK_TIMEOUT = 3600
+TASK_TIMEOUT = 86400
 
 
 def _p(msg):
@@ -113,6 +113,15 @@ def run_backtest(task_config):
         with open(log_file, "w") as f:
             env = os.environ.copy()
             env["CASINO_HISTORIAN_DB"] = historian_db
+            # Limitar hilos internos por subproceso para evitar saturación del host
+            for var in [
+                "OMP_NUM_THREADS",
+                "OPENBLAS_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS",
+                "NUMEXPR_NUM_THREADS",
+            ]:
+                env[var] = "1"
             process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env)
             process.wait(timeout=TASK_TIMEOUT)
         return process.returncode == 0
@@ -192,32 +201,61 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None):
         return
 
     total = len(tasks)
-    _p(f"\n🚀 {protocol_name.upper()} — {total} backtests, {config['max_workers']} workers\n")
+
+    # Cálculo dinámico de workers para no saturar el host (parecido a un semáforo)
+    host_cores = os.cpu_count() or 4
+    # Dejamos 2 cores libres para el sistema, pero usamos al menos 1
+    safe_workers = max(1, host_cores - 8)
+    # Si el protocolo pide menos, lo respetamos (por ej. estrategia), si no usamos la capacidad segura
+    protocol_workers = config.get("max_workers", 2)
+    actual_workers = max(protocol_workers, safe_workers)
+    actual_workers = min(total, actual_workers)
+
+    _p(
+        f"\n🚀 {protocol_name.upper()} — {total} backtests, {actual_workers} workers dinámicos (Host CPU: {host_cores})\n"
+    )
 
     completed = 0
     failed = 0
     start_time = time.time()
-    last_report = 0.0
 
-    with ProcessPoolExecutor(max_workers=config["max_workers"]) as executor:
+    with ProcessPoolExecutor(max_workers=actual_workers) as executor:
         future_map = {executor.submit(run_backtest, t): t for t in tasks}
+        pending = set(future_map.keys())
 
-        for future in as_completed(future_map):
-            if not _running:
-                break
-            completed += 1
-            t = future_map[future]
-            task_id = t["task_id"]
-            ok = future.result()
-            icon = "✅" if ok else "❌"
-            _p(f"  {icon} [{completed}/{total}] {task_id}")
+        while pending and _running:
+            # Esperamos 2 segundos máximo, para poder refrescar el progreso interactivamente
+            done, pending = wait(pending, timeout=2.0, return_when=FIRST_COMPLETED)
 
             elapsed = time.time() - start_time
-            if elapsed - last_report >= 15:
-                rate = completed / elapsed if elapsed > 0 else 0
-                remaining = (total - completed) / rate if rate > 0 else 0
-                _p(f"     ⏱ {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining, {completed}/{total}")
-                last_report = elapsed
+            rate = completed / elapsed if elapsed > 0 else 0
+            remaining = (total - completed) / rate if rate > 0 else 0
+
+            # Spinner interactivo actualizándose sin nueva línea
+            sys.stdout.write(
+                f"\r⏳ [En progreso] {completed}/{total} completados | {len(pending)} ejecutándose | Transcurrido: {elapsed:.0f}s | ETA: ~{remaining:.0f}s "
+            )
+            sys.stdout.flush()
+
+            for future in done:
+                completed += 1
+                t = future_map[future]
+                task_id = t["task_id"]
+                try:
+                    ok = future.result()
+                except Exception:
+                    ok = False
+
+                if not ok:
+                    failed += 1
+
+                icon = "✅" if ok else "❌"
+                # Limpiar línea del spinner y printear el completado
+                sys.stdout.write("\r" + " " * 110 + "\r")
+                _p(f"  {icon} [{completed}/{total}] {task_id}")
+
+    # Limpiar línea final del progreso interactivo
+    sys.stdout.write("\r" + " " * 110 + "\r")
 
     elapsed = time.time() - start_time
     _p(f"\n{'='*50}")
