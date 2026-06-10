@@ -8,6 +8,13 @@ import sys
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
+try:
+    import psutil
+
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 venv_python = os.path.join(_BASE, ".venv", "bin", "python")
 
@@ -27,14 +34,24 @@ signal.signal(signal.SIGTERM, handle_exit)
 
 PROTOCOLS = {
     "generalized": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
-    "cluster_mid_liquid": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
-    "cluster_mega_liquid": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
-    "cluster_major_liquid": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
-    "cluster_thin_volatile": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
-    "cluster_illiqid_spec": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
     "single-coin": {"run_type": "audit", "max_workers": 2, "skip_merge": True, "skip_clean": True},
     "strategy": {"run_type": "trade", "max_workers": 1, "skip_merge": True},
 }
+
+
+def discover_cluster_protocols():
+    protocols = {}
+    path = os.path.join(_BASE, "config", "clusters_fixed.json")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        for cluster_name in data.get("clusters", {}):
+            key = f"cluster_{cluster_name.lower()}"
+            protocols[key] = {"run_type": "audit", "max_workers": 2, "skip_merge": False}
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return protocols
+
 
 DB_DIR = "data/datasets/backtest_ready"
 LOG_DIR = "logs"
@@ -54,10 +71,14 @@ def get_datasets_for_symbol(symbol, filter_pattern=None):
     return [os.path.basename(f) for f in files]
 
 
-def get_cluster_protocol(cluster_name):
-    with open("config/clusters_fixed.json") as f:
+def get_cluster_members(cluster_name):
+    path = os.path.join(_BASE, "config", "clusters_fixed.json")
+    with open(path) as f:
         data = json.load(f)
-    return data["clusters"].get(cluster_name, {}).get("members", [])
+    for key, val in data["clusters"].items():
+        if key.lower() == cluster_name.lower():
+            return val.get("members", [])
+    return []
 
 
 def clean_temp_data():
@@ -133,13 +154,13 @@ def run_backtest(task_config):
         return False
 
 
-def build_tasks(protocol_name, symbol, filter_pattern):
-    config = PROTOCOLS.get(protocol_name)
+def build_tasks(protocol_name, symbol, filter_pattern, all_protocols):
+    config = all_protocols.get(protocol_name)
     tasks = []
 
     if protocol_name.startswith("cluster_"):
-        cluster_key = protocol_name.replace("cluster_", "").upper()
-        members = get_cluster_protocol(cluster_key)
+        cluster_key = protocol_name[len("cluster_") :]
+        members = get_cluster_members(cluster_key)
         for sym in members:
             datasets = get_datasets_for_symbol(sym, filter_pattern)
             for db_file in datasets:
@@ -184,8 +205,28 @@ def build_tasks(protocol_name, symbol, filter_pattern):
     return tasks
 
 
+def calculate_workers(protocol_workers, total_tasks):
+    host_cores = os.cpu_count() or 4
+    cpu_workers = max(1, int(host_cores * 0.65))
+
+    if HAS_PSUTIL:
+        try:
+            avail_gb = psutil.virtual_memory().available / (1024**3)
+            mem_workers = max(1, int(avail_gb * 0.65 / 0.6))
+        except Exception:
+            mem_workers = cpu_workers
+    else:
+        mem_workers = cpu_workers
+
+    safe_workers = min(cpu_workers, mem_workers)
+    # Escalar hasta safe_workers si recursos lo permiten, mínimo protocol_workers
+    capped = min(safe_workers, total_tasks)
+    return max(protocol_workers, capped) if capped >= protocol_workers else capped
+
+
 def run_protocol(protocol_name, symbol=None, filter_pattern=None):
-    config = PROTOCOLS.get(protocol_name)
+    all_protocols = {**PROTOCOLS, **discover_cluster_protocols()}
+    config = all_protocols.get(protocol_name)
     if not config:
         _p(f"❌ Unknown protocol: {protocol_name}")
         return
@@ -195,24 +236,17 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None):
     else:
         os.makedirs(LOG_DIR, exist_ok=True)
 
-    tasks = build_tasks(protocol_name, symbol, filter_pattern)
+    tasks = build_tasks(protocol_name, symbol, filter_pattern, all_protocols)
     if not tasks:
         _p("❌ No tasks to run. Check dataset availability.")
         return
 
     total = len(tasks)
-
-    # Cálculo dinámico de workers para no saturar el host (parecido a un semáforo)
-    host_cores = os.cpu_count() or 4
-    # Dejamos 2 cores libres para el sistema, pero usamos al menos 1
-    safe_workers = max(1, host_cores - 8)
-    # Si el protocolo pide menos, lo respetamos (por ej. estrategia), si no usamos la capacidad segura
     protocol_workers = config.get("max_workers", 2)
-    actual_workers = max(protocol_workers, safe_workers)
-    actual_workers = min(total, actual_workers)
+    actual_workers = calculate_workers(protocol_workers, total)
 
     _p(
-        f"\n🚀 {protocol_name.upper()} — {total} backtests, {actual_workers} workers dinámicos (Host CPU: {host_cores})\n"
+        f"\n🚀 {protocol_name.upper()} — {total} backtests, {actual_workers} workers dinámicos (Host CPU: {os.cpu_count() or 4})\n"
     )
 
     completed = 0
@@ -276,8 +310,9 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None):
 
 
 if __name__ == "__main__":
+    all_protocols = {**PROTOCOLS, **discover_cluster_protocols()}
     parser = argparse.ArgumentParser(description="Smart Orchestrator for Casino-V3")
-    parser.add_argument("--protocol", choices=PROTOCOLS.keys(), required=True)
+    parser.add_argument("--protocol", choices=list(all_protocols.keys()), required=True)
     parser.add_argument("--symbol", help="Symbol for single-coin")
     parser.add_argument("--filter", help="Filter pattern for datasets (e.g. 2025)")
     args = parser.parse_args()
