@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 try:
@@ -32,10 +33,53 @@ signal.signal(signal.SIGINT, handle_exit)
 signal.signal(signal.SIGTERM, handle_exit)
 
 
+def set_low_priority():
+    """Set nice=10 on worker processes to avoid freezing the host."""
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+
+
+def get_memory_status():
+    """Return RAM + swap usage status string."""
+    if not HAS_PSUTIL:
+        return "N/A"
+    try:
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        return f"RAM: {mem.percent}% | Swap: {swap.percent}%"
+    except Exception:
+        return "N/A"
+
+
+MAX_VISIBLE_LINES = 3
+
+
+def redraw_progress(completed, total, pending_count, mem_status, elapsed, recent_lines):
+    """Redraw spinner + last N completed tasks using ANSI escape codes."""
+    # Move up and clear previous output
+    lines_to_clear = min(len(recent_lines), MAX_VISIBLE_LINES)
+    if lines_to_clear > 0:
+        sys.stdout.write(f"\033[{lines_to_clear + 1}A")  # Move up
+        sys.stdout.write("\033[2K" * (lines_to_clear + 1))  # Clear each line
+
+    # Print last N completed tasks
+    for line in recent_lines:
+        sys.stdout.write(f"  {line}\n")
+
+    # Print spinner line
+    sys.stdout.write(
+        f"\r⏳ [En progreso] {completed}/{total} completados | {pending_count} ejecutándose | {mem_status} | Transcurrido: {elapsed:.0f}s "
+    )
+    sys.stdout.flush()
+
+
 PROTOCOLS = {
     "generalized": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
     "single-coin": {"run_type": "audit", "max_workers": 2, "skip_merge": True, "skip_clean": True},
     "strategy": {"run_type": "trade", "max_workers": 1, "skip_merge": True},
+    "probe": {"run_type": "audit", "max_workers": 4, "skip_merge": False, "skip_clean": True},
 }
 
 
@@ -69,6 +113,44 @@ def get_datasets_for_symbol(symbol, filter_pattern=None):
     if filter_pattern:
         files = [f for f in files if filter_pattern in f]
     return [os.path.basename(f) for f in files]
+
+
+def discover_all_symbols():
+    files = glob.glob(os.path.join(DB_DIR, "*.db"))
+    symbols = set()
+    for f in files:
+        name = os.path.basename(f).replace(".db", "")
+        # LTC regime format: LTC_REGIME_YYYY-MM-DD
+        if name.startswith("LTC_"):
+            symbols.add("LTC/USDT:USDT")
+            continue
+        # Regular format: YYYY-MM-DD_SYMUSDT
+        # Remove date prefix (10 chars + 1 underscore)
+        raw = name[11:] if len(name) > 11 and name[4] == "-" else name
+        sym = format_ccxt_symbol(raw)
+        symbols.add(sym)
+    return sorted(symbols)
+
+
+def pick_recent_dataset(symbol, filter_pattern=None):
+    """Pick the most recent (by date) dataset for a symbol."""
+    datasets = get_datasets_for_symbol(symbol, filter_pattern)
+    if not datasets:
+        return None
+
+    def sort_key(name):
+        base = name.replace(".db", "")
+        parts = base.split("_")
+        # LTC format: LTC_REGIME_YYYY-MM-DD → date is last part
+        # Regular: YYYY-MM-DD_SYMUSDT → date is first part
+        candidate = parts[0] if len(parts[0]) == 10 and parts[0][4] == "-" else parts[-1]
+        try:
+            return time.mktime(time.strptime(candidate, "%Y-%m-%d"))
+        except (ValueError, IndexError):
+            return 0
+
+    datasets.sort(key=sort_key, reverse=True)
+    return datasets[0]
 
 
 def get_cluster_members(cluster_name):
@@ -185,6 +267,21 @@ def build_tasks(protocol_name, symbol, filter_pattern, all_protocols):
                     "run_type": config["run_type"],
                 }
             )
+    elif protocol_name == "probe":
+        all_syms = discover_all_symbols()
+        for sym in all_syms:
+            db_file = pick_recent_dataset(sym, filter_pattern)
+            if not db_file:
+                _p(f"  ⚠️ No dataset for {sym}")
+                continue
+            tasks.append(
+                {
+                    "task_id": f"{db_file.replace('.db', '')}",
+                    "db_path": os.path.join(DB_DIR, db_file),
+                    "symbol": sym,
+                    "run_type": config["run_type"],
+                }
+            )
     elif "datasets" in config:
         for db_file in config["datasets"]:
             path = os.path.join(DB_DIR, db_file)
@@ -211,17 +308,20 @@ def calculate_workers(protocol_workers, total_tasks):
 
     if HAS_PSUTIL:
         try:
-            avail_gb = psutil.virtual_memory().available / (1024**3)
-            mem_workers = max(1, int(avail_gb * 0.65 / 0.6))
+            mem = psutil.virtual_memory()
+            swap = psutil.swap_memory()
+            avail_ram_gb = mem.available / (1024**3)
+            avail_swap_gb = swap.free / (1024**3)
+            total_avail_gb = avail_ram_gb + avail_swap_gb
+            mem_workers = max(1, int(total_avail_gb * 0.65 / 0.6))
         except Exception:
             mem_workers = cpu_workers
     else:
         mem_workers = cpu_workers
 
     safe_workers = min(cpu_workers, mem_workers)
-    # Escalar hasta safe_workers si recursos lo permiten, mínimo protocol_workers
     capped = min(safe_workers, total_tasks)
-    return max(protocol_workers, capped) if capped >= protocol_workers else capped
+    return max(protocol_workers, capped)
 
 
 def run_protocol(protocol_name, symbol=None, filter_pattern=None):
@@ -252,8 +352,9 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None):
     completed = 0
     failed = 0
     start_time = time.time()
+    recent_lines = deque(maxlen=MAX_VISIBLE_LINES)
 
-    with ProcessPoolExecutor(max_workers=actual_workers) as executor:
+    with ProcessPoolExecutor(max_workers=actual_workers, initializer=set_low_priority) as executor:
         future_map = {executor.submit(run_backtest, t): t for t in tasks}
         pending = set(future_map.keys())
 
@@ -262,14 +363,7 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None):
             done, pending = wait(pending, timeout=2.0, return_when=FIRST_COMPLETED)
 
             elapsed = time.time() - start_time
-            rate = completed / elapsed if elapsed > 0 else 0
-            remaining = (total - completed) / rate if rate > 0 else 0
-
-            # Spinner interactivo actualizándose sin nueva línea
-            sys.stdout.write(
-                f"\r⏳ [En progreso] {completed}/{total} completados | {len(pending)} ejecutándose | Transcurrido: {elapsed:.0f}s | ETA: ~{remaining:.0f}s "
-            )
-            sys.stdout.flush()
+            mem_status = get_memory_status()
 
             for future in done:
                 completed += 1
@@ -284,9 +378,10 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None):
                     failed += 1
 
                 icon = "✅" if ok else "❌"
-                # Limpiar línea del spinner y printear el completado
-                sys.stdout.write("\r" + " " * 110 + "\r")
-                _p(f"  {icon} [{completed}/{total}] {task_id}")
+                recent_lines.append(f"{icon} [{completed}/{total}] {task_id}")
+
+            # Redraw with last 3 lines
+            redraw_progress(completed, total, len(pending), mem_status, elapsed, recent_lines)
 
     # Limpiar línea final del progreso interactivo
     sys.stdout.write("\r" + " " * 110 + "\r")
