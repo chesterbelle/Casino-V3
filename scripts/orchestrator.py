@@ -34,10 +34,20 @@ signal.signal(signal.SIGTERM, handle_exit)
 
 
 def set_low_priority():
-    """Set nice=10 on worker processes to avoid freezing the host."""
+    """Set nice=10 and ionice best-effort -n6 on worker processes."""
     try:
         os.nice(10)
     except OSError:
+        pass
+    try:
+        import subprocess
+
+        subprocess.run(
+            ["ionice", "-c2", "-n6", "-p", str(os.getpid())],
+            capture_output=True,
+            check=False,
+        )
+    except Exception:
         pass
 
 
