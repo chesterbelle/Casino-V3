@@ -116,9 +116,6 @@ PARAMETER_SPACE = {
     "sensors.absorption_detector.z_score_min": (2.0, 6.0, 0.2),
     "sensors.absorption_detector.absorption_score_min": (0.2, 0.8, 0.05),
     "sensors.absorption_detector.cooldown": (60.0, 300.0, 10.0),
-    # Targets for tactical_absorption
-    "targets.tactical_absorption.tp_pct": (0.010, 0.030, 0.001),
-    "targets.tactical_absorption.sl_pct": (0.015, 0.045, 0.001),
     # Guardians (specifically for tactical_absorption)
     "guardians.l2_ratio_min_tactical_absorption": (0.5, 2.5, 0.1),
 }
@@ -351,6 +348,8 @@ def run_sensitivity_analysis(
 
     sensitivity = {}
     for param_key in top_params:
+        if param_key not in PARAMETER_SPACE:
+            continue
         low, high, step = PARAMETER_SPACE[param_key]
         variation_pct = (param_importance[param_key] / (high - low)) * 100 if (high - low) > 0 else 0
         sensitivity[param_key] = {

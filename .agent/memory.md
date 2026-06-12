@@ -68,8 +68,10 @@
 - **4 AMT Scenarios**: All registered and firing with per-cluster params.
 - **MID_LIQUID Results** (LTC_TREND_UP_2024-03): 1754 signals, +1.57% Net Taker overall.
 - **THIN_VOLATILE Certification** (2026-06-09): Full Bayesian sweep (100 iter). Net Taker +0.34% (XRP) vs -0.59% baseline. Edge recovered.
-- **Hipótesis Transferencia Intra-Cluster**: Los parámetros golden de SOL (cluster INERTIAL_TRENDING original del builder) deberían funcionar en ETH y LINK (mismo cluster). Ídem AVAX → NEAR (mismo NOISY_UNCERTAIN). Validar en próxima sesión.
-- **Next Session**: Validar hipótesis de transferencia — backtest ETH/LINK con params de SOL, y NEAR con params de AVAX.
+- **Next Session**: Diseñar e implementar filtros microestructurales adicionales (ej. restricciones de asimetría de volumen L2 o volatilidad z-score relativa) sobre `tactical_absorption` en AVAX para forzar que el escenario solo se dispare en las absorciones de altísima convicción microestructural, protegiendo el edge positivo orgánico de `trend_acceptance`.
+- **Roadmap / Next Steps**:
+  - Validar robustez de `book_bucket_pct` en otros perfiles delgados del cluster `NOISY_UNCERTAIN_1`.
+  - Diseñar restrictor de asimetría para TAV en libros delgados.
 
 ---
 
