@@ -6,6 +6,29 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-12 SESSION] — Disjoint Book Resolution + Parallelized Cluster Optimizer (Branch: 8.7-cluster-improved)
+
+#### Summary
+1. **High-Performance Parallelization**: Refactored `scripts/cluster_optimizer.py` to calculate safe workers dynamically (RAM/CPU checks) and run with `nice=10` / `ionice` priorities. Completed 25-iteration Optuna study for AVAX.
+2. **Disjoint Book Resolution**: Identified that disjoint asks and bids in thin books (AVAX) bypass noise/concentration filters because they never fall on the exact same price levels. Introduced `book_bucket_pct` param in profiles, and refactored `PressureEngine` to group prices dynamically within that range (10 bps for AVAX, 0 bps for SOL).
+3. **Parametric Application**: Applied best Optuna-discovered parameters for `AVAX_NOISY_UNCERTAIN` to `config/coin_profiles.py`.
+
+#### Files Modified
+- `core/pressure/engine.py` — Implemented `book_bucket_pct` tolerance consolidations for concentration & noise.
+- `config/coin_profiles.py` — Injected `book_bucket_pct` into all profiles; applied best TPE params for AVAX.
+- `scripts/cluster_optimizer.py` — Added dynamic multiprocessing workers, set low priority preexec_fn, and optimized optuna study parameters.
+
+#### Key Findings
+- **Optuna Best Trial (AVAX)**: Adjusted parameters (z_score_min=5.4, absorption_score_min=0.65, tp_pct=2.4%, sl_pct=3.8%, l2_ratio_min_tactical_absorption=2.1, cooldown=130s).
+- **Disjoint Bug**: Resolved the calculation anomaly where `noise` was always evaluated to `0.0` and `concentration` to `1.0` in thin order books.
+
+#### Commit
+```
+5c54904 feat: implement book_bucket_pct parameter tolerance grouping for thin books to resolve AVAX disjoint absorption score anomaly
+```
+
+---
+
 ### [2026-06-11 SESSION] — Probe Completo + Cluster Builder + Taxonomía DNA (Branch: 8.7-cluster-improved)
 
 #### Summary
