@@ -61,6 +61,7 @@ class LiquidityExhaustionDetector:
         test_memory_seconds = params.get("test_memory_seconds", self.test_memory_seconds)
         min_tests = params.get("min_tests", self.min_tests)
         declining_threshold = params.get("declining_threshold", self.declining_threshold)
+        min_bounce_pct = params.get("min_bounce_pct", self.min_bounce_pct)
 
         if timestamp - self.last_fire_ts[symbol] < cooldown:
             return None

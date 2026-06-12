@@ -51,6 +51,7 @@ class TrendAcceptanceDetector:
         params = self._get_params(symbol)
         cooldown = params.get("cooldown", self.cooldown)
         cvd_confirmation_threshold = params.get("cvd_confirmation_threshold", self.cvd_confirmation_threshold)
+        min_candles_outside = params.get("min_candles_outside", 3)
         # Bridge profile naming: pullback_tolerance_pct (pct) → pullback_bps
         pullback_bps = params.get("pullback_bps", self.pullback_bps)
         if "pullback_tolerance_pct" in params and "pullback_bps" not in params:

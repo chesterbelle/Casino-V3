@@ -6,6 +6,8 @@
 > 3. **REGLA DE ORO DE GIT (NO MERGE):** Hay 3 BOTS DIFERENTES e incompatibles viviendo en distintas ramas. **NUNCA hagas merge ni rebase.**
 > 4. **REGLA DE PUSH (SOLO LOCAL):** NUNCA ejecutes `git push` a menos que el usuario lo ordene expresamente.
 > 5. **REGLA DEL EDGE (NUNCA RENDIRSE):** NUNCA concluyas que "el edge no existe" o "ENTRY FAILURE" como veredicto final. Si no encontramos edge, es porque no hemos ajustado los parámetros correctos — seguimos ajustando sensores, targets, regímenes e infraestructura hasta que aparezca. No existen alphas muertas, solo parámetros no encontrados.
+> 6. **GOTCHA (TIMEOUTS):** Al ejecutar `scripts/orchestrator.py`, el timeout del shell debe ser muy largo (ej. 4 horas) ya que los backtests masivos toman tiempo considerable.
+
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
@@ -26,6 +28,7 @@
 ### 1. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢]
 *   **Architecture**: Quality Pipeline + 4 scenarios + exhaustion gate + dynamic targets + profile system
 *   **Profiles**: 5 perfiles microestructura — MEGA_LIQUID (ADA, ARB, NEAR), MAJOR_LIQUID (SOL), MID_LIQUID (LTC, AVAX, OP, APT, BNB, LINK), THIN_VOLATILE (XRP, DOGE), ILLIQUID_SPEC (BTC, ETH)
+*   **THIN_VOLATILE Certification** (2026-06-09): Net Taker +0.34% (vs -0.59% baseline) en XRP. Edge recuperado mediante optimización bayesiana de 49 parámetros (100 iteraciones).
 *   **ILLIQUID_SPEC Backtest** (2026-06-02): SOL +0.24% Net Taker (edge marginal), XRP -0.05%, DOGE -0.13%. Solo SOL tiene potencial. **PERO**: profile system los clasifica como MAJOR_LIQUID, no ILLIQUID_SPEC — contradicción con clustering real.
 *   **Métrica Forense (LTCUSDT 24h)**: Net Taker +0.06%, MFE/MAE 1.63, Win Rate 59.8%
 *   **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC). Edge instrument-dependiente.
@@ -51,21 +54,22 @@
 2. **VERIFICAR INTEGRIDAD DE NUEVA ARQUITECTURA (PRESSURE ENGINE) — COMPLETADO ✅**: Los 4 escenarios migrados (`LiquidityExhaustion`, `FailedBreakout`, `TrendAcceptance`, `TacticalAbsorptionV2`) producen señales consistentes.
 3. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil(MEGA, MAJOR, MID, THIN, ILLIQUID)
 4. **FIX D1: DETECTORES PER-CLUSTER — COMPLETADO ✅** (2026-06-08): Los 4 detectores ahora resuelven el cluster del símbolo en runtime via `_cluster_cache`. XRP/DOGE reciben THIN_VOLATILE params (z=2.5, noise=0.35). PressureEngine stagnation → porcentual. 10 parámetros conectados. Commit `64a3f2b`.
-5. **CLUSTER OPTIMIZER — COMPLETADO ✅** (2026-06-08): `scripts/cluster_optimizer.py` con Optuna, EdgeAuditor, persistent study DB, cross-coin validation, sensitivity analysis. Próximo: ejecutar iteraciones y analizar resultados.
+5. **CLUSTER OPTIMIZER — COMPLETADO ✅ + EXPANDED** (2026-06-08): `scripts/cluster_optimizer.py` con Optuna, EdgeAuditor, persistent study DB, cross-coin validation, sensitivity analysis. **49 params** across 8 groups (was 18). `--param-groups` flag para selective optimization. Weight auto-normalization. Próximo: ejecutar THIN_VOLATILE.
 
 ---
 
-### Current Status: 🟢 Cluster Optimizer Built + Profile Classification Fixed
+### Current Status: 🟢 Cluster Optimizer Ready (49 params, 8 groups)
 
 - **Architecture**: PressureEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
 - **Branch**: `8.7-cluster-improved`
-- **D1 Fix** (2026-06-08): All 4 detectors now resolve cluster params at runtime via `_cluster_cache`. XRP/DOGE correctly get THIN_VOLATILE params (z=2.5, noise=0.35). PressureEngine stagnation → porcentual. 10 parámetros conectados. Commit `64a3f2b`.
-- **Cluster Optimizer** (2026-06-08): `scripts/cluster_optimizer.py` — Optuna Bayesian search + EdgeAuditor eval + persistent study DB + cross-coin validation + sensitivity analysis. `--resume` survives cancel. 10 modules, ~670 lines.
+- **Cluster Optimizer** (2026-06-08): `scripts/cluster_optimizer.py` — 49 params across 8 groups (absorption, failed_breakout, liquidity_exhaustion, trend_acceptance, targets, quality, guardians, pressure). `--param-groups` for selective optimization. Weight auto-normalization. Optuna TPE + persistent SQLite + `--resume`.
 - **EdgeAuditor get_metrics()**: Programmatic API returning net_taker, root_cause, MFE/MAE, best_uniforms. Used by optimizer.
-- **Profile Classification Fix**: `_classify_and_set_profile()` now checks `clusters_fixed.json` BEFORE runtime classification. XRP→THIN_VOLATILE (was MID_LIQUID).
-- **4 AMT Scenarios**: All registered and firing with per-cluster params. `trend_acceptance` (strongest), `tactical_absorption` (cooldown 120s, structural filter), `liquidity_exhaustion` (sliding window), `failed_breakout` (needs tuning).
+- **Profile Classification Fix**: `_classify_and_set_profile()` checks `clusters_fixed.json` BEFORE runtime classification.
+- **4 AMT Scenarios**: All registered and firing with per-cluster params.
 - **MID_LIQUID Results** (LTC_TREND_UP_2024-03): 1754 signals, +1.57% Net Taker overall.
-- **Next Session**: Run cluster optimizer with `--iterations 50 --resume` on THIN_VOLATILE. Validate cross-coin. Re-run MID_LIQUID orchestration.
+- **THIN_VOLATILE Certification** (2026-06-09): Full Bayesian sweep (100 iter). Net Taker +0.34% (XRP) vs -0.59% baseline. Edge recovered.
+- **Hipótesis Transferencia Intra-Cluster**: Los parámetros golden de SOL (cluster INERTIAL_TRENDING original del builder) deberían funcionar en ETH y LINK (mismo cluster). Ídem AVAX → NEAR (mismo NOISY_UNCERTAIN). Validar en próxima sesión.
+- **Next Session**: Validar hipótesis de transferencia — backtest ETH/LINK con params de SOL, y NEAR con params de AVAX.
 
 ---
 
@@ -75,6 +79,7 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-08 | session-close | **CLUSTER OPTIMIZER FULL EXPANSION (18→49 params)**: Deep audit revealed 31 missing params (FB/LE targets, all cooldowns, guardians, pressure, quality thresholds/weights). Expanded to 49 params, 8 groups. Added `--param-groups` flag. Weight auto-normalization. 1 file, ~+120 lines net. Commit pending.
 - 2026-06-08 | session-close | **CLUSTER OPTIMIZER + EDGE AUDITOR + PROFILE FIX**: Built `cluster_optimizer.py` (Optuna, persistent DB, cross-coin, sensitivity). Added `EdgeAuditor.get_metrics()`. Fixed profile classification (static JSON before runtime). Fixed quality scorer weight normalization. Added CASINO_FORCE_PROFILE env var. 7 files, +900 lines. Commit pending.
 - 2026-06-08 | session-close | **PER-CLUSTER DETECTOR PARAMETRIZATION + STAGNATION FIX**: Audited `analisis_perfil.md` findings. Fixed D1 (all 4 detectors using DEFAULT_PROFILE=MID_LIQUID), PressureEngine stagnation (absolute $0.10 → percentage-based), connected 10 missing params, aligned taxonomy. Commit `64a3f2b`. 7 files, +220 -130 lines.
 - 2026-06-06 | session-close | **THIN_VOLATILE Iter 2 Audit & Quality Scorer Bug Fix**: Fixed a critical bug in QualityScorer filtering. Audit of Iter 2 showed a negative Net Taker (-0.3260%), with only `trend_acceptance` as a winner. Established that purely "purging" thresholds isn't enough; need to search for the "golden sliver" of high-conviction signals.

@@ -1,102 +1,64 @@
 {
-  "version": "3.1",
-  "dimensions": [
-    "tick_size_efficiency",
-    "book_density",
-    "volume_vol_ratio",
-    "speed",
-    "micro_volatility"
-  ],
-  "normalization": {
-    "min": {
-      "tick_size_efficiency": 0.0,
-      "book_density": 0.0,
-      "volume_vol_ratio": 0.0,
-      "speed": 0.0,
-      "micro_volatility": 0.0
-    },
-    "max": {
-      "tick_size_efficiency": 1.0,
-      "book_density": 25.0,
-      "volume_vol_ratio": 18.0,
-      "speed": 500.0,
-      "micro_volatility": 1.0
-    }
-  },
   "clusters": {
-    "MEGA_LIQUID": {
+    "SOL_INERTIAL_TRENDING": {
       "centroid": {
-        "tick_size_efficiency": 0.9632260122714446,
-        "book_density": 21.673839814989083,
-        "volume_vol_ratio": 11.78954257153258,
-        "speed": 4.96797428299233,
-        "micro_volatility": 0.0007884521657857366
+        "eff_abs": 0.4413,
+        "vel_rev": 993.5,
+        "pers_brk": 0.5556
       },
-      "members": [
-        "ADAUSDT",
-        "ARBUSDT",
-        "NEARUSDT"
-      ],
-      "n_members": 3
+      "members": ["SOL/USDT:USDT"],
+      "n_members": 1
     },
-    "MAJOR_LIQUID": {
+    "AVAX_NOISY_UNCERTAIN": {
       "centroid": {
-        "tick_size_efficiency": 0.9737082321451384,
-        "book_density": 18.14981429080729,
-        "volume_vol_ratio": 14.951956859068218,
-        "speed": 24.99909219798441,
-        "micro_volatility": 0.0007991170977076981
+        "eff_abs": 0.4424,
+        "vel_rev": 442.4,
+        "pers_brk": 0.0
+      },
+      "members": ["AVAX/USDT:USDT"],
+      "n_members": 1
+    },
+    "INERTIAL_TRENDING": {
+      "centroid": {
+        "eff_abs": 0.1471,
+        "vel_rev": 331.2,
+        "pers_brk": 0.7566
       },
       "members": [
-        "SOLUSDT"
+        "ETH/USDT:USDT",
+        "LINK/USDT:USDT"
+      ],
+      "n_members": 2
+    },
+    "NOISY_UNCERTAIN": {
+      "centroid": {
+        "eff_abs": 0.0,
+        "vel_rev": 0.0,
+        "pers_brk": 0.0
+      },
+      "members": [
+        "NEAR/USDT:USDT"
       ],
       "n_members": 1
     },
-    "MID_LIQUID": {
+    "NOISY_UNCERTAIN_1": {
       "centroid": {
-        "tick_size_efficiency": 0.973515363839799,
-        "book_density": 17.775386040345378,
-        "volume_vol_ratio": 12.398468000583613,
-        "speed": 9.49432607319172,
-        "micro_volatility": 0.0008448469146529235
+        "eff_abs": 0.0,
+        "vel_rev": 0.0,
+        "pers_brk": 0.3443
       },
       "members": [
-        "LTCUSDT",
-        "AVAXUSDT",
-        "OPUSDT",
-        "APTUSDT",
-        "BNBUSDT",
-        "LINKUSDT"
+        "XRP/USDT:USDT",
+        "DOGE/USDT:USDT",
+        "LTC/USDT:USDT",
+        "BNB/USDT:USDT",
+        "BTC/USDT:USDT",
+        "ADA/USDT:USDT",
+        "APT/USDT:USDT",
+        "ARB/USDT:USDT",
+        "OP/USDT:USDT"
       ],
-      "n_members": 6
-    },
-    "THIN_VOLATILE": {
-      "centroid": {
-        "tick_size_efficiency": 0.974453883172882,
-        "book_density": 22.862812188848277,
-        "volume_vol_ratio": 14.101318455197884,
-        "speed": 27.843501020923686,
-        "micro_volatility": 0.000858154795843248
-      },
-      "members": [
-        "XRPUSDT",
-        "DOGEUSDT"
-      ],
-      "n_members": 2
-    },
-    "ILLIQUID_SPEC": {
-      "centroid": {
-        "tick_size_efficiency": 0.9876212921789658,
-        "book_density": 17.037104256454512,
-        "volume_vol_ratio": 16.69840719624763,
-        "speed": 41.33331640361551,
-        "micro_volatility": 0.0004658859840707508
-      },
-      "members": [
-        "BTCUSDT",
-        "ETHUSDT"
-      ],
-      "n_members": 2
+      "n_members": 9
     }
   }
 }

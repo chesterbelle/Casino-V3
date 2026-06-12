@@ -168,12 +168,8 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
 
             with open("config/clusters_fixed.json") as f:
                 data = json.load(f)
-            # Extract base symbol: "XRP/USDT:USDT" → "XRPUSDT"
-            base = symbol.split("/")[0]
-            if not base.endswith("USDT"):
-                base = base + "USDT"
             for profile_name, info in data.get("clusters", {}).items():
-                if base in info.get("members", []):
+                if symbol in info.get("members", []):
                     profile_manager.set_profile(symbol, profile_name)
                     self._profile_classified[symbol] = True
                     logger.info(f"🏷️ [PROFILE] {symbol} → {profile_name} (static from clusters_fixed.json)")
@@ -270,6 +266,22 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             trace.finalize(TraceOutcome.DISCARDED, f"Low quality score: {quality.quality_score}")
             black_box.archive_trace(trace.trace_id)
             return
+
+        # 1b. Per-scenario L2 hard check
+        try:
+            guardian_params = profile_manager.get_guardian_params(symbol)
+            l2_key = f"l2_ratio_min_{scenario}"
+            l2_min = guardian_params.get(l2_key)
+            if l2_min is not None:
+                l2_ratio = self.context_registry.get_l2_ratio(symbol, side)
+                if l2_ratio is not None and l2_ratio < l2_min:
+                    reason = f"BLOCKED (THIN WALL) for {scenario} | L2 {l2_ratio:.2f} < {l2_min}"
+                    trace.add_step("SetupEngine", False, reason)
+                    trace.finalize(TraceOutcome.DISCARDED, reason)
+                    black_box.archive_trace(trace.trace_id)
+                    return
+        except Exception:
+            pass
 
         setup_mode = quality.setup_mode
         val_pos = quality.value_position

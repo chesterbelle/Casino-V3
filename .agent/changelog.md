@@ -6,6 +6,90 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-11 SESSION] — Probe Completo + Cluster Builder + Taxonomía DNA (Branch: 8.7-cluster-improved)
+
+#### Summary
+14-coin behavioral probe completado. Cluster builder (k=3) agrupó: INERTIAL_TRENDING (SOL, ETH, LINK), NOISY_UNCERTAIN (AVAX, NEAR), NOISY_UNCERTAIN_1 (DOGE, XRP, LTC, BNB, BTC, ADA, APT). SOL y AVAX extraídos como clusters standalone con golden params. ARB/OP agregados a NOISY_UNCERTAIN_1 (sin datos). Perfiles creados en coin_profiles.py para los 3 clusters del builder. Bases de datos movidas a data/db_vault/.
+
+#### Files Modified
+- `config/clusters_fixed.json` — Reconstruido: SOL_INERTIAL_TRENDING, AVAX_NOISY_UNCERTAIN, INERTIAL_TRENDING, NOISY_UNCERTAIN, NOISY_UNCERTAIN_1
+- `config/coin_profiles.py` — +3 profiles (INERTIAL_TRENDING, NOISY_UNCERTAIN, NOISY_UNCERTAIN_1), SOL_BEHAVIOR→SOL_INERTIAL_TRENDING, AVAX_BEHAVIOR→AVAX_NOISY_UNCERTAIN, DEFAULT_PROFILE→NOISY_UNCERTAIN_1
+- `utils/behavioral_cluster_builder.py` — Fix null handling en normalize
+
+#### Key Findings
+- **Probe**: 13/14 coins con datos (ARB, OP sin señales). SOL/AVAX con mejor DNA (eff_abs ~44%). Solo pers_brk medible en la mayoría.
+- **Cluster builder (k=3)**: SOL y AVAX agrupados con ETH/LINK y NEAR respectivamente — sugiere que parámetros pueden transferirse intra-cluster.
+- **db_vault**: historian_probe_14coins_2025-06-11.db + goldstandard DBs archivados.
+
+#### Hypothesis for Next Session
+Los parámetros golden de SOL (INERTIAL_TRENDING) deberían transferirse a ETH/LINK. Ídem AVAX → NEAR. Validar con backtests per-coin.
+
+#### Commit
+```
+Pending
+```
+
+---
+
+### [2026-06-09 SESSION-CLOSE] — THIN_VOLATILE Full Bayesian Optimization (Branch: 8.7-cluster-improved)
+
+#### Summary
+Executed a full parameter space sweep (49 parameters, 100 iterations) for the `THIN_VOLATILE` cluster using `cluster_optimizer.py` with Optuna TPE. The optimization successfully reversed the negative edge of the baseline, transforming a losing profile into a profitable one.
+
+#### Metrics (Representative: XRPUSDT)
+| Metric | Baseline | Optimized | Delta |
+|:---|:---:|:---:|:---:|
+| **Net Taker** | -0.5887% | **+0.3409%** | **+0.9296%** |
+| **Gross Expectancy** | N/A | +0.4109% | 🟢 |
+| **Win Rate** | N/A | 4.28% (Low WR, High Payoff) | - |
+| **Root Cause** | TARGET_FAILURE | TARGET_FAILURE | (Still needs target tuning) |
+
+#### Key Findings
+- **Edge Recovery**: The Bayesian search found a high-conviction region of parameters that filters out noise in thin books.
+- **Tactical Absorption**: Remained the strongest setup with an individual expectancy of +0.859%.
+- **Parametric Shift**: Significant adjustments in `quality_scorer` weights and `guardians.l2_ratio_min` (raised to 2.8) were key to eliminating toxic entries.
+
+#### Files Modified
+- `config/coin_profiles.py` — Updated `THIN_VOLATILE` with 49 optimized parameters.
+
+#### Commit
+```
+Pending
+```
+
+---
+
+
+#### Summary
+Deep audit of `cluster_optimizer.py` revealed critical gap: only 18/49 parameters were in the search space. The 4 scenarios' cooldowns, max_break_age, min_bounce_pct, test_memory_seconds, max_pullback_penetration_pct were missing. ALL targets for failed_breakout and liquidity_exhaustion were missing. Guardians (l2_ratio_min, l2_ratio_min_trend_down, spread_max_ratio), pressure_thresholds.z_block, quality_scorer weights and scoring thresholds were all absent. Expanded to full 49-param coverage across 8 groups. Added `--param-groups` flag for selective optimization to manage dimensionality.
+
+#### Files Modified
+- `scripts/cluster_optimizer.py` — PARAMETER_SPACE expanded from 18 to 49 params. Added PARAM_GROUPS dict (8 groups), WEIGHT_PARAMS list, `get_active_params()` filter, `normalize_weights()` (auto sum-to-1.0 for quality_scorer weights). Added `--param-groups` CLI flag. Objective function now uses `active_space` (filtered) instead of full PARAMETER_SPACE. Updated docstring with new usage examples.
+
+#### Parameter Space (49 total, 8 groups)
+| Group | Params | New |
+|-------|--------|-----|
+| absorption | 8 | +cooldown, volatility_z_max, displacement_z_max, absorption_score_min |
+| failed_breakout | 4 | +cooldown, max_break_age |
+| liquidity_exhaustion | 6 | +cooldown, min_bounce_pct, test_memory_seconds |
+| trend_acceptance | 5 | +max_pullback_penetration_pct, cooldown |
+| targets | 8 | +failed_breakout tp/sl, +liquidity_exhaustion tp/sl |
+| quality | 14 | +7 scoring thresholds, +5 weights (auto-normalized) |
+| guardians | 3 | +l2_ratio_min, l2_ratio_min_trend_down, spread_max_ratio |
+| pressure | 1 | +z_block |
+
+#### Key Design Decisions
+- **`--param-groups` flag**: Allows `--param-groups targets guardians` to optimize only 11 params instead of 49. Critical for managing overfitting risk (49 params vs ~217 signals = 4.4 obs/param).
+- **Weight normalization**: Quality scorer weights are sampled independently by Optuna, then auto-normalized to sum=1.0 before profile injection. Preserves Bayesian search properties while enforcing constraint.
+- **Ranges derived from cross-cluster analysis**: Min/max across all 5 cluster profiles used to set bounds (e.g., cooldown range 30-600 covers ILLIQUID_SPEC 120 to MEGA_LIQUID 300).
+
+#### Commit
+```
+Pending — no commit yet
+```
+
+---
+
 ### [2026-06-08 SESSION-CLOSE] — Cluster Optimizer + EdgeAuditor get_metrics() + Bug Fixes (Branch: 8.7-cluster-improved)
 
 #### Summary

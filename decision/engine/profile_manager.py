@@ -64,10 +64,8 @@ class ProfileManager:
             with open("config/clusters_fixed.json") as f:
                 data = json.load(f)
 
-            # Normalize symbol for lookup
-            norm_sym = symbol.split("/")[0].replace("USDT", "")
             for profile, info in data["clusters"].items():
-                if norm_sym in info.get("members", []):
+                if symbol in info.get("members", []):
                     return profile
         except Exception as e:
             logger.debug(f"Taxonomy lookup failed for {symbol}: {e}")

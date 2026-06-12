@@ -75,12 +75,12 @@ class CoinProfiler:
         self.norm_max = self.config.get("normalization", {}).get("max", {})
         # Fallback to cluster_builder defaults if normalization missing from config
         if not self.norm_min or not self.norm_max:
-            from utils.cluster_builder import NORM_MAX, NORM_MIN
+            from utils.cluster_constants import STATIC_NORM_MAX, STATIC_NORM_MIN
 
             if not self.norm_min:
-                self.norm_min = NORM_MIN
+                self.norm_min = STATIC_NORM_MIN
             if not self.norm_max:
-                self.norm_max = NORM_MAX
+                self.norm_max = STATIC_NORM_MAX
         self.threshold = self.config.get("threshold", {}).get("max_distance", 0.35)
         self.coin_cache: Dict[str, str] = {}
 
