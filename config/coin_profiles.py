@@ -33,6 +33,7 @@ COIN_PROFILES = {
                 "displacement_z_max": 3.0,
                 "absorption_score_min": 0.3,
                 "level_tolerance_pct": 0.003,
+                "book_bucket_pct": 0.0,
             },
             "failed_breakout": {
                 "cooldown": 60.0,
@@ -92,14 +93,15 @@ COIN_PROFILES = {
         "description": "AVAX — extraído de NOISY_UNCERTAIN (builder), golden params",
         "sensors": {
             "absorption_detector": {
-                "z_score_min": 4.0,
+                "z_score_min": 5.4,
                 "concentration_min": 0.95,
                 "noise_max": 0.15,
                 "stagnation_floor_pct": 0.0008,
-                "cooldown": 120.0,
+                "cooldown": 130.0,
                 "volatility_z_max": 2.5,
                 "displacement_z_max": 3.0,
-                "absorption_score_min": 0.3,
+                "absorption_score_min": 0.65,
+                "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 60.0,
@@ -139,7 +141,7 @@ COIN_PROFILES = {
             "z_block": 2.0,
         },
         "targets": {
-            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "tactical_absorption": {"tp_pct": 0.024, "sl_pct": 0.038},
             "failed_breakout": {"tp_pct": 0.020, "sl_pct": 0.040},
             "liquidity_exhaustion": {"tp_pct": 0.020, "sl_pct": 0.030},
             "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.050},
@@ -149,6 +151,7 @@ COIN_PROFILES = {
             "l2_ratio_min_trend_down": 2.2,
             "l2_ratio_min_trend_acceptance": 1.5,
             "spread_max_ratio": 2.0,
+            "l2_ratio_min_tactical_absorption": 2.1,
         },
     },
     # =========================================================================
@@ -170,6 +173,7 @@ COIN_PROFILES = {
                 "displacement_z_max": 2.5,
                 "absorption_score_min": 0.5,
                 "level_tolerance_pct": 0.002,
+                "book_bucket_pct": 0.0,
             },
             "failed_breakout": {
                 "cooldown": 45.0,
@@ -238,6 +242,7 @@ COIN_PROFILES = {
                 "displacement_z_max": 2.0,
                 "absorption_score_min": 0.6,
                 "level_tolerance_pct": 0.002,
+                "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 60.0,
@@ -305,6 +310,7 @@ COIN_PROFILES = {
                 "displacement_z_max": 2.0,
                 "absorption_score_min": 0.6,
                 "level_tolerance_pct": 0.002,
+                "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 30.0,
@@ -370,6 +376,7 @@ COIN_PROFILES = {
                 "volatility_z_max": 2.0,
                 "displacement_z_max": 1.5,
                 "absorption_score_min": 0.7000000000000001,
+                "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 20.0,
@@ -441,6 +448,7 @@ COIN_PROFILES = {
                 "volatility_z_max": 2.0,
                 "displacement_z_max": 1.5,
                 "absorption_score_min": 0.7000000000000001,
+                "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 20.0,
@@ -513,6 +521,7 @@ COIN_PROFILES = {
                 "volatility_z_max": 2.0,
                 "displacement_z_max": 1.5,
                 "absorption_score_min": 0.7000000000000001,
+                "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 20.0,

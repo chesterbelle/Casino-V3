@@ -49,6 +49,7 @@ class CoinPressureEngine:
             self.concentration_min = params.get("concentration_min", 0.50) if params else 0.50
             self.noise_max = params.get("noise_max", 0.35) if params else 0.35
             self.stagnation_floor_pct = params.get("stagnation_floor_pct", 0.0008) if params else 0.0008
+            self.book_bucket_pct = params.get("book_bucket_pct", 0.0) if params else 0.0
 
             # Load z_block from pressure_thresholds in profile
             pressure_params = profile_manager.get_pressure_thresholds(self.symbol)
@@ -57,6 +58,7 @@ class CoinPressureEngine:
             self.concentration_min = 0.50
             self.noise_max = 0.35
             self.stagnation_floor_pct = 0.0008
+            self.book_bucket_pct = 0.0
             self.z_block = 2.0
 
     def update(
@@ -88,13 +90,35 @@ class CoinPressureEngine:
             sorted_levels = sorted(footprint_levels.items(), key=lambda x: abs(x[1].get("delta", 0)), reverse=True)
             if sorted_levels:
                 best_level, data = sorted_levels[0]
-                ask_vol, bid_vol = data.get("ask_volume", 0), data.get("bid_volume", 0)
-                total_vol = ask_vol + bid_vol
+
+                if self.book_bucket_pct > 0.0:
+                    best_price = float(best_level)
+                    consolidated_ask = 0.0
+                    consolidated_bid = 0.0
+                    tolerance = best_price * self.book_bucket_pct
+                    for price_lvl, lvl_data in footprint_levels.items():
+                        if abs(price_lvl - best_price) <= tolerance:
+                            consolidated_ask += lvl_data.get("ask_volume", 0)
+                            consolidated_bid += lvl_data.get("bid_volume", 0)
+
+                    total_vol = consolidated_ask + consolidated_bid
+                    if total_vol > 0:
+                        concentration = max(consolidated_ask, consolidated_bid) / total_vol
+                        noise = min(consolidated_ask, consolidated_bid) / total_vol
+                    else:
+                        concentration = 1.0
+                        noise = 0.0
+                else:
+                    ask_vol, bid_vol = data.get("ask_volume", 0), data.get("bid_volume", 0)
+                    total_vol = ask_vol + bid_vol
+                    if total_vol > 0:
+                        concentration = max(ask_vol, bid_vol) / total_vol
+                        noise = min(ask_vol, bid_vol) / total_vol
+                    else:
+                        concentration = 1.0
+                        noise = 0.0
 
                 if total_vol > 0:
-                    concentration = max(ask_vol, bid_vol) / total_vol
-                    noise = min(ask_vol, bid_vol) / total_vol
-
                     conc_norm = max(
                         0, (concentration - self.concentration_min) / max(1 - self.concentration_min, 0.001)
                     )
