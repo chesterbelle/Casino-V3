@@ -25,13 +25,10 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.0,
-                "concentration_min": 0.50,
-                "noise_max": 0.40,
                 "stagnation_floor_pct": 0.10,
                 "cooldown": 120.0,
                 "volatility_z_max": 2.5,
                 "displacement_z_max": 3.0,
-                "absorption_score_min": 0.3,
                 "level_tolerance_pct": 0.003,
                 "book_bucket_pct": 0.0,
             },
@@ -39,7 +36,7 @@ COIN_PROFILES = {
                 "cooldown": 60.0,
                 "min_break_distance_pct": 0.0001,
                 "max_break_age": 60.0,
-                "cvd_divergence_threshold": 0.30,
+                "divergence_z": 0.30,
             },
             "liquidity_exhaustion": {
                 "cooldown": 30.0,
@@ -94,20 +91,17 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 5.4,
-                "concentration_min": 0.95,
-                "noise_max": 0.15,
                 "stagnation_floor_pct": 0.0008,
                 "cooldown": 130.0,
                 "volatility_z_max": 2.5,
                 "displacement_z_max": 3.0,
-                "absorption_score_min": 0.65,
                 "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 60.0,
                 "min_break_distance_pct": 0.002,
                 "max_break_age": 60.0,
-                "cvd_divergence_threshold": 0.40,
+                "divergence_z": 0.40,
             },
             "liquidity_exhaustion": {
                 "cooldown": 30.0,
@@ -165,13 +159,10 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.0,
-                "concentration_min": 0.60,
-                "noise_max": 0.35,
                 "stagnation_floor_pct": 0.0008,
-                "cooldown": 90.0,
-                "volatility_z_max": 2.5,
+                "cooldown": 130.0,
+                "volatility_z_max": 3.0,
                 "displacement_z_max": 2.5,
-                "absorption_score_min": 0.5,
                 "level_tolerance_pct": 0.002,
                 "book_bucket_pct": 0.0,
             },
@@ -179,7 +170,7 @@ COIN_PROFILES = {
                 "cooldown": 45.0,
                 "min_break_distance_pct": 0.001,
                 "max_break_age": 120.0,
-                "cvd_divergence_threshold": 0.35,
+                "divergence_z": 0.35,
             },
             "liquidity_exhaustion": {
                 "cooldown": 25.0,
@@ -234,13 +225,10 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 3.0,
-                "concentration_min": 0.80,
-                "noise_max": 0.25,
                 "stagnation_floor_pct": 0.0008,
-                "cooldown": 150.0,
-                "volatility_z_max": 2.0,
+                "cooldown": 30.0,
+                "volatility_z_max": 2.2,
                 "displacement_z_max": 2.0,
-                "absorption_score_min": 0.6,
                 "level_tolerance_pct": 0.002,
                 "book_bucket_pct": 0.001,
             },
@@ -248,7 +236,7 @@ COIN_PROFILES = {
                 "cooldown": 60.0,
                 "min_break_distance_pct": 0.0015,
                 "max_break_age": 90.0,
-                "cvd_divergence_threshold": 0.45,
+                "divergence_z": 0.45,
             },
             "liquidity_exhaustion": {
                 "cooldown": 40.0,
@@ -293,22 +281,86 @@ COIN_PROFILES = {
         },
     },
     # =========================================================================
-    # NOISY_UNCERTAIN_1 — XRP, DOGE, LTC, BNB, BTC, ADA, APT, ARB, OP
+    # LTC_NOISY_UNCERTAIN_1 — LTC
+    # Extraído de MID_LIQUID (old taxonomy), golden params
+    # Consistent absorption edge across all regimes (MFE/MAE 1.62 TAV).
+    # =========================================================================
+    "LTC_NOISY_UNCERTAIN_1": {
+        "description": "LTC — FB+LE+TAV+TA edge confirmed ✅. LE CVD flip fix, TP1.0/SL2.0.",
+        "sensors": {
+            "absorption_detector": {
+                "z_score_min": 4.0,
+                "absorption_score_min": 0.2,
+                "stagnation_floor_pct": 0.0018,
+                "cooldown": 60.0,
+                "volatility_z_max": 3.1,
+                "displacement_z_max": 2.9,
+                "level_tolerance_pct": 0.002,
+                "book_bucket_pct": 0.001,
+            },
+            "failed_breakout": {
+                "cooldown": 50.0,
+                "min_break_distance_pct": 0.0047,
+                "max_break_age": 150.0,
+                "divergence_z": 1.0,
+                "exhaustion_z": 2.9,
+            },
+            "liquidity_exhaustion": {
+                "cooldown": 30.0,
+                "level_tolerance_pct": 0.0005,
+                "min_tests": 3,
+                "declining_threshold": 0.80,
+                "min_bounce_pct": 0.00075,
+                "test_memory_seconds": 300.0,
+            },
+            "trend_acceptance": {
+                "cooldown": 600.0,
+                "min_candles_outside": 3,
+                "cvd_confirmation_threshold": 4.0,
+                "pullback_tolerance_pct": 0.001,
+                "max_pullback_penetration_pct": 0.001,
+            },
+        },
+        "scenarios": {
+            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
+        },
+        "quality_scorer": {
+            "weights": {"exhaustion": 0.40, "regime": 0.30, "structure": 0.15, "liquidity": 0.10, "spread": 0.05},
+            "grade_thresholds": {"A": 0.70, "B": 0.40},
+            "thresholds": {
+                "exhaustion": {"block": 1.5, "perfect": 0.5, "vol_bonus": 0.4},
+                "liquidity": {"strong": 2.0, "adequate": 1.5, "weak": 1.0},
+                "structure": {"excess_multiplier": 0.5},
+            },
+        },
+        "pressure_thresholds": {"z_block": 2.8},
+        "targets": {
+            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.040},
+            "liquidity_exhaustion": {"tp_pct": 0.010, "sl_pct": 0.020},
+            "trend_acceptance": {"tp_pct": 0.009, "sl_pct": 0.009},
+        },
+        "guardians": {
+            "l2_ratio_min": 0.5,
+            "l2_ratio_min_trend_down": 2.2,
+            "l2_ratio_min_trend_acceptance": 1.5,
+            "spread_max_ratio": 2.5,
+        },
+    },
+    # =========================================================================
+    # NOISY_UNCERTAIN_1 — XRP, DOGE, BNB, BTC, ADA, APT, ARB, OP
     # Mayoría de book delgado, eff_abs baja, pers_brk moderada.
     # Grupo heterogéneo (desde BTC hasta DOGE). Parámetros medio.
     # =========================================================================
     "NOISY_UNCERTAIN_1": {
-        "description": "Thin book noisy — XRP, DOGE, LTC, BNB, BTC, ADA, APT, ARB, OP",
+        "description": "Thin book noisy — XRP, DOGE, BNB, BTC, ADA, APT, ARB, OP",
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.5,
-                "concentration_min": 0.70,
-                "noise_max": 0.30,
                 "stagnation_floor_pct": 0.0008,
-                "cooldown": 120.0,
-                "volatility_z_max": 2.2,
-                "displacement_z_max": 2.0,
-                "absorption_score_min": 0.6,
+                "cooldown": 180.0,
+                "volatility_z_max": 2.5,
+                "displacement_z_max": 2.5,
                 "level_tolerance_pct": 0.002,
                 "book_bucket_pct": 0.001,
             },
@@ -316,7 +368,7 @@ COIN_PROFILES = {
                 "cooldown": 30.0,
                 "min_break_distance_pct": 0.0015,
                 "max_break_age": 120.0,
-                "cvd_divergence_threshold": 0.40,
+                "divergence_z": 0.40,
             },
             "liquidity_exhaustion": {
                 "cooldown": 35.0,
@@ -369,20 +421,17 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.5,
-                "concentration_min": 0.9,
-                "noise_max": 0.5,
                 "stagnation_floor_pct": 0.16999999999999998,
                 "cooldown": 120.0,
                 "volatility_z_max": 2.0,
                 "displacement_z_max": 1.5,
-                "absorption_score_min": 0.7000000000000001,
                 "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 20.0,
                 "min_break_distance_pct": 0.0019,
                 "max_break_age": 180.0,
-                "cvd_divergence_threshold": 0.4,
+                "divergence_z": 0.4,
             },
             "liquidity_exhaustion": {
                 "cooldown": 30.0,
@@ -441,20 +490,17 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.5,
-                "concentration_min": 0.9,
-                "noise_max": 0.5,
                 "stagnation_floor_pct": 0.16999999999999998,
                 "cooldown": 120.0,
                 "volatility_z_max": 2.0,
                 "displacement_z_max": 1.5,
-                "absorption_score_min": 0.7000000000000001,
                 "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 20.0,
                 "min_break_distance_pct": 0.0019,
                 "max_break_age": 180.0,
-                "cvd_divergence_threshold": 0.4,
+                "divergence_z": 0.4,
             },
             "liquidity_exhaustion": {
                 "cooldown": 30.0,
@@ -514,20 +560,17 @@ COIN_PROFILES = {
         "sensors": {
             "absorption_detector": {
                 "z_score_min": 2.5,
-                "concentration_min": 0.9,
-                "noise_max": 0.5,
                 "stagnation_floor_pct": 0.16999999999999998,
                 "cooldown": 120.0,
                 "volatility_z_max": 2.0,
                 "displacement_z_max": 1.5,
-                "absorption_score_min": 0.7000000000000001,
                 "book_bucket_pct": 0.001,
             },
             "failed_breakout": {
                 "cooldown": 20.0,
                 "min_break_distance_pct": 0.0019,
                 "max_break_age": 180.0,
-                "cvd_divergence_threshold": 0.4,
+                "divergence_z": 0.4,
             },
             "liquidity_exhaustion": {
                 "cooldown": 30.0,

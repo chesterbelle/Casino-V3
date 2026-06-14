@@ -36,7 +36,6 @@ _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 venv_python = os.path.join(_BASE, ".venv", "bin", "python")
 DB_DIR = os.path.join(_BASE, "data", "datasets", "backtest_ready")
 RESULTS_DIR = os.path.join(_BASE, "results")
-OPT_PROFILES_DIR = os.path.join(_BASE, "config", "_opt_profiles")
 LOG_DIR = os.path.join(_BASE, "logs")
 TASK_TIMEOUT = 86400
 
@@ -112,13 +111,39 @@ def format_ccxt_symbol(sym: str) -> str:
 # ============================================================================
 
 PARAMETER_SPACE = {
-    # Absorption detector entry filters
-    "sensors.absorption_detector.z_score_min": (2.0, 6.0, 0.2),
-    "sensors.absorption_detector.absorption_score_min": (0.2, 0.8, 0.05),
-    "sensors.absorption_detector.cooldown": (60.0, 300.0, 10.0),
-    # Guardians (specifically for tactical_absorption)
-    "guardians.l2_ratio_min_tactical_absorption": (0.5, 2.5, 0.1),
+    # Failed Breakout
+    "sensors.failed_breakout.exhaustion_z": (0.5, 4.0, 0.1),
+    "sensors.failed_breakout.divergence_z": (0.1, 2.0, 0.1),
+    "sensors.failed_breakout.min_break_distance_pct": (0.0001, 0.005, 0.0001),
+    "sensors.failed_breakout.cooldown": (30.0, 180.0, 10.0),
+    "sensors.failed_breakout.max_break_age": (30.0, 180.0, 10.0),
+    # Liquidity Exhaustion
+    "sensors.liquidity_exhaustion.declining_threshold": (0.5, 0.98, 0.01),
+    "sensors.liquidity_exhaustion.min_tests": (2, 5, 1),
+    "sensors.liquidity_exhaustion.min_bounce_pct": (0.0001, 0.002, 0.00005),
+    "sensors.liquidity_exhaustion.test_memory_seconds": (60.0, 300.0, 10.0),
+    # Trend Acceptance
+    "sensors.trend_acceptance.cooldown": (120.0, 900.0, 30.0),
+    "sensors.trend_acceptance.min_candles_outside": (2, 8, 1),
+    "sensors.trend_acceptance.cvd_confirmation_threshold": (2.0, 6.0, 0.5),
+    # Targets (FB/LE/TA)
+    "targets.failed_breakout.tp_pct": (0.005, 0.03, 0.001),
+    "targets.failed_breakout.sl_pct": (0.005, 0.05, 0.001),
+    "targets.liquidity_exhaustion.tp_pct": (0.005, 0.03, 0.001),
+    "targets.liquidity_exhaustion.sl_pct": (0.005, 0.05, 0.001),
+    "targets.trend_acceptance.tp_pct": (0.005, 0.03, 0.001),
+    "targets.trend_acceptance.sl_pct": (0.005, 0.05, 0.001),
 }
+
+
+def filter_parameter_space(only: Optional[str]) -> Dict:
+    """Return only the params for a specific scenario, or the full space."""
+    if only is None:
+        return PARAMETER_SPACE.copy()
+    pref_sensors = f"sensors.{only}"
+    pref_targets = f"targets.{only}"
+    filtered = {k: v for k, v in PARAMETER_SPACE.items() if k.startswith(pref_sensors) or k.startswith(pref_targets)}
+    return filtered
 
 
 def apply_params_to_profile(base_profile: Dict, overrides: Dict[str, Any]) -> Dict:
@@ -132,28 +157,7 @@ def apply_params_to_profile(base_profile: Dict, overrides: Dict[str, Any]) -> Di
     return profile
 
 
-# ============================================================================
-# Module 3: Profile Generation (PYTHONPATH injection)
-# ============================================================================
-
-
-def generate_optimized_profile(cluster: str, overrides: Dict[str, Any], output_dir: str) -> str:
-    sys.path.insert(0, os.path.join(_BASE, "config"))
-    from coin_profiles import COIN_PROFILES, DEFAULT_PROFILE
-
-    sys.path.pop(0)
-
-    modified = copy.deepcopy(COIN_PROFILES)
-    if cluster in modified:
-        modified[cluster] = apply_params_to_profile(modified[cluster], overrides)
-
-    os.makedirs(output_dir, exist_ok=True)
-    path = os.path.join(output_dir, "coin_profiles.py")
-    with open(path, "w") as f:
-        f.write(f'"""Auto-generated optimized profile for {cluster}"""\n\n')
-        f.write(f"COIN_PROFILES = {json.dumps(modified, indent=4)}\n\n")
-        f.write(f'DEFAULT_PROFILE = "{DEFAULT_PROFILE}"\n')
-    return path
+# (profile overrides are injected via OPT_PROFILE_OVERRIDES env var — no file generation needed)
 
 
 # ============================================================================
@@ -161,8 +165,12 @@ def generate_optimized_profile(cluster: str, overrides: Dict[str, Any], output_d
 # ============================================================================
 
 
-def run_backtest(db_path: str, symbol: str, opt_dir: str, task_id: str) -> Optional[str]:
-    """Run backtest, return historian DB path on success."""
+def run_backtest(db_path: str, symbol: str, overrides: Optional[Dict[str, Any]], task_id: str) -> Optional[str]:
+    """Run backtest, return historian DB path on success.
+
+    If overrides is provided, serializes to JSON and passes via
+    OPT_PROFILE_OVERRIDES env var for profile_manager to apply.
+    """
     historian_db = os.path.join(_BASE, "data", f"histan_opt_{task_id}.db")
     log_file = os.path.join(LOG_DIR, f"opt_{task_id}.log")
 
@@ -182,8 +190,8 @@ def run_backtest(db_path: str, symbol: str, opt_dir: str, task_id: str) -> Optio
 
     env = os.environ.copy()
     env["CASINO_HISTORIAN_DB"] = historian_db
-    if opt_dir:
-        env["PYTHONPATH"] = f"{opt_dir}:{env.get('PYTHONPATH', '')}"
+    if overrides:
+        env["OPT_PROFILE_OVERRIDES"] = json.dumps(overrides)
     for var in [
         "OMP_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
@@ -287,35 +295,46 @@ def evaluate_with_auditor(historian_db: str) -> AuditMetrics:
 # ============================================================================
 
 
-def compute_composite_score(metrics: AuditMetrics) -> float:
+def compute_composite_score(metrics: AuditMetrics, only: Optional[str] = None) -> float:
     """
-    Multi-criteria composite score:
-      - Net Taker (primary, weight 0.5)
-      - MFE/MAE ratio (secondary, weight 0.3)
-      - Signal count penalty if below threshold (weight 0.2)
+    Multi-criteria composite score.
+
+    When `only` is set, evaluates only that scenario's net taker.
+    When `only` is None, averages failed_breakout + liquidity_exhaustion (default).
     """
-    if not metrics.success or metrics.total_signals < MIN_SIGNALS_FOR_SIGNIFICANCE:
+    min_signals = MIN_SIGNALS_FOR_SIGNIFICANCE if only is None else 10
+    if not metrics.success or metrics.total_signals < min_signals:
         return -100.0
 
-    # Net Taker component (normalized around 0)
+    if only is not None:
+        # Single-scenario mode
+        setup_data = metrics.best_uniforms.get(only)
+        if setup_data is None:
+            return -50.0  # penalty: scenario produced no signals
+        primary_component = setup_data["exp"] - FEE_TAKER_RT
+        scenario_penalty = -0.5 if primary_component < 0 else 0.0
+    else:
+        # Default: average FB + LE
+        fb_le_total = 0.0
+        fb_le_count = 0
+        for setup, data in metrics.best_uniforms.items():
+            if setup in ("failed_breakout", "liquidity_exhaustion"):
+                fb_le_total += data["exp"] - FEE_TAKER_RT
+                fb_le_count += 1
+        primary_component = fb_le_total / fb_le_count if fb_le_count > 0 else 0.0
+        scenario_penalty = -0.3 if (fb_le_count > 0 and primary_component < 0) else 0.0
+
     net_component = metrics.net_taker
+    ratio_component = min(metrics.mfe_mae_ratio - 1.0, 1.0)
+    signal_component = min(metrics.total_signals / 100.0, 1.0)
 
-    # MFE/MAE component (>1.2 is good, >1.5 is great)
-    ratio_component = min(metrics.mfe_mae_ratio - 1.0, 1.0)  # cap at +1.0
-
-    # Signal count bonus (more signals = more confidence)
-    signal_component = min(metrics.total_signals / 100.0, 1.0)  # cap at 1.0
-
-    # Root cause penalty
-    root_penalty = 0.0
-    if metrics.root_cause == "ENTRY_FAILURE":
-        root_penalty = -0.5
-    elif metrics.root_cause == "TARGET_FAILURE":
-        root_penalty = -0.2
-    elif metrics.root_cause == "EDGE_CONFIRMED":
-        root_penalty = 0.1
-
-    score = net_component * 0.5 + ratio_component * 0.3 + signal_component * 0.2 + root_penalty
+    score = (
+        primary_component * 0.4
+        + net_component * 0.2
+        + ratio_component * 0.2
+        + signal_component * 0.1
+        + scenario_penalty * 0.1
+    )
     return score
 
 
@@ -325,7 +344,12 @@ def compute_composite_score(metrics: AuditMetrics) -> float:
 
 
 def run_sensitivity_analysis(
-    study, cluster: str, representative: str, datasets: List[str], filter_pattern: Optional[str]
+    study,
+    cluster: str,
+    representative: str,
+    datasets: List[str],
+    filter_pattern: Optional[str],
+    active_space: Optional[Dict] = None,
 ):
     """Test each best parameter independently to measure sensitivity."""
     print("\n📊 Sensitivity Analysis (top 5 params)...")
@@ -347,10 +371,11 @@ def run_sensitivity_analysis(
     top_params = sorted(param_importance.keys(), key=lambda k: param_importance[k], reverse=True)[:5]
 
     sensitivity = {}
+    _space = active_space or PARAMETER_SPACE
     for param_key in top_params:
-        if param_key not in PARAMETER_SPACE:
+        if param_key not in _space:
             continue
-        low, high, step = PARAMETER_SPACE[param_key]
+        low, high, step = _space[param_key]
         variation_pct = (param_importance[param_key] / (high - low)) * 100 if (high - low) > 0 else 0
         sensitivity[param_key] = {
             "range": param_importance[param_key],
@@ -373,9 +398,7 @@ def validate_cross_coin(cluster: str, best_params: Dict[str, Any], filter_patter
     members = get_cluster_members(cluster)
     print(f"\n🔍 Cross-coin validation ({len(members)} coins)...")
 
-    trial_dir = os.path.join(OPT_PROFILES_DIR, "validation")
-    generate_optimized_profile(cluster, best_params, trial_dir)
-
+    overrides_payload = {cluster: best_params} if best_params else None
     results = {}
     for symbol in members:
         datasets = get_datasets_for_symbol(symbol, filter_pattern)
@@ -384,10 +407,11 @@ def validate_cross_coin(cluster: str, best_params: Dict[str, Any], filter_patter
 
         # Use first dataset per coin
         db_path = os.path.join(DB_DIR, datasets[0])
-        task_id = f"val_{symbol}_{datasets[0].replace('.db', '')}"
+        safe_sym = symbol.replace("/", "_")
+        task_id = f"val_{safe_sym}_{datasets[0].replace('.db', '')}"
         ccxt = format_ccxt_symbol(symbol)
 
-        hist_db = run_backtest(db_path, ccxt, trial_dir, task_id)
+        hist_db = run_backtest(db_path, ccxt, overrides_payload, task_id)
         if hist_db:
             metrics = evaluate_with_auditor(hist_db)
             results[symbol] = {
@@ -591,12 +615,20 @@ def main():
             "ILLIQUID_SPEC",
             "SOL_INERTIAL_TRENDING",
             "AVAX_NOISY_UNCERTAIN",
+            "LTC_NOISY_UNCERTAIN_1",
             "INERTIAL_TRENDING",
             "NOISY_UNCERTAIN",
             "NOISY_UNCERTAIN_1",
         ],
     )
     parser.add_argument("--coin", help="Representative coin")
+    parser.add_argument(
+        "--only",
+        type=str,
+        default=None,
+        choices=["failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
+        help="Optimizar solo un escenario. Filtra PARAMETER_SPACE y scoring a ese escenario.",
+    )
     parser.add_argument("--iterations", type=int, default=50)
     parser.add_argument("--max-workers", type=int, default=None)
     parser.add_argument("--filter", type=str, default=None)
@@ -623,16 +655,34 @@ def main():
         print(f"❌ No datasets for {representative}")
         sys.exit(1)
 
-    # Use 1 dataset per iteration for speed, validate with more
-    opt_dataset = datasets[0]
+    # Use 3 regime-fixed datasets (UP + DOWN + BALANCE) for robust evaluation
+    up_dbs = sorted([d for d in datasets if "TREND_UP" in d])
+    down_dbs = sorted([d for d in datasets if "TREND_DOWN" in d])
+    balance_dbs = sorted([d for d in datasets if "BALANCE" in d])
+    opt_datasets = []
+    for pool in [up_dbs, down_dbs, balance_dbs]:
+        if pool:
+            opt_datasets.append(pool[-1])
 
     print(f"\n🔧 CLUSTER OPTIMIZER — {args.cluster}")
+    if args.only:
+        print(f"   Focus:        {args.only} (single-scenario mode)")
     print(f"   Representative: {representative}")
     print(f"   Members: {members}")
-    print(f"   Dataset (opt): {opt_dataset}")
+    print("   Datasets (opt, 3 regime-fixed):")
+    for d in opt_datasets:
+        print(f"      • {d}")
     print(f"   Available datasets: {len(datasets)}")
     print(f"   Iterations: {args.iterations}")
     print(f"   CPU workers: {workers}")
+
+    # Filter parameter space if --only is set
+    active_space = filter_parameter_space(args.only)
+    if args.only and not active_space:
+        print(f"❌ No params in PARAMETER_SPACE for scenario '{args.only}'. Add them or pick a different scenario.")
+        sys.exit(1)
+    if args.only:
+        print(f"   Parameters:   {len(active_space)} ({', '.join(active_space.keys())})")
 
     sys.path.insert(0, os.path.join(_BASE, "config"))
     from coin_profiles import COIN_PROFILES
@@ -643,23 +693,61 @@ def main():
         print(f"❌ Cluster {args.cluster} not in coin_profiles.py")
         sys.exit(1)
 
-    os.makedirs(OPT_PROFILES_DIR, exist_ok=True)
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    db_path = os.path.join(DB_DIR, opt_dataset)
     symbol = format_ccxt_symbol(representative)
 
-    # ── Baseline ──
-    print("\n📏 BASELINE (current params)...")
-    hist_db = run_backtest(db_path, symbol, "", "baseline")
-    if hist_db:
-        baseline = evaluate_with_auditor(hist_db)
+    # ── Baseline (averaged across 3 regime datasets) ──
+    print("\n📏 BASELINE (current params, averaged across regimes)...")
+    baseline_scores = []
+    for i, db_name in enumerate(opt_datasets):
+        db_path = os.path.join(DB_DIR, db_name)
+        hist_db = run_backtest(db_path, symbol, None, f"baseline_{i}")
+        if hist_db:
+            m = evaluate_with_auditor(hist_db)
+            baseline_scores.append(m)
+            print(
+                f"   [{db_name}] Net Taker: {m.net_taker:+.4f}% | MFE/MAE: {m.mfe_mae_ratio:.2f} | {m.root_cause} | Signals: {m.total_signals}"
+            )
+        else:
+            baseline_scores.append(AuditMetrics(root_cause="BACKTEST_FAILED"))
+            print(f"   [{db_name}] ❌ Backtest failed")
+
+    # Clean up baseline historian DBs
+    for i in range(len(opt_datasets)):
+        try:
+            os.remove(os.path.join(_BASE, "data", f"histan_opt_baseline_{i}.db"))
+        except OSError:
+            pass
+
+    # Average baseline
+    valid = [m for m in baseline_scores if m.success]
+    if valid:
+        baseline = AuditMetrics(
+            net_taker=sum(m.net_taker for m in valid) / len(valid),
+            gross_expectancy=sum(m.gross_expectancy for m in valid) / len(valid),
+            total_signals=int(sum(m.total_signals for m in valid) / len(valid)),
+            wins=int(sum(m.wins for m in valid) / len(valid)),
+            losses=int(sum(m.losses for m in valid) / len(valid)),
+            win_rate=sum(m.win_rate for m in valid) / len(valid),
+            root_cause=(
+                "EDGE_CONFIRMED"
+                if sum(1 for m in valid if "EDGE" in m.root_cause) > len(valid) / 2
+                else valid[-1].root_cause
+            ),
+            best_uniforms=valid[-1].best_uniforms,
+            setup_count=valid[-1].setup_count,
+            avg_mfe=sum(m.avg_mfe for m in valid) / len(valid),
+            avg_mae=sum(m.avg_mae for m in valid) / len(valid),
+            mfe_mae_ratio=sum(m.mfe_mae_ratio for m in valid) / len(valid),
+            success=True,
+        )
         print(
-            f"   Net Taker: {baseline.net_taker:+.4f}% | MFE/MAE: {baseline.mfe_mae_ratio:.2f} | {baseline.root_cause} | Signals: {baseline.total_signals}"
+            f"\n   📊 BASELINE AVG: Net {baseline.net_taker:+.4f}% | MFE/MAE {baseline.mfe_mae_ratio:.2f} | Signals {baseline.total_signals}"
         )
     else:
         baseline = AuditMetrics(root_cause="BACKTEST_FAILED")
-        print("   ❌ Backtest failed")
+        print("   ❌ All baseline backtests failed")
 
     if args.validate_only:
         print("\nValidate-only mode. Using current params.")
@@ -670,29 +758,38 @@ def main():
     # ── Bayesian Optimization ──
     def objective(trial):
         overrides = {}
-        for key, (low, high, step) in PARAMETER_SPACE.items():
+        for key, (low, high, step) in active_space.items():
             if isinstance(low, int) and isinstance(high, int):
                 overrides[key] = trial.suggest_int(key, low, high, step=step)
             else:
                 overrides[key] = trial.suggest_float(key, low, high, step=step)
 
-        trial_dir = os.path.join(OPT_PROFILES_DIR, f"trial_{trial.number}")
-        generate_optimized_profile(args.cluster, overrides, trial_dir)
+        overrides_payload = {args.cluster: overrides}
+        scores = []
+        for i, db_name in enumerate(opt_datasets):
+            db_path = os.path.join(DB_DIR, db_name)
+            safe_sym = symbol.replace("/", "_")
+            task_id = f"{safe_sym}_{trial.number}_{i}"
+            hist_db = run_backtest(db_path, symbol, overrides_payload, task_id)
+            if not hist_db:
+                return -100.0
+            metrics = evaluate_with_auditor(hist_db)
+            score = compute_composite_score(metrics, only=args.only)
+            scores.append(score)
+            try:
+                os.remove(hist_db)
+            except OSError:
+                pass
 
-        task_id = f"{representative}_{trial.number}"
-        hist_db = run_backtest(db_path, symbol, trial_dir, task_id)
-        if not hist_db:
-            return -100.0
+            # Report intermediate value for pruning
+            partial = sum(scores) / len(scores)
+            trial.report(partial, i)
+            if trial.should_prune():
+                return partial
 
-        metrics = evaluate_with_auditor(hist_db)
-        score = compute_composite_score(metrics)
-
-        trial.set_user_attr("net_taker", metrics.net_taker)
-        trial.set_user_attr("mfe_mae", metrics.mfe_mae_ratio)
-        trial.set_user_attr("signals", metrics.total_signals)
-        trial.set_user_attr("root_cause", metrics.root_cause)
-
-        return score
+        avg_score = sum(scores) / len(scores)
+        trial.set_user_attr("avg_score", avg_score)
+        return avg_score
 
     # ── Study persistence ──
     study_db = args.study_db or os.path.join(RESULTS_DIR, f"study_{args.cluster}.db")
@@ -707,7 +804,8 @@ def main():
             study_name=args.cluster,
             storage=storage,
             direction="maximize",
-            sampler=optuna.samplers.TPESampler(seed=42),
+            sampler=optuna.samplers.TPESampler(seed=42, multivariate=True, group=True),
+            pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=1),
             load_if_exists=True,
         )
         print(f"   📁 Study DB: {study_db}")
@@ -727,17 +825,14 @@ def main():
                 {
                     "number": t.number,
                     "score": t.value,
-                    "net_taker": t.user_attrs.get("net_taker", 0),
-                    "mfe_mae": t.user_attrs.get("mfe_mae", 0),
-                    "signals": t.user_attrs.get("signals", 0),
-                    "root_cause": t.user_attrs.get("root_cause", ""),
+                    "avg_score": t.user_attrs.get("avg_score", 0),
                 }
             )
 
     # ── Sensitivity Analysis ──
     sensitivity = None
     if args.sensitivity:
-        sensitivity = run_sensitivity_analysis(study, args.cluster, representative, datasets, args.filter)
+        sensitivity = run_sensitivity_analysis(study, args.cluster, representative, datasets, args.filter, active_space)
 
     # ── Cross-Coin Validation ──
     validation = validate_cross_coin(args.cluster, study.best_params, args.filter)
