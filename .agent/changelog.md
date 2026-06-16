@@ -6,6 +6,117 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-15 SESSION] — Dataset Pipeline Completion: 84 Certified Datasets (2/2/2 per Symbol) (Branch: main)
+
+#### Summary
+Completada la pipeline completa de datasets para backtesting. Se auditaron, corrigieron, descargaron y podaron datasets hasta alcanzar exactamente **14 símbolos × 6 datasets = 84 archivos `.db`** (2 TREND_UP, 2 TREND_DOWN, 2 BALANCE por símbolo). También se construyeron 6 datasets mensuales para LTC y SOL.
+
+#### Actions
+
+1. **Auditoría Inicial**: Analizados 97 datasets contra klines reales de Binance Futures diarios (1h). 26 estaban mal etiquetados (TREND_UP/DOWN que en realidad eran BALANCE). Renombrados.
+
+2. **Descarga de 10 nuevos días desde CryptoHFTData** (API real, disponibilidad desde Ene 2026):
+   - APTUSDT TREND_UP 2026-01-17 (+4.3%)
+   - APTUSDT TREND_DOWN 2026-01-15 (-6.9%)
+   - BNBUSDT TREND_UP 2026-01-13 (+4.2%)
+   - BNBUSDT TREND_DOWN 2026-01-20 (-4.3%)
+   - BTCUSDT TREND_UP 2026-01-13 (+4.5%)
+   - BTCUSDT TREND_DOWN 2026-01-31 (-6.5%)
+   - LINKUSDT TREND_UP 2026-01-02 (+5.3%)
+   - OPUSDT TREND_UP 2026-01-01 (+10.7%)
+   - ETHUSDT TREND_UP 2026-01-13 (+7.5%)
+   - ETHUSDT TREND_UP 2026-02-25 (+11.1%)
+
+3. **Pruning**: Eliminados 39 archivos excedentes, conservando los 2 más representativos por régimen (menor |cambio| para BALANCE, mayor |cambio| para TREND_UP/DOWN).
+
+4. **Datasets Mensuales**: 3 LTC + 3 SOL (Mar–May 2026) en `data/datasets/monthly_backtest_ready/`.
+
+#### Key Findings & Fixes
+- **CryptoHFTData API**: `--sequential` flag necesario para símbolos grandes (ETH, BTC) — descarga 24 horas una por una (no en paralelo) para evitar OOM con 8GB RAM + 32GB swap.
+- **Bug en modo secuencial**: `_fetch_and_write_hour_seq()` usaba columnas incorrectas para orderbook (`id` en vez de `is_snapshot`). Cada hora fallaba con KeyError. Corregido.
+- **Nomenclatura inconsistente**: El fetcher crea `{exchange}_{type}_{date}_{symbol}` pero l2_processor espera `{symbol}_{date}` orden. El batch script renombra raw files antes de procesar.
+- **84 datasets finales**: 14 símbolos × 3 regímenes × 2 cada uno.
+
+#### Files Modified
+- `utils/data/cryptohftdata_fetcher.py` — Added `sequential` param, `_fetch_and_write_hour_seq()`, `fetch_range()`, fixed orderbook column bug.
+- `data/datasets/backtest_ready/` — 84 `.db` files (net: 84 tras +10 downloads, -39 deletions, +97 original audited/renamed).
+- `data/datasets/monthly_backtest_ready/` — 6 nuevos archivos mensuales.
+
+#### Next Steps
+- Pruebas de determinismo end-to-end
+- Ejecutar backtests multi-coin con los 84 datasets certificados
+- Optimización de parámetros por cluster
+
+---
+
+### [2026-06-13 SESSION] — Crystal Foundation Hardening: Fase 1 & 2 (Branch: 8.8-crystal-layer-refactor)
+
+#### Summary
+Tras auditoría que reveló 8 errores críticos y 6 de alta severidad en la Capa de Crystal, se completaron las Fases 1 y 2 del plan de restauración de la fundación. El sistema pasó de silenciar errores y permitir race conditions a tener manejo explícito de excepciones, validaciones de precondición y gestión de ciclo de vida de estado mutable.
+
+#### Fase 1: Visibilidad Total — Errores Críticos Eliminados
+1. **Reemplazo de `bare except Exception`** en 5 archivos core:
+   - `core/pressure/engine.py`
+   - `sensors/absorption/absorption_detector.py`
+   - `decision/scenarios/failed_breakout.py`
+   - `decision/scenarios/liquidity_exhaustion.py`
+   - `decision/scenarios/trend_acceptance.py`
+2. **Cambio a manejo de excepciones específicas**: `except ImportError:` + `except Exception as e:` con logging explícito.
+3. **Eliminación de código muerto**: `min_candles_outside` en `trend_acceptance.py`.
+
+#### Fase 2: Integridad del Estado — Gestión de Ciclo de Vida
+1. **Métodos `cleanup()` implementados** en 3 detectores con estado mutable:
+   - `FailedBreakoutDetector.cleanup()`: Limpia `pending_breaks` y `last_fire_ts` estancados.
+   - `LiquidityExhaustionDetector.cleanup()`: Limpia `level_tests` y `last_fire_ts` estancados.
+   - `TrendAcceptanceDetector.cleanup()`: Limpia `active_breakouts` y `last_fire_ts` estancados.
+2. **Validaciones de precondición añadidas**:
+   - `price > 0` en todos los detectores.
+   - `vah > 0`, `val > 0`, `vah > val` en detectores de escenarios.
+   - `state is not None` antes de acceder a atributos.
+
+#### Fase 3: Resiliencia Operativa — Validación de Parámetros
+1. **Módulo de Validación Creado** (`decision/engine/param_validation.py`):
+   - Esquemas Pydantic para cada uno de los 4 detectores AMT.
+   - Campos con restricciones: `cooldown >= 0`, `level_tolerance_pct > 0`, `min_tests >= 2`, etc.
+   - `validate_params()`: Valida parámetros de perfil desde `_get_params()`, resguardando valores por defecto válidos para campos con errores.
+2. **Integración completa**: Los 4 detectores validan sus parámetros en runtime antes de cachearlos.
+3. **Refactorización de imports**: Los imports de validación se hacen dentro de `_get_params()` para mantener desacoplamiento, usando `try/except ImportError` como pattern estándar.
+
+#### Files Modified
+- `core/pressure/engine.py`
+- `sensors/absorption/absorption_detector.py`
+- `decision/scenarios/failed_breakout.py`
+- `decision/scenarios/liquidity_exhaustion.py`
+- `decision/scenarios/trend_acceptance.py`
+- `decision/engine/param_validation.py` (CREADO)
+- `.agent/memory.md`
+- `.agent/changelog.md`
+
+#### Next Steps
+- Pruebas de determinismo end-to-end (verificar que ejecutar un backtest varias veces dé exactamente el mismo resultado Net Taker).
+- Optimización de parámetros con el nuevo sistema de validación.
+
+---
+
+### [2026-06-12 SESSION V2] — Fase 4: Legacy Absorption Params Removed (Branch: 8.7-cluster-improved)
+
+#### Summary
+1. **Fase 4 completada**: Eliminados `concentration_min`, `noise_max`, `absorption_score_min` de los 8 perfiles en `config/coin_profiles.py`. Estos parámetros legacy quedaron obsoletos tras el cutover de z-scores auto-calibrados (Fase 3).
+2. **AbsorptionDetector simplificado**: `absorption_score_min` hardcodeado a 0.5 en `__init__`, ya no se resuelve desde profile_manager. `import os` eliminado (no más env var `CASINO_ABSORPTION_MODE`).
+3. **Golden params actualizados**: `sol.md` y `avax.md` reflejan que concentration_min/noise_max/absorption_score_min ya no se usan.
+
+#### Files Modified
+- `sensors/absorption/absorption_detector.py` — `absorption_score_min` hardcodeado (0.5), no lee de params.
+- `config/coin_profiles.py` — `concentration_min`, `noise_max`, `absorption_score_min` eliminados de los 8 perfiles.
+- `.agent/golden_params/ltc.md` — Creado con params de Trial 20.
+- `.agent/golden_params/sol.md`, `.agent/golden_params/avax.md` — Legacy params removidos de docs.
+
+#### Key Decisions
+- **absorbed_score_min universal**: 0.5 funciona para todas las coins (SOL, AVAX, XRP) porque z-score normaliza diferencias de microestructura.
+- **PressureEngine legacy score se mantiene**: Todavía se calcula para el dict de señal (usa concentration_min=0.50, noise_max=0.35 hardcodeados). No lo consume ningún sensor.
+
+---
+
 ### [2026-06-12 SESSION] — Disjoint Book Resolution + Parallelized Cluster Optimizer (Branch: 8.7-cluster-improved)
 
 #### Summary

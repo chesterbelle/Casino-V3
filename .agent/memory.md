@@ -6,15 +6,18 @@
 > 3. **REGLA DE ORO DE GIT (NO MERGE):** Hay 3 BOTS DIFERENTES e incompatibles viviendo en distintas ramas. **NUNCA hagas merge ni rebase.**
 > 4. **REGLA DE PUSH (SOLO LOCAL):** NUNCA ejecutes `git push` a menos que el usuario lo ordene expresamente.
 > 5. **REGLA DEL EDGE (NUNCA RENDIRSE):** NUNCA concluyas que "el edge no existe" o "ENTRY FAILURE" como veredicto final. Si no encontramos edge, es porque no hemos ajustado los parámetros correctos — seguimos ajustando sensores, targets, regímenes e infraestructura hasta que aparezca. No existen alphas muertas, solo parámetros no encontrados.
-> 6. **GOTCHA (TIMEOUTS):** Al ejecutar `scripts/orchestrator.py`, el timeout del shell debe ser muy largo (ej. 4 horas) ya que los backtests masivos toman tiempo considerable.
+> 6. **GOTCHA (CRYPTOHFTDATA SEQUENTIAL):** Para símbolos grandes (ETH, BTC), usar `--sequential` en `cryptohftdata_fetcher.py` para descargar hora por hora en vez de las 24 en paralelo. Sin ello, el proceso muere por OOM (~24-48GB RAM para ETH orderbook). Con sequential, cada hora se descomprime, convierte y escribe al CSV.gz individualmente.
+> 7. **GOTCHA (L2_PROCESSOR NAMING):** `l2_processor.py` busca raw files por substring `--name`. El fetcher crea `{exchange}_{type}_{date}_{symbol}` pero el processor espera `{symbol}_{date}`. Renombrar raw files antes de procesar o especificar `--name` con el orden correcto.
+> 8. **GOTCHA (TIMEOUTS):** Al ejecutar `scripts/orchestrator.py`, el timeout del shell debe ser muy largo (ej. 4 horas) ya que los backtests masivos toman tiempo considerable.
 
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
-*   **Current Branch**: `8.7-cluster-improved` (V2 regime sensor — Price Action + Volume Profile + Markov)
+*   **Current Branch**: `8.8-crystal-layer-refactor`
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
+*   **Datasets**: **84 certificados** (2 TREND_UP, 2 TREND_DOWN, 2 BALANCE × 14 símbolos) en `data/datasets/backtest_ready/`. +6 mensuales LTC/SOL en `data/datasets/monthly_backtest_ready/`.
 
 
 ## 📚 Historial y Contexto
@@ -58,20 +61,19 @@
 
 ---
 
-### Current Status: 🟢 Cluster Optimizer Ready (49 params, 8 groups)
+### Current Status: 🟢 84 Datasets Certified (2/2/2 per Symbol)
 
 - **Architecture**: PressureEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
-- **Branch**: `8.7-cluster-improved`
+- **Branch**: `8.8-crystal-layer-refactor`
 - **Cluster Optimizer** (2026-06-08): `scripts/cluster_optimizer.py` — 49 params across 8 groups (absorption, failed_breakout, liquidity_exhaustion, trend_acceptance, targets, quality, guardians, pressure). `--param-groups` for selective optimization. Weight auto-normalization. Optuna TPE + persistent SQLite + `--resume`.
 - **EdgeAuditor get_metrics()**: Programmatic API returning net_taker, root_cause, MFE/MAE, best_uniforms. Used by optimizer.
 - **Profile Classification Fix**: `_classify_and_set_profile()` checks `clusters_fixed.json` BEFORE runtime classification.
 - **4 AMT Scenarios**: All registered and firing with per-cluster params.
 - **MID_LIQUID Results** (LTC_TREND_UP_2024-03): 1754 signals, +1.57% Net Taker overall.
 - **THIN_VOLATILE Certification** (2026-06-09): Full Bayesian sweep (100 iter). Net Taker +0.34% (XRP) vs -0.59% baseline. Edge recovered.
-- **Next Session**: Diseñar e implementar filtros microestructurales adicionales (ej. restricciones de asimetría de volumen L2 o volatilidad z-score relativa) sobre `tactical_absorption` en AVAX para forzar que el escenario solo se dispare en las absorciones de altísima convicción microestructural, protegiendo el edge positivo orgánico de `trend_acceptance`.
-- **Roadmap / Next Steps**:
-  - Validar robustez de `book_bucket_pct` en otros perfiles delgados del cluster `NOISY_UNCERTAIN_1`.
-  - Diseñar restrictor de asimetría para TAV en libros delgados.
+- **LTC Optuna Optimization** (2026-06-13): 40 trials (10 init + 30 resume). Best Trial 20: score +0.0905. Params aplicados a `config/coin_profiles.py` como nuevo golden.
+- **Last Session** (2026-06-15): Pipeline de datasets completada. **84 datasets** (14 símbolos × 2 TREND_UP + 2 TREND_DOWN + 2 BALANCE) en `data/datasets/backtest_ready/`. +6 mensuales LTC/SOL en `data/datasets/monthly_backtest_ready/`. Análisis de klines reales, renombrado de 26 mal clasificados, descarga de 10 nuevos días vía CryptoHFTData API, poda de 39 excedentes.
+- **Next Session**: Pruebas de determinismo end-to-end + backtests multi-coin con datasets certificados + optimización de parámetros
 
 ---
 
@@ -81,6 +83,8 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-15 | session-close | **DATASET PIPELINE COMPLETE**: 84 datasets certificados (2/2/2 por símbolo). +6 mensuales LTC/SOL. Análisis de 97 archivos, renombrado 26, descargado 10 nuevos (ETH/BTC con sequential para evitar OOM), podado 39 excedentes. Bugfix: columnas incorrectas en modo secuencial del fetcher (orderbook usaba `id` en vez de `is_snapshot`).
+- 2026-06-13 | session-close | **LTC OPTUNA OPTIMIZATION COMPLETE**: 40 trials (10 init + 30 resume). Trial 20 (+0.0905) reemplaza Trial 7 (+0.0667) y golden baseline (-0.1112). Params aplicados como nuevos golden params de LTC. Creado `.agent/golden_params/ltc.md`.
 - 2026-06-12 | session-close | **SOLUCIÓN ESTRUCTURAL DISJOINT BOOK (PRESSURE ENGINE BUCKETS)**: La auditoría detectó que en libros delgados como AVAX, bids y asks nunca coinciden en el mismo precio exacto en los L2 snapshots, arrojando `noise=0.0` y `concentration=1.0` artificialmente y anulando los filtros. Se implementó `book_bucket_pct` paramétrico para agrupar dinámicamente precios cercanos (10 bps para AVAX/THIN y 0 bps para SOL). Ajuste de Optuna aplicado con workers dinámicos basados en RAM/Cores con prioridad nice.
 - 2026-06-08 | session-close | **CLUSTER OPTIMIZER FULL EXPANSION (18→49 params)**: Deep audit revealed 31 missing params (FB/LE targets, all cooldowns, guardians, pressure, quality thresholds/weights). Expanded to 49 params, 8 groups. Added `--param-groups` flag. Weight auto-normalization. 1 file, ~+120 lines net. Commit pending.
 - 2026-06-08 | session-close | **CLUSTER OPTIMIZER + EDGE AUDITOR + PROFILE FIX**: Built `cluster_optimizer.py` (Optuna, persistent DB, cross-coin, sensitivity). Added `EdgeAuditor.get_metrics()`. Fixed profile classification (static JSON before runtime). Fixed quality scorer weight normalization. Added CASINO_FORCE_PROFILE env var. 7 files, +900 lines. Commit pending.
