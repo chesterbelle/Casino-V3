@@ -9,6 +9,7 @@ from sensors.quant.volatility_regime import RollingZScore
 @dataclass
 class PressureState:
     cvd_delta: float = 0.0
+    cvd_session_delta: float = 0.0
     cvd_velocity: float = 0.0
     imbalance_ratio: float = 0.0
     volatility_z: float = 0.0
@@ -20,6 +21,8 @@ class PressureState:
     block_short: bool = False
     z_concentration: float = 0.0
     z_noise: float = 0.0
+    window_buy_vol: float = 0.0
+    window_sell_vol: float = 0.0
 
 
 class CoinPressureEngine:
@@ -34,6 +37,9 @@ class CoinPressureEngine:
         self.last_state = PressureState()
 
         self.current_cvd = 0.0
+        self.cvd_session = 0.0
+        self._last_cvd_session_reset_ts = 0.0
+        self._cvd_session_reset_interval = 14400.0  # 4 hours — covers all window transitions
         self.cvd_history = deque(maxlen=200)
         self.velocity_zscore = RollingZScore(window_size=200)
         self.concentration_zscore = RollingZScore(window_size=500)
@@ -53,6 +59,19 @@ class CoinPressureEngine:
 
         self.price_history = deque(maxlen=200)
         self.price_returns = deque(maxlen=200)
+
+    def reset_cvd_session(self):
+        """Resets session-scoped CVD to eliminate drift across liquidity windows."""
+        self.cvd_session = 0.0
+        self._last_cvd_session_reset_ts = 0.0
+
+    def _check_cvd_session_reset(self, ts: float):
+        """Auto-reset CVD session if enough time has passed (window transition)."""
+        if self._last_cvd_session_reset_ts == 0.0:
+            self._last_cvd_session_reset_ts = ts
+        elif ts - self._last_cvd_session_reset_ts > self._cvd_session_reset_interval:
+            self.cvd_session = 0.0
+            self._last_cvd_session_reset_ts = ts
 
     def _load_params(self):
         try:
@@ -80,16 +99,21 @@ class CoinPressureEngine:
     def update(
         self, qty: float, is_buyer_maker: bool, ts: float, price: float, footprint_levels: Optional[Dict] = None
     ):
+        self._check_cvd_session_reset(ts)
+
         if qty > 0:
             if is_buyer_maker:
                 self.current_cvd -= qty
+                self.cvd_session -= qty
                 buy_qty, sell_qty = 0.0, qty
             else:
                 self.current_cvd += qty
+                self.cvd_session += qty
                 buy_qty, sell_qty = qty, 0.0
 
             self.cvd_history.append((ts, self.current_cvd))
             self.last_state.cvd_delta = self.current_cvd
+            self.last_state.cvd_session_delta = self.cvd_session
 
             if len(self.cvd_history) > 2:
                 dt = ts - self.cvd_history[-2][0]
@@ -223,6 +247,8 @@ class CoinPressureEngine:
         self.last_state.block_long = cvd_sell and displaced_high
         self.last_state.block_short = cvd_buy and displaced_low
 
+        self.last_state.window_buy_vol = self._window_buy_vol
+        self.last_state.window_sell_vol = self._window_sell_vol
         self.last_price = price
         self.last_state.timestamp = ts
 
@@ -286,3 +312,7 @@ class PressureEngine:
 
     def update_from_orderbook(self, symbol: str, bids: list, asks: list, ts: float) -> None:
         self._get(symbol).update_from_orderbook(bids, asks, ts)
+
+    def reset_cvd_session(self, symbol: str) -> None:
+        """Resets session-scoped CVD for a symbol to eliminate drift."""
+        self._get(symbol).reset_cvd_session()

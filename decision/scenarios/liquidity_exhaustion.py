@@ -159,11 +159,13 @@ class LiquidityExhaustionDetector:
                             continue  # Sellers not yet defending — buyers still in control
                         self.last_fire_ts[symbol] = timestamp
                         self.level_tests[symbol][level_key] = []
+                        score = max(0.2, min(1.0, abs(raw_cvd_velocity) / 3.0))
                         return {
                             "symbol": symbol,
                             "side": signal_side,
                             "price": price,
                             "timestamp": timestamp,
                             "scenario": "liquidity_exhaustion",
+                            "score": score,
                         }
         return None

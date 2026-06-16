@@ -48,8 +48,6 @@ class MarketProfile:
 
         if self._sorted_prices is not None and is_new_level:
             self._sorted_prices.add(level)
-        if self._sorted_prices is not None and is_new_level:
-            self._sorted_prices.add(level)
 
         # O(1) POC update: only recalculate if this level is now the max
         level_vol = self.profile[level]

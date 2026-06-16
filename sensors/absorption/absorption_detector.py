@@ -63,29 +63,35 @@ class AbsorptionDetector:
         if state is None:
             return None
 
-        # 1. Absorption score check (z-score auto-calibrado)
+        # 1. Minimum absolute volume guard (avoid signals in illiquid windows)
+        total_window_vol = state.window_buy_vol + state.window_sell_vol
+        min_vol = params.get("min_window_volume", 100.0)
+        if total_window_vol < min_vol:
+            return None
+
+        # 2. Absorption score check (z-score auto-calibrado)
         if state.absorption_score_v2 < absorption_score_min:
             return None
 
-        # 2. CVD velocity z-score filter (avoid low-confidence absorption)
+        # 3. CVD velocity z-score filter (avoid low-confidence absorption)
         if abs(state.cvd_velocity) < z_score_min:
             return None
 
-        # 3. Volatility filter (avoid extreme chop/chaos)
+        # 4. Volatility filter (avoid extreme chop/chaos)
         if abs(state.volatility_z) > volatility_z_max:
             return None
 
-        # 4. Price displacement filter (avoid fading extreme moves)
+        # 5. Price displacement filter (avoid fading extreme moves)
         if abs(state.price_displacement_z) > displacement_z_max:
             return None
 
-        # 5. Block signals from PressureEngine (anti-fade protection)
+        # 6. Block signals from PressureEngine (anti-fade protection)
         if state.block_long and state.cvd_delta < 0:
             return None
         if state.block_short and state.cvd_delta > 0:
             return None
 
-        # 6. Structural level proximity
+        # 7. Structural level proximity
         poc = structural_levels.get("poc", 0.0)
         vah = structural_levels.get("vah", 0.0)
         val = structural_levels.get("val", 0.0)
@@ -100,7 +106,7 @@ class AbsorptionDetector:
         if not (near_poc or near_vah or near_val):
             return None
 
-        side = "LONG" if state.cvd_delta < 0 else "SHORT"
+        side = "LONG" if state.cvd_session_delta < 0 else "SHORT"
 
         self.last_fire_ts[symbol] = timestamp
 

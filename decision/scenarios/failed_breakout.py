@@ -161,6 +161,8 @@ class FailedBreakoutDetector:
         self.last_fire_ts[symbol] = timestamp
         del self.pending_breaks[symbol]
 
+        score = max(0.1, 1.0 - abs(avg_velocity_z) / max(exhaustion_z, 0.01))
+
         return {
             "symbol": symbol,
             "side": side,
@@ -168,4 +170,5 @@ class FailedBreakoutDetector:
             "timestamp": timestamp,
             "scenario": "failed_breakout",
             "level": level,
+            "score": score,
         }

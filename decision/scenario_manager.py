@@ -52,6 +52,14 @@ class ScenarioManager:
         Main orchestration logic (The Arbitrator).
         Fuses multiple signals in the same direction and resolves conflicts.
         """
+        # 0. VA Maturity Gate — block signals in immature or collapsed profiles
+        va_integrity = structural_levels.get("va_integrity", 1.0)
+        if va_integrity < 0.15:
+            logger.debug(
+                f"🛡️ [VA_GATE] {symbol} va_integrity={va_integrity:.2f} < 0.15 — profile immature, blocking all signals"
+            )
+            return None
+
         # 1. Collect all candidate signals from Fast Lane
         candidates = []
 
@@ -60,17 +68,18 @@ class ScenarioManager:
             if sig:
                 scenario_key = sig.get("scenario", "unknown")
                 sig["_priority"] = self.PRIORITY_MAP.get(scenario_key, 0)
+                sig["_score"] = sig.get("score", 1.0)
                 candidates.append(sig)
 
         if not candidates:
             return None
 
-        # 2. Arbitrate: Group by side
+        # 2. Arbitrate: Group by side — conviction = priority × score
         longs = [s for s in candidates if s["side"] == "LONG"]
         shorts = [s for s in candidates if s["side"] == "SHORT"]
 
-        long_conviction = sum(s["_priority"] for s in longs)
-        short_conviction = sum(s["_priority"] for s in shorts)
+        long_conviction = sum(s["_priority"] * s["_score"] for s in longs)
+        short_conviction = sum(s["_priority"] * s["_score"] for s in shorts)
 
         # 3. Resolve Conflicts (High-Stakes Decision)
         if long_conviction > 0 and short_conviction > 0:

@@ -186,9 +186,11 @@ class TrendAcceptanceDetector:
                 )
                 bo["cancelled"] = True
                 self.last_fire_ts[symbol] = timestamp
+                score = min(1.0, max(0.3, abs(cvd_slope) / 3.0))
                 return {
                     "symbol": symbol,
                     "side": "LONG",
+                    "score": score,
                     "price": price,
                     "timestamp": timestamp,
                     "scenario": "trend_acceptance",
@@ -231,9 +233,11 @@ class TrendAcceptanceDetector:
                 )
                 bo["cancelled"] = True
                 self.last_fire_ts[symbol] = timestamp
+                score = min(1.0, max(0.3, abs(cvd_slope) / 3.0))
                 return {
                     "symbol": symbol,
                     "side": "SHORT",
+                    "score": score,
                     "price": price,
                     "timestamp": timestamp,
                     "scenario": "trend_acceptance",

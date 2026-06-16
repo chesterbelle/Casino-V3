@@ -29,19 +29,19 @@ def test_quality_filtering():
     # For simplicity, we can mock the registry methods that _score_* functions call.
 
     reg.get_pressure_state = MagicMock(
-        return_value=MagicMock(block_long=False, block_short=False, price_displacement_z=0.0)
+        return_value=MagicMock(block_long=True, block_short=False, price_displacement_z=-3.0)
     )
-    reg.get_structural = MagicMock(return_value=(100, 110, 90))
+    reg.get_structural = MagicMock(return_value=(0, 0, 0))  # No structural levels
     reg.get_l2_ratio = MagicMock(return_value=0.1)  # Very thin
 
     # Mock footprint_registry since it's a global
     import core.footprint_registry
 
     core.footprint_registry.footprint_registry.get_exhaustion = MagicMock(
-        return_value={"ready": True, "delta_ratio": 1.4, "volume_ratio": 1.0}
+        return_value={"ready": True, "delta_ratio": 2.5, "volume_ratio": 1.0}
     )
-    # delta_ratio 1.4 is between perfect (0.3) and block (1.2)? No, for THIN_VOLATILE block is 1.2.
-    # So 1.4 should return score 0.0.
+    # For THIN_VOLATILE, block threshold is 2.2, perfect is 0.6.
+    # delta_ratio 2.5 > 2.2 should return score 0.0 (blocked).
 
     signal = {"close": 100}
     result = evaluate_quality(symbol, "LONG", signal, reg)

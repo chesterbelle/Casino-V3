@@ -138,12 +138,13 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         if not self._profile_classified[symbol]:
             self._classify_and_set_profile(symbol)
 
-        # Get structural levels from ContextRegistry
+        # Get structural levels + VA integrity from ContextRegistry
         from core.context_registry import ContextRegistry
 
         reg = ContextRegistry()
         poc, vah, val = reg.get_structural(symbol)
-        structural_levels = {"poc": poc, "vah": vah, "val": val}
+        va_integrity = reg.get_va_integrity(symbol)
+        structural_levels = {"poc": poc, "vah": vah, "val": val, "va_integrity": va_integrity}
 
         # 3. Evaluate Scenarios via ScenarioManager
         signal = self.scenario_manager.on_tick(symbol, price, timestamp, structural_levels)

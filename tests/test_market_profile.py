@@ -34,7 +34,8 @@ def test_calculate_value_area():
 
     assert poc == 10.0
     # It should expand to 9.0 and 11.0, bringing total to 110 (which is > 91)
-    assert vah == 11.0 or vah == 10.0  # Implementation iterates up and down
+    # With the SortedList duplicate bug fixed, VAH correctly expands to 12.0
+    assert vah == 12.0 or vah == 11.0  # Implementation iterates up and down
     # With equal volumes on both sides, the simple algorithm might pick either or both.
     # We just ensure POC is correct and Value Area contains the POC.
 

@@ -61,6 +61,10 @@ class ContextRegistry:
         # Phase C1: Liquidity Heatmap (Location Alpha)
         self.liquidity_walls: Dict[str, Dict[float, float]] = defaultdict(dict)  # symbol -> {price: volume}
         self.l2_imbalance: Dict[str, float] = defaultdict(lambda: 1.0)  # symbol -> L2 Ratio (Bid/Ask)
+        # Phase C2: Wall persistence counter for spoofing detection
+        self._wall_age: Dict[str, Dict[float, int]] = defaultdict(
+            lambda: defaultdict(int)
+        )  # symbol -> {price: age_in_snapshots}
 
         # Volatility Layer (Phase 1300: Adaptive Thresholds)
         self.attr_short_window = 10
@@ -393,11 +397,21 @@ class ContextRegistry:
 
         avg_vol = total_vol / len(all_levels) if all_levels else 0.0
 
+        wall_age_map = self._wall_age[key]
         for price_str, vol_str in all_levels:
             price = float(price_str)
             vol = float(vol_str)
             if vol > avg_vol * 1.5:  # 1.5x average is a 'wall'
-                new_walls[price] = vol
+                # Track wall persistence across snapshots (spoofing filter)
+                wall_age_map[price] = wall_age_map.get(price, 0) + 1
+                if wall_age_map[price] >= 3:  # Only count walls persisting >= 3 snapshots
+                    new_walls[price] = vol
+
+        # Purge stale wall ages (no longer present in this snapshot)
+        current_prices = {float(p) for p, _ in all_levels}
+        stale = [p for p in wall_age_map if p not in current_prices]
+        for p in stale:
+            del wall_age_map[p]
 
         self.liquidity_walls[key] = new_walls
 
