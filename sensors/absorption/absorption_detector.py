@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from typing import Any, Dict, Optional
 
@@ -29,15 +30,24 @@ class AbsorptionDetector:
         if symbol in self._cluster_cache:
             return self._cluster_cache[symbol]
         try:
+            from decision.engine.param_validation import validate_params
             from decision.engine.profile_manager import profile_manager
 
             params = profile_manager.get_sensor_params(symbol, "absorption_detector")
-        except Exception:
+            params = validate_params(params or {}, "absorption")
+        except ImportError:
+            params = {}
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.exception("Error loading params for %s: %s", symbol, e)
             params = {}
         self._cluster_cache[symbol] = params
         return params
 
     def on_tick(self, symbol: str, price: float, timestamp: float, structural_levels: dict) -> Optional[Dict[str, Any]]:
+        if price <= 0:
+            return None
+
         params = self._get_params(symbol)
         cooldown = params.get("cooldown", self.cooldown)
         level_tolerance_pct = params.get("level_tolerance_pct", self.level_tolerance_pct)
@@ -50,9 +60,11 @@ class AbsorptionDetector:
             return None
 
         state = self.pressure.get_state(symbol)
+        if state is None:
+            return None
 
-        # 1. Absorption score check
-        if state.absorption_score < absorption_score_min:
+        # 1. Absorption score check (z-score auto-calibrado)
+        if state.absorption_score_v2 < absorption_score_min:
             return None
 
         # 2. CVD velocity z-score filter (avoid low-confidence absorption)

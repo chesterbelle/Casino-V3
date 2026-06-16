@@ -39,19 +39,37 @@ class TrendAcceptanceDetector:
         if symbol in self._cluster_cache:
             return self._cluster_cache[symbol]
         try:
+            from decision.engine.param_validation import validate_params
             from decision.engine.profile_manager import profile_manager
 
             params = profile_manager.get_sensor_params(symbol, "trend_acceptance")
-        except Exception:
+            params = validate_params(params or {}, "trend_acceptance")
+        except ImportError:
+            params = {}
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.exception("Error loading params for %s: %s", symbol, e)
             params = {}
         self._cluster_cache[symbol] = params
         return params
 
+    def cleanup(self, symbol: str, now_ts: float, max_age: float = 3600.0) -> None:
+        """Remove stale breakout state for a symbol."""
+        if symbol in self.active_breakouts:
+            if now_ts - self.active_breakouts[symbol]["timestamp"] > max_age:
+                del self.active_breakouts[symbol]
+        # Clean up old last_fire_ts entries
+        if symbol in self.last_fire_ts:
+            if now_ts - self.last_fire_ts[symbol] > max_age:
+                del self.last_fire_ts[symbol]
+
     def on_tick(self, symbol: str, price: float, timestamp: float, structural_levels: dict) -> Optional[Dict[str, Any]]:
+        if price <= 0:
+            return None
+
         params = self._get_params(symbol)
         cooldown = params.get("cooldown", self.cooldown)
         cvd_confirmation_threshold = params.get("cvd_confirmation_threshold", self.cvd_confirmation_threshold)
-        min_candles_outside = params.get("min_candles_outside", 3)
         # Bridge profile naming: pullback_tolerance_pct (pct) → pullback_bps
         pullback_bps = params.get("pullback_bps", self.pullback_bps)
         if "pullback_tolerance_pct" in params and "pullback_bps" not in params:
@@ -65,7 +83,13 @@ class TrendAcceptanceDetector:
 
         vah = structural_levels.get("vah", 0.0)
         val = structural_levels.get("val", 0.0)
+        # Validate structural levels
+        if vah <= 0 or val <= 0 or vah <= val:
+            return None
+
         state = self.pressure.get_state(symbol)
+        if state is None:
+            return None
         cvd_slope = state.cvd_velocity
 
         # --- Handle existing breakout state ---

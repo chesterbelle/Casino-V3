@@ -1,0 +1,28 @@
+{
+  "cluster": "LTC_NOISY_UNCERTAIN_1",
+  "optimization_time_seconds": 0.0,
+  "best_score": 0.0,
+  "baseline": {
+    "net_taker": 0.033985066397033026,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 1.1655629434471961,
+    "total_signals": 200
+  },
+  "best_params": {},
+  "validation": {
+    "coins": {
+      "LTC/USDT:USDT": {
+        "net_taker": 0.7118023786846419,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 320,
+        "mfe_mae_ratio": 2.3234210682752625
+      }
+    },
+    "cluster_avg_net_taker": 0.7118023786846419,
+    "coins_passed": 1,
+    "coins_total": 1,
+    "passed": "True"
+  },
+  "sensitivity": {},
+  "top_trials": []
+}

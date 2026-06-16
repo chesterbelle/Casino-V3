@@ -34,28 +34,46 @@ class FailedBreakoutDetector:
         self.cooldown = 60.0
         self.max_break_age = 60.0
         self.min_break_distance_pct = 0.0003
-        self.cvd_divergence_threshold = 0.3
 
     def _get_params(self, symbol: str) -> dict:
         if symbol in self._cluster_cache:
             return self._cluster_cache[symbol]
         try:
+            from decision.engine.param_validation import validate_params
             from decision.engine.profile_manager import profile_manager
 
             params = profile_manager.get_sensor_params(symbol, "failed_breakout")
-        except Exception:
+            params = validate_params(params or {}, "failed_breakout")
+        except ImportError:
+            params = {}
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.exception("Error loading params for %s: %s", symbol, e)
             params = {}
         self._cluster_cache[symbol] = params
         return params
 
+    def cleanup(self, symbol: str, now_ts: float, max_age: float = 3600.0) -> None:
+        """Remove stale state for a symbol if its entry hasn't been updated recently."""
+        pending = self.pending_breaks.get(symbol)
+        if pending is not None:
+            if now_ts - pending["break_ts"] > max_age:
+                del self.pending_breaks[symbol]
+        # Also clean up last_fire_ts entry if it's too old
+        if symbol in self.last_fire_ts:
+            if now_ts - self.last_fire_ts[symbol] > max_age:
+                del self.last_fire_ts[symbol]
+
     def on_tick(
         self, symbol: str, price: float, timestamp: float, context_or_levels, footprint=None
     ) -> Optional[Dict[str, Any]]:
+        if price <= 0:
+            return None
+
         params = self._get_params(symbol)
         cooldown = params.get("cooldown", self.cooldown)
         max_break_age = params.get("max_break_age", self.max_break_age)
         min_break_distance_pct = params.get("min_break_distance_pct", self.min_break_distance_pct)
-        cvd_divergence_threshold = params.get("cvd_divergence_threshold", self.cvd_divergence_threshold)
 
         if timestamp - self.last_fire_ts[symbol] < cooldown:
             return None
@@ -68,7 +86,8 @@ class FailedBreakoutDetector:
             vah = context_or_levels.get("vah", 0.0)
             val = context_or_levels.get("val", 0.0)
 
-        if not state or vah <= val:
+        # Validate that structural levels make sense
+        if not state or vah <= 0 or val <= 0 or vah <= val:
             return None
 
         current_cvd = state.cvd_delta
@@ -107,27 +126,31 @@ class FailedBreakoutDetector:
         if not re_entered:
             return None
 
-        # === PHASE 3: Confirmation ===
+        # === PHASE 3: Confirmation (z-score normalized) ===
         cvd_change = current_cvd - pending["cvd_at_break"]
 
-        # Usamos la velocidad del motor para validar convicción
-        expected_change = abs(state.cvd_velocity * elapsed)
-        expected_change = max(expected_change, 5.0)
+        if elapsed > 0:
+            avg_velocity = abs(cvd_change) / elapsed
+            avg_velocity_z = self.pressure.zscore_velocity(symbol, avg_velocity)
+        else:
+            avg_velocity_z = 0.0
 
-        # Exhaustion Gate: CVD demasiado fuerte = Trend Acceptance
-        exhaustion_mult = params.get("exhaustion_mult", 1.8)
+        # Exhaustion Gate: CVD too strong in breakout direction = Trend Acceptance
+        exhaustion_z = params.get("exhaustion_z", 2.0)
 
-        if (direction == "ABOVE" and cvd_change > expected_change * exhaustion_mult) or (
-            direction == "BELOW" and cvd_change < -expected_change * exhaustion_mult
+        if (direction == "ABOVE" and cvd_change > 0 and avg_velocity_z > exhaustion_z) or (
+            direction == "BELOW" and cvd_change < 0 and avg_velocity_z > exhaustion_z
         ):
             del self.pending_breaks[symbol]
             return None
 
-        # Divergencia
+        # Divergencia: CVD opposite or very weak relative to break direction
+        divergence_z = params.get("divergence_z", 0.5)
+
         if direction == "ABOVE":
-            is_divergent = cvd_change <= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
+            is_divergent = cvd_change <= 0 or avg_velocity_z < divergence_z
         else:
-            is_divergent = cvd_change >= 0 or abs(cvd_change) < expected_change * cvd_divergence_threshold
+            is_divergent = cvd_change >= 0 or avg_velocity_z < divergence_z
 
         if not is_divergent:
             del self.pending_breaks[symbol]

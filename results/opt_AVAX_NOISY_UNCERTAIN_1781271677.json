@@ -1,0 +1,26 @@
+{
+  "cluster": "AVAX_NOISY_UNCERTAIN",
+  "optimization_time_seconds": 0.0,
+  "best_score": 0.0,
+  "baseline": {
+    "net_taker": -0.6043598371480352,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 0.6949798630778784,
+    "total_signals": 225
+  },
+  "best_params": {},
+  "validation": {
+    "coins": {
+      "AVAX/USDT:USDT": {
+        "net_taker": 0,
+        "root_cause": "FAILED"
+      }
+    },
+    "cluster_avg_net_taker": 0.0,
+    "coins_passed": 0,
+    "coins_total": 1,
+    "passed": false
+  },
+  "sensitivity": {},
+  "top_trials": []
+}

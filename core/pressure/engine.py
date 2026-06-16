@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -12,10 +13,13 @@ class PressureState:
     imbalance_ratio: float = 0.0
     volatility_z: float = 0.0
     absorption_score: float = 0.0
+    absorption_score_v2: float = 0.0
     timestamp: float = 0.0
     price_displacement_z: float = 0.0
     block_long: bool = False
     block_short: bool = False
+    z_concentration: float = 0.0
+    z_noise: float = 0.0
 
 
 class CoinPressureEngine:
@@ -32,6 +36,15 @@ class CoinPressureEngine:
         self.current_cvd = 0.0
         self.cvd_history = deque(maxlen=200)
         self.velocity_zscore = RollingZScore(window_size=200)
+        self.concentration_zscore = RollingZScore(window_size=500)
+        self.noise_zscore = RollingZScore(window_size=500)
+        self._trade_aggr_window = deque(maxlen=100)
+        self._window_buy_vol = 0.0
+        self._window_sell_vol = 0.0
+
+        # Legacy params for absorption_score (retained for signal dict backward compat)
+        self.concentration_min = 0.50
+        self.noise_max = 0.35
 
         self._load_params()
 
@@ -46,17 +59,20 @@ class CoinPressureEngine:
             from decision.engine.profile_manager import profile_manager
 
             params = profile_manager.get_sensor_params(self.symbol, "absorption_detector")
-            self.concentration_min = params.get("concentration_min", 0.50) if params else 0.50
-            self.noise_max = params.get("noise_max", 0.35) if params else 0.35
             self.stagnation_floor_pct = params.get("stagnation_floor_pct", 0.0008) if params else 0.0008
             self.book_bucket_pct = params.get("book_bucket_pct", 0.0) if params else 0.0
 
             # Load z_block from pressure_thresholds in profile
             pressure_params = profile_manager.get_pressure_thresholds(self.symbol)
             self.z_block = pressure_params.get("z_block", 2.0) if pressure_params else 2.0
-        except Exception:
-            self.concentration_min = 0.50
-            self.noise_max = 0.35
+        except ImportError:
+            # profile_manager no disponible — valores por defecto
+            self.stagnation_floor_pct = 0.0008
+            self.book_bucket_pct = 0.0
+            self.z_block = 2.0
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.exception("Error loading params for %s: %s", self.symbol, e)
             self.stagnation_floor_pct = 0.0008
             self.book_bucket_pct = 0.0
             self.z_block = 2.0
@@ -67,8 +83,10 @@ class CoinPressureEngine:
         if qty > 0:
             if is_buyer_maker:
                 self.current_cvd -= qty
+                buy_qty, sell_qty = 0.0, qty
             else:
                 self.current_cvd += qty
+                buy_qty, sell_qty = qty, 0.0
 
             self.cvd_history.append((ts, self.current_cvd))
             self.last_state.cvd_delta = self.current_cvd
@@ -79,6 +97,15 @@ class CoinPressureEngine:
                     raw_velocity = abs(self.current_cvd - self.cvd_history[-2][1]) / dt
                     self.velocity_zscore.update(raw_velocity)
                     self.last_state.cvd_velocity = self.velocity_zscore.get_zscore(raw_velocity)
+
+            # Trade flow window for concentration/noise
+            if len(self._trade_aggr_window) == self._trade_aggr_window.maxlen:
+                old_buy, old_sell = self._trade_aggr_window[0]
+                self._window_buy_vol -= old_buy
+                self._window_sell_vol -= old_sell
+            self._trade_aggr_window.append((buy_qty, sell_qty))
+            self._window_buy_vol += buy_qty
+            self._window_sell_vol += sell_qty
 
         price_diff_pct = abs(price - self.last_price) / self.last_price if self.last_price > 0 else 0.0
         is_high_delta = abs(self.last_state.cvd_velocity) > 0.1
@@ -119,15 +146,58 @@ class CoinPressureEngine:
                         noise = 0.0
 
                 if total_vol > 0:
+                    # Legacy score (umbrales fijos)
                     conc_norm = max(
                         0, (concentration - self.concentration_min) / max(1 - self.concentration_min, 0.001)
                     )
                     noise_norm = max(0, (self.noise_max - noise) / max(self.noise_max, 0.001))
                     self.last_state.absorption_score = min(1.0, (conc_norm * noise_norm) ** 0.5)
+
+                    # Z-score auto-calibrado (Fase 1+2)
+                    self.concentration_zscore.update(concentration)
+                    self.noise_zscore.update(noise)
+                    self.last_state.z_concentration = self.concentration_zscore.get_zscore(concentration)
+                    self.last_state.z_noise = self.noise_zscore.get_zscore(noise)
+
+                    if self.concentration_zscore.is_ready and self.noise_zscore.is_ready:
+                        z_conc = self.last_state.z_concentration
+                        z_noise = self.last_state.z_noise
+                        z_absorption = max(0.0, z_conc) + max(0.0, -z_noise)
+                        self.last_state.absorption_score_v2 = min(1.0, z_absorption / 6.0)
+                    else:
+                        self.last_state.absorption_score_v2 = tick_absorption
+
+                    self.absorption_snapshots += 1
                 else:
                     self.last_state.absorption_score = tick_absorption
+                    self.last_state.absorption_score_v2 = tick_absorption
         else:
-            self.last_state.absorption_score = tick_absorption
+            total_trade = self._window_buy_vol + self._window_sell_vol
+            if total_trade > 0:
+                concentration = max(self._window_buy_vol, self._window_sell_vol) / total_trade
+                noise = min(self._window_buy_vol, self._window_sell_vol) / total_trade
+
+                conc_norm = max(0, (concentration - self.concentration_min) / max(1 - self.concentration_min, 0.001))
+                noise_norm = max(0, (self.noise_max - noise) / max(self.noise_max, 0.001))
+                self.last_state.absorption_score = min(1.0, (conc_norm * noise_norm) ** 0.5)
+
+                self.concentration_zscore.update(concentration)
+                self.noise_zscore.update(noise)
+                self.last_state.z_concentration = self.concentration_zscore.get_zscore(concentration)
+                self.last_state.z_noise = self.noise_zscore.get_zscore(noise)
+
+                if self.concentration_zscore.is_ready and self.noise_zscore.is_ready:
+                    z_conc = self.last_state.z_concentration
+                    z_noise = self.last_state.z_noise
+                    z_absorption = max(0.0, z_conc) + max(0.0, -z_noise)
+                    self.last_state.absorption_score_v2 = min(1.0, z_absorption / 6.0)
+                else:
+                    self.last_state.absorption_score_v2 = tick_absorption
+
+                self.absorption_snapshots += 1
+            else:
+                self.last_state.absorption_score = tick_absorption
+                self.last_state.absorption_score_v2 = tick_absorption
 
         if self.last_price > 0:
             ret = price / self.last_price - 1
@@ -178,6 +248,9 @@ class CoinPressureEngine:
     def get_state(self) -> PressureState:
         return self.last_state
 
+    def zscore_velocity(self, raw_velocity: float) -> float:
+        return self.velocity_zscore.get_zscore(raw_velocity)
+
 
 class PressureEngine:
     """
@@ -207,6 +280,9 @@ class PressureEngine:
 
     def get_state(self, symbol: str) -> PressureState:
         return self._get(symbol).get_state()
+
+    def zscore_velocity(self, symbol: str, raw_velocity: float) -> float:
+        return self._get(symbol).zscore_velocity(raw_velocity)
 
     def update_from_orderbook(self, symbol: str, bids: list, asks: list, ts: float) -> None:
         self._get(symbol).update_from_orderbook(bids, asks, ts)

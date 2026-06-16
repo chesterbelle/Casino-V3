@@ -130,15 +130,15 @@ def discover_all_symbols():
     symbols = set()
     for f in files:
         name = os.path.basename(f).replace(".db", "")
-        # LTC regime format: LTC_REGIME_YYYY-MM-DD
-        if name.startswith("LTC_"):
-            symbols.add("LTC/USDT:USDT")
-            continue
-        # Regular format: YYYY-MM-DD_SYMUSDT
-        # Remove date prefix (10 chars + 1 underscore)
-        raw = name[11:] if len(name) > 11 and name[4] == "-" else name
-        sym = format_ccxt_symbol(raw)
-        symbols.add(sym)
+        # Format: COINUSDT_REGIME_YYYY-MM-DD or LTC_REGIME_YYYY-MM-DD
+        # Extract symbol prefix before first regime suffix
+        for sep in ("_TREND_", "_BALANCE_"):
+            idx = name.find(sep)
+            if idx != -1:
+                raw = name[:idx]
+                sym = format_ccxt_symbol(raw)
+                symbols.add(sym)
+                break
     return sorted(symbols)
 
 
@@ -194,7 +194,8 @@ def format_ccxt_symbol(sym):
     if sym.endswith("USDT"):
         base = sym[:-4]
         return f"{base}/USDT:USDT"
-    return sym
+    # Bare ticker (e.g. LTC) → assume USDT pair
+    return f"{sym}/USDT:USDT"
 
 
 def run_backtest(task_config):

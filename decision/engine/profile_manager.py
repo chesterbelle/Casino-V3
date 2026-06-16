@@ -5,13 +5,34 @@ Loads and provides profile-specific parameters per symbol for the Crystal Layer.
 Each coin is assigned a profile, and all components use that symbol's profile parameters.
 """
 
+import json
 import logging
 import os
 from typing import Any, Dict
 
 from config.coin_profiles import COIN_PROFILES, DEFAULT_PROFILE
 
-logger = logging.getLogger("ProfileManager")
+# If OPT_PROFILE_OVERRIDES is set (Optuna trial override), apply param overrides
+# on top of the base profiles. Format: JSON string of
+# {"profile_name": {"dot.separated.path": value, ...}}
+_logger = logging.getLogger("ProfileManager")
+_opt_overrides = os.environ.get("OPT_PROFILE_OVERRIDES")
+if _opt_overrides:
+    try:
+        parsed = json.loads(_opt_overrides)
+        for profile_name, overrides in parsed.items():
+            if profile_name in COIN_PROFILES:
+                for key, value in overrides.items():
+                    parts = key.split(".")
+                    d = COIN_PROFILES[profile_name]
+                    for part in parts[:-1]:
+                        d = d.setdefault(part, {})
+                    d[parts[-1]] = value
+                _logger.info(f"📋 [PROFILE] Applied {len(overrides)} overrides to {profile_name}")
+    except (json.JSONDecodeError, TypeError, KeyError) as e:
+        _logger.warning(f"⚠️ Failed to apply OPT_PROFILE_OVERRIDES: {e}")
+
+logger = _logger
 
 
 class ProfileManager:

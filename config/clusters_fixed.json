@@ -41,6 +41,15 @@
       ],
       "n_members": 1
     },
+    "LTC_NOISY_UNCERTAIN_1": {
+      "centroid": {
+        "eff_abs": 0.3443,
+        "vel_rev": 0.0,
+        "pers_brk": 0.3443
+      },
+      "members": ["LTC/USDT:USDT"],
+      "n_members": 1
+    },
     "NOISY_UNCERTAIN_1": {
       "centroid": {
         "eff_abs": 0.0,
@@ -50,7 +59,6 @@
       "members": [
         "XRP/USDT:USDT",
         "DOGE/USDT:USDT",
-        "LTC/USDT:USDT",
         "BNB/USDT:USDT",
         "BTC/USDT:USDT",
         "ADA/USDT:USDT",
@@ -58,7 +66,7 @@
         "ARB/USDT:USDT",
         "OP/USDT:USDT"
       ],
-      "n_members": 9
+      "n_members": 8
     }
   }
 }
