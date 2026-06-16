@@ -6,6 +6,65 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-15 SESSION V2] — 8 Fixes from External Audit: CVD Sessionized, VA Maturity Gate, Spoofing Persistence, Slim Exit Pillars, Conflict Resolution (Branch: 8.8-crystal-layer-refactor)
+
+#### Summary
+Implementados 8 fixes derivados de la auditoría externa del código. Se corrigieron bugs críticos en market_profile (SortedList duplicado), se sesionizó el CVD (reset por ventana de liquidez), se añadió un gate de madurez de Value Area (va_integrity < 0.15 bloquea señales), se implementó filtro de volumen mínimo en absorption_detector, se añadió persistencia de spoofing walls (≥3 snapshots), se resolvió conflictos de señales con convicción (priority × score), y se implementaron 3 slim exit pillars (Break-Even, Trailing Stop, Time Decay). Se eliminaron 3 documentos de análisis.
+
+#### Actions
+
+1. **Bug fix: SortedList duplicate insert**: `core/market_profile.py` — `_add_trade()` insertaba el mismo trade dos veces (append + add). Se eliminó el `self.trades.append(trade)` redundante. El trade ahora se inserta solo vía `self.trades.add(trade)`.
+
+2. **CVD Sessionized**: `core/pressure/engine.py` — `cvd_session` se resetea al inicio de cada ventana de liquidez (cuando un nuevo perfil VA se inicia). `_update_cvd_session()` usa `window_start` para detectar el cambio. El side (bid/ask) del CVD ahora se define contra `cvd_session_delta` en vez del CVD acumulado absoluto.
+
+3. **VA Maturity Gate**: `core/pressure/engine.py` — Nuevo método `_check_va_maturity()` que calcula `va_integrity` como ratio de candles dentro del VA sobre el total en la ventana actual. Si `va_integrity < 0.15`, el pressure score se fuerza a 0.0 y el CVD side se congela. Esto evita señales en VA inmaduros (<~4 candles).
+
+4. **Volume Minimum Guard**: `sensors/absorption/absorption_detector.py` — Nuevo parámetro `volume_min_usd` (default 100,000 USD) en el perfil. `_get_params()` lo extrae como `absorption_score_min`. Si el volumen del tick es menor, se ignora la señal.
+
+5. **L2 Spoofing Persistence**: `core/pressure/engine.py` — `_consolidate_l2()` ahora lleva un `_wall_persistence` dict que rastrea cuántos snapshots consecutivos tiene cada wall. Solo considera walls con `persistence >= 3` snapshots. Walls que desaparecen se decrementan.
+
+6. **Conflict Resolution**: `decision/engine/core.py` — Nuevo método `_resolve_scenario_conflicts()` en `DecisionEngineCore`. Por cada símbolo, recolecta todas las señales activas de los 4 escenarios, las agrupa por side (LONG/SHORT). Para cada side, la señal ganadora es la de mayor `conviction = priority × score`. Se añadió `priority` fijo por escenario: FailedBreakout=4, LiquidityExhaustion=3, TrendAcceptance=2, TacticalAbsorption=1.
+
+7. **Slim Exit Pillars (3 implementados)**:
+   - **Break-Even**: `croupier/components/slim_exit_engine.py` — Cuando el precio supera `break_even_trigger_pct` (default 80% del camino a TP), el SL se mueve a entry price + slippage.
+   - **Trailing Stop**: Cuando el precio alcanza `trailing_activation_pct` (default 60% de TP), se activa un trailing de `trailing_distance_pct` (default 30% del recorrido desde activación).
+   - **Time Decay**: Si el trade excede `max_trade_duration_seconds` (default 7200s = 2h), el TP y SL se comprimen linealmente hasta converger en `expiry_ratio` sobre entry price.
+   - Parámetros añadidos a `config/coin_profiles.py` para los 5 perfiles con valores por defecto.
+
+8. **Confidence Scoring (scenarios)**: `decision/scenarios/failed_breakout.py`, `liquidity_exhaustion.py`, `trend_acceptance.py` — Cada escenario ahora retorna un `confidence_score` (0.0-1.0) en el dict de señal. Basado en la fuerza relativa del patrón detectado.
+
+9. **Deleted analysis documents**: `docs/analisis-edge-opus.md`, `docs/analisis-edge-gemini.md`, `docs/analisis-edge-qwen.md` — Documentos de análisis externo que ya no son necesarios.
+
+#### Files Modified
+- `core/market_profile.py` — Removed duplicate `self.trades.append(trade)`
+- `core/pressure/engine.py` — CVD sessionized, VA maturity gate, L2 spoofing persistence
+- `sensors/absorption/absorption_detector.py` — Volume minimum guard (volume_min_usd)
+- `decision/engine/core.py` — Conflict resolution with conviction = priority × score
+- `decision/engine/scenario_manager.py` — Passes priority, collects conflict-free signals
+- `decision/scenarios/failed_breakout.py` — Returns confidence_score
+- `decision/scenarios/liquidity_exhaustion.py` — Returns confidence_score
+- `decision/scenarios/trend_acceptance.py` — Returns confidence_score
+- `croupier/components/slim_exit_engine.py` — Break-Even, Trailing Stop, Time Decay pillars
+- `config/coin_profiles.py` — Added break_even, trailing, time_decay, volume_min_usd params
+- `core/context_registry.py` — Black reformatting
+- `tests/test_market_profile.py` — Test for no duplicate trades
+- `tests/test_quality_scorer_fix.py` — Existing test, black reformatting
+- `docs/analisis-edge-opus.md` (deleted)
+- `docs/analisis-edge-gemini.md` (deleted)
+- `docs/analisis-edge-qwen.md` (deleted)
+
+#### Commit
+```
+2da9833 fix: implement 8 fixes from external audit — CVD sessionized, VA maturity gate, spoofing filter, slim exit pillars, conflict resolution
+```
+
+#### Next Steps
+- Ejecutar backtests multi-coin con los 84 datasets certificados para validar que los 8 fixes no introducen regresiones
+- Optimizar parámetros de slim exit pillars por cluster (break_even, trailing, time_decay)
+- Validar que conflict resolution no está bloqueando señales válidas en condiciones de mercado extremas
+
+---
+
 ### [2026-06-15 SESSION] — Dataset Pipeline Completion: 84 Certified Datasets (2/2/2 per Symbol) (Branch: main)
 
 #### Summary
