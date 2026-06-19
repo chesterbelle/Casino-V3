@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Layer 0.E: SlimExitEngine Pillar Math Validator
-------------------------------------------------
+Layer 0.E: SlimExitEngine Pillar Math Validator (Universal)
+----------------------------------------------------------
 Validates each SlimExitEngine pillar computes correct exit decisions in isolation.
 
 Tests (no real Croupier / SensorManager):
-  1. Profile resolution (BLUE_CHIP vs DEFAULT fallback)
-  2. Pillar 4: Micro-Z Reversal
-  3. Pillar 1: Scale-out at ATR target
+  1. Pillar 3: Micro-Z Reversal (abs ΔZ)
+  2. Pillar 1: Time Decay
+  3. Pillar 2: Break Even
   4. Patience lock grace period skips tactical processing
 
 Usage:
@@ -61,14 +61,10 @@ class MockCroupier:
         self.context_registry = context_registry
         self.position_tracker = MockPositionTracker()
         self.close_calls = []
-        self.scale_out_calls = []
         self.modify_sl_calls = []
 
     async def close_position(self, trade_id, exit_reason="", prefer_maker=False):
         self.close_calls.append((trade_id, exit_reason, prefer_maker))
-
-    async def scale_out_structural(self, trade_id, fraction=0.5, reason=""):
-        self.scale_out_calls.append((trade_id, fraction, reason))
 
     async def modify_sl(self, trade_id, new_sl_price, symbol):
         self.modify_sl_calls.append((trade_id, new_sl_price, symbol))
@@ -82,7 +78,6 @@ def make_position(
     timestamp=0.0,
     entry_atr=1.0,
     entry_z=None,
-    scaled_out=False,
     be_activated=False,
     shadow_sl_level=None,
 ):
@@ -101,16 +96,11 @@ def make_position(
         amount=1.0,
     )
     pos.entry_atr = entry_atr
-    pos.scaled_out = scaled_out
     pos.be_activated = be_activated
     pos.shadow_sl_level = shadow_sl_level
     if entry_z is not None:
         pos.entry_z = entry_z
     return pos
-
-
-def blue_chip_profile():
-    return trading_config.ASSET_EXIT_PROFILES["BLUE_CHIP"]
 
 
 def slim_engine(croupier=None):
@@ -124,37 +114,20 @@ def slim_engine(croupier=None):
 # =========================================================
 
 
-def test_profile_resolution():
-    print("\n" + "=" * 60)
-    print(" PROFILE RESOLUTION")
-    print("=" * 60)
-
-    engine = slim_engine()
-    profile = engine._get_profile("BTC/USDT")
-    if profile is trading_config.ASSET_EXIT_PROFILES["BLUE_CHIP"]:
-        ok("BTC/USDT → BLUE_CHIP profile")
-    else:
-        fail("BTC/USDT should resolve to BLUE_CHIP")
-
-    default = engine._get_profile("UNKNOWNCOIN")
-    if default is trading_config.ASSET_EXIT_PROFILES["DEFAULT"]:
-        ok("Unknown symbol → DEFAULT profile")
-
-
 async def test_micro_z_reversal():
     print("\n" + "=" * 60)
-    print(" PILAR 4: MICRO-Z REVERSAL (abs ΔZ)")
+    print(" PILAR 3: MICRO-Z REVERSAL (abs ΔZ)")
     print("=" * 60)
 
-    profile = blue_chip_profile()
-    threshold = profile["micro_z_reversal"]["threshold"]
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    threshold = rules["micro_z_reversal"]["threshold"]
 
     # LONG: entry_z=-3, abs(current_z - entry_z) > threshold
     ctx = MockContextRegistry(z=-3.0 + threshold + 1.0)
     croupier = MockCroupier(context_registry=ctx)
     engine = slim_engine(croupier)
     pos = make_position(side="LONG", entry_z=-3.0)
-    triggered = engine._check_micro_z_reversal(pos, profile)
+    triggered = engine._check_micro_z_reversal(pos)
     if triggered and pos.trade_id in engine._pending_terminations:
         ok(f"LONG abs(ΔZ) > {threshold} → invalidation + pending termination")
     else:
@@ -166,7 +139,7 @@ async def test_micro_z_reversal():
     croupier2 = MockCroupier(context_registry=ctx2)
     engine2 = slim_engine(croupier2)
     pos2 = make_position(side="SHORT", entry_z=3.0)
-    triggered2 = engine2._check_micro_z_reversal(pos2, profile)
+    triggered2 = engine2._check_micro_z_reversal(pos2)
     if triggered2:
         ok(f"SHORT abs(ΔZ) > {threshold} → invalidation")
     else:
@@ -177,7 +150,7 @@ async def test_micro_z_reversal():
     croupier3 = MockCroupier(context_registry=ctx3)
     engine3 = slim_engine(croupier3)
     pos3 = make_position(side="LONG", entry_z=-3.0)
-    if not engine3._check_micro_z_reversal(pos3, profile):
+    if not engine3._check_micro_z_reversal(pos3):
         ok(f"LONG abs(ΔZ) < {threshold} → no invalidation")
     else:
         fail("LONG Micro-Z should NOT trigger (within threshold)")
@@ -187,63 +160,81 @@ async def test_micro_z_reversal():
     croupier4 = MockCroupier(context_registry=ctx4)
     engine4 = slim_engine(croupier4)
     pos4 = make_position(side="SHORT", entry_z=3.0)
-    if not engine4._check_micro_z_reversal(pos4, profile):
+    if not engine4._check_micro_z_reversal(pos4):
         ok("abs(ΔZ) within threshold → no invalidation")
     else:
         fail("Small abs(ΔZ) should not invalidate")
 
 
-async def test_scale_out():
+async def test_time_decay():
     print("\n" + "=" * 60)
-    print(" PILLAR 1: SCALE OUT")
+    print(" PILAR 1: TIME DECAY")
     print("=" * 60)
 
-    profile = blue_chip_profile()
-    at_atr = profile["scale_out"]["at_atr"]
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    max_hold = rules["time_decay"]["max_hold_seconds"]
+
     croupier = MockCroupier()
     engine = slim_engine(croupier)
-    pos = make_position(side="LONG", entry_price=100.0, entry_atr=2.0)
+    pos = make_position(trade_id="td_001")
 
-    target_price = 100.0 + 2.0 * at_atr
-    hit = await engine._check_scale_out(pos, target_price, profile)
-    if hit and pos.scaled_out:
-        ok(f"Scale-out at {at_atr}×ATR marks scaled_out=True")
+    # Inside max hold limit
+    triggered = engine._check_time_decay(pos, max_hold - 10.0)
+    if not triggered:
+        ok("Elapsed < max_hold → hold position")
     else:
-        fail("Scale-out should trigger at ATR distance")
+        fail("Should not trigger time decay before max_hold_seconds")
 
-    await asyncio.sleep(0.05)
-    if len(croupier.scale_out_calls) == 1:
-        tid, fraction, reason = croupier.scale_out_calls[0]
-        if tid == pos.trade_id and fraction == profile["scale_out"]["fraction"] and reason == "SO_TARGET_REACHED":
-            ok("Scale-out schedules scale_out_structural with correct fraction")
-        else:
-            fail(f"Unexpected scale_out call: {croupier.scale_out_calls}")
+    # Exceeding max hold limit
+    triggered2 = engine._check_time_decay(pos, max_hold + 10.0)
+    if triggered2 and pos.trade_id in engine._pending_terminations:
+        ok(f"Elapsed > {max_hold}s → time decay triggered")
     else:
-        fail("Scale-out should enqueue scale_out_structural")
+        fail("Should trigger time decay when exceeding limit")
 
-    # Already scaled — on_tick skips pillar (guard is in on_tick, not _check_scale_out)
-    croupier2 = MockCroupier()
-    pos2 = make_position(
-        scaled_out=True,
-        entry_atr=2.0,
-        timestamp=time.time() - 30.0,
-        trade_id="so_repeat",
-    )
-    croupier2.position_tracker.open_positions = [pos2]
-    engine2 = slim_engine(croupier2)
-    tick = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=target_price)
-    await engine2.on_tick(tick)
-    await asyncio.sleep(0.05)
-    if len(croupier2.scale_out_calls) == 0:
-        ok("scaled_out=True → on_tick skips scale-out pillar")
-    else:
-        fail("Should not scale out twice when scaled_out=True")
 
-    pos3 = make_position(entry_atr=0.0)
-    if not await engine._check_scale_out(pos3, target_price, profile):
-        ok("entry_atr=0 → scale-out skipped")
+async def test_break_even():
+    print("\n" + "=" * 60)
+    print(" PILAR 2: BREAK EVEN")
+    print("=" * 60)
+
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    trigger_pct = rules["break_even"]["trigger_pct"]
+    fee_friction = rules["break_even"]["fee_friction"]
+
+    croupier = MockCroupier()
+    engine = slim_engine(croupier)
+    pos = make_position(side="LONG", entry_price=100.0)
+    tp_pct = 0.01  # 1% TP from tp_level (101.0) vs entry_price (100.0)
+
+    # 1. Trigger threshold not met (below 50% of TP target)
+    pnl_unmet_price = 100.0 + (100.0 * tp_pct * trigger_pct * 0.8)
+    triggered = engine._check_break_even(pos, pnl_unmet_price)
+    if not triggered and not engine._pillar_state.get(pos.trade_id, {}).get("breakeven_activated", False):
+        ok("Trigger pct not met → BE not activated")
     else:
-        fail("Zero ATR should skip scale-out")
+        fail("BE should not activate yet")
+
+    # 2. Trigger threshold met (at 50% of TP target)
+    pnl_met_price = 100.0 + (100.0 * tp_pct * trigger_pct)
+    triggered2 = engine._check_break_even(pos, pnl_met_price)
+    state = engine._pillar_state.get(pos.trade_id, {})
+    expected_be_price = 100.0 * (1 + fee_friction)
+    if (
+        not triggered2
+        and state.get("breakeven_activated", False)
+        and abs(state.get("breakeven_price", 0.0) - expected_be_price) < 1e-5
+    ):
+        ok(f"Trigger pct met → BE activated at {expected_be_price:.4f}")
+    else:
+        fail("BE should be activated but not triggered exit yet")
+
+    # 3. Price drops to BE level
+    triggered3 = engine._check_break_even(pos, expected_be_price - 0.01)
+    if triggered3 and pos.trade_id in engine._pending_terminations:
+        ok("Price hit BE level → BREAK_EVEN exit triggered")
+    else:
+        fail("Price hitting BE should trigger exit")
 
 
 async def test_on_tick_grace_and_pending():
@@ -262,7 +253,7 @@ async def test_on_tick_grace_and_pending():
     tick = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=120.0)
     await engine.on_tick(tick)
     await asyncio.sleep(0.05)
-    if len(croupier.close_calls) == 0 and len(croupier.scale_out_calls) == 0:
+    if len(croupier.close_calls) == 0:
         ok(f"Elapsed < {grace}s → pillars skipped (patience lock)")
     else:
         fail("Patience lock should block tactical exits")
@@ -294,13 +285,13 @@ async def test_on_tick_grace_and_pending():
 
 async def main():
     print("=" * 60)
-    print(" SLIM EXIT ENGINE VALIDATOR (Layer 0.E)")
+    print(" SLIM EXIT ENGINE VALIDATOR (Layer 0.E) - Universal")
     print(" Tests each pillar's math independently")
     print("=" * 60)
 
-    test_profile_resolution()
     await test_micro_z_reversal()
-    await test_scale_out()
+    await test_time_decay()
+    await test_break_even()
     await test_on_tick_grace_and_pending()
 
     print("\n" + "=" * 60)

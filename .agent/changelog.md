@@ -6,6 +6,50 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-19 SESSION] — SlimExitEngine V10.3 Universal: Scale Out & Trailing Eliminated, 4 Universal Pillars (Branch: 8.8-crystal-layer-refactor)
+
+#### Summary
+Refactorización completa del SlimExitEngine siguiendo las conclusiones del análisis externo (`docs/analisis_slim_exit_engine.md`). Se eliminó el curve-fitting de perfiles por moneda (`ASSET_EXIT_PROFILES`) y se reemplazó por reglas universales (`UNIVERSAL_EXIT_RULES`). Se eliminaron los pilares contraproducentes de **Scale Out** (erosiona R/R) y **Trailing Stop** (vulnerable a sweeps). Se preservaron solo los 3 pilares de protección estructural: Break Even, Time Decay y Micro-Z Reversal, todos con ejecución 100% Maker-Join.
+
+#### Actions
+1. **`config/trading.py`**: Reemplazado `ASSET_EXIT_PROFILES` (BLUE_CHIP, LIQUID_ALT, HIGH_BETA, DEFAULT) por `UNIVERSAL_EXIT_RULES` — un único diccionario con parámetros de break_even, micro_z_reversal, time_decay y execution_strategy. Adiós al curve-fitting por ticker.
+
+2. **`croupier/components/slim_exit_engine.py`**:
+   - Eliminado `_get_profile()` y `self._profile_cache` — el engine ya no sabe ni le interesa qué moneda está cerrando.
+   - Eliminado pilar **Scale Out** (partial profit): destruye el R/R efectivo (ej. TP 2.4% con 50% a 1.2% → R/R cae de 0.96 a 0.72, exigiendo +7% más de Win Rate para ser rentable).
+   - Eliminado pilar **Trailing Stop**: vulnerable a liquidity sweeps en cripto, cierra posiciones viables por ruido de microestructura.
+   - Simplificado `on_tick`: solo 3 pilares secuenciales — Time Decay → Break Even → Micro-Z Reversal.
+   - Calculado `tp_pct` dinámicamente desde `position.tp_level` vs `entry_price` (solución a `__slots__` que impedía `setattr`).
+   - Preservado `_execute_limit_close()` con 100% Maker-Join (LIMIT orders para rebates y cero slippage).
+
+3. **`utils/validators/exit_engine_validator.py`**: Eliminados tests de profile resolution y scale-out. Añadidos tests para Time Decay y Break Even. Simplificados mocks.
+
+4. **`utils/validators/exit_engine_integration_validator.py`**: Eliminado test de scale-out. Añadidos tests de Time Decay y Break Even triggers. Actualizado pillar priority test (Time Decay → Break Even).
+
+#### Hallazgos Técnicos
+- **OpenPosition usa `__slots__`**: No permite `setattr` para `tp_pct`. Solucionado calculando `tp_pct = abs(tp_level - entry_price) / entry_price` en runtime dentro de `_check_break_even()`.
+- **El analista tenía razón sobre Scale Out**: La matemática es implacable — para un sistema con TP=2.4%, SL=2.5%, agregar scale-out al 50% en 1.2% reduce el R/R efectivo de 0.96 a 0.72, incrementando el Win Rate mínimo de 51% a 58.1%.
+- **ASSET_EXIT_PROFILES era sobreoptimización**: Los 4 perfiles (BLUE_CHIP, LIQUID_ALT, HIGH_BETA, DEFAULT) no tenían validación estadística — eran reglas inventadas sin respaldo en datos de backtest.
+
+#### Validación
+- ✅ Layer 0.E (exit_engine_validator.py): 7/7 tests pasados (Micro-Z 4/4, Time Decay 2/2, Break Even 3/3, Grace Period + Pending Guard 2/2).
+- ✅ Layer 1.4 (exit_engine_integration_validator.py): 6/6 tests pasados (MZ close, TD close, BE close, priority, non-OPEN skip, grace lock).
+
+#### Files Modified
+- `config/trading.py` — `ASSET_EXIT_PROFILES` → `UNIVERSAL_EXIT_RULES`
+- `croupier/components/slim_exit_engine.py` — Rewrite completo: -3 pilares, +3 universales, sin perfiles
+- `utils/validators/exit_engine_validator.py` — Refactor para reglas universales
+- `utils/validators/exit_engine_integration_validator.py` — Refactor para reglas universales
+- `.agent/changelog.md` — Esta entrada
+- `.agent/memory.md` — Estado actualizado
+
+#### Próximos Pasos (pausa solicitada por usuario)
+- No ejecutar backtests multi-coin todavía — usuario solicitó pausa explícita antes de backtesting.
+- Pendiente: correr backtesting comparativo con los 84 datasets certificados para medir impacto del SlimExitEngine V10.3 vs V10.2.
+- Pendiente: validar que la eliminación de scale-out/trailing no afecta negativamente el Net Taker en perfiles THIN_VOLATILE e ILLIQUID_SPEC.
+
+---
+
 ### [2026-06-15 SESSION V2] — 8 Fixes from External Audit: CVD Sessionized, VA Maturity Gate, Spoofing Persistence, Slim Exit Pillars, Conflict Resolution (Branch: 8.8-crystal-layer-refactor)
 
 #### Summary
@@ -2311,6 +2355,49 @@ Se reconstruyó por completo `scripts/orchestrator.py` para solventar problemas 
 #### 5. Próximos Pasos
 1. **Validación de Clusters**: Analizar la distribución de `depth_ratio` y `spread_in_ticks` para definir los cortes finales de los 5 perfiles.
 2. **Cierre de la Tesis de Clasificación**: Confirmar si la separación estructural es suficiente para diferenciar la "elasticidad" de los activos.
+
+---
+### [2026-06-18 SESSION] — SOL Cascade Complete + Price=0 Bug + Guardian Param Discovery (Branch: 8.8-crystal-layer-refactor)
+
+#### Summary
+Completada la cascada paramétrica para SOL (4 escenarios). Se corrigió bug de price=0 en `trajectory_core.py`. Se descubrió que `guardians.l2_ratio_min_trend_acceptance` no estaba en PARAMETER_SPACE. Agregado y re-optimizado. trend_acceptance mejoró MFE/MAE de 0.35→0.56 — pendiente de más ajustes. SOL overall Net Taker +0.1354%.
+
+#### Actions
+1. **Bug fix: price=0 en trajectory_core**: `utils/trajectory_core.py:95` — 102 price_samples con price=0 en datasets 2026 corrompían min/max de trayectoria. Fix: `signal_data = signal_data[signal_data["price"] > 0]`.
+
+2. **SOL Optuna Cascade (4 escenarios)**: tactical_absorption +0.7509, failed_breakout +0.8117, liquidity_exhaustion +1.1207, trend_acceptance +0.6230 (resume de 60 iters, primera pasada).
+
+3. **Guardian param discovery**: Se identificó que `guardians.l2_ratio_min_trend_acceptance` (existente en todos los profiles) nunca estuvo en PARAMETER_SPACE. Agregado con rango `(0.5, 3.0, 0.1)`. También se actualizó `filter_parameter_space()` para incluir prefijo `guardians.`.
+
+4. **Re-optimización trend_acceptance SOL (post-fix + guardian)**: Trial 3 ganador: +0.2082 con l2_ratio_min=0.8, cooldown=570, min_candles=6, cvd=3.0. Aplicado al profile.
+
+5. **Orchestrator single-coin SOL**: 6/6 datasets (3338s). EdgeAuditor post-fix: MFE/MAE trend_acceptance subió de 0.35→0.56.
+
+#### Files Modified
+| Path | Change |
+|------|--------|
+| `utils/trajectory_core.py` | price > 0 filter en get_trajectory() |
+| `config/coin_profiles.py` | trend_acceptance params actualizados (cooldown 390→570, min_candles 3→6, cvd 3.5→3.0, l2_ratio_min_trend_acceptance 2.0→0.8) |
+| `scripts/cluster_optimizer.py` | guardian param en PARAMETER_SPACE; filter_parameter_space() ahora incluye guardianes |
+
+#### Key Findings
+- **Price=0**: Afecta solo datasets 2026 con klines vacías. Los 3 escenarios grandes (cientos de señales) no se vieron afectados; trend_acceptance (26 señales) sí.
+- **Guardian params ausentes en PARAMETER_SPACE**: LTC y SOL se optimizaron sin incluir guardianes per-scenario. Para futuras optimizaciones de otros clusters, incluirlos.
+- **l2_ratio_min_trend_acceptance a 0.8**: Mejor que 2.0 para SOL trend_acceptance según Optuna trial 3 (+0.2082).
+
+#### EdgeAuditor (SOL post-cascade)
+| Setup | n | MFE/MAE | Best Uniform Net | Estado |
+|-------|---|---------|-----------------|--------|
+| failed_breakout | 378 | 1.06 | +0.0601% | ✅ |
+| liquidity_exhaustion | 819 | 1.39 | +0.2661% | ✅ |
+| tactical_absorption | 60 | 0.38 | +0.1296% | ✅ |
+| trend_acceptance | 60 | 0.56 | -0.0567% | 🔧 en ajuste |
+| **Overall** | **1317** | — | **+0.1354%** | **✅** |
+
+#### Next Steps
+- Continuar ajustando trend_acceptance para SOL — edge existe, no encontrado aún
+- Para futuras optimizaciones de otros clusters, incluir guardianes per-scenario en PARAMETER_SPACE
+- Revisar TP/SL de tactical_absorption según EdgeAuditor
 
 ---
 ### [2026-06-01 SESSION] — Microstructure DNA Discovery & Profile Refactor (Branch: 8.6-Alphareloaded)

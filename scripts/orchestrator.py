@@ -88,7 +88,7 @@ def redraw_progress(completed, total, pending_count, mem_status, elapsed, recent
 PROTOCOLS = {
     "generalized": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
     "single-coin": {"run_type": "audit", "max_workers": 2, "skip_merge": True, "skip_clean": True},
-    "strategy": {"run_type": "trade", "max_workers": 1, "skip_merge": True},
+    "trade-mode": {"run_type": "trade", "max_workers": 1, "skip_merge": True},
     "probe": {"run_type": "audit", "max_workers": 4, "skip_merge": False, "skip_clean": True},
 }
 
@@ -247,7 +247,7 @@ def run_backtest(task_config):
         return False
 
 
-def build_tasks(protocol_name, symbol, filter_pattern, all_protocols):
+def build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset=None):
     config = all_protocols.get(protocol_name)
     tasks = []
 
@@ -293,6 +293,44 @@ def build_tasks(protocol_name, symbol, filter_pattern, all_protocols):
                     "run_type": config["run_type"],
                 }
             )
+    elif protocol_name == "trade-mode":
+        if dataset:
+            if not os.path.exists(dataset):
+                _p(f"❌ Dataset not found: {dataset}")
+                return tasks
+            db_file = os.path.basename(dataset)
+            # Extract symbol from filename: e.g. SOLUSDT_TREND_UP_2026-01-26.db → SOLUSDT
+            name = db_file.replace(".db", "")
+            raw_sym = name
+            for sep in ("_TREND_", "_BALANCE_"):
+                idx = name.find(sep)
+                if idx != -1:
+                    raw_sym = name[:idx]
+                    break
+            tasks.append(
+                {
+                    "task_id": db_file.replace(".db", ""),
+                    "db_path": dataset,
+                    "symbol": format_ccxt_symbol(raw_sym),
+                    "run_type": config["run_type"],
+                }
+            )
+        elif not symbol:
+            _p("❌ --symbol (or --dataset) required for trade-mode")
+            return tasks
+        else:
+            db_file = pick_recent_dataset(symbol, filter_pattern)
+            if not db_file:
+                _p(f"  ⚠️ No dataset for {symbol}")
+                return tasks
+            tasks.append(
+                {
+                    "task_id": db_file.replace(".db", ""),
+                    "db_path": os.path.join(DB_DIR, db_file),
+                    "symbol": format_ccxt_symbol(symbol),
+                    "run_type": config["run_type"],
+                }
+            )
     elif "datasets" in config:
         for db_file in config["datasets"]:
             path = os.path.join(DB_DIR, db_file)
@@ -335,7 +373,7 @@ def calculate_workers(protocol_workers, total_tasks):
     return max(protocol_workers, capped)
 
 
-def run_protocol(protocol_name, symbol=None, filter_pattern=None):
+def run_protocol(protocol_name, symbol=None, filter_pattern=None, dataset=None):
     all_protocols = {**PROTOCOLS, **discover_cluster_protocols()}
     config = all_protocols.get(protocol_name)
     if not config:
@@ -347,7 +385,7 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None):
     else:
         os.makedirs(LOG_DIR, exist_ok=True)
 
-    tasks = build_tasks(protocol_name, symbol, filter_pattern, all_protocols)
+    tasks = build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset)
     if not tasks:
         _p("❌ No tasks to run. Check dataset availability.")
         return
@@ -421,10 +459,14 @@ if __name__ == "__main__":
     parser.add_argument("--protocol", choices=list(all_protocols.keys()), required=True)
     parser.add_argument("--symbol", help="Symbol for single-coin")
     parser.add_argument("--filter", help="Filter pattern for datasets (e.g. 2025)")
+    parser.add_argument(
+        "--dataset",
+        help="Specific dataset path for trade-mode (e.g. data/datasets/backtest_ready/LTC_TREND_UP_2024-03.db)",
+    )
     args = parser.parse_args()
 
     try:
-        run_protocol(args.protocol, args.symbol, args.filter)
+        run_protocol(args.protocol, args.symbol, args.filter, args.dataset)
     except Exception as e:
         _p(f"\n❌ FATAL: {e}")
         sys.exit(1)

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Layer 1.4: SlimExitEngine + Croupier Integration Validator
-----------------------------------------------------------
+Layer 1.4: SlimExitEngine + Croupier Integration Validator (Universal)
+----------------------------------------------------------------------
 Validates SlimExitEngine triggers the correct Croupier callbacks via on_tick.
 
 Tests (SlimExitEngine ↔ Croupier):
   1. Micro-Z Reversal → close_position(MZ_REVERSAL, prefer_maker=True)
-  2. Scale-out → scale_out_structural(SO_TARGET_REACHED)
-  3. Pillar priority: Micro-Z reversal blocks Scale-out on same tick
-  4. Non-OPEN positions skipped
-  5. Patience lock grace period blocks early tactical exits
+  2. Time Decay → close_position(TIME_DECAY, prefer_maker=True)
+  3. Break Even → close_position(BREAK_EVEN, prefer_maker=True)
+  4. Pillar priority: Time Decay blocks Break-Even on the same tick
+  5. Non-OPEN positions skipped
+  6. Patience lock grace period blocks early tactical exits
 
 Usage:
     python utils/validators/exit_engine_integration_validator.py
@@ -61,17 +62,9 @@ class MockCroupier:
         self.context_registry = context_registry
         self.position_tracker = MockPositionTracker()
         self.close_calls = []
-        self.scale_out_calls = []
-        self.modify_sl_calls = []
 
     async def close_position(self, trade_id, exit_reason="", prefer_maker=False):
         self.close_calls.append((trade_id, exit_reason, prefer_maker))
-
-    async def scale_out_structural(self, trade_id, fraction=0.5, reason=""):
-        self.scale_out_calls.append((trade_id, fraction, reason))
-
-    async def modify_sl(self, trade_id, new_sl_price, symbol):
-        self.modify_sl_calls.append((trade_id, new_sl_price, symbol))
 
 
 def make_position(
@@ -80,11 +73,7 @@ def make_position(
     entry_price=100.0,
     trade_id="test_001",
     timestamp=None,
-    entry_atr=1.0,
     entry_z=None,
-    scaled_out=False,
-    be_activated=False,
-    shadow_sl_level=None,
     status="OPEN",
 ):
     if timestamp is None:
@@ -105,10 +94,6 @@ def make_position(
         amount=1.0,
     )
     pos.status = status
-    pos.entry_atr = entry_atr
-    pos.scaled_out = scaled_out
-    pos.be_activated = be_activated
-    pos.shadow_sl_level = shadow_sl_level
     if entry_z is not None:
         pos.entry_z = entry_z
     return pos
@@ -143,8 +128,8 @@ async def test_micro_z_reversal_triggers_close():
     print(" MICRO-Z REVERSAL → CROUPIER CLOSE")
     print("=" * 60)
 
-    profile = trading_config.ASSET_EXIT_PROFILES["BLUE_CHIP"]
-    threshold = profile["micro_z_reversal"]["threshold"]
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    threshold = rules["micro_z_reversal"]["threshold"]
     entry_z = -3.0
     ctx = MockContextRegistry(z=entry_z + threshold + 2.0)
 
@@ -172,39 +157,75 @@ async def test_micro_z_reversal_triggers_close():
         fail(f"Expected MZ close, got: {croupier.close_calls}")
 
 
-async def test_scale_out_triggers_structural():
+async def test_time_decay_triggers_close():
     print("\n" + "=" * 60)
-    print(" SCALE OUT → scale_out_structural")
+    print(" TIME DECAY → CROUPIER CLOSE")
     print("=" * 60)
 
-    profile = trading_config.ASSET_EXIT_PROFILES["BLUE_CHIP"]
-    at_atr = profile["scale_out"]["at_atr"]
-    fraction = profile["scale_out"]["fraction"]
-    entry_atr = 2.0
-    target_price = 100.0 + entry_atr * at_atr
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    max_hold = rules["time_decay"]["max_hold_seconds"]
 
     croupier = MockCroupier()
+    # Position entered longer than max_hold_seconds ago
     pos = make_position(
-        entry_price=100.0,
-        entry_atr=entry_atr,
-        trade_id="so_001",
-        timestamp=past_grace_timestamp(),
+        trade_id="td_001",
+        timestamp=time.time() - max_hold - 10.0,
     )
     croupier.position_tracker.open_positions = [pos]
     engine = slim_engine(croupier)
 
-    tick = make_tick(price=target_price)
+    tick = make_tick(price=100.0)
     await engine.on_tick(tick)
     await asyncio.sleep(0.15)
 
     found = any(
-        tid == "so_001" and frac == fraction and reason == "SO_TARGET_REACHED"
-        for tid, frac, reason in croupier.scale_out_calls
+        tid == "td_001" and reason == "TIME_DECAY" and prefer_maker
+        for tid, reason, prefer_maker in croupier.close_calls
     )
     if found:
-        ok(f"Scale-out → scale_out_structural({fraction:.0%}, SO_TARGET_REACHED)")
+        ok("Time decay → close_position(TIME_DECAY, prefer_maker=True)")
     else:
-        fail(f"Expected scale-out call, got: {croupier.scale_out_calls}")
+        fail(f"Expected TIME_DECAY close, got: {croupier.close_calls}")
+
+
+async def test_break_even_triggers_close():
+    print("\n" + "=" * 60)
+    print(" BREAK EVEN → CROUPIER CLOSE")
+    print("=" * 60)
+
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    trigger_pct = rules["break_even"]["trigger_pct"]
+    fee_friction = rules["break_even"]["fee_friction"]
+
+    croupier = MockCroupier()
+    pos = make_position(
+        trade_id="be_001",
+        side="LONG",
+        entry_price=100.0,
+        timestamp=past_grace_timestamp(),
+    )
+    tp_pct = 0.01
+    croupier.position_tracker.open_positions = [pos]
+    engine = slim_engine(croupier)
+
+    # 1. Trigger the BE activation (at 50% TP target)
+    pnl_met_price = 100.0 + (100.0 * tp_pct * trigger_pct)
+    await engine.on_tick(make_tick(price=pnl_met_price))
+    await asyncio.sleep(0.05)
+
+    # 2. Trigger the BE close (price drops to BE level)
+    be_price = 100.0 * (1 + fee_friction)
+    await engine.on_tick(make_tick(price=be_price - 0.01))
+    await asyncio.sleep(0.15)
+
+    found = any(
+        tid == "be_001" and reason == "BREAK_EVEN" and prefer_maker
+        for tid, reason, prefer_maker in croupier.close_calls
+    )
+    if found:
+        ok("Break-even hit → close_position(BREAK_EVEN, prefer_maker=True)")
+    else:
+        fail(f"Expected BREAK_EVEN close, got: {croupier.close_calls}")
 
 
 async def test_pillar_priority_single_tick():
@@ -212,37 +233,39 @@ async def test_pillar_priority_single_tick():
     print(" PILLAR PRIORITY → ONE ACTION PER TICK")
     print("=" * 60)
 
-    profile = trading_config.ASSET_EXIT_PROFILES["BLUE_CHIP"]
-    threshold = profile["micro_z_reversal"]["threshold"]
-    at_atr = profile["scale_out"]["at_atr"]
-    entry_z = -3.0
-    entry_atr = 2.0
-    # abs(ΔZ) > threshold → MZ fires, SO skipped
-    z = entry_z + threshold + 1.0
-    ctx = MockContextRegistry(z=z)
+    # Time Decay has priority over Break Even
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    max_hold = rules["time_decay"]["max_hold_seconds"]
+    fee_friction = rules["break_even"]["fee_friction"]
 
-    croupier = MockCroupier(context_registry=ctx)
-    scale_out_price = 100.0 + entry_atr * at_atr
+    croupier = MockCroupier()
+    # Trigger time decay by having old timestamp
     pos = make_position(
-        side="LONG",
-        entry_z=entry_z,
-        entry_atr=entry_atr,
-        entry_price=100.0,
         trade_id="prio_001",
-        timestamp=past_grace_timestamp(),
+        side="LONG",
+        entry_price=100.0,
+        timestamp=time.time() - max_hold - 10.0,
     )
     croupier.position_tracker.open_positions = [pos]
     engine = slim_engine(croupier)
 
-    await engine.on_tick(make_tick(price=scale_out_price))
+    # Set state as breakeven already activated
+    be_price = 100.0 * (1 + fee_friction)
+    engine._pillar_state["prio_001"] = {
+        "breakeven_activated": True,
+        "breakeven_price": be_price,
+    }
+
+    # Tick at BE price to trigger Break Even, while Time Decay is also triggered
+    await engine.on_tick(make_tick(price=be_price - 0.01))
     await asyncio.sleep(0.15)
 
-    closes = [c for c in croupier.close_calls if c[0] == "prio_001"]
-    scale_outs = [s for s in croupier.scale_out_calls if s[0] == "prio_001"]
-    if len(closes) == 1 and closes[0][1] == "MZ_REVERSAL" and len(scale_outs) == 0:
-        ok("Micro-Z reversal fires; scale-out skipped on same tick (pillar priority)")
+    # Since Time Decay is evaluated first, it should close via TIME_DECAY and stop tick evaluation
+    closes = croupier.close_calls
+    if len(closes) == 1 and closes[0][1] == "TIME_DECAY":
+        ok("Time decay fires; break-even skipped on same tick (pillar priority)")
     else:
-        fail(f"Expected 1 MZ close (MZ_REVERSAL) and 0 scale-outs, got closes={closes}, scale_outs={scale_outs}")
+        fail(f"Expected 1 TIME_DECAY close and 0 break-evens, got closes={closes}")
 
 
 async def test_non_open_position_skipped():
@@ -250,10 +273,15 @@ async def test_non_open_position_skipped():
     print(" NON-OPEN POSITION → SKIPPED")
     print("=" * 60)
 
-    croupier = MockCroupier(context_registry=MockContextRegistry(z=0.0))
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    threshold = rules["micro_z_reversal"]["threshold"]
+    entry_z = -3.0
+    ctx = MockContextRegistry(z=entry_z + threshold + 2.0)
+
+    croupier = MockCroupier(context_registry=ctx)
     pos = make_position(
         side="LONG",
-        entry_z=-3.0,
+        entry_z=entry_z,
         trade_id="closed_001",
         timestamp=past_grace_timestamp(),
         status="CLOSING",
@@ -265,7 +293,7 @@ async def test_non_open_position_skipped():
     await engine.on_tick(tick)
     await asyncio.sleep(0.1)
 
-    if not croupier.close_calls and not croupier.scale_out_calls:
+    if not croupier.close_calls:
         ok("status != OPEN → no Croupier exit callbacks")
     else:
         fail(f"CLOSING position should be skipped, got closes={croupier.close_calls}")
@@ -276,10 +304,15 @@ async def test_patience_lock_blocks_early_exit():
     print(" PATIENCE LOCK → NO EARLY TACTICAL EXIT")
     print("=" * 60)
 
-    croupier = MockCroupier(context_registry=MockContextRegistry(z=0.0))
+    rules = trading_config.UNIVERSAL_EXIT_RULES
+    threshold = rules["micro_z_reversal"]["threshold"]
+    entry_z = -3.0
+    ctx = MockContextRegistry(z=entry_z + threshold + 2.0)
+
+    croupier = MockCroupier(context_registry=ctx)
     pos = make_position(
         side="LONG",
-        entry_z=-3.0,
+        entry_z=entry_z,
         trade_id="grace_001",
         timestamp=time.time() - 5.0,
     )
@@ -303,12 +336,13 @@ async def test_patience_lock_blocks_early_exit():
 
 async def main():
     print("=" * 60)
-    print(" SLIM EXIT ENGINE INTEGRATION VALIDATOR (Layer 1.4)")
+    print(" SLIM EXIT ENGINE INTEGRATION VALIDATOR (Layer 1.4) - Universal")
     print(" Tests SlimExitEngine → Croupier callback wiring")
     print("=" * 60)
 
     await test_micro_z_reversal_triggers_close()
-    await test_scale_out_triggers_structural()
+    await test_time_decay_triggers_close()
+    await test_break_even_triggers_close()
     await test_pillar_priority_single_tick()
     await test_non_open_position_skipped()
     await test_patience_lock_blocks_early_exit()

@@ -46,7 +46,7 @@
 *   **Guardianes**: L2 ratio y spread thresholds por perfil
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
-*   **Slim Exit Engine (v10.2)**: Scale Out + Micro-Z Reversal
+*   **Slim Exit Engine (v10.3 Universal)**: Break Even + Time Decay + Micro-Z Reversal (sin Scale Out ni Trailing Stop, sin perfiles por moneda)
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets
 
@@ -72,8 +72,9 @@
 - **MID_LIQUID Results** (LTC_TREND_UP_2024-03): 1754 signals, +1.57% Net Taker overall.
 - **THIN_VOLATILE Certification** (2026-06-09): Full Bayesian sweep (100 iter). Net Taker +0.34% (XRP) vs -0.59% baseline. Edge recovered.
 - **LTC Optuna Optimization** (2026-06-13): 40 trials (10 init + 30 resume). Best Trial 20: score +0.0905. Params aplicados a `config/coin_profiles.py` como nuevo golden.
-- **Last Session** (2026-06-15 V2): **8 fixes de auditoría externa implementados**. SortedList duplicate bug fix, CVD sessionized (reset per liquidity window), VA maturity gate (va_integrity < 0.15 blocks signals), L2 spoofing persistence (≥3 snapshots), volume minimum guard in absorption detector, conflict resolution (conviction = priority × score), slim exit pillars (Break-Even, Trailing Stop, Time Decay), confidence scores in FB/LE/TA scenarios. Documentos de análisis externo eliminados. Commit `2da9833`.
-- **Next Session**: Backtests multi-coin con 84 datasets certificados para validar no-regresión de los 8 fixes + optimizar parámetros de slim exit pillars por cluster
+- **SOL Cascade Complete** (2026-06-18): Cascada completa SOL (4 escenarios). Bug fix price=0 en trajectory_core. Guardian param discovery: l2_ratio_min_trend_acceptance nunca estuvo en PARAMETER_SPACE. Agregado y re-optimizado. Trial 3: +0.2082. SOL overall Net Taker +0.1354% ✅.
+- **Last Session** (2026-06-19): **SlimExitEngine V10.3 Universal Refactor**. Eliminado `ASSET_EXIT_PROFILES` (curve-fitting por ticker). Eliminados Scale Out y Trailing Stop. Preservados solo 3 pilares universales: Time Decay, Break Even, Micro-Z Reversal. Ejecución 100% Maker-Join. Validadores locales 13/13 tests pasados. Análisis externo (`docs/analisis_slim_exit_engine.md`) confirmado y aplicado.
+- **Next Session**: ⏸️ Pausa solicitada por usuario antes de backtesting. Pendiente: correr backtest multi-coin con 84 datasets para validar impacto del SlimExitEngine V10.3. Continuar ajuste de trend_acceptance para SOL y guardianes per-scenario.
 
 ---
 
@@ -83,6 +84,8 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-19 | session-close | **SLIMEXITENGINE V10.3 UNIVERSAL — SCALE OUT & TRAILING ELIMINADOS**: Refactor completo siguiendo análisis externo. `ASSET_EXIT_PROFILES` reemplazado por `UNIVERSAL_EXIT_RULES`. Scale Out eliminado (erosiona R/R), Trailing Stop eliminado (vulnerable a sweeps). Solo Break Even, Time Decay, Micro-Z Reversal con Maker-Join. 13/13 tests locales pasados. Pausa solicitada antes de backtesting.
+- 2026-06-18 | session-close | **SOL CASCADE COMPLETE + PRICE=0 BUG + GUARDIAN PARAM DISCOVERY**: Bug fix price=0 en trajectory_core. Guardian param discovery: l2_ratio_min_trend_acceptance faltaba en PARAMETER_SPACE. Agregado. trial 3: +0.2082. SOL Net Taker +0.1354%.
 - 2026-06-15 | session-close | **8 FIXES FROM EXTERNAL AUDIT**: SortedList bug, CVD sessionized, VA maturity gate, spoofing persistence, volume min guard, conflict resolution (priority×score), slim exit (BE/Trailing/Decay), confidence scores. Commit `2da9833`.
 - 2026-06-15 | session-close | **DATASET PIPELINE COMPLETE**: 84 datasets certificados (2/2/2 por símbolo). +6 mensuales LTC/SOL. Análisis de 97 archivos, renombrado 26, descargado 10 nuevos (ETH/BTC con sequential para evitar OOM), podado 39 excedentes. Bugfix: columnas incorrectas en modo secuencial del fetcher (orderbook usaba `id` en vez de `is_snapshot`).
 - 2026-06-13 | session-close | **LTC OPTUNA OPTIMIZATION COMPLETE**: 40 trials (10 init + 30 resume). Trial 20 (+0.0905) reemplaza Trial 7 (+0.0667) y golden baseline (-0.1112). Params aplicados como nuevos golden params de LTC. Creado `.agent/golden_params/ltc.md`.

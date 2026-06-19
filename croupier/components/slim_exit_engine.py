@@ -1,15 +1,15 @@
 """
-SlimExitEngine (V10.2) — Asset-Specific Tactical Execution
-==========================================================
+SlimExitEngine (V10.3) — Universal Tactical Execution
+======================================================
 
 A minimalist, high-performance exit engine that replaces the layered
-theory with 4 professional pillars:
-1. Scale Out (Partial Profit)
-2. Break Even (Risk Neutralization)
-3. Trailing Stop (Trend Capture)
-4. Delta Invalidation (Toxic Flow Protection)
+theory with 4 professional universal pillars:
+1. Break Even (Risk Neutralization)
+2. Delta Invalidation (Toxic Flow Protection via Micro-Z Reversal)
+3. Time Decay (Max Stagnation Time Protection)
+4. Maker-Join LIMIT Exit Execution (Slippage and Fee Optimization)
 
-Key Feature: 100% Maker-Join execution strategy using LIMIT orders.
+No asset-specific profiles or curve-fitting.
 """
 
 import asyncio
@@ -27,48 +27,25 @@ if TYPE_CHECKING:
 
 class SlimExitEngine:
     """
-    Asset-Specific Exit Engine.
-    Matches symbols to profiles (BLUE_CHIP, LIQUID_ALT, HIGH_BETA)
-    and executes tactical exits using Limit orders.
+    Universal Exit Engine.
+    Executes standard, non-profile-specific tactical exits using Limit orders.
     """
 
     def __init__(self, croupier: "Croupier"):
         self.croupier = croupier
         self.logger = logging.getLogger("SlimExitEngine")
         self._pending_terminations: set = set()
-        self._profile_cache: Dict[str, Dict[str, Any]] = {}
 
-        # Pillar 2 & 3 tracking: trade_id -> {breakeven_price, trailing_high, trailing_activated}
-        self._pillar_state: Dict[str, Dict[str, float]] = {}
+        # Pillar state tracking: trade_id -> {breakeven_price, breakeven_activated}
+        self._pillar_state: Dict[str, Dict[str, Any]] = {}
 
-        # Load asset profiles from config
-        self.profiles = getattr(config, "ASSET_EXIT_PROFILES", {})
+        # Load universal exit rules from config
+        self.rules = getattr(config, "UNIVERSAL_EXIT_RULES", {})
 
-        # Pre-normalize asset lists for robust matching
-        for name, profile in self.profiles.items():
-            if "assets" in profile:
-                profile["normalized_assets"] = [normalize_symbol(a) for a in profile["assets"]]
-                for asset_norm in profile["normalized_assets"]:
-                    self._profile_cache[asset_norm] = profile
-
-        self.logger.info(f"🚀 SlimExitEngine initialized with {len(self.profiles)} asset profiles.")
-
-    def _get_profile(self, symbol: str) -> Dict[str, Any]:
-        """Matches a symbol to its market personality profile. O(1) via pre-built cache."""
-        symbol_norm = normalize_symbol(symbol)
-        profile = self._profile_cache.get(symbol_norm)
-        if profile:
-            return profile
-
-        self.logger.error(
-            f"⚠️ [CONFIG-ERROR] Symbol {symbol} ({symbol_norm}) has no matching Exit Profile! Using DISABLED DEFAULT."
-        )
-        default = self.profiles.get("DEFAULT", {})
-        self._profile_cache[symbol_norm] = default
-        return default
+        self.logger.info("🚀 SlimExitEngine initialized with universal exit rules.")
 
     async def on_tick(self, event: TickEvent):
-        """Main tactical loop: Process all 4 pillars for active positions."""
+        """Main tactical loop: Process all active universal pillars for active positions."""
         symbol_norm = normalize_symbol(event.symbol)
         positions = self.croupier.position_tracker.get_positions_by_symbol(symbol_norm)
 
@@ -76,7 +53,6 @@ class SlimExitEngine:
             if position.status != "OPEN" or position.trade_id in self._pending_terminations:
                 continue
 
-            profile = self._get_profile(position.symbol)
             current_price = event.price
             elapsed = event.timestamp - position.timestamp
 
@@ -85,47 +61,36 @@ class SlimExitEngine:
                 continue
 
             # ---------------------------------------------------------
-            # PILAR 2: TIME DECAY (Max Holding Time)
+            # PILAR 1: TIME DECAY (Max Holding Time)
             # ---------------------------------------------------------
-            if profile["time_decay"]["enabled"]:
-                if self._check_time_decay(position, profile, elapsed):
+            time_decay_rules = self.rules.get("time_decay", {})
+            if time_decay_rules.get("enabled", False):
+                if self._check_time_decay(position, elapsed):
                     continue
 
             # ---------------------------------------------------------
-            # PILAR 3: BREAK EVEN (Risk Neutralization)
+            # PILAR 2: BREAK EVEN (Risk Neutralization)
             # ---------------------------------------------------------
-            if profile["break_even"]["enabled"]:
-                if self._check_break_even(position, current_price, profile):
+            be_rules = self.rules.get("break_even", {})
+            if be_rules.get("enabled", False):
+                if self._check_break_even(position, current_price):
                     continue
 
             # ---------------------------------------------------------
-            # PILAR 4: TRAILING STOP (Trend Capture)
+            # PILAR 3: MICRO-Z REVERSAL (Flow Invalidation)
             # ---------------------------------------------------------
-            if profile["trailing"]["enabled"]:
-                if self._check_trailing(position, current_price, profile, event):
+            mz_rules = self.rules.get("micro_z_reversal", {})
+            if mz_rules.get("enabled", False):
+                if self._check_micro_z_reversal(position):
                     continue
 
-            # ---------------------------------------------------------
-            # PILAR 5: MICRO-Z REVERSAL (Flow Invalidation)
-            # ---------------------------------------------------------
-            if profile["micro_z_reversal"]["enabled"]:
-                if self._check_micro_z_reversal(position, profile):
-                    continue
-
-            # ---------------------------------------------------------
-            # PILAR 1: SCALE OUT (Partial Profit)
-            # ---------------------------------------------------------
-            if profile["scale_out"]["enabled"] and not getattr(position, "scaled_out", False):
-                if await self._check_scale_out(position, current_price, profile):
-                    continue
-
-    def _check_micro_z_reversal(self, position: OpenPosition, profile: Dict) -> bool:
+    def _check_micro_z_reversal(self, position: OpenPosition) -> bool:
         entry_z = getattr(position, "entry_z", None)
         if entry_z is None or entry_z == 0.0:
             return False
 
         _, _, current_z = self.croupier.context_registry.get_micro_state(position.symbol)
-        threshold = profile["micro_z_reversal"]["threshold"]
+        threshold = self.rules.get("micro_z_reversal", {}).get("threshold", 4.0)
 
         delta_z = current_z - entry_z
 
@@ -139,9 +104,9 @@ class SlimExitEngine:
             return True
         return False
 
-    def _check_time_decay(self, position: OpenPosition, profile: Dict, elapsed: float) -> bool:
-        """Pillar 5: Time Decay — close if max holding time exceeded."""
-        max_hold = profile["time_decay"]["max_hold_seconds"]
+    def _check_time_decay(self, position: OpenPosition, elapsed: float) -> bool:
+        """Time Decay — close if max holding time exceeded."""
+        max_hold = self.rules.get("time_decay", {}).get("max_hold_seconds", 360)
         if elapsed > max_hold:
             self.logger.info(
                 f"⏳ [SLIM-TIME] Max hold reached ({elapsed:.0f}s > {max_hold}s) for {position.trade_id}. Closing."
@@ -151,8 +116,8 @@ class SlimExitEngine:
             return True
         return False
 
-    def _check_break_even(self, position: OpenPosition, price: float, profile: Dict) -> bool:
-        """Pillar 2: Break Even — move SL to entry + fees when 50% of TP reached."""
+    def _check_break_even(self, position: OpenPosition, price: float) -> bool:
+        """Break Even — move SL to entry + fees when a percentage of TP reached."""
         trade_id = position.trade_id
         state = self._pillar_state.get(trade_id, {})
 
@@ -163,13 +128,15 @@ class SlimExitEngine:
             if position.entry_price <= 0:
                 return False
             pnl_pct = abs(price - position.entry_price) / position.entry_price
-            # Estimate TP target from position metadata (fallback: 1%)
-            tp_pct = getattr(position, "tp_pct", 0.01)
-            trigger_pct = profile["break_even"]["trigger_pct"]
+            # Estimate TP target from position tp_level vs entry_price (fallback: 1%)
+            tp_pct = 0.01
+            if position.entry_price > 0 and getattr(position, "tp_level", 0.0) > 0.0:
+                tp_pct = abs(position.tp_level - position.entry_price) / position.entry_price
+            trigger_pct = self.rules.get("break_even", {}).get("trigger_pct", 0.5)
             threshold = tp_pct * trigger_pct
 
             if price_above_entry and pnl_pct >= threshold:
-                fee_friction = profile["break_even"]["fee_friction"]
+                fee_friction = self.rules.get("break_even", {}).get("fee_friction", 0.0009)
                 if position.side == "LONG":
                     breakeven_price = position.entry_price * (1 + fee_friction)
                 else:
@@ -178,7 +145,6 @@ class SlimExitEngine:
                 self._pillar_state[trade_id] = {
                     "breakeven_activated": True,
                     "breakeven_price": breakeven_price,
-                    "trailing_high": float(position.entry_price),
                 }
                 state = self._pillar_state[trade_id]
                 self.logger.info(
@@ -197,85 +163,13 @@ class SlimExitEngine:
 
         return False
 
-    def _check_trailing(self, position: OpenPosition, price: float, profile: Dict, event: TickEvent) -> bool:
-        """Pillar 3: Trailing Stop — trail behind price after break-even."""
-        trade_id = position.trade_id
-        state = self._pillar_state.get(trade_id)
-        if not state or not state.get("breakeven_activated", False):
-            return False
-
-        # Update trailing high/low
-        if position.side == "LONG":
-            if price > state.get("trailing_high", 0.0):
-                state["trailing_high"] = price
-        else:
-            if price < state.get("trailing_low", float("inf")):
-                state["trailing_low"] = price
-
-        # Compute trailing stop distance
-        atr = position.entry_atr if position.entry_atr and position.entry_atr > 0 else 0.0
-        if atr <= 0:
-            ctx_atr = self.croupier.context_registry.atrs.get(position.symbol, {})
-            atr = ctx_atr.get("short", 0.0) if ctx_atr else 0.0
-        if atr <= 0:
-            return False
-
-        atr_mult = profile["trailing"]["atr_multiplier"]
-        trail_distance = atr * atr_mult
-        be_price = state.get("breakeven_price", position.entry_price)
-
-        if position.side == "LONG":
-            trail_stop = max(state["trailing_high"] - trail_distance, be_price)
-            if price <= trail_stop:
-                self.logger.info(f"🎯 [SLIM-TS] Trailing stop hit ({trail_stop:.2f}) for {trade_id}. Closing.")
-                self._pending_terminations.add(trade_id)
-                asyncio.create_task(self._execute_limit_close(position, "TRAILING_STOP"))
-                return True
-        else:
-            trail_stop = min(state["trailing_low"] + trail_distance, be_price)
-            if price >= trail_stop:
-                self.logger.info(f"🎯 [SLIM-TS] Trailing stop hit ({trail_stop:.2f}) for {trade_id}. Closing.")
-                self._pending_terminations.add(trade_id)
-                asyncio.create_task(self._execute_limit_close(position, "TRAILING_STOP"))
-                return True
-
-        return False
-
-    async def _check_scale_out(self, position: OpenPosition, price: float, profile: Dict) -> bool:
-        """Partial exit at ATR-based target."""
-        if not position.entry_atr or position.entry_atr <= 0:
-            return False
-
-        dist = abs(price - position.entry_price)
-        target_dist = position.entry_atr * profile["scale_out"]["at_atr"]
-
-        if dist >= target_dist:
-            fraction = profile["scale_out"]["fraction"]
-            self.logger.info(f"⚖️ [SLIM-SO] Scaling out {fraction:.0%} for {position.trade_id}")
-            # Mark as scaled out to prevent repeat
-            position.scaled_out = True
-            asyncio.create_task(
-                self.croupier.scale_out_structural(position.trade_id, fraction=fraction, reason="SO_TARGET_REACHED")
-            )
-            return True
-        return False
-
     async def _execute_limit_close(self, position: OpenPosition, reason: str):
         """
         Executes a closure using a LIMIT order to capture Maker rebates
         and eliminate slippage.
         """
-        # Phase 1202: Maker-Join Logic
-        # We don't use Croupier.close_position because it defaults to Market.
-        # We use a custom flow to the OrderExecutor.
         try:
             self.logger.info(f"🎯 [MAKER-EXIT] Sniping exit for {position.trade_id} | Reason: {reason}")
-
-            # This will eventually use the ExecutionFunnel,
-            # for now we call croupier with a specific flag or a new method.
-            # Rationale: Direct use of Croupier.close_position(exit_reason=reason)
-            # but we need to ensure OrderManager treats it as LIMIT.
-            # For Phase 2, we use Croupier.close_position but tag it.
             await self.croupier.close_position(position.trade_id, exit_reason=reason, prefer_maker=True)
 
         except Exception as e:

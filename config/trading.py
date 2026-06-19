@@ -257,48 +257,17 @@ LIMIT_SNIPER_CONFIRM_WINDOW_SEC = 0.50
 LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
 
 # =====================================================
-# 🎯 SLIM EXIT ENGINE (V10.2 - Asset-Specific 4-Pillars)
+# 🎯 SLIM EXIT ENGINE (V10.3 - Universal 4-Pillars)
 # =====================================================
 
 # Master Switch for the new Slim Engine
 SLIM_EXIT_ACTIVE = True
 
-ASSET_EXIT_PROFILES = {
-    "BLUE_CHIP": {
-        "assets": ["BTC/USDT", "ETH/USDT"],
-        "scale_out": {"enabled": True, "at_atr": 2.5, "fraction": 0.3},
-        "break_even": {"enabled": True, "trigger_pct": 0.5, "fee_friction": 0.0009},
-        "trailing": {"enabled": True, "atr_multiplier": 1.5},
-        "time_decay": {"enabled": True, "max_hold_seconds": 600},
-        "micro_z_reversal": {"enabled": True, "threshold": 4.0},
-        "execution_strategy": "MAKER_PASSIVE",
-    },
-    "LIQUID_ALT": {
-        "assets": ["LTC/USDT", "XRP/USDT", "BCH/USDT", "LINK/USDT"],
-        "scale_out": {"enabled": False, "at_atr": 1.5, "fraction": 0.5},
-        "break_even": {"enabled": True, "trigger_pct": 0.5, "fee_friction": 0.0009},
-        "trailing": {"enabled": False, "atr_multiplier": 1.5},
-        "time_decay": {"enabled": True, "max_hold_seconds": 480},
-        "micro_z_reversal": {"enabled": True, "threshold": 4.0},
-        "execution_strategy": "MAKER_JOIN",
-    },
-    "HIGH_BETA": {
-        "assets": ["SOL/USDT", "AVAX/USDT", "DOT/USDT"],
-        "scale_out": {"enabled": True, "at_atr": 1.8, "fraction": 0.5},
-        "break_even": {"enabled": True, "trigger_pct": 0.5, "fee_friction": 0.0009},
-        "trailing": {"enabled": False, "atr_multiplier": 1.5},
-        "time_decay": {"enabled": True, "max_hold_seconds": 360},
-        "micro_z_reversal": {"enabled": True, "threshold": 4.0},
-        "execution_strategy": "MAKER_JOIN",
-    },
-    "DEFAULT": {
-        "scale_out": {"enabled": False, "at_atr": 1.5, "fraction": 0.5},
-        "break_even": {"enabled": True, "trigger_pct": 0.5, "fee_friction": 0.0009},
-        "trailing": {"enabled": False, "atr_multiplier": 1.5},
-        "time_decay": {"enabled": True, "max_hold_seconds": 300},
-        "micro_z_reversal": {"enabled": True, "threshold": 4.0},
-        "execution_strategy": "MAKER_JOIN",
-    },
+UNIVERSAL_EXIT_RULES = {
+    "break_even": {"enabled": True, "trigger_pct": 0.5, "fee_friction": 0.0009},
+    "micro_z_reversal": {"enabled": True, "threshold": 4.0},
+    "time_decay": {"enabled": True, "max_hold_seconds": 360},
+    "execution_strategy": "MAKER_JOIN",
 }
 
 # -----------------------------------------------------
