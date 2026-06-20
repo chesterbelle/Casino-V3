@@ -79,7 +79,7 @@ class BacktestFeed:
         return MockAdapter(self.symbol)
 
     async def load_data(self):
-        """Load data from CSV/Parquet and optionally from the SQLite depth/price DB. Non-blocking."""
+        """Load data from CSV/Parquet or prepare SQLite connection. Non-blocking."""
         self.data = pd.DataFrame()
         if self.data_path:
             logger.info(f"📂 Loading backtest data from {self.data_path}...")
@@ -106,84 +106,18 @@ class BacktestFeed:
 
             # Add a column to identify event type later
             self.data["event_type"] = "TICK"
+
+            # Sort combined feed by timestamp
+            if not self.data.empty:
+                self.data = self.data.sort_values("timestamp").reset_index(drop=True)
+                logger.info(f"✅ Total feed size: {len(self.data)} rows.")
+            else:
+                logger.error("❌ Final backtest feed is empty! Check data sources.")
+
         else:
             self.mode = "DB_ONLY"
-
-        # --- Load all data from SQLite using a single connection ---
-        if getattr(self, "depth_db_path", None) and self.depth_db_path is not None:
-            if os.path.exists(self.depth_db_path):
-                norm_symbol = normalize_symbol(self.symbol)
-                try:
-                    logger.info(f"📂 Loading data from {self.depth_db_path}...")
-                    async with aiosqlite.connect(self.depth_db_path) as db:
-                        # 1. Depth snapshots
-                        cursor = await db.execute(
-                            "SELECT timestamp, symbol, bids, asks FROM depth_snapshots WHERE symbol = ?",
-                            (norm_symbol,),
-                        )
-                        rows = await cursor.fetchall()
-                        columns = [desc[0] for desc in cursor.description]
-                        depth_df = pd.DataFrame(rows, columns=columns)
-                        if not depth_df.empty:
-                            depth_df["event_type"] = "DEPTH"
-                            self.data = pd.concat([self.data, depth_df], ignore_index=True)
-                            logger.info(f"✅ Loaded {len(depth_df)} depth snapshots.")
-                        else:
-                            logger.warning("⚠️ No depth snapshots found for symbol in given DB.")
-
-                        # 2. Price candles
-                        cursor = await db.execute(
-                            "SELECT timestamp, open, high, low, close, volume FROM price_candles WHERE symbol = ?",
-                            (norm_symbol,),
-                        )
-                        rows = await cursor.fetchall()
-                        columns = [desc[0] for desc in cursor.description]
-                        price_df = pd.DataFrame(rows, columns=columns)
-                        if not price_df.empty:
-                            price_df["event_type"] = "CANDLE"
-                            self.data = pd.concat([self.data, price_df], ignore_index=True)
-                            logger.info(f"✅ Loaded {len(price_df)} price candles.")
-                        else:
-                            logger.warning("⚠️ No price candles found for symbol in given DB.")
-
-                        # 3. Market trades
-                        cursor = await db.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'"
-                        )
-                        if await cursor.fetchone():
-                            cursor = await db.execute(
-                                "SELECT timestamp, price, amount as volume, side FROM market_trades WHERE symbol = ?",
-                                (norm_symbol,),
-                            )
-                            rows = await cursor.fetchall()
-                            columns = [desc[0] for desc in cursor.description]
-                            trades_df = pd.DataFrame(rows, columns=columns)
-                            if not trades_df.empty:
-                                trades_df["event_type"] = "TICK"
-                                self.data = pd.concat([self.data, trades_df], ignore_index=True)
-                                self.mode = "TRADES"
-                                logger.info(f"✅ Loaded {len(trades_df)} market trades.")
-                            else:
-                                logger.warning("⚠️ No market trades found for symbol in given DB.")
-                except Exception as e:
-                    logger.error(f"❌ Failed to load data: {e}")
-            else:
+            if not getattr(self, "depth_db_path", None) or not os.path.exists(self.depth_db_path):
                 logger.warning(f"⚠️ DB file not found: {self.depth_db_path}")
-
-        # Sort combined feed by timestamp
-        if not self.data.empty:
-            self.data = self.data.sort_values("timestamp").reset_index(drop=True)
-            logger.info(f"✅ Total merged feed size: {len(self.data)} rows.")
-
-            # --- MANDATORY L2 CHECK (High-Fidelity Guard) ---
-            if self.depth_db_path:
-                depth_count = len(self.data[self.data["event_type"] == "DEPTH"])
-                if depth_count == 0:
-                    logger.error("❌ FATAL: High-Fidelity mode enabled but NO depth snapshots found!")
-                    raise ValueError("Casino-V3 requires REAL L2 data. Use l2_processor.py to prepare your dataset.")
-                logger.info(f"🛡️ High-Fidelity Guard: {depth_count} real L2 snapshots verified.")
-        else:
-            logger.error("❌ Final backtest feed is empty! Check data sources.")
 
     async def run(self):
         """Start the replay and wait for completion."""
@@ -204,41 +138,138 @@ class BacktestFeed:
         logger.info(f"📡 Backtest subscribed to ticker: {symbol}")
 
     async def _replay_loop(self):
-        """Replay data row by row using itertuples for 10-100x faster iteration."""
+        """Replay data using an async streaming generator for SQLite or itertuples for CSV."""
         logger.info(f"▶️ Starting Backtest Replay (Mode: {self.mode})...")
 
-        for row in self.data.itertuples(index=True):
-            if not self.running:
-                break
+        if self.data_path and not self.data.empty:
+            # Legacy in-memory loop for CSV/Parquet
+            for row in self.data.itertuples(index=True):
+                if not self.running:
+                    break
 
-            if self.limit and row.Index >= self.limit:
-                logger.info(f"🛑 Reached backtest limit: {self.limit} events")
-                break
+                if self.limit and row.Index >= self.limit:
+                    logger.info(f"🛑 Reached backtest limit: {self.limit} events")
+                    break
 
-            event_type = getattr(row, "event_type", "TICK")
+                event_type = getattr(row, "event_type", "TICK")
 
-            if event_type == "DEPTH":
-                await self._emit_depth(row.timestamp, row.bids, row.asks)
-            elif event_type == "TICK":
-                await self._emit_tick(row.timestamp, row.price, row.volume, row.side)
-            elif event_type == "CANDLE" and self.mode == "CANDLES":
-                is_green = row.close > row.open
-                total_vol = row.volume
+                if event_type == "DEPTH":
+                    await self._emit_depth(row.timestamp, row.bids, row.asks)
+                elif event_type == "TICK":
+                    await self._emit_tick(row.timestamp, row.price, row.volume, row.side)
+                elif event_type == "CANDLE" and self.mode == "CANDLES":
+                    await self._emit_candle_ticks(row.timestamp, row.open, row.high, row.low, row.close, row.volume)
 
-                await self._emit_tick(row.timestamp, row.open, total_vol * 0.1, "BUY" if is_green else "SELL")
-                if is_green:
-                    await self._emit_tick(row.timestamp, row.low, total_vol * 0.2, "BUY")
-                    await self._emit_tick(row.timestamp, row.high, total_vol * 0.4, "SELL")
+                if self.delay > 0:
+                    await asyncio.sleep(self.delay)
+
+            logger.info("🏁 Backtest Replay Finished.")
+            self.engine.running = False
+            return
+
+        # --- STREAMING LOOP FOR SQLITE ---
+        if self.mode == "DB_ONLY" and getattr(self, "depth_db_path", None):
+            norm_symbol = normalize_symbol(self.symbol)
+            async with aiosqlite.connect(self.depth_db_path) as db:
+                limit_clause = f" LIMIT {self.limit}" if self.limit else ""
+
+                # Check tables
+                cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'")
+                has_trades = bool(await cursor.fetchone())
+
+                cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='price_candles'")
+                has_candles = bool(await cursor.fetchone())
+
+                if has_trades:
+                    self.mode = "TRADES"
+                    trades_cursor = await db.execute(
+                        f"SELECT timestamp, 'TICK', price, amount, side FROM market_trades WHERE symbol = ? ORDER BY timestamp ASC{limit_clause}",
+                        (norm_symbol,),
+                    )
+                elif has_candles:
+                    self.mode = "CANDLES"
+                    trades_cursor = await db.execute(
+                        f"SELECT timestamp, 'CANDLE', open, high, low, close, volume FROM price_candles WHERE symbol = ? ORDER BY timestamp ASC{limit_clause}",
+                        (norm_symbol,),
+                    )
                 else:
-                    await self._emit_tick(row.timestamp, row.high, total_vol * 0.2, "SELL")
-                    await self._emit_tick(row.timestamp, row.low, total_vol * 0.4, "BUY")
-                await self._emit_tick(row.timestamp, row.close, total_vol * 0.3, "SELL" if is_green else "BUY")
+                    trades_cursor = None
 
-            if self.delay > 0:
-                await asyncio.sleep(self.delay)
+                depth_cursor = await db.execute(
+                    f"SELECT timestamp, 'DEPTH', bids, asks FROM depth_snapshots WHERE symbol = ? ORDER BY timestamp ASC{limit_clause}",
+                    (norm_symbol,),
+                )
+
+                # Async Two-Pointer Merge
+                from collections import deque
+
+                CHUNK_SIZE = 100000
+
+                buf_depth = deque(await depth_cursor.fetchmany(CHUNK_SIZE))
+                buf_trades = deque(await trades_cursor.fetchmany(CHUNK_SIZE)) if trades_cursor else deque()
+
+                events_processed = 0
+
+                while (buf_depth or buf_trades) and self.running:
+                    if self.limit and events_processed >= self.limit:
+                        logger.info(f"🛑 Reached backtest limit: {self.limit} events")
+                        break
+
+                    # Refill buffers
+                    if not buf_depth and depth_cursor:
+                        fetched = await depth_cursor.fetchmany(CHUNK_SIZE)
+                        if fetched:
+                            buf_depth.extend(fetched)
+                        else:
+                            depth_cursor = None
+
+                    if not buf_trades and trades_cursor:
+                        fetched = await trades_cursor.fetchmany(CHUNK_SIZE)
+                        if fetched:
+                            buf_trades.extend(fetched)
+                        else:
+                            trades_cursor = None
+
+                    # Pick next event
+                    if buf_depth and buf_trades:
+                        if buf_depth[0][0] <= buf_trades[0][0]:
+                            row = buf_depth.popleft()
+                        else:
+                            row = buf_trades.popleft()
+                    elif buf_depth:
+                        row = buf_depth.popleft()
+                    elif buf_trades:
+                        row = buf_trades.popleft()
+                    else:
+                        break
+
+                    events_processed += 1
+
+                    # Process event
+                    event_type = row[1]
+                    if event_type == "DEPTH":
+                        await self._emit_depth(row[0], row[2], row[3])
+                    elif event_type == "TICK":
+                        await self._emit_tick(row[0], row[2], row[3], row[4])
+                    elif event_type == "CANDLE":
+                        await self._emit_candle_ticks(row[0], row[2], row[3], row[4], row[5], row[6])
+
+                    if self.delay > 0:
+                        await asyncio.sleep(self.delay)
 
         logger.info("🏁 Backtest Replay Finished.")
         self.engine.running = False
+
+    async def _emit_candle_ticks(self, timestamp, open_p, high_p, low_p, close_p, volume):
+        is_green = close_p > open_p
+        await self._emit_tick(timestamp, open_p, volume * 0.1, "BUY" if is_green else "SELL")
+        if is_green:
+            await self._emit_tick(timestamp, low_p, volume * 0.2, "BUY")
+            await self._emit_tick(timestamp, high_p, volume * 0.4, "SELL")
+        else:
+            await self._emit_tick(timestamp, high_p, volume * 0.2, "SELL")
+            await self._emit_tick(timestamp, low_p, volume * 0.4, "BUY")
+        await self._emit_tick(timestamp, close_p, volume * 0.3, "SELL" if is_green else "BUY")
 
     async def _emit_tick(self, timestamp, price, volume, side="UNKNOWN"):
         """Emit a single tick event."""
