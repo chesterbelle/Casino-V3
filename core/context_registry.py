@@ -109,9 +109,12 @@ class ContextRegistry:
             self.tick_stats[symbol] = {"speed": 0.0, "last_ts": now, "count": 0}
             self._profile_reset_ts[symbol] = now
 
-        # Auto-reset MarketProfile every 8 hours to prevent cumulative drift
-        # while still giving enough time for POC concentration to build up
-        if now - self._profile_reset_ts.get(symbol, now) > 28800.0:
+        # Auto-reset MarketProfile every 24 hours to prevent cumulative drift
+        # while matching the original calibration window for POC concentration.
+        if now - self._profile_reset_ts.get(symbol, now) > 86400.0:
+            self.profiles[symbol].reset()
+            self._profile_reset_ts[symbol] = now
+            logger.info(f"🔄 [PROFILE_RESET] {symbol} — VP reset at {now} (24h window)")
             self.profiles[symbol].reset()
             self._profile_reset_ts[symbol] = now
             logger.info(f"🔄 [PROFILE_RESET] {symbol} — VP reset at {now} (8h window)")
