@@ -177,7 +177,7 @@ class MarketProfile:
             return 0.0
 
         poc, vah, val = self.calculate_value_area()
-        if vah <= val:
+        if vah <= val or poc <= 0.0:
             return 0.0
 
         poc_vol = self.profile.get(poc, 0.0)

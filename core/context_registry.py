@@ -115,9 +115,6 @@ class ContextRegistry:
             self.profiles[symbol].reset()
             self._profile_reset_ts[symbol] = now
             logger.info(f"🔄 [PROFILE_RESET] {symbol} — VP reset at {now} (24h window)")
-            self.profiles[symbol].reset()
-            self._profile_reset_ts[symbol] = now
-            logger.info(f"🔄 [PROFILE_RESET] {symbol} — VP reset at {now} (8h window)")
 
         # 1. Update Market Profile
         self.profiles[symbol].add_trade(price, volume)

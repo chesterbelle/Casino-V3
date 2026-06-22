@@ -17,6 +17,12 @@ def _historian_worker(db_path: str, q: mp.Queue):
     import sqlite3
     from datetime import datetime
 
+    # Clean stale WAL/SHM from killed processes to avoid disk I/O errors
+    for suffix in ("-wal", "-shm"):
+        stale = db_path + suffix
+        if os.path.isfile(stale):
+            os.remove(stale)
+
     worker_logger = logging.getLogger("HistorianWorker")
     try:
         conn = sqlite3.connect(db_path, check_same_thread=False)
