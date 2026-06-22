@@ -1,0 +1,105 @@
+{
+  "cluster": "SOL_INERTIAL_TRENDING",
+  "optimization_time_seconds": 25904.46265387535,
+  "best_score": 1.120728338465516,
+  "baseline": {
+    "net_taker": 0.5209318957958119,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 2.5680932230881948,
+    "total_signals": 26
+  },
+  "best_params": {
+    "sensors.liquidity_exhaustion.declining_threshold": 0.97,
+    "sensors.liquidity_exhaustion.min_tests": 2,
+    "sensors.liquidity_exhaustion.min_bounce_pct": 0.0005,
+    "sensors.liquidity_exhaustion.test_memory_seconds": 280.0
+  },
+  "validation": {
+    "coins": {
+      "SOL/USDT:USDT": {
+        "net_taker": 0.778647430294443,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 75,
+        "mfe_mae_ratio": 1.2307919001372665
+      }
+    },
+    "cluster_avg_net_taker": 0.778647430294443,
+    "coins_passed": 1,
+    "coins_total": 1,
+    "passed": "True"
+  },
+  "sensitivity": {
+    "sensors.liquidity_exhaustion.test_memory_seconds": {
+      "range": 230.0,
+      "variation_pct": 95.83333333333334,
+      "impact": "HIGH"
+    },
+    "sensors.liquidity_exhaustion.declining_threshold": {
+      "range": 0.30000000000000004,
+      "variation_pct": 62.500000000000014,
+      "impact": "HIGH"
+    },
+    "sensors.liquidity_exhaustion.min_bounce_pct": {
+      "range": 0.0002500000000000001,
+      "variation_pct": 13.15789473684211,
+      "impact": "LOW"
+    },
+    "sensors.liquidity_exhaustion.min_tests": {
+      "range": 0,
+      "variation_pct": 0.0,
+      "impact": "LOW"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 31,
+      "score": 1.120728338465516,
+      "avg_score": 1.120728338465516
+    },
+    {
+      "number": 41,
+      "score": 1.120728338465516,
+      "avg_score": 1.120728338465516
+    },
+    {
+      "number": 29,
+      "score": 1.1033676905075789,
+      "avg_score": 1.1033676905075789
+    },
+    {
+      "number": 44,
+      "score": 1.1033676905075789,
+      "avg_score": 1.1033676905075789
+    },
+    {
+      "number": 19,
+      "score": 1.0956542892799253,
+      "avg_score": 1.0956542892799253
+    },
+    {
+      "number": 22,
+      "score": 1.0841685743054492,
+      "avg_score": 1.0841685743054492
+    },
+    {
+      "number": 28,
+      "score": 1.079042028114137,
+      "avg_score": 1.079042028114137
+    },
+    {
+      "number": 34,
+      "score": 1.0452328485446607,
+      "avg_score": 1.0452328485446607
+    },
+    {
+      "number": 9,
+      "score": 1.0167592165798949,
+      "avg_score": 1.0167592165798949
+    },
+    {
+      "number": 3,
+      "score": 1.007268512878453,
+      "avg_score": 1.007268512878453
+    }
+  ]
+}

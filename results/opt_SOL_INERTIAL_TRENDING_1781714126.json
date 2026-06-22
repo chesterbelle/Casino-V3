@@ -1,0 +1,99 @@
+{
+  "cluster": "SOL_INERTIAL_TRENDING",
+  "optimization_time_seconds": 28121.850556850433,
+  "best_score": -33.085498764788724,
+  "baseline": {
+    "net_taker": 1.1296304976469045,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 6.250163564561055,
+    "total_signals": 83
+  },
+  "best_params": {
+    "sensors.trend_acceptance.cooldown": 690.0,
+    "sensors.trend_acceptance.min_candles_outside": 4,
+    "sensors.trend_acceptance.cvd_confirmation_threshold": 4.5
+  },
+  "validation": {
+    "coins": {
+      "SOL/USDT:USDT": {
+        "net_taker": 0.7563318550281521,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 74,
+        "mfe_mae_ratio": 1.2248800190894729
+      }
+    },
+    "cluster_avg_net_taker": 0.7563318550281521,
+    "coins_passed": 1,
+    "coins_total": 1,
+    "passed": "True"
+  },
+  "sensitivity": {
+    "sensors.trend_acceptance.cooldown": {
+      "range": 180.0,
+      "variation_pct": 23.076923076923077,
+      "impact": "MEDIUM"
+    },
+    "sensors.trend_acceptance.min_candles_outside": {
+      "range": 4,
+      "variation_pct": 66.66666666666666,
+      "impact": "HIGH"
+    },
+    "sensors.trend_acceptance.cvd_confirmation_threshold": {
+      "range": 1.5,
+      "variation_pct": 37.5,
+      "impact": "HIGH"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 13,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 19,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 21,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 27,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 28,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 29,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 31,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 32,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 33,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    },
+    {
+      "number": 36,
+      "score": -33.085498764788724,
+      "avg_score": -33.085498764788724
+    }
+  ]
+}
