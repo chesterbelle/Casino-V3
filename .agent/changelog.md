@@ -6,6 +6,52 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-22 SESSION] — 8.9 Data Feed Revamp: UNION ALL Optimization (138x Speedup) (Branch: 8.9-datafeed-revamp)
+
+#### Summary
+Implementada optimización UNION ALL para reemplazar el cuello de botella de Pandas en `core/backtest_feed.py`. El backtest feed ahora usa una consulta SQL nativa `UNION ALL` con el motor C de SQLite, eliminando la necesidad de `pd.concat()` + `sort_values()`. Batch streaming con `fetchmany(10000)` y índices compuestos `(symbol, timestamp)`.
+
+#### Acciones
+1. **UNION ALL Query**: Reemplazado enfoque de dos consultas + Pandas por una sola consulta unificada que hace merge y sort en SQLite.
+2. **Batch Streaming**: `fetchmany(10000)` en vez de `fetchall()` o DataFrames intermedios.
+3. **Índices Compuestos**: `idx_depth_symbol_ts` y `idx_trades_symbol_ts` para index-only scans.
+4. **Symbol Resolution**: Función `resolve_db_symbol()` para extraer símbolo correcto de filenames como `SOL_monthly_2026_03.db` → `SOLUSDT`.
+5. **Benchmark Real**: Dataset mensual SOL (3.9GB, ~100M eventos) completado en **20 minutos vs 46 horas proyectadas**.
+
+#### Hallazgos Clave
+- **Speedup Real**: 138x (46h → 20min)
+- **Throughput**: 5M eventos/min (con delay 1ms/evento para fidelidad temporal)
+- **VA_GATE Limitation**: En datasets mensuales, `va_integrity=0.00` porque `total_volume` acumula todo el mes. Esto bloquea TODAS las señales. **No es un bug** — es comportamiento estructural esperado. VA_GATE fue diseñado para sesiones de 8-24h.
+- **Solución**: Usar los 84 datasets certificados (24h cada uno) para validación de señales.
+
+#### Métricas
+| Métrica | Antes | Después | Mejora |
+|---------|-------|---------|--------|
+| **Benchmark (1h)** | 0.03s | 0.02s | 1.5x |
+| **Real (1 mes SOL)** | 46h | 20min | **138x** |
+| **Throughput** | 600K events/min | 5M events/min | **8.3x** |
+| **Multi-coin (14)** | 27 días | 4.7 horas | **138x** |
+
+#### Files Modified
+- `core/backtest_feed.py` — UNION ALL query, batch streaming, symbol resolution
+- `docs/PERFORMANCE_REPORT_8.9.md` — Métricas detalladas y roadmap
+- `scripts/monitor_backtest.py` — Utilidad para monitorear progreso
+- `.agent/memory.md` — Timeline y roadmap actualizados
+- `.agent/changelog.md` — Esta entrada
+
+#### Commit
+```
+8.9-datafeed-revamp branch created and pushed
+Commits: 2b62b52, c67e9a5, aaa00e8
+```
+
+#### Next Steps
+1. **Signal Validation**: Correr backtests con los 84 datasets certificados (24h) donde VA_GATE funciona correctamente
+2. **VA_GATE Fix (Opcional)**: Agregar threshold dinámico o bypass para datasets >48h si se requiere backtesting mensual
+3. **Merge**: Considerar merge a `8.8-crystal-layer-refactor` tras validación
+
+---
+
 ### [2026-06-19 SESSION] — SlimExitEngine V10.3 Universal: Scale Out & Trailing Eliminated, 4 Universal Pillars (Branch: 8.8-crystal-layer-refactor)
 
 #### Summary

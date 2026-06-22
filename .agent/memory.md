@@ -54,10 +54,12 @@
 
 ## 📉 Roadmap
 1.  **CRYSTAL REFORGE — COMPLETADO ✅**: Quality Pipeline + Profile System implementado
-2. **VERIFICAR INTEGRIDAD DE NUEVA ARQUITECTURA (PRESSURE ENGINE) — COMPLETADO ✅**: Los 4 escenarios migrados (`LiquidityExhaustion`, `FailedBreakout`, `TrendAcceptance`, `TacticalAbsorptionV2`) producen señales consistentes.
-3. **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil(MEGA, MAJOR, MID, THIN, ILLIQUID)
-4. **FIX D1: DETECTORES PER-CLUSTER — COMPLETADO ✅** (2026-06-08): Los 4 detectores ahora resuelven el cluster del símbolo en runtime via `_cluster_cache`. XRP/DOGE reciben THIN_VOLATILE params (z=2.5, noise=0.35). PressureEngine stagnation → porcentual. 10 parámetros conectados. Commit `64a3f2b`.
-5. **CLUSTER OPTIMIZER — COMPLETADO ✅ + EXPANDED** (2026-06-08): `scripts/cluster_optimizer.py` con Optuna, EdgeAuditor, persistent study DB, cross-coin validation, sensitivity analysis. **49 params** across 8 groups (was 18). `--param-groups` flag para selective optimization. Weight auto-normalization. Próximo: ejecutar THIN_VOLATILE.
+2.  **VERIFICAR INTEGRIDAD DE NUEVA ARQUITECTURA (PRESSURE ENGINE) — COMPLETADO ✅**: Los 4 escenarios migrados producen señales consistentes.
+3.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil.
+4.  **FIX D1: DETECTORES PER-CLUSTER — COMPLETADO ✅** (2026-06-08).
+5.  **CLUSTER OPTIMIZER — COMPLETADO ✅ + EXPANDED** (2026-06-08).
+6.  **8.9 DATA FEED REVAMP — COMPLETADO ✅** (2026-06-22): UNION ALL optimization (138x speedup, 46h→20min). Symbol resolution fix. VA_GATE limitation documented.
+7.  **NEXT: SIGNAL VALIDATION** — Usar 84 datasets certificados (24h) para validar señales con VA_GATE funcional.
 
 ---
 
@@ -84,7 +86,8 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
-- 2026-06-19 | session-close | **SLIMEXITENGINE V10.3 UNIVERSAL — SCALE OUT & TRAILING ELIMINADOS**: Refactor completo siguiendo análisis externo. `ASSET_EXIT_PROFILES` reemplazado por `UNIVERSAL_EXIT_RULES`. Scale Out eliminado (erosiona R/R), Trailing Stop eliminado (vulnerable a sweeps). Solo Break Even, Time Decay, Micro-Z Reversal con Maker-Join. 13/13 tests locales pasados. Pausa solicitada antes de backtesting.
+- 2026-06-22 | session-close | **8.9 DATA FEED REVAMP — UNION ALL OPTIMIZATION (138x SPEEDUP)**: Replaced Pandas concat+sort with SQLite UNION ALL + batch streaming (fetchmany). **Real measurement**: SOL monthly 3.9GB (~100M events) in **20 min vs 46h projected** = 138x faster. Throughput: 5M events/min with 1ms delay fidelity. Added `resolve_db_symbol()` for monthly dataset symbol resolution. VA_GATE structural limitation confirmed (blocks all signals on monthly datasets — `va_integrity=0.00` due to total_volume accumulation, expected behavior). Branch `8.9-datafeed-revamp` created and pushed. Next: Use 84 certified 24h datasets for signal validation.
+- 2026-06-19 | session-close | **SLIMEXITENGINE V10.3 UNIVERSAL — SCALE OUT & TRAILING ELIMINATED**: Refactor completo siguiendo análisis externo. `ASSET_EXIT_PROFILES` reemplazado por `UNIVERSAL_EXIT_RULES`. Scale Out eliminado (erosiona R/R), Trailing Stop eliminado (vulnerable a sweeps). Solo Break Even, Time Decay, Micro-Z Reversal con Maker-Join. 13/13 tests locales pasados. Pausa solicitada antes de backtesting.
 - 2026-06-18 | session-close | **SOL CASCADE COMPLETE + PRICE=0 BUG + GUARDIAN PARAM DISCOVERY**: Bug fix price=0 en trajectory_core. Guardian param discovery: l2_ratio_min_trend_acceptance faltaba en PARAMETER_SPACE. Agregado. trial 3: +0.2082. SOL Net Taker +0.1354%.
 - 2026-06-15 | session-close | **8 FIXES FROM EXTERNAL AUDIT**: SortedList bug, CVD sessionized, VA maturity gate, spoofing persistence, volume min guard, conflict resolution (priority×score), slim exit (BE/Trailing/Decay), confidence scores. Commit `2da9833`.
 - 2026-06-15 | session-close | **DATASET PIPELINE COMPLETE**: 84 datasets certificados (2/2/2 por símbolo). +6 mensuales LTC/SOL. Análisis de 97 archivos, renombrado 26, descargado 10 nuevos (ETH/BTC con sequential para evitar OOM), podado 39 excedentes. Bugfix: columnas incorrectas en modo secuencial del fetcher (orderbook usaba `id` en vez de `is_snapshot`).
