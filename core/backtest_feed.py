@@ -138,7 +138,7 @@ class BacktestFeed:
         logger.info(f"📡 Backtest subscribed to ticker: {symbol}")
 
     async def _replay_loop(self):
-        """Replay data using an async streaming generator for SQLite or itertuples for CSV."""
+        """Replay data using Pandas itertuples over Time-Window chunks."""
         logger.info(f"▶️ Starting Backtest Replay (Mode: {self.mode})...")
 
         if self.data_path and not self.data.empty:
@@ -167,98 +167,203 @@ class BacktestFeed:
             self.engine.running = False
             return
 
-        # --- STREAMING LOOP FOR SQLITE ---
+        # --- TIME-WINDOW STREAMING FOR SQLITE ---
         if self.mode == "DB_ONLY" and getattr(self, "depth_db_path", None):
             norm_symbol = normalize_symbol(self.symbol)
             async with aiosqlite.connect(self.depth_db_path) as db:
-                limit_clause = f" LIMIT {self.limit}" if self.limit else ""
-
-                # Check tables
+                # 1. Get min and max timestamps
                 cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'")
                 has_trades = bool(await cursor.fetchone())
 
                 cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='price_candles'")
                 has_candles = bool(await cursor.fetchone())
 
+                # Find overall time boundaries
+                min_ts = float("inf")
+                max_ts = 0
+
                 if has_trades:
                     self.mode = "TRADES"
-                    trades_cursor = await db.execute(
-                        f"SELECT timestamp, 'TICK', price, amount, side FROM market_trades WHERE symbol = ? ORDER BY timestamp ASC{limit_clause}",
-                        (norm_symbol,),
+                    cursor = await db.execute(
+                        "SELECT MIN(timestamp), MAX(timestamp) FROM market_trades WHERE symbol = ?", (norm_symbol,)
                     )
+                    row = await cursor.fetchone()
+                    if row and row[0]:
+                        min_ts = min(min_ts, row[0])
+                        max_ts = max(max_ts, row[1])
                 elif has_candles:
                     self.mode = "CANDLES"
-                    trades_cursor = await db.execute(
-                        f"SELECT timestamp, 'CANDLE', open, high, low, close, volume FROM price_candles WHERE symbol = ? ORDER BY timestamp ASC{limit_clause}",
-                        (norm_symbol,),
+                    cursor = await db.execute(
+                        "SELECT MIN(timestamp), MAX(timestamp) FROM price_candles WHERE symbol = ?", (norm_symbol,)
                     )
-                else:
-                    trades_cursor = None
+                    row = await cursor.fetchone()
+                    if row and row[0]:
+                        min_ts = min(min_ts, row[0])
+                        max_ts = max(max_ts, row[1])
 
-                depth_cursor = await db.execute(
-                    f"SELECT timestamp, 'DEPTH', bids, asks FROM depth_snapshots WHERE symbol = ? ORDER BY timestamp ASC{limit_clause}",
-                    (norm_symbol,),
+                cursor = await db.execute(
+                    "SELECT MIN(timestamp), MAX(timestamp) FROM depth_snapshots WHERE symbol = ?", (norm_symbol,)
                 )
+                row = await cursor.fetchone()
+                if row and row[0]:
+                    min_ts = min(min_ts, row[0])
+                    max_ts = max(max_ts, row[1])
 
-                # Async Two-Pointer Merge
-                from collections import deque
+                if min_ts == float("inf"):
+                    logger.error("❌ No data found in database!")
+                    self.engine.running = False
+                    return
 
-                CHUNK_SIZE = 100000
+                logger.info(f"📅 Backtest Time Range: {min_ts} -> {max_ts} ({max_ts - min_ts} seconds)")
 
-                buf_depth = deque(await depth_cursor.fetchmany(CHUNK_SIZE))
-                buf_trades = deque(await trades_cursor.fetchmany(CHUNK_SIZE)) if trades_cursor else deque()
+                # 2. Create covering indices for faster UNION ALL queries
+                await self._create_optimized_indices(db, norm_symbol)
 
+                # 3. Time-Window Chunking (e.g. 24 hours = 86400 seconds)
+                WINDOW_SIZE = 86400
+                current_start = min_ts
                 events_processed = 0
 
-                while (buf_depth or buf_trades) and self.running:
-                    if self.limit and events_processed >= self.limit:
-                        logger.info(f"🛑 Reached backtest limit: {self.limit} events")
-                        break
+                while current_start <= max_ts and self.running:
+                    current_end = current_start + WINDOW_SIZE
+                    logger.info(f"⏳ Loading Time Window: {current_start} to {current_end}...")
 
-                    # Refill buffers
-                    if not buf_depth and depth_cursor:
-                        fetched = await depth_cursor.fetchmany(CHUNK_SIZE)
-                        if fetched:
-                            buf_depth.extend(fetched)
-                        else:
-                            depth_cursor = None
-
-                    if not buf_trades and trades_cursor:
-                        fetched = await trades_cursor.fetchmany(CHUNK_SIZE)
-                        if fetched:
-                            buf_trades.extend(fetched)
-                        else:
-                            trades_cursor = None
-
-                    # Pick next event
-                    if buf_depth and buf_trades:
-                        if buf_depth[0][0] <= buf_trades[0][0]:
-                            row = buf_depth.popleft()
-                        else:
-                            row = buf_trades.popleft()
-                    elif buf_depth:
-                        row = buf_depth.popleft()
-                    elif buf_trades:
-                        row = buf_trades.popleft()
+                    # UNION ALL query - let SQLite C engine do the merge and sort
+                    if has_trades:
+                        union_query = """
+                            SELECT timestamp, 0 as event_type, bids, asks, NULL as price, NULL as volume, NULL as side
+                            FROM depth_snapshots
+                            WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
+                            UNION ALL
+                            SELECT timestamp, 1 as event_type, NULL, NULL, price, amount, side
+                            FROM market_trades
+                            WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
+                            ORDER BY timestamp ASC
+                        """
+                        params = (norm_symbol, current_start, current_end, norm_symbol, current_start, current_end)
+                    elif has_candles:
+                        # Candles need special handling - we'll fetch separately to avoid column mismatch
+                        union_query = """
+                            SELECT timestamp, 0 as event_type, bids, asks, NULL, NULL, NULL
+                            FROM depth_snapshots
+                            WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
+                            ORDER BY timestamp ASC
+                        """
+                        params = (norm_symbol, current_start, current_end)
+                        candle_query = """
+                            SELECT timestamp, open, high, low, close, volume
+                            FROM price_candles
+                            WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
+                            ORDER BY timestamp ASC
+                        """
+                        candle_params = (norm_symbol, current_start, current_end)
                     else:
+                        logger.error("No data source available")
                         break
 
-                    events_processed += 1
+                    cursor = await db.execute(union_query, params)
 
-                    # Process event
-                    event_type = row[1]
-                    if event_type == "DEPTH":
-                        await self._emit_depth(row[0], row[2], row[3])
-                    elif event_type == "TICK":
-                        await self._emit_tick(row[0], row[2], row[3], row[4])
-                    elif event_type == "CANDLE":
-                        await self._emit_candle_ticks(row[0], row[2], row[3], row[4], row[5], row[6])
+                    # Batch streaming with fetchmany to reduce Python overhead
+                    BATCH_SIZE = 10000
+                    window_events = 0
 
-                    if self.delay > 0:
-                        await asyncio.sleep(self.delay)
+                    while True:
+                        rows = await cursor.fetchmany(BATCH_SIZE)
+                        if not rows:
+                            break
+
+                        # LIMIT clause emulation
+                        if self.limit:
+                            remaining = self.limit - events_processed
+                            if len(rows) > remaining:
+                                rows = rows[:remaining]
+
+                        logger.info(f"🚀 Processing batch: {len(rows)} events...")
+
+                        for row in rows:
+                            if not self.running:
+                                break
+
+                            event_type = row[1]  # 0=DEPTH, 1=TICK
+
+                            if event_type == 0:  # DEPTH
+                                await self._emit_depth(row[0], row[2], row[3])
+                            elif event_type == 1:  # TICK
+                                await self._emit_tick(row[0], row[4], row[5], row[6])
+
+                            if self.delay > 0:
+                                await asyncio.sleep(self.delay)
+
+                        window_events += len(rows)
+                        events_processed += len(rows)
+
+                        if self.limit and events_processed >= self.limit:
+                            logger.info(f"🛑 Reached backtest limit: {self.limit} events")
+                            break
+
+                    # Process candles separately if in CANDLE mode
+                    if has_candles:
+                        candle_cursor = await db.execute(candle_query, candle_params)
+                        while True:
+                            candle_rows = await candle_cursor.fetchmany(BATCH_SIZE)
+                            if not candle_rows:
+                                break
+
+                            if self.limit:
+                                remaining = self.limit - events_processed
+                                if len(candle_rows) > remaining:
+                                    candle_rows = candle_rows[:remaining]
+
+                            logger.info(f"🕯️ Processing candle batch: {len(candle_rows)} candles...")
+
+                            for candle in candle_rows:
+                                if not self.running:
+                                    break
+
+                                ts, open_p, high_p, low_p, close_p, volume = candle
+                                await self._emit_candle_ticks(ts, open_p, high_p, low_p, close_p, volume)
+
+                                if self.delay > 0:
+                                    await asyncio.sleep(self.delay)
+
+                            events_processed += len(candle_rows)
+
+                            if self.limit and events_processed >= self.limit:
+                                logger.info(f"🛑 Reached backtest limit: {self.limit} events")
+                                break
+
+                        if self.limit and events_processed >= self.limit:
+                            break
+
+                    current_start = current_end
 
         logger.info("🏁 Backtest Replay Finished.")
         self.engine.running = False
+
+    async def _create_optimized_indices(self, db, symbol):
+        """Create covering indices for faster UNION ALL queries if they don't exist."""
+        # Check existing indices
+        cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        existing_indices = {row[0] for row in await cursor.fetchall()}
+
+        # Create compound indices for (symbol, timestamp) if missing
+        if "idx_depth_symbol_ts" not in existing_indices:
+            logger.info("📌 Creating index: idx_depth_symbol_ts...")
+            await db.execute("CREATE INDEX idx_depth_symbol_ts ON depth_snapshots(symbol, timestamp)")
+
+        if "idx_trades_symbol_ts" not in existing_indices:
+            logger.info("📌 Creating index: idx_trades_symbol_ts...")
+            await db.execute("CREATE INDEX idx_trades_symbol_ts ON market_trades(symbol, timestamp)")
+
+        if "idx_candles_symbol_ts" not in existing_indices:
+            # Check if price_candles table exists first
+            cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='price_candles'")
+            if await cursor.fetchone():
+                logger.info("📌 Creating index: idx_candles_symbol_ts...")
+                await db.execute("CREATE INDEX idx_candles_symbol_ts ON price_candles(symbol, timestamp)")
+
+        await db.commit()
+        logger.info("✅ Optimized indices created/verified")
 
     async def _emit_candle_ticks(self, timestamp, open_p, high_p, low_p, close_p, volume):
         is_green = close_p > open_p
