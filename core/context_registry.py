@@ -109,12 +109,13 @@ class ContextRegistry:
             self.tick_stats[symbol] = {"speed": 0.0, "last_ts": now, "count": 0}
             self._profile_reset_ts[symbol] = now
 
-        # Auto-reset MarketProfile every 24 hours to prevent cumulative drift
-        # while matching the original calibration window for POC concentration.
+        # Auto-decay MarketProfile every 24 hours to prevent cumulative drift.
+        # Exponential decay preserves profile shape (POC, VA range ratios)
+        # while gradually phasing out old data to keep recent price action dominant.
         if now - self._profile_reset_ts.get(symbol, now) > 86400.0:
-            self.profiles[symbol].reset()
+            self.profiles[symbol].decay(factor=0.5)
             self._profile_reset_ts[symbol] = now
-            logger.info(f"🔄 [PROFILE_RESET] {symbol} — VP reset at {now} (24h window)")
+            logger.info(f"🔄 [PROFILE_DECAY] {symbol} — VP decayed by 0.5 at {now} (24h window)")
 
         # 1. Update Market Profile
         self.profiles[symbol].add_trade(price, volume)

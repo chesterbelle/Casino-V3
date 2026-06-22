@@ -201,3 +201,30 @@ class MarketProfile:
         self.poc_history.clear()
         if self._sorted_prices is not None:
             self._sorted_prices.clear()
+
+    def decay(self, factor: float = 0.5):
+        """
+        Exponential decay of the profile instead of a hard reset.
+        Scales all accumulated volume by `factor`, preserving ratios
+        (POC concentration, VA range width) so va_integrity stays stable.
+        Old data fades gradually — after 7 decays at 0.5, ~0.8% weight remains.
+        Levels that fall below the tick volume floor are pruned.
+        """
+        if self.total_volume <= 0:
+            return
+
+        floor = 1e-12  # only prune truly dead levels
+        for level in list(self.profile.keys()):
+            new_vol = self.profile[level] * factor
+            if new_vol <= floor:
+                del self.profile[level]
+            else:
+                self.profile[level] = new_vol
+
+        self.total_volume *= factor
+        self._poc_volume *= factor
+
+        # Rebuild sorted list from remaining levels
+        if self._sorted_prices is not None:
+            self._sorted_prices.clear()
+            self._sorted_prices.update(self.profile.keys())
