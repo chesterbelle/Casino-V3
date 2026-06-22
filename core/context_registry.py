@@ -45,6 +45,7 @@ class ContextRegistry:
         self.ib_levels: Dict[str, dict] = {}  # symbol -> {high, low}  Phase 700: IB levels for proximity gate
         self.active_trades: Dict[str, bool] = defaultdict(bool)  # symbol -> in_trade (Phase 974)
         self.pressure_state: Dict[str, dict] = {}
+        self._profile_reset_ts: Dict[str, float] = {}
 
         # Phase A2: Session-aware structural levels (overwritten by SessionValueArea events)
         self._session_structural: Dict[str, dict] = {}  # symbol -> {poc, vah, val}
@@ -106,6 +107,13 @@ class ContextRegistry:
             sym_tick_size = tick_registry.get(symbol)
             self.profiles[symbol] = MarketProfile(tick_size=sym_tick_size)
             self.tick_stats[symbol] = {"speed": 0.0, "last_ts": now, "count": 0}
+            self._profile_reset_ts[symbol] = now
+
+        # Auto-reset MarketProfile every 4 hours to prevent cumulative drift
+        if now - self._profile_reset_ts.get(symbol, now) > 14400.0:
+            self.profiles[symbol].reset()
+            self._profile_reset_ts[symbol] = now
+            logger.info(f"🔄 [PROFILE_RESET] {symbol} — VP reset at {now} (4h window)")
 
         # 1. Update Market Profile
         self.profiles[symbol].add_trade(price, volume)
