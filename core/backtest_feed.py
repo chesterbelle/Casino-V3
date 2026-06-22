@@ -277,12 +277,20 @@ class BacktestFeed:
                             FROM depth_snapshots
                             WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
                             UNION ALL
-                            SELECT timestamp, 1 as event_type, NULL, NULL, price, amount, side
+                            SELECT timestamp, 1 as event_type, NULL as bids, NULL as asks, price, amount, side
                             FROM market_trades
                             WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
                             ORDER BY timestamp ASC
                         """
                         params = (db_symbol, current_start, current_end, db_symbol, current_start, current_end)
+                        if has_candles:
+                            candle_query = """
+                                SELECT timestamp, open, high, low, close, volume
+                                FROM price_candles
+                                WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
+                                ORDER BY timestamp ASC
+                            """
+                            candle_params = (db_symbol, current_start, current_end)
                     elif has_candles:
                         # Candles need special handling - we'll fetch separately to avoid column mismatch
                         union_query = """
