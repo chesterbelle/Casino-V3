@@ -14,6 +14,46 @@ from utils.symbol_norm import normalize_symbol
 
 from .events import EventType, TickEvent
 
+
+def resolve_db_symbol(symbol: str, db_path: str = None) -> str:
+    """
+    Resuelve el símbolo exacto como está guardado en la DB.
+
+    Estrategia:
+    1. Extraer el símbolo base del filename SI el símbolo parece derivado del filename
+    2. Si el símbolo ya es válido (ej: SOLUSDT), usarlo
+    3. Fallback: normalizar y agregar USDT
+
+    Ejemplos:
+    - resolve_db_symbol("SOL_monthly_2026_03/USDT:USDT", "SOL_monthly_2026_03.db") -> "SOLUSDT"
+    - resolve_db_symbol("SOLUSDT", "...") -> "SOLUSDT"
+    - resolve_db_symbol("XRP/USDT", "...") -> "XRPUSDT"
+    """
+    import re
+
+    # Estrategia principal: extraer del filename si está disponible
+    if db_path:
+        filename = os.path.basename(db_path).replace(".db", "")
+
+        # Pattern: SYMBOL_anything (ej: SOL_monthly_2026_03, ADAUSDT_BALANCE_2025-11)
+        match = re.match(r"^([A-Z]+USDT|[A-Z]+)_", filename)
+        if match:
+            extracted = match.group(1)
+            # Si el extraído ya tiene USDT, usarlo
+            if "USDT" in extracted:
+                return extracted
+            # Si no, agregar USDT
+            return extracted + "USDT"
+
+    # Fallback: usar el símbolo normalizado
+    base = normalize_symbol(symbol)
+
+    if "USDT" in base:
+        return base
+
+    return base + "USDT"
+
+
 # Use orjson for faster JSON parsing (10-50x faster than stdlib json)
 try:
     import orjson as json
@@ -169,7 +209,9 @@ class BacktestFeed:
 
         # --- TIME-WINDOW STREAMING FOR SQLITE ---
         if self.mode == "DB_ONLY" and getattr(self, "depth_db_path", None):
-            norm_symbol = normalize_symbol(self.symbol)
+            # Resolve exact symbol as stored in DB
+            db_symbol = resolve_db_symbol(self.symbol, self.depth_db_path)
+
             async with aiosqlite.connect(self.depth_db_path) as db:
                 # 1. Get min and max timestamps
                 cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_trades'")
@@ -185,7 +227,7 @@ class BacktestFeed:
                 if has_trades:
                     self.mode = "TRADES"
                     cursor = await db.execute(
-                        "SELECT MIN(timestamp), MAX(timestamp) FROM market_trades WHERE symbol = ?", (norm_symbol,)
+                        "SELECT MIN(timestamp), MAX(timestamp) FROM market_trades WHERE symbol = ?", (db_symbol,)
                     )
                     row = await cursor.fetchone()
                     if row and row[0]:
@@ -194,7 +236,7 @@ class BacktestFeed:
                 elif has_candles:
                     self.mode = "CANDLES"
                     cursor = await db.execute(
-                        "SELECT MIN(timestamp), MAX(timestamp) FROM price_candles WHERE symbol = ?", (norm_symbol,)
+                        "SELECT MIN(timestamp), MAX(timestamp) FROM price_candles WHERE symbol = ?", (db_symbol,)
                     )
                     row = await cursor.fetchone()
                     if row and row[0]:
@@ -202,7 +244,7 @@ class BacktestFeed:
                         max_ts = max(max_ts, row[1])
 
                 cursor = await db.execute(
-                    "SELECT MIN(timestamp), MAX(timestamp) FROM depth_snapshots WHERE symbol = ?", (norm_symbol,)
+                    "SELECT MIN(timestamp), MAX(timestamp) FROM depth_snapshots WHERE symbol = ?", (db_symbol,)
                 )
                 row = await cursor.fetchone()
                 if row and row[0]:
@@ -217,7 +259,7 @@ class BacktestFeed:
                 logger.info(f"📅 Backtest Time Range: {min_ts} -> {max_ts} ({max_ts - min_ts} seconds)")
 
                 # 2. Create covering indices for faster UNION ALL queries
-                await self._create_optimized_indices(db, norm_symbol)
+                await self._create_optimized_indices(db, db_symbol)
 
                 # 3. Time-Window Chunking (e.g. 24 hours = 86400 seconds)
                 WINDOW_SIZE = 86400
@@ -240,7 +282,7 @@ class BacktestFeed:
                             WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
                             ORDER BY timestamp ASC
                         """
-                        params = (norm_symbol, current_start, current_end, norm_symbol, current_start, current_end)
+                        params = (db_symbol, current_start, current_end, db_symbol, current_start, current_end)
                     elif has_candles:
                         # Candles need special handling - we'll fetch separately to avoid column mismatch
                         union_query = """
@@ -249,14 +291,14 @@ class BacktestFeed:
                             WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
                             ORDER BY timestamp ASC
                         """
-                        params = (norm_symbol, current_start, current_end)
+                        params = (db_symbol, current_start, current_end)
                         candle_query = """
                             SELECT timestamp, open, high, low, close, volume
                             FROM price_candles
                             WHERE symbol = ? AND timestamp >= ? AND timestamp < ?
                             ORDER BY timestamp ASC
                         """
-                        candle_params = (norm_symbol, current_start, current_end)
+                        candle_params = (db_symbol, current_start, current_end)
                     else:
                         logger.error("No data source available")
                         break
