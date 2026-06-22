@@ -26,6 +26,7 @@ class MarketProfile:
         # O(1) running POC tracking
         self._poc_price = 0.0
         self._poc_volume = 0.0
+        self._last_logged_poc = 0.0
         # Sorted price levels for O(log n) lookup in calculate_value_area
         self._sorted_prices = SortedList() if _HAS_SORTEDLIST else None
 
@@ -54,7 +55,9 @@ class MarketProfile:
         if level_vol > self._poc_volume:
             self._poc_price = level
             self._poc_volume = level_vol
-        self.poc_history.append(self._poc_price)
+        if self._poc_price != self._last_logged_poc:
+            self.poc_history.append(self._poc_price)
+            self._last_logged_poc = self._poc_price
 
     def calculate_value_area(self) -> Tuple[float, float, float]:
         """
@@ -194,5 +197,7 @@ class MarketProfile:
         self.total_volume = 0.0
         self._poc_price = 0.0
         self._poc_volume = 0.0
+        self._last_logged_poc = 0.0
+        self.poc_history.clear()
         if self._sorted_prices is not None:
             self._sorted_prices.clear()

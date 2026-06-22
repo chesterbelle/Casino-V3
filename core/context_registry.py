@@ -147,14 +147,23 @@ class ContextRegistry:
         This ensures the SetupEngine guardians use the same per-window
         levels as the session sensor, avoiding stale cumulative averages.
         Phase 2000: Also caches session-scoped VA integrity.
+
+        Args:
+            symbol: Trading symbol
+            poc: Point of Control
+            vah: Value Area High
+            val: Value Area Low
+            va_integrity: VA integrity score from session sensor
         """
-        if poc > 0 and vah > 0 and val > 0:
-            self._session_structural[symbol] = {
-                "poc": poc,
-                "vah": vah,
-                "val": val,
-                "va_integrity": va_integrity,
-            }
+        self._session_structural[symbol] = {"poc": poc, "vah": vah, "val": val, "va_integrity": va_integrity}
+
+    def reset_profile(self, symbol: str):
+        """Phase 1150: Resets MarketProfile for a symbol to prevent cumulative drift.
+        Should be called at the start of each new trading session / dataset.
+        """
+        profile = self.profiles.get(symbol)
+        if profile:
+            profile.reset()
 
     def set_ib(self, symbol: str, ib_high: float, ib_low: float):
         """Phase 700: Store IB boundaries for level proximity checks."""

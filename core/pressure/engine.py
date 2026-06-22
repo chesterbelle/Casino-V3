@@ -56,14 +56,18 @@ class CoinPressureEngine:
 
         self.absorption_snapshots = 0
         self.last_price = 0.0
+        self.last_trade_price = 0.0
 
         self.price_history = deque(maxlen=200)
         self.price_returns = deque(maxlen=200)
 
     def reset_cvd_session(self):
-        """Resets session-scoped CVD to eliminate drift across liquidity windows."""
+        """Resets session-scoped CVD and z-scores to eliminate drift across liquidity windows."""
         self.cvd_session = 0.0
         self._last_cvd_session_reset_ts = 0.0
+        self.velocity_zscore = RollingZScore(window_size=200)
+        self.concentration_zscore = RollingZScore(window_size=500)
+        self.noise_zscore = RollingZScore(window_size=500)
 
     def _check_cvd_session_reset(self, ts: float):
         """Auto-reset CVD session if enough time has passed (window transition)."""
@@ -80,6 +84,8 @@ class CoinPressureEngine:
             params = profile_manager.get_sensor_params(self.symbol, "absorption_detector")
             self.stagnation_floor_pct = params.get("stagnation_floor_pct", 0.0008) if params else 0.0008
             self.book_bucket_pct = params.get("book_bucket_pct", 0.0) if params else 0.0
+            self.concentration_min = params.get("concentration_min", 0.50) if params else 0.50
+            self.noise_max = params.get("noise_max", 0.35) if params else 0.35
 
             # Load z_block from pressure_thresholds in profile
             pressure_params = profile_manager.get_pressure_thresholds(self.symbol)
@@ -89,12 +95,16 @@ class CoinPressureEngine:
             self.stagnation_floor_pct = 0.0008
             self.book_bucket_pct = 0.0
             self.z_block = 2.0
+            self.concentration_min = 0.50
+            self.noise_max = 0.35
         except Exception as e:
             logger = logging.getLogger(__name__)
             logger.exception("Error loading params for %s: %s", self.symbol, e)
             self.stagnation_floor_pct = 0.0008
             self.book_bucket_pct = 0.0
             self.z_block = 2.0
+            self.concentration_min = 0.50
+            self.noise_max = 0.35
 
     def update(
         self, qty: float, is_buyer_maker: bool, ts: float, price: float, footprint_levels: Optional[Dict] = None
@@ -114,6 +124,7 @@ class CoinPressureEngine:
             self.cvd_history.append((ts, self.current_cvd))
             self.last_state.cvd_delta = self.current_cvd
             self.last_state.cvd_session_delta = self.cvd_session
+            self.last_trade_price = price
 
             if len(self.cvd_history) > 2:
                 dt = ts - self.cvd_history[-2][0]
@@ -131,7 +142,8 @@ class CoinPressureEngine:
             self._window_buy_vol += buy_qty
             self._window_sell_vol += sell_qty
 
-        price_diff_pct = abs(price - self.last_price) / self.last_price if self.last_price > 0 else 0.0
+        ref_price = self.last_trade_price if self.last_trade_price > 0 else self.last_price
+        price_diff_pct = abs(price - ref_price) / ref_price if ref_price > 0 else 0.0
         is_high_delta = abs(self.last_state.cvd_velocity) > 0.1
         is_price_stagnant = price_diff_pct < self.stagnation_floor_pct
 
@@ -223,29 +235,34 @@ class CoinPressureEngine:
                 self.last_state.absorption_score = tick_absorption
                 self.last_state.absorption_score_v2 = tick_absorption
 
-        if self.last_price > 0:
-            ret = price / self.last_price - 1
-            self.price_returns.append(ret)
-            if len(self.price_returns) >= 10:
-                mu = sum(self.price_returns) / len(self.price_returns)
-                var = sum((r - mu) ** 2 for r in self.price_returns) / len(self.price_returns)
-                sigma = var**0.5
-                self.last_state.volatility_z = (abs(ret) - mu) / sigma if sigma > 0 else 0.0
+        if qty > 0:
+            if self.last_price > 0:
+                ret = price / self.last_price - 1
+                self.price_returns.append(ret)
+                if len(self.price_returns) >= 10:
+                    mu = sum(self.price_returns) / len(self.price_returns)
+                    var = sum((r - mu) ** 2 for r in self.price_returns) / len(self.price_returns)
+                    sigma = var**0.5
+                    self.last_state.volatility_z = (abs(ret) - mu) / sigma if sigma > 0 else 0.0
 
-        self.price_history.append(price)
-        if len(self.price_history) >= 20:
-            mu_p = sum(self.price_history) / len(self.price_history)
-            var_p = sum((p - mu_p) ** 2 for p in self.price_history) / len(self.price_history)
-            sigma_p = var_p**0.5
-            if sigma_p > 0:
-                self.last_state.price_displacement_z = (price - mu_p) / sigma_p
+            self.price_history.append(price)
+            if len(self.price_history) >= 20:
+                mu_p = sum(self.price_history) / len(self.price_history)
+                var_p = sum((p - mu_p) ** 2 for p in self.price_history) / len(self.price_history)
+                sigma_p = var_p**0.5
+                if sigma_p > 0:
+                    self.last_state.price_displacement_z = (price - mu_p) / sigma_p
 
         cvd_sell = self.last_state.cvd_delta < 0
         cvd_buy = self.last_state.cvd_delta > 0
         displaced_high = self.last_state.price_displacement_z > self.z_block
         displaced_low = self.last_state.price_displacement_z < -self.z_block
-        self.last_state.block_long = cvd_sell and displaced_high
-        self.last_state.block_short = cvd_buy and displaced_low
+        self.last_state.block_long = (
+            cvd_sell and (displaced_high or self.last_state.block_long) and not (cvd_buy and displaced_low)
+        )
+        self.last_state.block_short = (
+            cvd_buy and (displaced_low or self.last_state.block_short) and not (cvd_sell and displaced_high)
+        )
 
         self.last_state.window_buy_vol = self._window_buy_vol
         self.last_state.window_sell_vol = self._window_sell_vol
