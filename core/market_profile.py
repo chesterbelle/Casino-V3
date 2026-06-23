@@ -15,11 +15,16 @@ class MarketProfile:
     Market Profile & Volume Profile tracker.
     Implements James Dalton's Market Profile concepts (Value Area, POC).
     Calculates the area where 70% of volume/TPOs occurred.
+
+    Uses a rolling time window (default 8h) so the profile always reflects
+    recent price action. Ticks older than the window are automatically pruned,
+    preventing VA range expansion drift without needing hard resets or decay.
     """
 
-    def __init__(self, tick_size: float, value_area_pct: float = 0.70):
+    def __init__(self, tick_size: float, value_area_pct: float = 0.70, rolling_window: float = 28800):
         self.tick_size = tick_size
         self.value_area_pct = value_area_pct
+        self.rolling_window = rolling_window  # seconds, 0 = unlimited
         self.profile: Dict[float, float] = defaultdict(float)  # price_level -> volume
         self.total_volume = 0.0
         self.poc_history = deque(maxlen=300)  # Phase 1150: Track POC migration
@@ -29,6 +34,8 @@ class MarketProfile:
         self._last_logged_poc = 0.0
         # Sorted price levels for O(log n) lookup in calculate_value_area
         self._sorted_prices = SortedList() if _HAS_SORTEDLIST else None
+        # Rolling window tick log (timestamp, price_level, volume)
+        self._tick_log: deque = deque()
 
     def round_price(self, price: float) -> float:
         """Rounds price to the nearest tick size."""
@@ -37,8 +44,11 @@ class MarketProfile:
         # Use round(price / tick) * tick to snap to grid
         return round(price / self.tick_size) * self.tick_size
 
-    def add_trade(self, price: float, volume: float):
-        """Processes a new trade/tick and adds it to the profile."""
+    def add_trade(self, price: float, volume: float, timestamp: float = None):
+        """Processes a new trade/tick and adds it to the profile.
+        If timestamp is provided and rolling_window > 0, old ticks outside
+        the window are automatically pruned.
+        """
         if volume <= 0:
             return
 
@@ -49,6 +59,21 @@ class MarketProfile:
 
         if self._sorted_prices is not None and is_new_level:
             self._sorted_prices.add(level)
+
+        # Rolling window: track this tick and prune expired ones
+        if self.rolling_window > 0 and timestamp is not None:
+            self._tick_log.append((timestamp, level, volume))
+            cutoff = timestamp - self.rolling_window
+            while self._tick_log and self._tick_log[0][0] < cutoff:
+                old_ts, old_level, old_vol = self._tick_log.popleft()
+                self.profile[old_level] -= old_vol
+                self.total_volume -= old_vol
+                if self.profile[old_level] <= 0:
+                    del self.profile[old_level]
+                    if self._sorted_prices is not None and old_level in self._sorted_prices:
+                        self._sorted_prices.remove(old_level)
+                if old_level == self._poc_price:
+                    self._recalculate_poc()
 
         # O(1) POC update: only recalculate if this level is now the max
         level_vol = self.profile[level]
@@ -191,6 +216,15 @@ class MarketProfile:
 
         return concentration * magnetism
 
+    def _recalculate_poc(self):
+        """Full scan to find the current POC. Called when the POC level is pruned."""
+        if not self.profile:
+            self._poc_price = 0.0
+            self._poc_volume = 0.0
+            return
+        self._poc_price = max(self.profile, key=self.profile.get)
+        self._poc_volume = self.profile[self._poc_price]
+
     def reset(self):
         """Clears the profile for a new session/day."""
         self.profile.clear()
@@ -199,6 +233,7 @@ class MarketProfile:
         self._poc_volume = 0.0
         self._last_logged_poc = 0.0
         self.poc_history.clear()
+        self._tick_log.clear()
         if self._sorted_prices is not None:
             self._sorted_prices.clear()
 
@@ -207,8 +242,7 @@ class MarketProfile:
         Exponential decay of the profile instead of a hard reset.
         Scales all accumulated volume by `factor`, preserving ratios
         (POC concentration, VA range width) so va_integrity stays stable.
-        Old data fades gradually — after 7 decays at 0.5, ~0.8% weight remains.
-        Levels that fall below the tick volume floor are pruned.
+        Note: clears tick_log since timestamps would no longer match volumes.
         """
         if self.total_volume <= 0:
             return
@@ -223,6 +257,7 @@ class MarketProfile:
 
         self.total_volume *= factor
         self._poc_volume *= factor
+        self._tick_log.clear()
 
         # Rebuild sorted list from remaining levels
         if self._sorted_prices is not None:

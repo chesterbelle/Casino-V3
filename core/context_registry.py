@@ -45,7 +45,6 @@ class ContextRegistry:
         self.ib_levels: Dict[str, dict] = {}  # symbol -> {high, low}  Phase 700: IB levels for proximity gate
         self.active_trades: Dict[str, bool] = defaultdict(bool)  # symbol -> in_trade (Phase 974)
         self.pressure_state: Dict[str, dict] = {}
-        self._profile_reset_ts: Dict[str, float] = {}
 
         # Phase A2: Session-aware structural levels (overwritten by SessionValueArea events)
         self._session_structural: Dict[str, dict] = {}  # symbol -> {poc, vah, val}
@@ -107,18 +106,9 @@ class ContextRegistry:
             sym_tick_size = tick_registry.get(symbol)
             self.profiles[symbol] = MarketProfile(tick_size=sym_tick_size)
             self.tick_stats[symbol] = {"speed": 0.0, "last_ts": now, "count": 0}
-            self._profile_reset_ts[symbol] = now
 
-        # Auto-decay MarketProfile every 24 hours to prevent cumulative drift.
-        # Exponential decay preserves profile shape (POC, VA range ratios)
-        # while gradually phasing out old data to keep recent price action dominant.
-        if now - self._profile_reset_ts.get(symbol, now) > 86400.0:
-            self.profiles[symbol].decay(factor=0.5)
-            self._profile_reset_ts[symbol] = now
-            logger.info(f"🔄 [PROFILE_DECAY] {symbol} — VP decayed by 0.5 at {now} (24h window)")
-
-        # 1. Update Market Profile
-        self.profiles[symbol].add_trade(price, volume)
+        # 1. Update Market Profile with rolling window (handles drift internally)
+        self.profiles[symbol].add_trade(price, volume, timestamp=now)
 
         # 2. Update Pulse (Tick Speed)
         stats = self.tick_stats[symbol]
