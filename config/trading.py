@@ -257,17 +257,19 @@ LIMIT_SNIPER_CONFIRM_WINDOW_SEC = 0.50
 LIMIT_SNIPER_BACKTEST_STRICT_FILL = False  # Touch-fill (signal fires at level)
 
 # =====================================================
-# 🎯 SLIM EXIT ENGINE (V10.3 - Universal 4-Pillars)
+# 🎯 SLIM EXIT ENGINE (V11 - Compression-Only)
 # =====================================================
 
-# Master Switch for the new Slim Engine
+# Master Switch for the Slim Engine
 SLIM_EXIT_ACTIVE = True
 
 UNIVERSAL_EXIT_RULES = {
-    "break_even": {"enabled": True, "trigger_pct": 0.5, "fee_friction": 0.0009},
-    "micro_z_reversal": {"enabled": True, "threshold": 4.0},
-    "time_decay": {"enabled": True, "max_hold_seconds": 360},
-    "execution_strategy": "MAKER_JOIN",
+    "time_decay": {
+        "enabled": True,
+        "max_hold_seconds": 21600,  # 6h — EdgeAuditor window, thesis gets full time
+        "compression_window": 21600,  # 6h — gradual bracket compression
+        "fee_friction": 0.0009,  # 0.09% cover fees at convergence
+    },
 }
 
 # -----------------------------------------------------

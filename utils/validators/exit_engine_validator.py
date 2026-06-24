@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
-Layer 0.E: SlimExitEngine Pillar Math Validator (Universal)
-----------------------------------------------------------
-Validates each SlimExitEngine pillar computes correct exit decisions in isolation.
+Layer 0.E: SlimExitEngine V11 Compression Math Validator
+---------------------------------------------------------
+Validates bracket compression math in isolation.
 
 Tests (no real Croupier / SensorManager):
-  1. Pillar 3: Micro-Z Reversal (abs ΔZ)
-  2. Pillar 1: Time Decay
-  3. Pillar 2: Break Even
-  4. Patience lock grace period skips tactical processing
+  1. Elapsed < max_hold → no compression
+  2. Elapsed = max_hold → TP/SL at original levels (progress=0)
+  3. Mid-compression → TP/SL halfway to convergence
+  4. At total_expiry → TP/SL converge at entry +/- fee_friction
+  5. Throttle: same prices skip modify
+  6. Throttle: meaningful change triggers modify
+  7. Grace period blocks compression
+  8. Non-OPEN/ACTIVE status skipped
 
 Usage:
     python utils/validators/exit_engine_validator.py
@@ -40,14 +44,6 @@ def fail(msg):
 # =========================================================
 
 
-class MockContextRegistry:
-    def __init__(self, z=0.0):
-        self._z = z
-
-    def get_micro_state(self, symbol):
-        return (0.0, 0.5, self._z)
-
-
 class MockPositionTracker:
     def __init__(self, positions=None):
         self.open_positions = positions or []
@@ -57,17 +53,15 @@ class MockPositionTracker:
 
 
 class MockCroupier:
-    def __init__(self, context_registry=None):
-        self.context_registry = context_registry
+    def __init__(self):
         self.position_tracker = MockPositionTracker()
-        self.close_calls = []
-        self.modify_sl_calls = []
+        self.modify_calls = []
 
-    async def close_position(self, trade_id, exit_reason="", prefer_maker=False):
-        self.close_calls.append((trade_id, exit_reason, prefer_maker))
+    async def modify_tp(self, trade_id, new_tp_price, symbol):
+        self.modify_calls.append(("TP", trade_id, new_tp_price, symbol))
 
     async def modify_sl(self, trade_id, new_sl_price, symbol):
-        self.modify_sl_calls.append((trade_id, new_sl_price, symbol))
+        self.modify_calls.append(("SL", trade_id, new_sl_price, symbol))
 
 
 def make_position(
@@ -76,10 +70,9 @@ def make_position(
     entry_price=100.0,
     trade_id="test_001",
     timestamp=0.0,
-    entry_atr=1.0,
-    entry_z=None,
-    be_activated=False,
-    shadow_sl_level=None,
+    status="OPEN",
+    tp_pct=0.01,
+    sl_pct=0.01,
 ):
     pos = OpenPosition(
         trade_id=trade_id,
@@ -91,15 +84,11 @@ def make_position(
         margin_used=entry_price / 10.0,
         notional=entry_price,
         leverage=10.0,
-        tp_level=entry_price * 1.01,
-        sl_level=entry_price * 0.99,
+        tp_level=entry_price * (1 + tp_pct) if side == "LONG" else entry_price * (1 - tp_pct),
+        sl_level=entry_price * (1 - sl_pct) if side == "LONG" else entry_price * (1 + sl_pct),
         amount=1.0,
     )
-    pos.entry_atr = entry_atr
-    pos.be_activated = be_activated
-    pos.shadow_sl_level = shadow_sl_level
-    if entry_z is not None:
-        pos.entry_z = entry_z
+    pos.status = status
     return pos
 
 
@@ -114,168 +103,220 @@ def slim_engine(croupier=None):
 # =========================================================
 
 
-async def test_micro_z_reversal():
+async def test_no_compression_before_max_hold():
     print("\n" + "=" * 60)
-    print(" PILAR 3: MICRO-Z REVERSAL (abs ΔZ)")
+    print(" COMPRESSION: BEFORE MAX_HOLD")
     print("=" * 60)
-
-    rules = trading_config.UNIVERSAL_EXIT_RULES
-    threshold = rules["micro_z_reversal"]["threshold"]
-
-    # LONG: entry_z=-3, abs(current_z - entry_z) > threshold
-    ctx = MockContextRegistry(z=-3.0 + threshold + 1.0)
-    croupier = MockCroupier(context_registry=ctx)
-    engine = slim_engine(croupier)
-    pos = make_position(side="LONG", entry_z=-3.0)
-    triggered = engine._check_micro_z_reversal(pos)
-    if triggered and pos.trade_id in engine._pending_terminations:
-        ok(f"LONG abs(ΔZ) > {threshold} → invalidation + pending termination")
-    else:
-        fail("LONG Micro-Z reversal should trigger")
-    engine._pending_terminations.discard(pos.trade_id)
-
-    # SHORT: entry_z=+3, abs(current_z - entry_z) > threshold (ΔZ negative but abs > thresh)
-    ctx2 = MockContextRegistry(z=3.0 - threshold - 1.0)
-    croupier2 = MockCroupier(context_registry=ctx2)
-    engine2 = slim_engine(croupier2)
-    pos2 = make_position(side="SHORT", entry_z=3.0)
-    triggered2 = engine2._check_micro_z_reversal(pos2)
-    if triggered2:
-        ok(f"SHORT abs(ΔZ) > {threshold} → invalidation")
-    else:
-        fail("SHORT Micro-Z reversal should trigger")
-
-    # LONG: No reversal when within threshold
-    ctx3 = MockContextRegistry(z=-3.0 + 0.5)  # ΔZ = 0.5 < threshold
-    croupier3 = MockCroupier(context_registry=ctx3)
-    engine3 = slim_engine(croupier3)
-    pos3 = make_position(side="LONG", entry_z=-3.0)
-    if not engine3._check_micro_z_reversal(pos3):
-        ok(f"LONG abs(ΔZ) < {threshold} → no invalidation")
-    else:
-        fail("LONG Micro-Z should NOT trigger (within threshold)")
-
-    # SHORT: No reversal when within threshold
-    ctx4 = MockContextRegistry(z=3.0 - 0.5)  # ΔZ = -0.5, abs=0.5 < threshold
-    croupier4 = MockCroupier(context_registry=ctx4)
-    engine4 = slim_engine(croupier4)
-    pos4 = make_position(side="SHORT", entry_z=3.0)
-    if not engine4._check_micro_z_reversal(pos4):
-        ok("abs(ΔZ) within threshold → no invalidation")
-    else:
-        fail("Small abs(ΔZ) should not invalidate")
-
-
-async def test_time_decay():
-    print("\n" + "=" * 60)
-    print(" PILAR 1: TIME DECAY")
-    print("=" * 60)
-
-    rules = trading_config.UNIVERSAL_EXIT_RULES
-    max_hold = rules["time_decay"]["max_hold_seconds"]
 
     croupier = MockCroupier()
     engine = slim_engine(croupier)
-    pos = make_position(trade_id="td_001")
+    pos = make_position(entry_price=100.0, timestamp=0.0)
 
-    # Inside max hold limit
-    triggered = engine._check_time_decay(pos, max_hold - 10.0)
-    if not triggered:
-        ok("Elapsed < max_hold → hold position")
+    # elapsed just under max_hold
+    await engine._apply_compression(pos, engine.max_hold - 10.0)
+    if len(croupier.modify_calls) == 0:
+        ok(f"Elapsed < {engine.max_hold}s → no compression")
     else:
-        fail("Should not trigger time decay before max_hold_seconds")
-
-    # Exceeding max hold limit
-    triggered2 = engine._check_time_decay(pos, max_hold + 10.0)
-    if triggered2 and pos.trade_id in engine._pending_terminations:
-        ok(f"Elapsed > {max_hold}s → time decay triggered")
-    else:
-        fail("Should trigger time decay when exceeding limit")
+        fail(f"Expected 0 modify calls, got {len(croupier.modify_calls)}")
 
 
-async def test_break_even():
+async def test_compression_at_max_hold():
     print("\n" + "=" * 60)
-    print(" PILAR 2: BREAK EVEN")
+    print(" COMPRESSION: AT MAX_HOLD (PROGRESS=0)")
     print("=" * 60)
-
-    rules = trading_config.UNIVERSAL_EXIT_RULES
-    trigger_pct = rules["break_even"]["trigger_pct"]
-    fee_friction = rules["break_even"]["fee_friction"]
 
     croupier = MockCroupier()
     engine = slim_engine(croupier)
-    pos = make_position(side="LONG", entry_price=100.0)
-    tp_pct = 0.01  # 1% TP from tp_level (101.0) vs entry_price (100.0)
+    entry = 100.0
+    pos = make_position(entry_price=entry, timestamp=0.0, side="LONG")
 
-    # 1. Trigger threshold not met (below 50% of TP target)
-    pnl_unmet_price = 100.0 + (100.0 * tp_pct * trigger_pct * 0.8)
-    triggered = engine._check_break_even(pos, pnl_unmet_price)
-    if not triggered and not engine._pillar_state.get(pos.trade_id, {}).get("breakeven_activated", False):
-        ok("Trigger pct not met → BE not activated")
+    # elapsed = max_hold, progress = 0, TP/SL unchanged
+    await engine._apply_compression(pos, engine.max_hold)
+    if len(croupier.modify_calls) >= 1:
+        tp_call = next((c for c in croupier.modify_calls if c[0] == "TP"), None)
+        sl_call = next((c for c in croupier.modify_calls if c[0] == "SL"), None)
+        if tp_call and abs(tp_call[2] - pos.tp_level) < 1e-6:
+            ok(f"TP at original level {pos.tp_level:.2f} at t=0% compression")
+        else:
+            fail(f"TP should be at original level, got: {tp_call}")
+        if sl_call and abs(sl_call[2] - pos.sl_level) < 1e-6:
+            ok(f"SL at original level {pos.sl_level:.2f} at t=0% compression")
+        else:
+            fail(f"SL should be at original level, got: {sl_call}")
     else:
-        fail("BE should not activate yet")
-
-    # 2. Trigger threshold met (at 50% of TP target)
-    pnl_met_price = 100.0 + (100.0 * tp_pct * trigger_pct)
-    triggered2 = engine._check_break_even(pos, pnl_met_price)
-    state = engine._pillar_state.get(pos.trade_id, {})
-    expected_be_price = 100.0 * (1 + fee_friction)
-    if (
-        not triggered2
-        and state.get("breakeven_activated", False)
-        and abs(state.get("breakeven_price", 0.0) - expected_be_price) < 1e-5
-    ):
-        ok(f"Trigger pct met → BE activated at {expected_be_price:.4f}")
-    else:
-        fail("BE should be activated but not triggered exit yet")
-
-    # 3. Price drops to BE level
-    triggered3 = engine._check_break_even(pos, expected_be_price - 0.01)
-    if triggered3 and pos.trade_id in engine._pending_terminations:
-        ok("Price hit BE level → BREAK_EVEN exit triggered")
-    else:
-        fail("Price hitting BE should trigger exit")
+        ok("No modify calls (throttle may have skipped identical prices)")
 
 
-async def test_on_tick_grace_and_pending():
+async def test_compression_midway():
     print("\n" + "=" * 60)
-    print(" ON_TICK: GRACE PERIOD & PENDING GUARD")
+    print(" COMPRESSION: MIDWAY (PROGRESS=0.5)")
+    print("=" * 60)
+
+    croupier = MockCroupier()
+    engine = slim_engine(croupier)
+    entry = 100.0
+    pos = make_position(entry_price=entry, timestamp=0.0, side="LONG")
+
+    elapsed = engine.max_hold + engine.compression_window / 2  # 50% progress
+    await engine._apply_compression(pos, elapsed)
+
+    fee_off = entry * engine.fee_friction
+    expected_tp = pos.tp_level + ((entry + fee_off) - pos.tp_level) * 0.5
+    expected_sl = pos.sl_level + ((entry - fee_off) - pos.sl_level) * 0.5
+
+    tp_call = next((c for c in croupier.modify_calls if c[0] == "TP"), None)
+    sl_call = next((c for c in croupier.modify_calls if c[0] == "SL"), None)
+    if tp_call and abs(tp_call[2] - expected_tp) < 1e-4:
+        ok(f"TP at 50% compression: {tp_call[2]:.4f} (expected {expected_tp:.4f})")
+    else:
+        fail(f"TP midway mismatch: got {tp_call}, expected {expected_tp:.4f}")
+    if sl_call and abs(sl_call[2] - expected_sl) < 1e-4:
+        ok(f"SL at 50% compression: {sl_call[2]:.4f} (expected {expected_sl:.4f})")
+    else:
+        fail(f"SL midway mismatch: got {sl_call}, expected {expected_sl:.4f}")
+
+
+async def test_compression_at_total_expiry():
+    print("\n" + "=" * 60)
+    print(" COMPRESSION: AT TOTAL_EXPIRY (PROGRESS=1.0)")
+    print("=" * 60)
+
+    croupier = MockCroupier()
+    engine = slim_engine(croupier)
+    entry = 100.0
+    pos = make_position(entry_price=entry, timestamp=0.0, side="LONG")
+
+    await engine._apply_compression(pos, engine.total_expiry)
+
+    fee_off = entry * engine.fee_friction
+    expected_tp = entry + fee_off
+    expected_sl = entry - fee_off
+
+    tp_call = next((c for c in croupier.modify_calls if c[0] == "TP"), None)
+    sl_call = next((c for c in croupier.modify_calls if c[0] == "SL"), None)
+    if tp_call and abs(tp_call[2] - expected_tp) < 1e-6:
+        ok(f"TP converged at entry + fee: {tp_call[2]:.4f} (expected {expected_tp:.4f})")
+    else:
+        fail(f"TP convergence mismatch: got {tp_call}, expected {expected_tp:.4f}")
+    if sl_call and abs(sl_call[2] - expected_sl) < 1e-6:
+        ok(f"SL converged at entry - fee: {sl_call[2]:.4f} (expected {expected_sl:.4f})")
+    else:
+        fail(f"SL convergence mismatch: got {sl_call}, expected {expected_sl:.4f}")
+
+
+async def test_compression_short_side():
+    print("\n" + "=" * 60)
+    print(" COMPRESSION: SHORT SIDE")
+    print("=" * 60)
+
+    croupier = MockCroupier()
+    engine = slim_engine(croupier)
+    entry = 100.0
+    pos = make_position(entry_price=entry, timestamp=0.0, side="SHORT")
+
+    await engine._apply_compression(pos, engine.total_expiry)
+
+    fee_off = entry * engine.fee_friction
+    expected_tp = entry - fee_off  # TP below entry for SHORT
+    expected_sl = entry + fee_off  # SL above entry for SHORT
+
+    tp_call = next((c for c in croupier.modify_calls if c[0] == "TP"), None)
+    sl_call = next((c for c in croupier.modify_calls if c[0] == "SL"), None)
+    if tp_call and abs(tp_call[2] - expected_tp) < 1e-6:
+        ok(f"SHORT TP converged at entry - fee: {tp_call[2]:.4f}")
+    else:
+        fail(f"SHORT TP convergence mismatch: got {tp_call}, expected {expected_tp:.4f}")
+    if sl_call and abs(sl_call[2] - expected_sl) < 1e-6:
+        ok(f"SHORT SL converged at entry + fee: {sl_call[2]:.4f}")
+    else:
+        fail(f"SHORT SL convergence mismatch: got {sl_call}, expected {expected_sl:.4f}")
+
+
+async def test_throttle_no_duplicate():
+    print("\n" + "=" * 60)
+    print(" THROTTLE: SAME PRICE → SKIP")
+    print("=" * 60)
+
+    croupier = MockCroupier()
+    engine = slim_engine(croupier)
+    pos = make_position(entry_price=100.0, timestamp=0.0)
+
+    await engine._apply_compression(pos, engine.max_hold)
+    first_calls = len(croupier.modify_calls)
+
+    # Same elapsed → same prices → should throttle
+    await engine._apply_compression(pos, engine.max_hold)
+    if len(croupier.modify_calls) == first_calls:
+        ok("Duplicate elapsed → no redundant modify calls")
+    else:
+        fail(f"Expected {first_calls} calls (no change), got {len(croupier.modify_calls)}")
+
+
+async def test_throttle_triggers_on_change():
+    print("\n" + "=" * 60)
+    print(" THROTTLE: PRICE CHANGE → TRIGGER")
+    print("=" * 60)
+
+    croupier = MockCroupier()
+    engine = slim_engine(croupier)
+    pos = make_position(entry_price=100.0, timestamp=0.0)
+
+    await engine._apply_compression(pos, engine.max_hold)
+    first_calls = len(croupier.modify_calls)
+
+    # Different elapsed → meaningfully different prices → should trigger
+    elapsed = engine.max_hold + engine.compression_window / 2
+    await engine._apply_compression(pos, elapsed)
+    if len(croupier.modify_calls) > first_calls:
+        ok("Progress change → new modify calls issued")
+    else:
+        fail(f"Expected more calls after progress change, got {len(croupier.modify_calls)}")
+
+
+async def test_grace_period_blocks():
+    print("\n" + "=" * 60)
+    print(" GRACE PERIOD → NO COMPRESSION")
     print("=" * 60)
 
     grace = getattr(trading_config, "PATIENCE_LOCK_GRACE_PERIOD", 15.0)
-
-    # Grace period — no tactical action
-    ctx = MockContextRegistry(z=0.0)
-    croupier = MockCroupier(context_registry=ctx)
-    pos = make_position(side="LONG", entry_z=-3.0, timestamp=time.time() - 5.0)
+    croupier = MockCroupier()
+    pos = make_position(trade_id="grace_001", timestamp=time.time() - 5.0)
     croupier.position_tracker.open_positions = [pos]
     engine = slim_engine(croupier)
-    tick = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=120.0)
+
+    tick = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=100.0)
     await engine.on_tick(tick)
     await asyncio.sleep(0.05)
-    if len(croupier.close_calls) == 0:
-        ok(f"Elapsed < {grace}s → pillars skipped (patience lock)")
-    else:
-        fail("Patience lock should block tactical exits")
 
-    # Pending terminations — position skipped
-    croupier2 = MockCroupier(context_registry=ctx)
-    pos2 = make_position(
-        side="LONG",
-        entry_z=-3.0,
-        timestamp=time.time() - grace - 10.0,
-        trade_id="pending_001",
-    )
-    croupier2.position_tracker.open_positions = [pos2]
-    engine2 = slim_engine(croupier2)
-    engine2._pending_terminations.add("pending_001")
-    tick2 = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=120.0)
-    await engine2.on_tick(tick2)
-    await asyncio.sleep(0.05)
-    if len(croupier2.close_calls) == 0:
-        ok("_pending_terminations → position skipped in on_tick")
+    if len(croupier.modify_calls) == 0:
+        ok(f"Elapsed < {grace}s → patience lock blocks compression")
     else:
-        fail("Position in _pending_terminations should not be processed")
+        fail("Patience lock should block compression during grace period")
+
+
+async def test_non_open_status_skipped():
+    print("\n" + "=" * 60)
+    print(" NON-OPEN/ACTIVE STATUS → SKIPPED")
+    print("=" * 60)
+
+    for status in ("CLOSING", "CLOSE_FAILED", "SETTLED", "CLOSED", "OFF_BOARDING"):
+        croupier = MockCroupier()
+        pos = make_position(
+            trade_id=f"stat_{status}",
+            timestamp=time.time() - 36000,  # well past total_expiry
+            status=status,
+        )
+        croupier.position_tracker.open_positions = [pos]
+        engine = slim_engine(croupier)
+
+        tick = TickEvent(type=None, timestamp=time.time(), symbol="BTCUSDT", price=100.0)
+        await engine.on_tick(tick)
+        await asyncio.sleep(0.02)
+
+        if len(croupier.modify_calls) == 0:
+            ok(f"status={status} → skipped")
+        else:
+            fail(f"status={status} should be skipped, got {len(croupier.modify_calls)} modify calls")
 
 
 # =========================================================
@@ -285,17 +326,22 @@ async def test_on_tick_grace_and_pending():
 
 async def main():
     print("=" * 60)
-    print(" SLIM EXIT ENGINE VALIDATOR (Layer 0.E) - Universal")
-    print(" Tests each pillar's math independently")
+    print(" SLIM EXIT ENGINE V11 VALIDATOR (Layer 0.E)")
+    print(" Tests bracket compression math in isolation")
     print("=" * 60)
 
-    await test_micro_z_reversal()
-    await test_time_decay()
-    await test_break_even()
-    await test_on_tick_grace_and_pending()
+    await test_no_compression_before_max_hold()
+    await test_compression_at_max_hold()
+    await test_compression_midway()
+    await test_compression_at_total_expiry()
+    await test_compression_short_side()
+    await test_throttle_no_duplicate()
+    await test_throttle_triggers_on_change()
+    await test_grace_period_blocks()
+    await test_non_open_status_skipped()
 
     print("\n" + "=" * 60)
-    print(" ✅ ALL SLIM EXIT ENGINE TESTS PASSED")
+    print(" ✅ ALL SLIM EXIT ENGINE V11 TESTS PASSED")
     print("=" * 60)
 
 

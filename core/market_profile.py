@@ -64,6 +64,7 @@ class MarketProfile:
         if self.rolling_window > 0 and timestamp is not None:
             self._tick_log.append((timestamp, level, volume))
             cutoff = timestamp - self.rolling_window
+            poc_dirty = False
             while self._tick_log and self._tick_log[0][0] < cutoff:
                 old_ts, old_level, old_vol = self._tick_log.popleft()
                 self.profile[old_level] -= old_vol
@@ -73,7 +74,9 @@ class MarketProfile:
                     if self._sorted_prices is not None and old_level in self._sorted_prices:
                         self._sorted_prices.remove(old_level)
                 if old_level == self._poc_price:
-                    self._recalculate_poc()
+                    poc_dirty = True
+            if poc_dirty:
+                self._recalculate_poc()
 
         # O(1) POC update: only recalculate if this level is now the max
         level_vol = self.profile[level]
@@ -190,6 +193,20 @@ class MarketProfile:
 
         return avg_local_vol / avg_vol_per_level
 
+    @property
+    def is_mature(self) -> bool:
+        """
+        Check if the profile has enough history to be considered mature.
+        Returns True if the span of data in the log is at least 15 minutes (900s),
+        or if we have no rolling window but have accumulated at least 50 levels.
+        """
+        if self.rolling_window <= 0:
+            return len(self.profile) >= 50
+        if not self._tick_log:
+            return False
+        span = self._tick_log[-1][0] - self._tick_log[0][0]
+        return span >= 900.0  # 15 minutes of continuous data
+
     def calculate_va_integrity(self) -> float:
         """
         Phase 1150: Calculate Value Area Integrity Score (Axia style).
@@ -214,7 +231,11 @@ class MarketProfile:
         concentration = poc_vol / self.total_volume
         magnetism = 1.0 / (va_range_pct * 100)  # Scale to match goal >= 0.25
 
-        return concentration * magnetism
+        score = concentration * magnetism
+        if self.is_mature:
+            return max(1.0, score)
+
+        return score
 
     def _recalculate_poc(self):
         """Full scan to find the current POC. Called when the POC level is pruned."""

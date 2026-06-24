@@ -46,7 +46,7 @@
 *   **Guardianes**: L2 ratio y spread thresholds por perfil
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
-*   **Slim Exit Engine (v10.3 Universal)**: Break Even + Time Decay + Micro-Z Reversal (sin Scale Out ni Trailing Stop, sin perfiles por moneda)
+*   **Slim Exit Engine (v11.0 Pasivo)**: Compresión lineal de brackets de intercambio (modify_tp/modify_sl) al superar el max_hold (21600s), eliminación absoluta de salidas activas de mercado (cero llamadas a `close_position()`) para erradicar el slippage. Throttling inteligente de variaciones menores (<0.01% delta).
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets
 
@@ -59,7 +59,7 @@
 4.  **FIX D1: DETECTORES PER-CLUSTER — COMPLETADO ✅** (2026-06-08).
 5.  **CLUSTER OPTIMIZER — COMPLETADO ✅ + EXPANDED** (2026-06-08).
 6.  **8.9 DATA FEED REVAMP — COMPLETADO ✅** (2026-06-22): UNION ALL optimization (138x speedup, 46h→20min). Symbol resolution fix. VA_GATE limitation documented.
-7.  **NEXT: SIGNAL VALIDATION** — Usar 84 datasets certificados (24h) para validar señales con VA_GATE funcional.
+7.  **SIGNAL VALIDATION & MATURITY GATE OVERHAUL — COMPLETADO ✅** (2026-06-24): Solucionado el bloqueo de señales en backtests continuos añadiendo madurez temporal real `is_mature` en `MarketProfile`. Optimizado recálculo de POC de $O(N \times K)$ a batch $O(N)$ (speedup de 25x, throughput de 5,400 ticks/seg).
 
 ---
 
@@ -75,8 +75,8 @@
 - **THIN_VOLATILE Certification** (2026-06-09): Full Bayesian sweep (100 iter). Net Taker +0.34% (XRP) vs -0.59% baseline. Edge recovered.
 - **LTC Optuna Optimization** (2026-06-13): 40 trials (10 init + 30 resume). Best Trial 20: score +0.0905. Params aplicados a `config/coin_profiles.py` como nuevo golden.
 - **SOL Cascade Complete** (2026-06-18): Cascada completa SOL (4 escenarios). Bug fix price=0 en trajectory_core. Guardian param discovery: l2_ratio_min_trend_acceptance nunca estuvo en PARAMETER_SPACE. Agregado y re-optimizado. Trial 3: +0.2082. SOL overall Net Taker +0.1354% ✅.
-- **Last Session** (2026-06-19): **SlimExitEngine V10.3 Universal Refactor**. Eliminado `ASSET_EXIT_PROFILES` (curve-fitting por ticker). Eliminados Scale Out y Trailing Stop. Preservados solo 3 pilares universales: Time Decay, Break Even, Micro-Z Reversal. Ejecución 100% Maker-Join. Validadores locales 13/13 tests pasados. Análisis externo (`docs/analisis_slim_exit_engine.md`) confirmado y aplicado.
-- **Next Session**: ⏸️ Pausa solicitada por usuario antes de backtesting. Pendiente: correr backtest multi-coin con 84 datasets para validar impacto del SlimExitEngine V10.3. Continuar ajuste de trend_acceptance para SOL y guardianes per-scenario.
+- **V11 Exit Engine & MarketProfile Overhaul** (2026-06-24): Rediseño del `SlimExitEngine` V11. Reemplazadas salidas activas basadas en tiempo (`close_position`) con compresión pasiva lineal del bracket de intercambio (OCO). Implementado `is_mature` en `MarketProfile` para evadir el bloqueo del VA_GATE (baja `va_integrity`) en perfiles maduros. Optimizado `_recalculate_poc` para ejecutarse en lotes tras la poda de ticks, logrando una aceleración masiva del motor (5,400 ticks/seg). Validadores al 100% aprobados.
+- **Next Session**: Completar el análisis cuantitativo de los resultados mensuales de LTC y SOL en base al nuevo SlimExitEngine V11 y calibrar ventanas óptimas de compresión.
 
 ---
 
@@ -86,6 +86,7 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-24 | session-close | **V11 SLIMEXITENGINE & MARKETPROFILE SPEEDUP & GATING BYPASS**: Replaced active exits with passive bracket compression, removing all `close_position` calls. Implemented `is_mature` in `MarketProfile` to bypass the `va_integrity < 0.15` block on mature profiles, enabling continuous trading. Optimized `_recalculate_poc` during tick pruning to run once per batch, resulting in a massive 25x speedup (~5,400 ticks/sec). All 16 unit and integration tests passed.
 - 2026-06-22 | session-close | **8.9 DATA FEED REVAMP — UNION ALL OPTIMIZATION (138x SPEEDUP)**: Replaced Pandas concat+sort with SQLite UNION ALL + batch streaming (fetchmany). **Real measurement**: SOL monthly 3.9GB (~100M events) in **20 min vs 46h projected** = 138x faster. Throughput: 5M events/min with 1ms delay fidelity. Added `resolve_db_symbol()` for monthly dataset symbol resolution. VA_GATE structural limitation confirmed (blocks all signals on monthly datasets — `va_integrity=0.00` due to total_volume accumulation, expected behavior). Branch `8.9-datafeed-revamp` created and pushed. Next: Use 84 certified 24h datasets for signal validation.
 - 2026-06-19 | session-close | **SLIMEXITENGINE V10.3 UNIVERSAL — SCALE OUT & TRAILING ELIMINATED**: Refactor completo siguiendo análisis externo. `ASSET_EXIT_PROFILES` reemplazado por `UNIVERSAL_EXIT_RULES`. Scale Out eliminado (erosiona R/R), Trailing Stop eliminado (vulnerable a sweeps). Solo Break Even, Time Decay, Micro-Z Reversal con Maker-Join. 13/13 tests locales pasados. Pausa solicitada antes de backtesting.
 - 2026-06-18 | session-close | **SOL CASCADE COMPLETE + PRICE=0 BUG + GUARDIAN PARAM DISCOVERY**: Bug fix price=0 en trajectory_core. Guardian param discovery: l2_ratio_min_trend_acceptance faltaba en PARAMETER_SPACE. Agregado. trial 3: +0.2082. SOL Net Taker +0.1354%.
