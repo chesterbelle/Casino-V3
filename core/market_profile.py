@@ -232,9 +232,6 @@ class MarketProfile:
         magnetism = 1.0 / (va_range_pct * 100)  # Scale to match goal >= 0.25
 
         score = concentration * magnetism
-        if self.is_mature:
-            return max(1.0, score)
-
         return score
 
     def _recalculate_poc(self):
