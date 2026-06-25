@@ -6,13 +6,14 @@ All signals flow through Fast Lane (instant dispatch).
 
 Architecture:
     SetupEngine -> ScenarioManager.on_tick() -> Signal or None
-    SetupEngine -> ScenarioManager.on_signal() -> Signal or None
+    SetupEngine.on_signal() -> Signal or None
 """
 
 import logging
 from collections import defaultdict
 from typing import Optional
 
+from decision.engine.profile_manager import profile_manager
 from decision.scenarios import (
     FailedBreakoutDetector,
     LiquidityExhaustionDetector,
@@ -47,18 +48,55 @@ class ScenarioManager:
 
         logger.info("🏗️ ScenarioManager initialized (AMT V10 Architecture - UDT Enabled)")
 
+    def _apply_va_gate(self, symbol: str, va_integrity: float, candidates: list) -> list:
+        """
+        Apply selective VA_GATE based on profile config.
+        - If integrity >= threshold: allow all enabled setups
+        - If integrity < threshold: block setups in 'block_in_trending', allow only 'allow_in_trending'
+        """
+        profile_name = profile_manager.get_profile_name(symbol)
+        if not profile_name:
+            return candidates  # No profile, allow all (backward compat)
+
+        profile = profile_manager.get_profile(profile_name)
+        if not profile:
+            return candidates
+
+        va_gate = profile.get("va_gate")
+        if not va_gate:
+            return candidates  # No va_gate config, allow all
+
+        threshold = va_gate.get("integrity_threshold", 0.15)
+        if va_integrity >= threshold:
+            return candidates  # Regime healthy, allow all
+
+        # Regime degraded (trending/collapsed) - apply selective filter
+        block_set = set(va_gate.get("block_in_trending", []))
+        allow_set = set(va_gate.get("allow_in_trending", []))
+
+        filtered = []
+        for sig in candidates:
+            setup_type = sig.get("scenario", "unknown")
+            if setup_type in allow_set:
+                filtered.append(sig)
+            elif setup_type in block_set:
+                logger.debug(
+                    f"🛡️ [VA_GATE] {symbol} integrity={va_integrity:.3f} < {threshold} — "
+                    f"blocking mean-reversion setup: {setup_type}"
+                )
+            else:
+                # Setup not in either list - default allow
+                filtered.append(sig)
+
+        return filtered
+
     def on_tick(self, symbol: str, price: float, timestamp: float, structural_levels: dict) -> Optional[dict]:
         """
         Main orchestration logic (The Arbitrator).
         Fuses multiple signals in the same direction and resolves conflicts.
         """
-        # 0. VA Maturity Gate — block signals in immature or collapsed profiles
+        # 0. VA Maturity Gate — selective by setup_type based on profile config
         va_integrity = structural_levels.get("va_integrity", 1.0)
-        if va_integrity < 0.15:
-            logger.debug(
-                f"🛡️ [VA_GATE] {symbol} va_integrity={va_integrity:.2f} < 0.15 — profile immature, blocking all signals"
-            )
-            return None
 
         # 1. Collect all candidate signals from Fast Lane
         candidates = []
@@ -74,7 +112,12 @@ class ScenarioManager:
         if not candidates:
             return None
 
-        # 2. Arbitrate: Group by side — conviction = priority × score
+        # 2. Apply selective VA_GATE filter
+        candidates = self._apply_va_gate(symbol, va_integrity, candidates)
+        if not candidates:
+            return None
+
+        # 3. Arbitrate: Group by side — conviction = priority × score
         longs = [s for s in candidates if s["side"] == "LONG"]
         shorts = [s for s in candidates if s["side"] == "SHORT"]
 
