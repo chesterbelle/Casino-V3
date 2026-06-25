@@ -89,8 +89,8 @@ class WindowState:
         self.symbol = symbol
         self.tick_size = tick_registry.get(symbol)
 
-        # Market Profile for this window
-        self.market_profile = MarketProfile(tick_size=self.tick_size)
+        # Market Profile for this window — 8h rolling window to evaluate current regime
+        self.market_profile = MarketProfile(tick_size=self.tick_size, rolling_window=28800)
 
         # Initial Balance
         self.ib_duration_minutes = config["ib_duration_minutes"]

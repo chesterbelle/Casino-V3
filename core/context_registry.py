@@ -104,7 +104,7 @@ class ContextRegistry:
         now = timestamp or time.time()
         if symbol not in self.profiles:
             sym_tick_size = tick_registry.get(symbol)
-            self.profiles[symbol] = MarketProfile(tick_size=sym_tick_size)
+            self.profiles[symbol] = MarketProfile(tick_size=sym_tick_size, rolling_window=28800)
             self.tick_stats[symbol] = {"speed": 0.0, "last_ts": now, "count": 0}
 
         # 1. Update Market Profile with rolling window (handles drift internally)
@@ -208,19 +208,19 @@ class ContextRegistry:
 
     def get_va_integrity(self, symbol: str) -> float:
         """Phase 1150: Returns the VA Integrity Score.
-        Phase 2000: Prefers session-scoped integrity from the SessionValueArea sensor.
-        Falls back to the global cumulative profile only on cold start.
+        Prefers rolling-window profile (current regime) over session-scoped (accumulated).
         """
-        # Prefer session-scoped integrity (fresh per liquidity window)
+        # Primary: rolling window profile evaluates current regime (last 8h)
+        profile = self.profiles.get(symbol)
+        if profile and profile.total_volume > 0:
+            return profile.calculate_va_integrity()
+
+        # Fallback: session-scoped integrity (may accumulate full session)
         session = self._session_structural.get(symbol)
         if session and session.get("va_integrity", 0) > 0:
             return session["va_integrity"]
 
-        # Fallback: global cumulative profile (stale but better than nothing)
-        profile = self.profiles.get(symbol)
-        if not profile:
-            return 0.0
-        return profile.calculate_va_integrity()
+        return 0.0
 
     def set_in_trade(self, symbol: str, in_trade: bool):
         """Phase 974: Set active trade status for a symbol."""
