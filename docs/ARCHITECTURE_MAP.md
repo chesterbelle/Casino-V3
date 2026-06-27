@@ -40,7 +40,7 @@ graph TD
 
 **Explicación rápida:**
 1.  **PressureEngine:** Calcula features (CVD, z-scores, absorption). **NO decide.**
-2.  **TacticalAbsorption:** Es **instantáneo**. Bypasea el ScenarioManager. Si detecta absorción → señal directa.
+2.  **TacticalAbsorption:** Es **instantáneo**. Vive en `decision/scenarios/tactical_absorption.py` con sus 3 hermanos. Bypasea el ScenarioManager. Si detecta absorción → señal directa a SetupEngine.
 3.  **ScenarioManager (SignalArbitrator):** Recibe señales de los otros 3 detectores (FB/LE/TA). Las filtra por VA_GATE y resuelve conflictos.
 4.  **VA_GATE:** Bloquea mean-reversion en trending, permite trend-following.
 5.  **Quality Scorer:** Filtra señales por calidad (A/B = pasa, None = se descarta).
@@ -53,11 +53,11 @@ graph TD
 | Componente | Archivo | Líneas Clave | ¿Qué hace? |
 |------------|---------|--------------|------------|
 | **PressureEngine** | `core/pressure/engine.py` | 28-335 | Calcula 18 features (CVD, velocity, concentration, noise, absorption score). **NO genera señales.** |
-| **TacticalAbsorption** | `decision/scenarios/tactical_absorption.py` | 1-200 | Detector instantáneo de absorción con CVD divergente. |
+| **TacticalAbsorption** | `decision/scenarios/tactical_absorption.py` | 1-200 | Detector **instantáneo** de absorción con CVD divergente. **Bypasea ScenarioManager.** |
 | **FailedBreakout** | `decision/scenarios/failed_breakout.py` | 1-174 | Detecta breakouts de VA con delta divergente → re-entrada. |
 | **LiquidityExhaustion** | `decision/scenarios/liquidity_exhaustion.py` | 1-171 | Detecta múltiples tests con delta declinante. |
 | **TrendAcceptance** | `decision/scenarios/trend_acceptance.py` | 1-246 | Detecta breakout + CVD confirm + pullback. |
-| **SignalArbitrator** | `decision/scenario_manager.py` | 26-201 | Filtra señales por VA_GATE, resuelve conflictos por prioridad × score. |
+| **SignalArbitrator** | `decision/scenario_manager.py` | 26-201 | Filtra señales de los 3 escenarios de confirmación (FB/LE/TA), aplica VA_GATE, resuelve conflictos. |
 | **QualityScorer** | `decision/engine/quality_scorer.py` | 1-150 | Evalúa calidad de señal (A/B/None) con 5 factores ponderados. |
 | **SetupEngine** | `decision/engine/setup_engine.py` | 1-300 | Convierte señal en orden con TP/SL dinámicos por perfil. |
 | **ProfileManager** | `decision/engine/profile_manager.py` | 1-120 | Resuelve perfil de cada símbolo (cluster) y devuelve parámetros. |
@@ -115,12 +115,14 @@ graph TD
 
 ## 🧪 Los 4 Escenarios AMT (Estado Actual)
 
-| Escenario | Tipo | Priority | ¿Tiene Edge? | Notas |
-|-----------|------|----------|--------------|-------|
-| **TacticalAbsorption** | Instantáneo | N/A (bypass) | ✅ SÍ (en todos los perfiles) | El más consistente. Bypasea ScenarioManager. |
-| **FailedBreakout** | Confirmación | 50 | ⚠️ Depende del perfil | Funciona bien en THIN_VOLATILE (XRP). |
-| **LiquidityExhaustion** | Confirmación | 100 | ⚠️ Depende del perfil | Edge en LTC, débil en DOGE. |
-| **TrendAcceptance** | Confirmación | 30 | ✅ SÍ (en trending) | Único permitido en downtrend por VA_GATE. |
+| Escenario | Archivo | Tipo | Priority | ¿Tiene Edge? | Notas |
+|-----------|---------|------|----------|--------------|-------|
+| **TacticalAbsorption** | `decision/scenarios/tactical_absorption.py` | Instantáneo | N/A (bypass) | ✅ SÍ (en todos los perfiles) | El más consistente. Bypasea ScenarioManager. |
+| **FailedBreakout** | `decision/scenarios/failed_breakout.py` | Confirmación | 50 | ⚠️ Depende del perfil | Funciona bien en THIN_VOLATILE (XRP). |
+| **LiquidityExhaustion** | `decision/scenarios/liquidity_exhaustion.py` | Confirmación | 100 | ⚠️ Depende del perfil | Edge en LTC, débil en DOGE. |
+| **TrendAcceptance** | `decision/scenarios/trend_acceptance.py` | Confirmación | 30 | ✅ SÍ (en trending) | Único permitido en downtrend por VA_GATE. |
+
+**Nota arquitectónica:** Los 4 escenarios ahora viven en `decision/scenarios/`. TacticalAbsorption está separado lógicamente (bypasea ScenarioManager), pero físicamente está con sus hermanos para coherencia.
 
 ---
 

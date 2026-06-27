@@ -138,7 +138,7 @@ class SensorSignalValidator:
         sensor_config.DISABLE_WORKERS = True
         logger.info("🛠️ Force disabled sensor workers for validation")
 
-        from sensors.absorption.absorption_detector import AbsorptionDetector
+        from decision.scenarios.tactical_absorption import AbsorptionDetector
 
         original_calculate = AbsorptionDetector.calculate
         validator = self

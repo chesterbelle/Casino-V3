@@ -27,7 +27,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from core.footprint_registry import FootprintData
-from sensors.absorption.absorption_detector import AbsorptionDetector
+from decision.scenarios.tactical_absorption import AbsorptionDetector
 
 
 def ok(msg):

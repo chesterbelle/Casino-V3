@@ -17,7 +17,7 @@ from collections import defaultdict
 sys.path.insert(0, ".")
 
 from core.footprint_registry import footprint_registry
-from sensors.absorption.absorption_detector import AbsorptionDetector
+from decision.scenarios.tactical_absorption import AbsorptionDetector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

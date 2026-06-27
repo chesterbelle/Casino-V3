@@ -107,8 +107,8 @@ class SensorManager:
         # Inyectar PressureEngine y Parámetros en escenarios reconstruidos (v8.7+)
         from decision.scenarios.failed_breakout import FailedBreakoutDetector
         from decision.scenarios.liquidity_exhaustion import LiquidityExhaustionDetector
+        from decision.scenarios.tactical_absorption import AbsorptionDetector
         from decision.scenarios.trend_acceptance import TrendAcceptanceDetector
-        from sensors.absorption.absorption_detector import AbsorptionDetector
 
         self.scenarios = {}
 
