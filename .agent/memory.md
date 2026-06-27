@@ -1,25 +1,63 @@
 # Casino-V3 Agent Memory — Brújula Estratégica
 
 > **⚠️ INSTRUCCIONES PARA EL AGENTE — LEER ANTES DE CUALQUIER ACCIÓN:**
-> **9. GOTCHA (CORRUPTED GZIP ON INTERRUPT):** Si `build_monthly_datasets.py` o `cryptohftdata_fetcher.py` se interrumpen (disk full, timeout), los `.csv.gz` pueden quedar truncados. Al reanudar, el fetcher los skipea como "already exists". Verificar integridad con `gzip -t` y re-descargar corruptos con `--force`. El script `build_monthly_datasets.py` tenía el bug del glob `????-??-??` que agarraba TODOS los raw files de ese símbolo (incluyendo 2023-2025). SOL no fue afectado porque no tenía raw previos. Ya fixeado con `{month_prefix}-??`.
+> **10. GOTCHA (CORRUPTED GZIP ON INTERRUPT):** Si `build_monthly_datasets.py` o `cryptohftdata_fetcher.py` se interrumpen (disk full, timeout), los `.csv.gz` pueden quedar truncados. Al reanudar, el fetcher los skipea como "already exists". Verificar integridad con `gzip -t` y re-descargar corruptos con `--force`. El script `build_monthly_datasets.py` tenía el bug del glob `????-??-??` que agarraba TODOS los raw files de ese símbolo (incluyendo 2023-2025). SOL no fue afectado porque no tenía raw previos. Ya fixeado con `{month_prefix}-??`.
 > 1. **Leer este archivo completo al inicio de cada sesión**, antes de escribir código, ejecutar comandos o hacer suposiciones.
 > 2. **Actualizar este archivo al final de cada sesión** con: decisiones tomadas, métricas comparativas y estado de las capas.
-> 3. **REGLA DE ORO DE GIT (NO MERGE):** Hay 3 BOTS DIFERENTES e incompatibles viviendo en distintas ramas. **NUNCA hagas merge ni rebase.**
-> 4. **REGLA DE PUSH (SOLO LOCAL):** NUNCA ejecutes `git push` a menos que el usuario lo ordene expresamente.
-> 5. **REGLA DEL EDGE (NUNCA RENDIRSE):** NUNCA concluyas que "el edge no existe" o "ENTRY FAILURE" como veredicto final. Si no encontramos edge, es porque no hemos ajustado los parámetros correctos — seguimos ajustando sensores, targets, regímenes e infraestructura hasta que aparezca. No existen alphas muertas, solo parámetros no encontrados.
-> 6. **GOTCHA (CRYPTOHFTDATA SEQUENTIAL):** Para símbolos grandes (ETH, BTC), usar `--sequential` en `cryptohftdata_fetcher.py` para descargar hora por hora en vez de las 24 en paralelo. Sin ello, el proceso muere por OOM (~24-48GB RAM para ETH orderbook). Con sequential, cada hora se descomprime, convierte y escribe al CSV.gz individualmente.
-> 7. **GOTCHA (L2_PROCESSOR NAMING):** `l2_processor.py` busca raw files por substring `--name`. El fetcher crea `{exchange}_{type}_{date}_{symbol}` pero el processor espera `{symbol}_{date}`. Renombrar raw files antes de procesar o especificar `--name` con el orden correcto.
-> 8. **GOTCHA (TIMEOUTS):** Al ejecutar `scripts/orchestrator.py`, el timeout del shell debe ser muy largo (ej. 4 horas) ya que los backtests masivos toman tiempo considerable.
+> 3. **REGLA DEL EDGE (NUNCA RENDIRSE):** NUNCA concluyas que "el edge no existe" o "ENTRY FAILURE" como veredicto final. Si no encontramos edge, es porque no hemos ajustado los parámetros correctos — seguimos ajustando sensores, targets, regímenes e infraestructura hasta que aparezca. No existen alphas muertas, solo parámetros no encontrados.
+> 4. **GOTCHA (CRYPTOHFTDATA SEQUENTIAL):** Para símbolos grandes (ETH, BTC), usar `--sequential` en `cryptohftdata_fetcher.py` para descargar hora por hora en vez de las 24 en paralelo. Sin ello, el proceso muere por OOM (~24-48GB RAM para ETH orderbook). Con sequential, cada hora se descomprime, convierte y escribe al CSV.gz individualmente.
+> 5. **GOTCHA (L2_PROCESSOR NAMING):** `l2_processor.py` busca raw files por substring `--name`. El fetcher crea `{exchange}_{type}_{date}_{symbol}` pero el processor espera `{symbol}_{date}`. Renombrar raw files antes de procesar o especificar `--name` con el orden correcto.
+> 6. **GOTCHA (TIMEOUTS):** Al ejecutar `scripts/orchestrator.py`, el timeout del shell debe ser muy largo (ej. 4 horas) ya que los backtests masivos toman tiempo considerable.
+> 7. **GIT FLOW (3 BRANCHES):** Ver sección "🏛️ Git Flow Metodología" más abajo.
+> 8. **GOTCHA (GIT CLEANUP):** Si ves muchas branches viejas (`git branch | wc -l` > 5), es hora de limpiar. Borra branches locales mergeadas: `git branch --merged main | grep -v "\*" | xargs git branch -D`. Las branches remotas se borran con `git push origin --delete <branch>`.
 
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
-*   **Current Branch**: `8.8-crystal-layer-refactor`
+*   **Current Branch**: `dev-8.9-datafeed-revamp` (rama de trabajo diario)
+*   **Stable Branch**: `main` (versión certificada v8.9)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
 *   **Datasets**: **84 certificados** (2 TREND_UP, 2 TREND_DOWN, 2 BALANCE × 14 símbolos) en `data/datasets/daily_daily_backtest_ready/`. +6 mensuales LTC/SOL limpios en `data/datasets/monthly_daily_backtest_ready/`.
 
+
+## 🏛️ Git Flow Metodología (3 Branches)
+
+**REGLA DE ORO:** Solo trabajamos en UNA branch de desarrollo a la vez. El resto son sagradas o temporales.
+
+| Branch | Prefijo | Propósito | ¿Cuándo se usa? |
+|--------|---------|-----------|-----------------|
+| **`main`** | (ninguno) | 🏛️ **SANTUARIO** | Versión certificada y estable. Solo merge cuando hay edge confirmado + backtests verdes. Se etiqueta con `git tag vX.X.X`. |
+| **`dev-<versión>-<descripcion>`** | `dev-` | 🏢 **OFICINA** | Rama de trabajo diario. Aquí vives optimizando parámetros, fixeando bugs, ajustando thresholds. Ej: `dev-8.9-datafeed-revamp`. |
+| **`feat-<experimento>`** | `feat-` | 🧪 **LABORATORIO** | Rama temporal para experimentos riesgosos. Se crea, se prueba, se mergea (o se borra). Ej: `feat-ltc-threshold-fix`. |
+
+### Flujo de Trabajo Diario:
+
+1.  **Despiertas:** `git checkout dev-8.9-datafeed-revamp`
+2.  **Trabajas:** Optimizas, commiteas (`git commit -m "ajuste threshold LTC"`), push a la misma branch.
+3.  **Experimento riesgoso:**
+    ```bash
+    git checkout -b feat-ltc-locura
+    # Haces cambios brutales...
+    # Si funciona: git checkout dev-8.9 && git merge feat-ltc-locura
+    # Si falla: git branch -D feat-ltc-locura
+    ```
+4.  **Certificación (una vez al mes o cuando hay edge):**
+    ```bash
+    git checkout main
+    git merge dev-8.9-datafeed-revamp
+    git tag v9.0.0-edge-encontrado
+    git push origin main --tags
+    ```
+
+### Reglas Estrictas:
+- **NUNCA** hagas push directo a `main` desde tu máquina sin merge formal.
+- **NUNCA** tengas 2 branches de `dev-` activas al mismo tiempo (te vuelves loco).
+- **SIEMPRE** borra las branches `feat-` después de usarlas (mergeadas o no).
+- **TAGS** son para siempre (historial de certificaciones). **BRANCHES** son temporales (flujo de trabajo).
+
+---
 
 ## 📚 Historial y Contexto
 *   **Archivo Maestro de Sesiones**: [`.agent/changelog.md`](file:///home/chesterbelle/Casino-V3/.agent/changelog.md)
@@ -79,7 +117,7 @@
 ### Current Status: 🟢 84 Datasets Certified (2/2/2 per Symbol)
 
 - **Architecture**: PressureEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
-- **Branch**: `8.8-crystal-layer-refactor`
+- **Branch**: `dev-8.9-datafeed-revamp` (trabajo diario), `main` (v8.9 certificada)
 - **Cluster Optimizer** (2026-06-08): `scripts/cluster_optimizer.py` — 49 params across 8 groups (absorption, failed_breakout, liquidity_exhaustion, trend_acceptance, targets, quality, guardians, pressure). `--param-groups` for selective optimization. Weight auto-normalization. Optuna TPE + persistent SQLite + `--resume`.
 - **EdgeAuditor get_metrics()**: Programmatic API returning net_taker, root_cause, MFE/MAE, best_uniforms. Used by optimizer.
 - **Profile Classification Fix**: `_classify_and_set_profile()` checks `clusters_fixed.json` BEFORE runtime classification.
