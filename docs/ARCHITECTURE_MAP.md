@@ -57,7 +57,7 @@ graph TD
 | **FailedBreakout** | `decision/scenarios/failed_breakout.py` | 1-174 | Detecta breakouts de VA con delta divergente → re-entrada. |
 | **LiquidityExhaustion** | `decision/scenarios/liquidity_exhaustion.py` | 1-171 | Detecta múltiples tests con delta declinante. |
 | **TrendAcceptance** | `decision/scenarios/trend_acceptance.py` | 1-246 | Detecta breakout + CVD confirm + pullback. |
-| **SignalArbitrator** | `decision/scenario_manager.py` | 26-201 | Filtra señales de los 3 escenarios de confirmación (FB/LE/TA), aplica VA_GATE, resuelve conflictos. |
+| **SignalArbitrator** | `decision/signal_arbitrator.py` | 26-201 | **Antes ScenarioManager.** Filtra señales de los 3 escenarios de confirmación (FB/LE/TA), aplica VA_GATE, resuelve conflictos por prioridad × score. |
 | **QualityScorer** | `decision/engine/quality_scorer.py` | 1-150 | Evalúa calidad de señal (A/B/None) con 5 factores ponderados. |
 | **SetupEngine** | `decision/engine/setup_engine.py` | 1-300 | Convierte señal en orden con TP/SL dinámicos por perfil. |
 | **ProfileManager** | `decision/engine/profile_manager.py` | 1-120 | Resuelve perfil de cada símbolo (cluster) y devuelve parámetros. |
@@ -101,13 +101,13 @@ graph TD
 
 ## 🏷️ Nombres Reales vs Nombres en Código
 
-| Nombre en Código | Lo que realmente es | ¿Por qué el nombre engañoso? |
-|------------------|---------------------|------------------------------|
-| **PressureEngine** | `MarketFeatureCalculator` | Histórico. Solo calcula 18 features, no "presiona" nada. |
-| **ScenarioManager** | `SignalArbitrator` | No "gestiona" scenarios, arbitra señales por prioridad. |
-| **QualityScorer** | `QualityFilter` | No "evalúa calidad", filtra señales binariamente (pasa/no pasa). |
-| **SlimExitEngine** | `PassiveBracketCompressor` | No "sale" activamente, comprime brackets OCO pasivamente. |
-| **VA_GATE** | `RegimeFilter` | No es un "gate" físico, es un filtro de régimen basado en Value Area maturity. |
+| Nombre en Código | Nombre Antiguo | Lo que realmente es | ¿Por qué el nombre engañoso? |
+|------------------|----------------|---------------------|------------------------------|
+| **SignalArbitrator** | `ScenarioManager` | `SignalArbitrator` | "Manager" sugería gestión, pero realmente arbitra señales por prioridad. **Renombrado en esta refactorización.** |
+| **PressureEngine** | (sin cambios) | `MarketFeatureCalculator` | Histórico. Solo calcula 18 features, no "presiona" nada. |
+| **QualityScorer** | (sin cambios) | `QualityFilter` | No "evalúa calidad", filtra señales binariamente (pasa/no pasa). |
+| **SlimExitEngine** | (sin cambios) | `PassiveBracketCompressor` | No "sale" activamente, comprime brackets OCO pasivamente. |
+| **VA_GATE** | (sin cambios) | `RegimeFilter` | No es un "gate" físico, es un filtro de régimen basado en Value Area maturity. |
 
 **Nota:** Estos nombres no se cambiarán en el código (por backward compat), pero **piensa en ellos con sus nombres reales** para entender el flujo.
 

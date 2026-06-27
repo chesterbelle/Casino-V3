@@ -1,12 +1,15 @@
 """
-Scenario Manager — Orchestrator V10.
+SignalArbitrator — Orchestrator V10.
 
-Centralizes all tactical scenarios (AMT) and manages the dispatch pipeline.
-All signals flow through Fast Lane (instant dispatch).
+Centralizes confirmation scenarios (AMT) and arbitrates signals by priority × score.
+TacticalAbsorption bypasses this (instant signal). Other 3 scenarios (FB/LE/TA) flow through here.
 
 Architecture:
-    SetupEngine -> ScenarioManager.on_tick() -> Signal or None
+    SetupEngine -> SignalArbitrator.on_tick() -> Signal or None
     SetupEngine.on_signal() -> Signal or None
+
+NOTA: Antes se llamaba "ScenarioManager". El nombre era engañoso — esto no "gestiona" scenarios,
+arbitra señales por prioridad y aplica filtros (VA_GATE).
 """
 
 import logging
@@ -20,10 +23,10 @@ from decision.scenarios import (
     TrendAcceptanceDetector,
 )
 
-logger = logging.getLogger("ScenarioManager")
+logger = logging.getLogger("SignalArbitrator")
 
 
-class ScenarioManager:
+class SignalArbitrator:
     def __init__(self, pressure_engine):
         self.pressure = pressure_engine
 
