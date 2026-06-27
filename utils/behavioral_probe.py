@@ -145,7 +145,9 @@ def process_all_datasets(dataset_dir: str):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_dir", default="data/datasets/backtest_ready/", help="Directory with .db datasets")
+    parser.add_argument(
+        "--dataset_dir", default="data/datasets/daily_backtest_ready/", help="Directory with .db datasets"
+    )
     parser.add_argument("--db", default="data/historian.db", help="Fallback to single DB if dataset_dir is empty")
     parser.add_argument("--output", default="data/behavioral_profiles.json")
     args = parser.parse_args()

@@ -314,7 +314,7 @@ grep "Analyzing Ghost Position" logs/stress_test_*.log
 1. This is **100% normal behavior** in 15-30 min windows. The bot safely parsed data but didn't find exploitable narratives.
 2. To observe signal generation without requiring trade execution, use `--run-type audit` mode. This records all signals and price trajectories for offline analysis.
 3. To increase trade frequency, extend `--timeout` to 60+ minutes or use `--symbol MULTI` to monitor more symbols simultaneously.
-4. Run the edge audit workflow to validate strategy performance: `python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT`
+4. Run the edge audit workflow to validate strategy performance: `python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT`
 
 ### HFT Latency Too High (T0-T2 > 50ms)
 

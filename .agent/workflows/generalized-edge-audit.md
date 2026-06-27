@@ -11,21 +11,21 @@ Tests whether the strategy edge **generalizes across instruments**.
 A reversion strategy based on Auction Market Theory should work on ANY liquid instrument.
 If the edge only exists on a subset, it's likely overfitting, not a real market property.
 
-**Prerequisites**: 24h datasets must exist in `data/datasets/backtest_ready/`.
+**Prerequisites**: 24h datasets must exist in `data/datasets/daily_backtest_ready/`.
 Download them with `utils/data/tardis_fetcher.py` before running this protocol.
 
 **Expected files** (one per coin):
 ```
-data/datasets/backtest_ready/2024-01-01_ADAUSDT.db
-data/datasets/backtest_ready/2024-01-01_ETHUSDT.db
-data/datasets/backtest_ready/2024-01-01_SOLUSDT.db
-data/datasets/backtest_ready/2024-01-01_BNBUSDT.db
-data/datasets/backtest_ready/2024-01-01_BTCUSDT.db
-data/datasets/backtest_ready/2024-01-01_AVAXUSDT.db
-data/datasets/backtest_ready/2024-01-01_LINKUSDT.db
-data/datasets/backtest_ready/2024-01-01_DOGEUSDT.db
-data/datasets/backtest_ready/2024-01-01_LTCUSDT.db
-data/datasets/backtest_ready/2024-01-01_SUIUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_ADAUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_ETHUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_SOLUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_BNBUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_BTCUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_AVAXUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_LINKUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_DOGEUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_LTCUSDT.db
+data/datasets/daily_backtest_ready/2024-01-01_SUIUSDT.db
 ```
 
 **Statistical Goal**: n ≥ 300 signals total, SE on WR ≤ ±2.8%
@@ -44,16 +44,16 @@ data/datasets/backtest_ready/2024-01-01_SUIUSDT.db
 mkdir -p logs
 echo "=== Dataset Verification ==="
 for f in \
-  data/datasets/backtest_ready/2024-01-01_ADAUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_ETHUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_SOLUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_BNBUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_BTCUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_AVAXUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_LINKUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_DOGEUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_LTCUSDT.db \
-  data/datasets/backtest_ready/2024-01-01_SUIUSDT.db; do
+  data/datasets/daily_backtest_ready/2024-01-01_ADAUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_ETHUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_SOLUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_BNBUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_BTCUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_AVAXUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_LINKUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_DOGEUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_LTCUSDT.db \
+  data/datasets/daily_backtest_ready/2024-01-01_SUIUSDT.db; do
   if [ -f "$f" ]; then
     echo "✅ $(basename $f): $(du -h $f | cut -f1)"
   else

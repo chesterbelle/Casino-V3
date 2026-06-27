@@ -99,6 +99,14 @@
 | `l2_ratio_min_trend_acceptance` | 1.5 | Hard block para TA |
 | `spread_max_ratio` | 2.5 | Tolerante |
 
+### VA_GATE Selective (Added 2026-06-25)
+
+| Parámetro | Valor | Nota |
+|---|---|---|
+| `integrity_threshold` | 0.15 | Threshold para régimen |
+| `block_in_trending` | ["tactical_absorption", "failed_breakout", "liquidity_exhaustion"] | Mean-reversion bloqueado en trending |
+| `allow_in_trending` | ["trend_acceptance"] | Trend-following permitido en trending |
+
 ---
 
 ## Cambio Estructural: CVD Flip Fix
@@ -149,6 +157,23 @@ El test 3 se bloqueaba porque CVD >= 0 en VAL, pero justamente cuando CVD se vue
 3. **FB domina en ratio direccional**: Ratio 4.59 — señales escasas (17) pero extremadamente direccionales.
 4. **TA tiene edge frágil**: Ratio 1.13 (justo bajo 1.2) pero sigue siendo positivo. Usar TP/SL apretados (0.9/0.9).
 5. **L2 gate casi irrelevante para TAV**: `l2_ratio_min=0.5` indica que LTC no necesita filtro L2 fuerte.
+
+---
+
+## Observaciones Post-VA_GATE Selective (2026-06-25)
+
+### trend_acceptance No Disparó SHORTs en Downtrend (May 10-17)
+
+Durante el backtest mensual Mayo 2026, el downtrend $58.42 → $56.07 (4.1% en 7 días) no generó **ningún SHORT de trend_acceptance**, a pesar de:
+- VA integrity < 0.15 (0.000-0.125) → VA_GATE permitió trend_acceptance
+- Downtrend claro y prolongado
+
+**Hipótesis de causa raíz:**
+1. **`l2_ratio_min_trend_acceptance` = 1.5** demasiado alto — LTC en downtrend puede no mostrar L2 ratio > 1.5 consistentemente
+2. **`cvd_confirmation_threshold` = 4.0** — CVD velocity threshold muy alto
+3. **`max_pullback_penetration_pct` = 0.001** (10 bps) — Muy estricto para pullbacks en downtrend real
+
+**Próxima acción:** Reducir `l2_ratio_min_trend_acceptance` a 1.0-1.2 y `cvd_confirmation_threshold` a 2.0-2.5 en próxima optimización LTC.
 
 ---
 

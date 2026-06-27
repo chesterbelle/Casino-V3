@@ -1,0 +1,99 @@
+{
+  "cluster": "LTC_NOISY_UNCERTAIN_1",
+  "optimization_time_seconds": 613.3250241279602,
+  "best_score": 0.08626018462866589,
+  "baseline": {
+    "net_taker": -0.034848117156698145,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 0.8444002623819865,
+    "total_signals": 11
+  },
+  "best_params": {
+    "sensors.tactical_absorption.z_score_min": 4.2,
+    "sensors.tactical_absorption.cooldown": 120.0,
+    "sensors.tactical_absorption.level_tolerance_pct": 0.0014
+  },
+  "validation": {
+    "coins": {
+      "LTC/USDT:USDT": {
+        "net_taker": -0.21218089219642589,
+        "root_cause": "ENTRY_FAILURE",
+        "total_signals": 2,
+        "mfe_mae_ratio": 0.12213697505018754
+      }
+    },
+    "cluster_avg_net_taker": -0.21218089219642589,
+    "coins_passed": 0,
+    "coins_total": 1,
+    "passed": false
+  },
+  "sensitivity": {
+    "sensors.tactical_absorption.cooldown": {
+      "range": 140.0,
+      "variation_pct": 93.33333333333333,
+      "impact": "HIGH"
+    },
+    "sensors.tactical_absorption.z_score_min": {
+      "range": 2.7,
+      "variation_pct": 90.0,
+      "impact": "HIGH"
+    },
+    "sensors.tactical_absorption.level_tolerance_pct": {
+      "range": 0.0013000000000000002,
+      "variation_pct": 65.0,
+      "impact": "HIGH"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 0,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 1,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 2,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 3,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 4,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 5,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 6,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 7,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 8,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    },
+    {
+      "number": 9,
+      "score": 0.08626018462866589,
+      "avg_score": 0.08626018462866589
+    }
+  ]
+}

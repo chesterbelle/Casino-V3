@@ -87,7 +87,7 @@ def redraw_progress(completed, total, pending_count, mem_status, elapsed, recent
 
 PROTOCOLS = {
     "generalized": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
-    "single-coin": {"run_type": "audit", "max_workers": 2, "skip_merge": True, "skip_clean": True},
+    "single-coin-audit": {"run_type": "audit", "max_workers": 2, "skip_merge": True, "skip_clean": True},
     "trade-mode": {"run_type": "trade", "max_workers": 1, "skip_merge": True},
     "probe": {"run_type": "audit", "max_workers": 4, "skip_merge": False, "skip_clean": True},
 }
@@ -107,7 +107,7 @@ def discover_cluster_protocols():
     return protocols
 
 
-DB_DIR = "data/datasets/backtest_ready"
+DB_DIR = "data/datasets/daily_backtest_ready"
 LOG_DIR = "logs"
 TASK_TIMEOUT = 86400
 
@@ -265,7 +265,7 @@ def build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset=No
                         "run_type": config["run_type"],
                     }
                 )
-    elif protocol_name == "single-coin":
+    elif protocol_name == "single-coin-audit":
         if not symbol:
             symbol = "LTCUSDT"
         datasets = get_datasets_for_symbol(symbol, filter_pattern)
@@ -300,9 +300,10 @@ def build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset=No
                 return tasks
             db_file = os.path.basename(dataset)
             # Extract symbol from filename: e.g. SOLUSDT_TREND_UP_2026-01-26.db → SOLUSDT
+            # Also handles monthly: LTC_monthly_2026_05.db → LTC
             name = db_file.replace(".db", "")
             raw_sym = name
-            for sep in ("_TREND_", "_BALANCE_"):
+            for sep in ("_TREND_", "_BALANCE_", "_monthly_"):
                 idx = name.find(sep)
                 if idx != -1:
                     raw_sym = name[:idx]
@@ -457,11 +458,11 @@ if __name__ == "__main__":
     all_protocols = {**PROTOCOLS, **discover_cluster_protocols()}
     parser = argparse.ArgumentParser(description="Smart Orchestrator for Casino-V3")
     parser.add_argument("--protocol", choices=list(all_protocols.keys()), required=True)
-    parser.add_argument("--symbol", help="Symbol for single-coin")
+    parser.add_argument("--symbol", help="Symbol for single-coin-audit")
     parser.add_argument("--filter", help="Filter pattern for datasets (e.g. 2025)")
     parser.add_argument(
         "--dataset",
-        help="Specific dataset path for trade-mode (e.g. data/datasets/backtest_ready/LTC_TREND_UP_2024-03.db)",
+        help="Specific dataset path for trade-mode (e.g. data/datasets/daily_backtest_ready/LTC_TREND_UP_2024-03.db)",
     )
     args = parser.parse_args()
 

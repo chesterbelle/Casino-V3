@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 L2 & Trades Processor for Casino-V3
-Processes raw Tardis files from data/datasets/raw/ into a high-fidelity SQLite DB in data/datasets/backtest_ready/
+Processes raw Tardis files from data/datasets/raw/ into a high-fidelity SQLite DB in data/datasets/daily_backtest_ready/
 Requires both trades and incremental_book_L2 files to proceed.
 """
 
@@ -138,7 +138,7 @@ def main():
     )
     parser.add_argument("--symbol", help="Target symbol (e.g. LTCUSDT). If not provided, will try to guess from name.")
     parser.add_argument("--raw-dir", default="data/datasets/raw", help="Source directory")
-    parser.add_argument("--out-dir", default="data/datasets/backtest_ready", help="Output directory")
+    parser.add_argument("--out-dir", default="data/datasets/daily_backtest_ready", help="Output directory")
     parser.add_argument("--snapshot-interval", type=int, default=60, help="L2 snapshot interval in seconds")
 
     args = parser.parse_args()

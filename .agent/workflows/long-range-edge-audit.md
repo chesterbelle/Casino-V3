@@ -45,15 +45,15 @@ Runs 9 backtests across three distinct conditions (3 days each).
 ```bash
 echo "=== LTC Datasets ==="
 for f in \
-  data/datasets/backtest_ready/LTC_RANGE_2024-02-01.db \
-  data/datasets/backtest_ready/LTC_RANGE_2024-05-01.db \
-  data/datasets/backtest_ready/LTC_RANGE_2024-08-01.db \
-  data/datasets/backtest_ready/LTC_BEAR_2024-04-01.db \
-  data/datasets/backtest_ready/LTC_BEAR_2024-10-01.db \
-  data/datasets/backtest_ready/LTC_BEAR_2025-02-01.db \
-  data/datasets/backtest_ready/LTC_BULL_2024-03-01.db \
-  data/datasets/backtest_ready/LTC_BULL_2024-12-01.db \
-  data/datasets/backtest_ready/LTC_BULL_2025-05-01.db; do
+  data/datasets/daily_backtest_ready/LTC_RANGE_2024-02-01.db \
+  data/datasets/daily_backtest_ready/LTC_RANGE_2024-05-01.db \
+  data/datasets/daily_backtest_ready/LTC_RANGE_2024-08-01.db \
+  data/datasets/daily_backtest_ready/LTC_BEAR_2024-04-01.db \
+  data/datasets/daily_backtest_ready/LTC_BEAR_2024-10-01.db \
+  data/datasets/daily_backtest_ready/LTC_BEAR_2025-02-01.db \
+  data/datasets/daily_backtest_ready/LTC_BULL_2024-03-01.db \
+  data/datasets/daily_backtest_ready/LTC_BULL_2024-12-01.db \
+  data/datasets/daily_backtest_ready/LTC_BULL_2025-05-01.db; do
   if [ -f "$f" ]; then
     echo "✅ $(basename $f): $(du -h $f | cut -f1)"
   else

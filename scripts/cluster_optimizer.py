@@ -32,9 +32,68 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+try:
+    import psutil
+
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 venv_python = os.path.join(_BASE, ".venv", "bin", "python")
-DB_DIR = os.path.join(_BASE, "data", "datasets", "backtest_ready")
+DB_DIR = os.path.join(_BASE, "data", "datasets", "daily_backtest_ready")
+
+
+def set_low_priority():
+    """Set nice=10 and ionice best-effort -n6 on worker processes."""
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+    try:
+        subprocess.run(
+            ["ionice", "-c2", "-n6", "-p", str(os.getpid())],
+            capture_output=True,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
+def get_memory_status():
+    """Return RAM + swap usage status string."""
+    if not HAS_PSUTIL:
+        return "N/A"
+    try:
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        return f"RAM: {mem.percent}% | Swap: {swap.percent}%"
+    except Exception:
+        return "N/A"
+
+
+def calculate_workers(min_workers: int, total_tasks: int) -> int:
+    """Dynamically calculate safe worker count based on host resources."""
+    host_cores = os.cpu_count() or 4
+    cpu_workers = max(1, int(host_cores * 0.65))
+
+    if HAS_PSUTIL:
+        try:
+            mem = psutil.virtual_memory()
+            swap = psutil.swap_memory()
+            avail_ram_gb = mem.available / (1024**3)
+            avail_swap_gb = swap.free / (1024**3)
+            total_avail_gb = avail_ram_gb + avail_swap_gb
+            mem_workers = max(1, int(total_avail_gb * 0.65 / 0.6))
+        except Exception:
+            mem_workers = cpu_workers
+    else:
+        mem_workers = cpu_workers
+
+    safe_workers = min(cpu_workers, mem_workers)
+    return max(min_workers, min(safe_workers, total_tasks))
+
+
 RESULTS_DIR = os.path.join(_BASE, "results")
 LOG_DIR = os.path.join(_BASE, "logs")
 TASK_TIMEOUT = 86400
@@ -111,28 +170,35 @@ def format_ccxt_symbol(sym: str) -> str:
 # ============================================================================
 
 PARAMETER_SPACE = {
-    # Failed Breakout
-    "sensors.failed_breakout.exhaustion_z": (0.5, 4.0, 0.1),
-    "sensors.failed_breakout.divergence_z": (0.1, 2.0, 0.1),
-    "sensors.failed_breakout.min_break_distance_pct": (0.0001, 0.005, 0.0001),
-    "sensors.failed_breakout.cooldown": (30.0, 180.0, 10.0),
-    "sensors.failed_breakout.max_break_age": (30.0, 180.0, 10.0),
+    # Failed Breakout - Strict region + permissive margin
+    "sensors.failed_breakout.exhaustion_z": (2.0, 4.0, 0.1),
+    "sensors.failed_breakout.divergence_z": (0.5, 2.0, 0.1),
+    "sensors.failed_breakout.min_break_distance_pct": (0.001, 0.006, 0.0002),
+    "sensors.failed_breakout.cooldown": (30.0, 90.0, 5.0),
+    "sensors.failed_breakout.max_break_age": (100.0, 180.0, 10.0),
     # Liquidity Exhaustion
     "sensors.liquidity_exhaustion.declining_threshold": (0.5, 0.98, 0.01),
     "sensors.liquidity_exhaustion.min_tests": (2, 5, 1),
     "sensors.liquidity_exhaustion.min_bounce_pct": (0.0001, 0.002, 0.00005),
     "sensors.liquidity_exhaustion.test_memory_seconds": (60.0, 300.0, 10.0),
+    "sensors.liquidity_exhaustion.level_tolerance_pct": (0.0002, 0.001, 0.00005),
     # Trend Acceptance
     "sensors.trend_acceptance.cooldown": (120.0, 900.0, 30.0),
     "sensors.trend_acceptance.min_candles_outside": (2, 8, 1),
-    "sensors.trend_acceptance.cvd_confirmation_threshold": (2.0, 6.0, 0.5),
-    # Targets (FB/LE/TA)
-    "targets.failed_breakout.tp_pct": (0.005, 0.03, 0.001),
-    "targets.failed_breakout.sl_pct": (0.005, 0.05, 0.001),
-    "targets.liquidity_exhaustion.tp_pct": (0.005, 0.03, 0.001),
-    "targets.liquidity_exhaustion.sl_pct": (0.005, 0.05, 0.001),
-    "targets.trend_acceptance.tp_pct": (0.005, 0.03, 0.001),
-    "targets.trend_acceptance.sl_pct": (0.005, 0.05, 0.001),
+    "sensors.trend_acceptance.cvd_confirmation_threshold": (1.0, 5.0, 0.5),
+    "sensors.trend_acceptance.max_pullback_penetration_pct": (0.001, 0.003, 0.0001),
+    "sensors.trend_acceptance.pullback_tolerance_pct": (0.0005, 0.002, 0.0001),
+    # Guardians
+    "guardians.l2_ratio_min_trend_acceptance": (1.0, 2.0, 0.1),
+    # Tactical Absorption - All params + expanded ranges (sensor name: absorption_detector)
+    "sensors.absorption_detector.z_score_min": (2.0, 6.0, 0.1),
+    "sensors.absorption_detector.cooldown": (30.0, 240.0, 10.0),
+    "sensors.absorption_detector.level_tolerance_pct": (0.0005, 0.005, 0.0002),
+    "sensors.absorption_detector.absorption_score_min": (0.05, 0.5, 0.025),
+    "sensors.absorption_detector.book_bucket_pct": (0.0005, 0.003, 0.00025),
+    "sensors.absorption_detector.displacement_z_max": (1.5, 4.0, 0.1),
+    "sensors.absorption_detector.stagnation_floor_pct": (0.0002, 0.002, 0.0001),
+    "sensors.absorption_detector.volatility_z_max": (1.5, 4.0, 0.1),
 }
 
 
@@ -140,9 +206,22 @@ def filter_parameter_space(only: Optional[str]) -> Dict:
     """Return only the params for a specific scenario, or the full space."""
     if only is None:
         return PARAMETER_SPACE.copy()
-    pref_sensors = f"sensors.{only}"
+    # Map scenario names to sensor prefixes
+    sensor_map = {
+        "failed_breakout": "failed_breakout",
+        "liquidity_exhaustion": "liquidity_exhaustion",
+        "trend_acceptance": "trend_acceptance",
+        "tactical_absorption": "absorption_detector",
+    }
+    sensor_prefix = sensor_map.get(only, only)
+    pref_sensors = f"sensors.{sensor_prefix}"
     pref_targets = f"targets.{only}"
     filtered = {k: v for k, v in PARAMETER_SPACE.items() if k.startswith(pref_sensors) or k.startswith(pref_targets)}
+    # Include guardian params that belong to trend_acceptance
+    if only == "trend_acceptance":
+        guardian_key = "guardians.l2_ratio_min_trend_acceptance"
+        if guardian_key in PARAMETER_SPACE:
+            filtered[guardian_key] = PARAMETER_SPACE[guardian_key]
     return filtered
 
 
@@ -297,44 +376,48 @@ def evaluate_with_auditor(historian_db: str) -> AuditMetrics:
 
 def compute_composite_score(metrics: AuditMetrics, only: Optional[str] = None) -> float:
     """
-    Multi-criteria composite score.
-
-    When `only` is set, evaluates only that scenario's net taker.
-    When `only` is None, averages failed_breakout + liquidity_exhaustion (default).
+    Hybrid scoring: aligns with production (AMT net_taker) while preserving
+    theoretical best_uniform as directional guide.
     """
-    min_signals = MIN_SIGNALS_FOR_SIGNIFICANCE if only is None else 10
+    # Scenario-specific minimum signals (per dataset, 3-regime average)
+    SCENARIO_MIN_SIGNALS = {
+        "failed_breakout": 3,
+        "tactical_absorption": 5,
+        "liquidity_exhaustion": 8,
+        "trend_acceptance": 3,
+    }
+    min_signals = SCENARIO_MIN_SIGNALS.get(only, MIN_SIGNALS_FOR_SIGNIFICANCE if only is None else 10)
     if not metrics.success or metrics.total_signals < min_signals:
         return -100.0
 
     if only is not None:
-        # Single-scenario mode
+        # Single-scenario: best_uniform for that setup + overall net_taker as proxy
         setup_data = metrics.best_uniforms.get(only)
         if setup_data is None:
-            return -50.0  # penalty: scenario produced no signals
-        primary_component = setup_data["exp"] - FEE_TAKER_RT
-        scenario_penalty = -0.5 if primary_component < 0 else 0.0
+            return -50.0
+        best_exp = setup_data["exp"] - FEE_TAKER_RT
+        net_proxy = metrics.net_taker
+        ratio_comp = min(metrics.mfe_mae_ratio - 1.0, 1.0)
+        signal_comp = min(metrics.total_signals / 100.0, 1.0)
+        penalty = -0.5 if best_exp < 0 else 0.0
+
+        score = best_exp * 0.50 + net_proxy * 0.25 + ratio_comp * 0.15 + signal_comp * 0.10 + penalty * 0.10
     else:
-        # Default: average FB + LE
-        fb_le_total = 0.0
-        fb_le_count = 0
+        # Multi-scenario: overall net_taker primary + avg best_uniform across ALL setups
+        all_total = 0.0
+        all_count = 0
         for setup, data in metrics.best_uniforms.items():
-            if setup in ("failed_breakout", "liquidity_exhaustion"):
-                fb_le_total += data["exp"] - FEE_TAKER_RT
-                fb_le_count += 1
-        primary_component = fb_le_total / fb_le_count if fb_le_count > 0 else 0.0
-        scenario_penalty = -0.3 if (fb_le_count > 0 and primary_component < 0) else 0.0
+            if setup in ("failed_breakout", "liquidity_exhaustion", "trend_acceptance", "tactical_absorption"):
+                all_total += data["exp"] - FEE_TAKER_RT
+                all_count += 1
+        avg_best_exp = all_total / all_count if all_count > 0 else 0.0
+        penalty = -0.3 if (all_count > 0 and avg_best_exp < 0) else 0.0
 
-    net_component = metrics.net_taker
-    ratio_component = min(metrics.mfe_mae_ratio - 1.0, 1.0)
-    signal_component = min(metrics.total_signals / 100.0, 1.0)
+        net_comp = metrics.net_taker
+        ratio_comp = min(metrics.mfe_mae_ratio - 1.0, 1.0)
+        signal_comp = min(metrics.total_signals / 100.0, 1.0)
 
-    score = (
-        primary_component * 0.4
-        + net_component * 0.2
-        + ratio_component * 0.2
-        + signal_component * 0.1
-        + scenario_penalty * 0.1
-    )
+        score = net_comp * 0.50 + avg_best_exp * 0.25 + ratio_comp * 0.15 + signal_comp * 0.10 + penalty * 0.10
     return score
 
 
@@ -545,32 +628,6 @@ def _get_current_param(cluster: str, param_key: str):
     return value
 
 
-try:
-    import psutil
-
-    HAS_PSUTIL = True
-except ImportError:
-    HAS_PSUTIL = False
-
-
-def set_low_priority():
-    """Set nice=10 and ionice best-effort -n6 on worker processes."""
-    try:
-        os.nice(10)
-    except OSError:
-        pass
-    try:
-        import subprocess
-
-        subprocess.run(
-            ["ionice", "-c2", "-n6", "-p", str(os.getpid())],
-            capture_output=True,
-            check=False,
-        )
-    except Exception:
-        pass
-
-
 def get_safe_workers(max_workers: Optional[int] = None, total_tasks: int = 1) -> int:
     if max_workers is not None:
         return max_workers
@@ -626,11 +683,13 @@ def main():
         "--only",
         type=str,
         default=None,
-        choices=["failed_breakout", "liquidity_exhaustion", "trend_acceptance"],
+        choices=["failed_breakout", "liquidity_exhaustion", "trend_acceptance", "tactical_absorption"],
         help="Optimizar solo un escenario. Filtra PARAMETER_SPACE y scoring a ese escenario.",
     )
     parser.add_argument("--iterations", type=int, default=50)
-    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument(
+        "--min-workers", type=int, default=1, help="Minimum worker floor (dynamic calc based on RAM/CPU)"
+    )
     parser.add_argument("--filter", type=str, default=None)
     parser.add_argument("--output", type=str, default=None)
     parser.add_argument("--validate-only", action="store_true")
@@ -643,7 +702,7 @@ def main():
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    workers = get_safe_workers(args.max_workers, args.iterations)
+    workers = calculate_workers(min_workers=args.min_workers, total_tasks=args.iterations)
     members = get_cluster_members(args.cluster)
     if not members:
         print(f"❌ Cluster {args.cluster} not found")
@@ -674,7 +733,7 @@ def main():
         print(f"      • {d}")
     print(f"   Available datasets: {len(datasets)}")
     print(f"   Iterations: {args.iterations}")
-    print(f"   CPU workers: {workers}")
+    print(f"   Workers: {workers} (dynamic: {get_memory_status()})")
 
     # Filter parameter space if --only is set
     active_space = filter_parameter_space(args.only)

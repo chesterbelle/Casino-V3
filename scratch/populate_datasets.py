@@ -18,7 +18,7 @@ datasets = {
 
 base_dir = "/home/chesterbelle/Casino-V3"
 certified_dir = f"{base_dir}/data/datasets/certified"
-ready_dir = f"{base_dir}/data/datasets/backtest_ready"
+ready_dir = f"{base_dir}/data/datasets/daily_backtest_ready"
 
 os.makedirs(certified_dir, exist_ok=True)
 

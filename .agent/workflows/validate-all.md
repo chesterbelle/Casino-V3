@@ -88,7 +88,7 @@ Each layer must pass before proceeding to the next.
 
 ### Layer 3.1: Protocol Determinism
 ```bash
-.venv/bin/python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
+.venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
 ```
 *Success Criterion*: `data/historian_LTCUSDT.db` exists with signals and price samples.
 
@@ -108,7 +108,7 @@ Each layer must pass before proceeding to the next.
 
 ### Layer 5.1: Pipeline Sanity (Single Dataset Audit)
 ```bash
-.venv/bin/python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
+.venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
 ```
 *Success Criterion*: Edge auditor completes without error, baseline report generated.
 

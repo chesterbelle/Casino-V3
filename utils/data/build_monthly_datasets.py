@@ -118,8 +118,9 @@ def build_month(symbol: str, month_label: str, month_start: str, month_end: str)
     trades_monthly = RAW_DIR / f"{monthly_name}_trades.csv.gz"
     ob_monthly = RAW_DIR / f"{monthly_name}_incremental_book_L2.csv.gz"
 
-    trades_ok = concat_csv_gz(f"{EXCHANGE}_trades_????-??-??_{symbol}.csv.gz", trades_monthly)
-    ob_ok = concat_csv_gz(f"{EXCHANGE}_incremental_book_L2_????-??-??_{symbol}.csv.gz", ob_monthly)
+    month_prefix = month_start[:7]
+    trades_ok = concat_csv_gz(f"{EXCHANGE}_trades_{month_prefix}-??_{symbol}.csv.gz", trades_monthly)
+    ob_ok = concat_csv_gz(f"{EXCHANGE}_incremental_book_L2_{month_prefix}-??_{symbol}.csv.gz", ob_monthly)
 
     if not trades_ok or not ob_ok:
         logger.error("Missing files, skipping")

@@ -1,0 +1,111 @@
+{
+  "cluster": "LTC_NOISY_UNCERTAIN_1",
+  "optimization_time_seconds": 2525.289066553116,
+  "best_score": 1.2580741190141818,
+  "baseline": {
+    "net_taker": -0.034848117156698145,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 0.8444002623819865,
+    "total_signals": 11
+  },
+  "best_params": {
+    "sensors.liquidity_exhaustion.declining_threshold": 0.87,
+    "sensors.liquidity_exhaustion.min_tests": 3,
+    "sensors.liquidity_exhaustion.min_bounce_pct": 0.0007000000000000001,
+    "sensors.liquidity_exhaustion.test_memory_seconds": 60.0,
+    "sensors.liquidity_exhaustion.level_tolerance_pct": 0.00095
+  },
+  "validation": {
+    "coins": {
+      "LTC/USDT:USDT": {
+        "net_taker": 0.1387740056719997,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 13,
+        "mfe_mae_ratio": 1.2817972871203234
+      }
+    },
+    "cluster_avg_net_taker": 0.1387740056719997,
+    "coins_passed": 1,
+    "coins_total": 1,
+    "passed": "True"
+  },
+  "sensitivity": {
+    "sensors.liquidity_exhaustion.test_memory_seconds": {
+      "range": 140.0,
+      "variation_pct": 58.333333333333336,
+      "impact": "HIGH"
+    },
+    "sensors.liquidity_exhaustion.min_tests": {
+      "range": 1,
+      "variation_pct": 33.33333333333333,
+      "impact": "HIGH"
+    },
+    "sensors.liquidity_exhaustion.declining_threshold": {
+      "range": 0.18999999999999995,
+      "variation_pct": 39.58333333333333,
+      "impact": "HIGH"
+    },
+    "sensors.liquidity_exhaustion.min_bounce_pct": {
+      "range": 0.00035000000000000005,
+      "variation_pct": 18.42105263157895,
+      "impact": "MEDIUM"
+    },
+    "sensors.liquidity_exhaustion.level_tolerance_pct": {
+      "range": 0.00019999999999999998,
+      "variation_pct": 24.999999999999996,
+      "impact": "MEDIUM"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 46,
+      "score": 1.2580741190141818,
+      "avg_score": 1.2580741190141818
+    },
+    {
+      "number": 29,
+      "score": 1.163519030976631,
+      "avg_score": 1.163519030976631
+    },
+    {
+      "number": 48,
+      "score": 1.1318310199819535,
+      "avg_score": 1.1318310199819535
+    },
+    {
+      "number": 28,
+      "score": 1.0314569418106498,
+      "avg_score": 1.0314569418106498
+    },
+    {
+      "number": 36,
+      "score": 1.0155474317967343,
+      "avg_score": 1.0155474317967343
+    },
+    {
+      "number": 44,
+      "score": 0.9990577141395992,
+      "avg_score": 0.9990577141395992
+    },
+    {
+      "number": 24,
+      "score": 0.9732469731448218,
+      "avg_score": 0.9732469731448218
+    },
+    {
+      "number": 26,
+      "score": 0.9444535856237544,
+      "avg_score": 0.9444535856237544
+    },
+    {
+      "number": 25,
+      "score": 0.9362938551601049,
+      "avg_score": 0.9362938551601049
+    },
+    {
+      "number": 27,
+      "score": 0.9362938551601049,
+      "avg_score": 0.9362938551601049
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "cluster": "LTC_NOISY_UNCERTAIN_1",
+  "optimization_time_seconds": 777.8359351158142,
+  "best_score": -33.219109577885845,
+  "baseline": {
+    "net_taker": 0.14594059616814872,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 1.679374286791953,
+    "total_signals": 8
+  },
+  "best_params": {
+    "sensors.tactical_absorption.z_score_min": 3.5,
+    "sensors.tactical_absorption.cooldown": 230.0,
+    "sensors.tactical_absorption.level_tolerance_pct": 0.0037,
+    "sensors.tactical_absorption.absorption_score_min": 0.325,
+    "sensors.tactical_absorption.book_bucket_pct": 0.00075,
+    "sensors.tactical_absorption.displacement_z_max": 1.9,
+    "sensors.tactical_absorption.stagnation_floor_pct": 0.00030000000000000003,
+    "sensors.tactical_absorption.volatility_z_max": 3.7
+  },
+  "validation": {
+    "coins": {
+      "LTC/USDT:USDT": {
+        "net_taker": -0.21218089219642589,
+        "root_cause": "ENTRY_FAILURE",
+        "total_signals": 2,
+        "mfe_mae_ratio": 0.12213697505018754
+      }
+    },
+    "cluster_avg_net_taker": -0.21218089219642589,
+    "coins_passed": 0,
+    "coins_total": 1,
+    "passed": false
+  },
+  "sensitivity": null,
+  "top_trials": [
+    {
+      "number": 0,
+      "score": -33.219109577885845,
+      "avg_score": -33.219109577885845
+    }
+  ]
+}

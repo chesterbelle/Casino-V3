@@ -9,7 +9,7 @@ Este documento detalla la infraestructura centralizada de datos L2 y Trades para
 El sistema separa los datos en dos capas para evitar borrados accidentales durante auditorías:
 
 1.  **Raw Data (`data/datasets/raw/`)**: Archivos originales `.csv.gz` descargados de Tardis o Binance.
-2.  **Backtest Ready (`data/datasets/backtest_ready/`)**: Archivos `.db` (SQLite) procesados, listos para la simulación.
+2.  **Backtest Ready (`data/datasets/daily_daily_backtest_ready/`)**: Archivos `.db` (SQLite) procesados, listos para la simulación.
 
 ---
 
@@ -33,7 +33,7 @@ condiciones de mercado variadas (TREND_UP, TREND_DOWN, BALANCE).
 *   **TREND_DOWN** 🔴: Pérdida < -4% en el día, direction_ratio > 0.55
 *   **BALANCE** ⚪: Variación < 3% (o <4% con dirección débil)
 
-> ⚠️ **Nota**: La clasificación mensual (usada por `price_history_analyzer`) es engañosa porque el día 1 del mes rara vez representa la tendencia del mes completo. Todos los 84 datasets en `backtest_ready/` están clasificados por **precio real diario** contra klines de Binance Futures, no por mes.
+> ⚠️ **Nota**: La clasificación mensual (usada por `price_history_analyzer`) es engañosa porque el día 1 del mes rara vez representa la tendencia del mes completo. Todos los 84 datasets en `daily_daily_backtest_ready/` están clasificados por **precio real diario** contra klines de Binance Futures, no por mes.
 
 ### Ejemplo de uso:
 ```bash
@@ -157,12 +157,12 @@ mv raw/binance-futures_trades_2026-01-17_APTUSDT.csv.gz \
 ## 🚀 Paso 3: Ejecución del Backtest
 
 **Nota Importante:** Para auditorías de estrategia, **DEBES usar el orquestador** (`scripts/orchestrator.py`).
-El orquestador automatiza el manejo de los datasets `backtest_ready`, la concurrencia, la fusión de historiales y la ejecución del `ExitEdgeAuditor`.
+El orquestador automatiza el manejo de los datasets `daily_backtest_ready`, la concurrencia, la fusión de historiales y la ejecución del `ExitEdgeAuditor`.
 
 ### Auditoría Automática (Recomendado):
 ```bash
 # Para auditorías de una moneda (ej. LTCUSDT)
-python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT
+python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
 
 # Para auditorías generalizadas (todos los activos certificados)
 python scripts/orchestrator.py --protocol generalized
@@ -172,11 +172,11 @@ python scripts/orchestrator.py --protocol generalized
 Si necesitas correr una simulación aislada fuera de los protocolos de auditoría:
 
 ```bash
-./.venv/bin/python backtest.py --depth-db-path data/datasets/backtest_ready/<NOMBRE>.db --symbol <SYM>
+./.venv/bin/python backtest.py --depth-db-path data/datasets/daily_daily_backtest_ready/<NOMBRE>.db --symbol <SYM>
 ```
 
 ### Flags Importantes (Ejecución Manual):
-*   `--depth-db-path`: Apunta al archivo `.db` en la carpeta `backtest_ready`.
+*   `--depth-db-path`: Apunta al archivo `.db` en la carpeta `daily_backtest_ready`.
 *   `--audit`: (Opcional) Para grabar señales y trazas de decisión en la base de datos temporal `historian.db`.
 
 ---
@@ -223,7 +223,7 @@ Cada símbolo tiene exactamente **2 TREND_UP + 2 TREND_DOWN + 2 BALANCE** = 6 da
 | **Total** | **28** | **28** | **28** | **84 ✅** |
 
 ### Datasets Mensuales
-6 archivos en `data/datasets/monthly_backtest_ready/`:
+6 archivos en `data/datasets/monthly_daily_backtest_ready/`:
 - 3 LTC (Mar–May 2026)
 - 3 SOL (Mar–May 2026)
 
@@ -290,12 +290,12 @@ mv data/datasets/raw/binance-futures_incremental_book_L2_2026-05-15_LTCUSDT.csv.
     --name LTCUSDT_2026-05-15 --symbol LTCUSDT
 
 # 5. Renombrar con régimen (analizar el cambio % del día primero)
-mv data/datasets/backtest_ready/LTCUSDT_2026-05-15.db \
-   data/datasets/backtest_ready/LTCUSDT_BALANCE_2026-05-15.db
+mv data/datasets/daily_daily_backtest_ready/LTCUSDT_2026-05-15.db \
+   data/datasets/daily_daily_backtest_ready/LTCUSDT_BALANCE_2026-05-15.db
 
 # 6. Ejecutar backtest
 .venv/bin/python backtest.py \
-    --depth-db-path data/datasets/backtest_ready/LTCUSDT_BALANCE_2026-05-15.db \
+    --depth-db-path data/datasets/daily_daily_backtest_ready/LTCUSDT_BALANCE_2026-05-15.db \
     --symbol LTCUSDT
 ```
 

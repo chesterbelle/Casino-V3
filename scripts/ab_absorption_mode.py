@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 
 COINS = ["SOL", "AVAX", "XRP"]
-BACKTEST_READY = "data/datasets/backtest_ready"
+BACKTEST_READY = "data/datasets/daily_backtest_ready"
 VENV_PYTHON = ".venv/bin/python"
 TASK_TIMEOUT = 14400
 AB_DIR = "data/ab_test"

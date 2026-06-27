@@ -6,7 +6,7 @@ import sqlite3
 import time
 
 HISTORIAN_DB = "data/historian.db"
-DATASETS_DIR = "data/datasets/backtest_ready"
+DATASETS_DIR = "data/datasets/daily_backtest_ready"
 
 AMT_SCENARIOS = ["tactical_absorption", "trend_acceptance", "liquidity_exhaustion", "failed_breakout"]
 

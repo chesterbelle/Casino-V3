@@ -81,7 +81,7 @@ async def benchmark_pandas_concat(db_path: str, symbol: str, window_start: float
 
 async def main():
     # Test dataset
-    db_path = "data/datasets/backtest_ready/ADAUSDT_BALANCE_2025-11-01.db"
+    db_path = "data/datasets/daily_backtest_ready/ADAUSDT_BALANCE_2025-11-01.db"
     symbol = "ADAUSDT"
 
     print("📊 Benchmarking backtest feed performance...")

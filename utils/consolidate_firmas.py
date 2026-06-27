@@ -12,7 +12,7 @@ from utils.cluster_builder import compute_metrics_from_db
 
 
 def consolidate_firmas():
-    ready_dir = "data/datasets/backtest_ready"
+    ready_dir = "data/datasets/daily_backtest_ready"
     all_metrics = defaultdict(list)
 
     if not os.path.exists(ready_dir):

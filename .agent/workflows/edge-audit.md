@@ -43,7 +43,7 @@ mkdir -p logs
 > Sigue EXACTAMENTE esta secuencia:
 > 1. Lanza el orquestador en **segundo plano** redirigiendo la salida para poder monitorearla:
 >    ```bash
->    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol single-coin --symbol LTCUSDT > logs/orchestrator_run.log 2>&1
+>    PYTHONUNBUFFERED=1 .venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT > logs/orchestrator_run.log 2>&1
 >    ```
 > 2. Implementa un mecanismo de monitoreo en segundo plano (ej. un script de loop, tarea programada o revisión periódica) para leer el log cada 5 minutos.
 > 3. En cada revisión, haz `tail -n 20 logs/orchestrator_run.log`, extrae el progreso actual y **reporta el estado al usuario** en el chat.

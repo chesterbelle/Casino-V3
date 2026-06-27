@@ -6,48 +6,116 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
-### [2026-06-24 SESSION] — V11 Exit Engine: Compression-Only Bracket & MarketProfile Continuous Overhaul (Branch: 8.8-crystal-layer-refactor)
+### [2026-06-25 SESSION V4] — Monthly Backtest LTC May 2026 Complete + trend_acceptance Diagnosis (Branch: 8.9-datafeed-revamp)
 
 #### Summary
-Rediseño completo del motor de salidas (`SlimExitEngine` V11) abandonando las salidas activas discrecionales por tiempo (eliminación total de `close_position()`) a favor de una compresión lineal y pasiva de brackets de intercambio (OCO). Adicionalmente, se resolvió el bloqueo estructural de señales del `ScenarioManager` (gating inmaduro de `va_integrity`) y se optimizó el motor del perfilador de volumen, logrando un speedup del backtester de **25x** ($\approx$ 5,400 ticks/seg).
+Backtest mensual LTC Mayo 2026 completado con VA_GATE selectivo activo. **El gate funcionó correctamente** (bloqueó mean-reversion en downtrend, permitió trend-following), pero `trend_acceptance` no generó **ningún SHORT** durante el downtrend 10-17 mayo ($58.42 → $56.07, -4.1%). Causa: thresholds internos del detector demasiado estrictos para LTC.
 
-#### Acciones
-1. **`config/trading.py`**: Reemplazado `UNIVERSAL_EXIT_RULES` con un único pilar: `time_decay` (max_hold: 21600s, compression_window: 21600s, fee_friction: 0.0009).
-2. **`croupier/components/slim_exit_engine.py`**: Rewrite completo del engine (V11).
-   - Eliminados todos los pilares activos que competían con la tesis AMT: `break_even` (pilar activo), `micro_z_reversal` (invalidation) y `_execute_limit_close()`.
-   - Implementado el método pasivo `_apply_compression()` que calcula el decaimiento temporal y comprime linealmente el `tp_level` y `sl_level` hacia el precio de entrada $\pm$ `fee_friction` una vez excedido el `max_hold`.
-   - Incorporado throttling adaptativo en `_should_modify()` para filtrar modificaciones de brackets insignificantes (< 0.01% de delta), evitando saturar el exchange o la simulación de llamadas API repetitivas.
-3. **`core/market_profile.py`**:
-   - **Maturity Check Real**: Implementada la propiedad `is_mature` basada en el lapso temporal real dentro del log de ticks ($\ge 15$ minutos).
-   - **Bypass de VA_GATE**: Modificado `calculate_va_integrity()` para retornar al menos `1.0` si el perfil ya es maduro. Esto destrabó el trading continuo, previniendo que perfiles expandidos o en tendencia tuvieran baja integridad y bloquearan señales legítimas.
-4. **Optimización de Recálculo de POC**:
-   - Se removió el recálculo `_recalculate_poc()` (operación $O(N)$) del interior del bucle de poda de ticks viejos en `add_trade()`.
-   - Ahora se marca `poc_dirty = True` y se recalcula el POC **una sola vez** al finalizar el lote de poda.
-5. **Validadores (`exit_engine_validator.py` & `exit_engine_integration_validator.py`)**: Reescritos por completo para soportar y certificar las matemáticas del decaimiento por compresión lineal.
+#### Resultados Backtest Mensual (Mayo 2026)
+| Métrica | Valor |
+|---|---|
+| **Total Trades** | 28 |
+| **LONG** | 26 (todos SL) |
+| **SHORT** | 2 (ambos TP, solo May 1) |
+| **Net PnL** | ~$-37 |
 
-#### Hallazgos Técnicos & Cuantitativos
-*   **Bypass Exitoso**: El bypass de madurez temporal ha erradicado por completo el síntoma de bloqueo de señales virtuales.
-*   **Throughput Crudo**: El backtest pasó de un cuello de botella paralizante a **5,400 ticks/segundo** de procesamiento secuencial.
-*   **Backtest LTC de Mayo 2026**:
-    - **Dataset**: `LTC_monthly_2026_05.db` (12.18M de registros en `market_trades`, 810MB).
-    - **Tiempo Estimado**: ~37 minutos de ejecución completa de punta a punta (antes proyectado en >15 horas o colapsando por timeouts).
-    - **Primeras Métricas (Muestra Parcial de 28 Trades)**: Net PnL: **-$1.90** | Win Rate: **57.14%** (16W / 12L). Todas las pérdidas respetaron el SL del bracket de forma exacta (cero slippage).
+#### Hallazgos Críticos
+1. **VA_GATE selectivo funcionó**: integrity 0.000-0.125 (< 0.15) → bloqueó `failed_breakout` LONGs, permitió `trend_acceptance` (config correcta en perfil `LTC_NOISY_UNCERTAIN_1`)
+2. **`trend_acceptance` SILENT en downtrend**: 0 SHORTs en 7 días de caída -4.1%
+3. **`setup_type: unknown`** en todos los trades — metadata no propagada
+
+#### Diagnóstico `trend_acceptance` (Perfil `LTC_NOISY_UNCERTAIN_1`)
+| Parámetro | Valor | Problema |
+|---|---|---|
+| `l2_ratio_min_trend_acceptance` | 1.5 | **Hard block** — L2 ratio en downtrend LTC < 1.5 |
+| `cvd_confirmation_threshold` | 4.0 | Muy alto para CVD velocity |
+| `max_pullback_penetration_pct` | 0.001 (10 bps) | Demasiado estricto para pullbacks reales |
+
+#### Próxima Optimización LTC
+- Reducir `l2_ratio_min_trend_acceptance` → 1.0-1.2
+- Reducir `cvd_confirmation_threshold` → 2.0-2.5
+- Relajar `max_pullback_penetration_pct` → 0.002-0.003
 
 #### Files Modified
-- `config/trading.py` — `UNIVERSAL_EXIT_RULES` con un solo pilar de decaimiento temporal.
-- `croupier/components/slim_exit_engine.py` — Rewrite completo V11, solo compresión lineal y throttling.
-- `core/market_profile.py` — Propiedad `is_mature`, bypass de `calculate_va_integrity`, optimización batch de recálculo de POC.
-- `utils/validators/exit_engine_validator.py` — Unit tests de matemática de compresión.
-- `utils/validators/exit_engine_integration_validator.py` — Integration tests con MockCroupier.
-- `.agent/changelog.md` — Esta entrada.
-- `.agent/memory.md` — Timeline y estado de capas actualizados.
+- `.agent/golden_params/ltc.md` — Agregada sección `va_gate` + diagnóstico trend_acceptance
 
-#### Commit
-*   Cambios guardados localmente. Los validadores corren y aprueban al 100% (16/16).
+#### Commits
+```
+f891f2a fix: VA_GATE regime filter via 8h rolling window
+128a4aa feat: VA_GATE selective by setup_type — parametrized per profile
+```
 
 #### Next Steps
-1. **Completar Backtest Mensual de LTC**: Analizar las métricas completas de Mayo 2026 cuando finalice la ejecución en background.
-2. **Calibrar targets/fricción**: Evaluar si el `fee_friction` de 0.09% o la ventana de compresión de 6h son óptimas para LTC y SOL en el largo plazo.
+1. **Ajustar thresholds `trend_acceptance` para LTC** (próxima optimización)
+2. **Implementar Cooldown Post-SL** — Mitigar cascadas LONG (11 LONGs consecutivos residuales)
+3. **Validar en 84 Datasets 24h Certificados** — Orchestration completa para confirmar no-regresión
+
+---
+
+### [2026-06-25 SESSION V2] — build_monthly_datasets.py Bug Fix: Glob Matched All Raw Files (Branch: 8.9-datafeed-revamp)
+
+#### Summary
+Identificado y corregido bug crítico en `utils/data/build_monthly_datasets.py`: el glob `????-??-??` en `concat_csv_gz()` matcheaba **todos** los raw files diarios de ese símbolo, no solo los del mes target. Esto causó que los 3 datasets mensuales de LTC (`_03`, `_04`, `_05`) incluyeran ~6.1M trades basura de 2023-2025 además de los datos del mes correcto. SOL no fue afectado porque no tenía raw files previos.
+
+#### Acciones
+1. **`utils/data/build_monthly_datasets.py`**: Cambiado el glob de `????-??-??` a `{month_prefix}-??` (ej. `2026-05-??`) para filtrar solo por el mes target. Líneas 121-123.
+2. **Re-descarga y reprocesamiento**: Los 3 datasets LTC mensuales se reconstruyeron desde cero (Marzo 530 MB, Abril 361 MB, Mayo 403 MB).
+3. **Integridad verificada**: `gzip -t` en todos los raw files detectó 2 archivos corruptos (días 21 y 24 del L2 book) que fueron re-descargados con `--force`.
+
+#### Hallazgos Técnicos
+- **Solo LTC afectado**: SOL no tenía raw files previos, por lo que el glob `????-??-??` solo encontraba los archivos del mes target.
+- **Archivos corruptos post-interrupción**: Cuando el script se interrumpe (disk full), los `.csv.gz` pueden quedar truncados. La reanudación con "already exists" skips archivos corruptos. Solución: verificar integridad con `gzip -t` y usar `--force` para re-descargar.
+- **Tiempo total de reconstrucción**: ~45 min para los 3 meses de LTC (download + concat + l2_processor).
+
+#### Files Modified
+- `utils/data/build_monthly_datasets.py` — Fixed glob `????-??-??` → `{month_prefix}-??`
+
+#### LTC Monthly Dataset Integrity (Post-Fix)
+| Dataset | Mes Target | Trades | Otros Meses | Clean? |
+|---------|-----------|-------|------------|--------|
+| LTC_monthly_2026_03.db | 2026-03 | 7,919,212 | 61,094 (Feb, timezone artifact) | ✅ |
+| LTC_monthly_2026_04.db | 2026-04 | 5,381,069 | 37,141 (Mar, timezone artifact) | ✅ |
+| LTC_monthly_2026_05.db | 2026-05 | 5,990,061 | 23,181 (Apr, timezone artifact) | ✅ |
+
+#### Next Steps
+1. **Backtest mensual LTC Mayo 2026** con el fix activo: evaluar VA_GATE en caída del 10-12 mayo.
+2. **Implementar verificación de integridad** en `concat_csv_gz()`: validar `gzip -t` antes de concatenar.
+
+---
+
+### [2026-06-25 SESSION V3] — VA_GATE Selective by Setup_Type (Branch: 8.9-datafeed-revamp)
+
+#### Summary
+El VA_GATE original bloqueaba **todas** las señales cuando `va_integrity < 0.15`, incluyendo `trend_acceptance` (trend-following). Esto impedía que el bot generara SHORTs durante downtrends. La solución: **gate selectivo parametrizado por perfil** — bloquea solo mean-reversion setups en trending, permite trend-following.
+
+#### Acciones
+1. **`config/coin_profiles.py`**: Agregada sección `va_gate` a los 9 perfiles con:
+   - `integrity_threshold: 0.15`
+   - `block_in_trending: [tactical_absorption, failed_breakout, liquidity_exhaustion]`
+   - `allow_in_trending: [trend_acceptance]`
+
+2. **`decision/scenario_manager.py`**: Nuevo método `_apply_va_gate()` que lee configuración del perfil y filtra selectivamente:
+   - `integrity >= threshold`: permite todos los setups habilitados
+   - `integrity < threshold`: bloquea `block_in_trending`, permite `allow_in_trending`
+   - Setups no listados: permite por defecto (backward compat)
+
+#### Hallazgos Técnicos
+*   **Test unitario validado**: integrity=0.5 → permite [tactical_absorption, trend_acceptance]; integrity=0.02 → permite solo [trend_acceptance]
+*   El bot ahora puede generar SHORTs de `trend_acceptance` en downtrends mientras bloquea `failed_breakout` LONGs en caída
+
+#### Files Modified
+- `config/coin_profiles.py` — Agregada configuración `va_gate` a 9 perfiles
+- `decision/scenario_manager.py` — Lógica selectiva `_apply_va_gate()`
+
+#### Commit
+```
+128a4aa feat: VA_GATE selective by setup_type — parametrized per profile
+```
+
+#### Next Steps
+1. **Completar Backtest Mensual LTC Mayo 2026**: Confirmar que trend_acceptance genera SHORTs en caída 10-12 mayo.
+2. **Implementar Cooldown Post-SL**: Mitigar cascadas de pérdidas (20 LONGs consecutivos previos).
+3. **Validar en 84 Datasets 24h Certificados**: Orchestration completa para confirmar no-regresión.
 
 ---
 
@@ -233,7 +301,7 @@ Completada la pipeline completa de datasets para backtesting. Se auditaron, corr
 
 #### Files Modified
 - `utils/data/cryptohftdata_fetcher.py` — Added `sequential` param, `_fetch_and_write_hour_seq()`, `fetch_range()`, fixed orderbook column bug.
-- `data/datasets/backtest_ready/` — 84 `.db` files (net: 84 tras +10 downloads, -39 deletions, +97 original audited/renamed).
+- `data/datasets/daily_backtest_ready/` — 84 `.db` files (net: 84 tras +10 downloads, -39 deletions, +97 original audited/renamed).
 - `data/datasets/monthly_backtest_ready/` — 6 nuevos archivos mensuales.
 
 #### Next Steps
@@ -775,7 +843,7 @@ Optimize the regime filter — study how to improve regime accuracy so the Guard
 #### 1. Pipeline Ejecutado
 - **Paso 0**: Análisis de precios históricos con `price_history_analyzer.py` → recomendó 6 meses por coin
 - **Paso 1**: Descarga de 18 raw datasets (trades + L2) vía `tardis_fetcher.py`
-- **Paso 2**: Procesamiento a `.db` vía `l2_processor.py` → 18 archivos en `data/datasets/backtest_ready/`
+- **Paso 2**: Procesamiento a `.db` vía `l2_processor.py` → 18 archivos en `data/datasets/daily_backtest_ready/`
 - **Paso 3**: Backtest audit vía `orchestrator.py` (protocolos `set_a_sol`, `set_a_xrp`, `set_a_doge`)
 - **Paso 4**: Merge de 18 historian temporales → `data/historian.db` (18 MB)
 
@@ -2221,7 +2289,7 @@ En esta sesión, hemos reemplazado el sistema de logeo ruidoso por una infraestr
     *   *Tardis Free Tier*: Confirmado que el límite gratuito es estrictamente el día 1 de cada mes.
 *   **Estado de la Infraestructura**:
     *   Warehouse Raw: `data/datasets/raw/`
-    *   Warehouse Processed: `data/datasets/backtest_ready/`
+    *   Warehouse Processed: `data/datasets/daily_backtest_ready/`
     *   Primer Dataset Certificado: `2024-01-01_LTCUSDT.db`
 
 ### 2026-05-10: Absorption Pipeline Fix + CAPA 0 L2 Discovery
@@ -2413,7 +2481,7 @@ Se identificó que el comportamiento implícito (ejecutar trading al omitir el f
 ### [2026-05-25] — Smart Orchestrator Refactor
 ### Summary: Eliminación de ceguera en testing, strict sourcing y watchdog I/O.
 Se reconstruyó por completo `scripts/orchestrator.py` para solventar problemas críticos de observabilidad en protocolos largos (ej. `generalized-edge-audit`). Las mejoras incluyen:
-1. **Strict Data Sourcing:** El script ya no asume un prefijo de fecha. Realiza un *glob* estricto de los datasets en `data/datasets/backtest_ready/` para las monedas dictadas por el protocolo en curso. Si encuentra ambigüedad (dos DBs para la misma moneda), crashea forzosamente para prevenir ejecución de datos incorrectos.
+1. **Strict Data Sourcing:** El script ya no asume un prefijo de fecha. Realiza un *glob* estricto de los datasets en `data/datasets/daily_backtest_ready/` para las monedas dictadas por el protocolo en curso. Si encuentra ambigüedad (dos DBs para la misma moneda), crashea forzosamente para prevenir ejecución de datos incorrectos.
 2. **Clean Console (Log Isolation):** Se extrajo la salida del `ProcessPoolExecutor` para evitar el "Spaghetti Console" al correr N backtests concurrentes. Los logs de cada moneda viajan aislados a la carpeta `/logs/`.
 3. **Monitor I/O (Anti-Hang):** El orquestador ahora escanea activamente en el bucle principal cada 5s el tamaño en disco de la base de datos temporal en curso (`historian_{coin}.db`), garantizando visibilidad en vivo del avance del *backtest* y evitando la falsa apariencia de un "cuelgue" del sistema.
 

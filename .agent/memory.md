@@ -1,6 +1,7 @@
 # Casino-V3 Agent Memory — Brújula Estratégica
 
 > **⚠️ INSTRUCCIONES PARA EL AGENTE — LEER ANTES DE CUALQUIER ACCIÓN:**
+> **9. GOTCHA (CORRUPTED GZIP ON INTERRUPT):** Si `build_monthly_datasets.py` o `cryptohftdata_fetcher.py` se interrumpen (disk full, timeout), los `.csv.gz` pueden quedar truncados. Al reanudar, el fetcher los skipea como "already exists". Verificar integridad con `gzip -t` y re-descargar corruptos con `--force`. El script `build_monthly_datasets.py` tenía el bug del glob `????-??-??` que agarraba TODOS los raw files de ese símbolo (incluyendo 2023-2025). SOL no fue afectado porque no tenía raw previos. Ya fixeado con `{month_prefix}-??`.
 > 1. **Leer este archivo completo al inicio de cada sesión**, antes de escribir código, ejecutar comandos o hacer suposiciones.
 > 2. **Actualizar este archivo al final de cada sesión** con: decisiones tomadas, métricas comparativas y estado de las capas.
 > 3. **REGLA DE ORO DE GIT (NO MERGE):** Hay 3 BOTS DIFERENTES e incompatibles viviendo en distintas ramas. **NUNCA hagas merge ni rebase.**
@@ -17,7 +18,7 @@
 *   **Current Branch**: `8.8-crystal-layer-refactor`
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
-*   **Datasets**: **84 certificados** (2 TREND_UP, 2 TREND_DOWN, 2 BALANCE × 14 símbolos) en `data/datasets/backtest_ready/`. +6 mensuales LTC/SOL en `data/datasets/monthly_backtest_ready/`.
+*   **Datasets**: **84 certificados** (2 TREND_UP, 2 TREND_DOWN, 2 BALANCE × 14 símbolos) en `data/datasets/daily_daily_backtest_ready/`. +6 mensuales LTC/SOL limpios en `data/datasets/monthly_daily_backtest_ready/`.
 
 
 ## 📚 Historial y Contexto
@@ -50,6 +51,11 @@
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets
 
+### 4. Capa de Escudo (Risk / Regime) — [EN DESARROLLO 🟡]
+*   **VA_GATE Regime Filter**: Rolling window 8h evalúa estructura de volumen actual; bloquea mean-reversion en tendencia (integrity ~0.001), permite en rango (integrity > 0.15).
+*   **VA_GATE Selective by Setup_Type**: Gate selectivo parametrizado por perfil — bloquea mean-reversion (tactical_absorption, failed_breakout, liquidity_exhaustion) en trending, permite trend-following (trend_acceptance). Config `va_gate` en 9 perfiles, lógica `_apply_va_gate()` en ScenarioManager.
+*   **Post-SL Cooldown (Pendiente)**: Prevenir cascadas de pérdidas consecutivas por símbolo/setup_type.
+
 ---
 
 ## 📉 Roadmap
@@ -60,6 +66,13 @@
 5.  **CLUSTER OPTIMIZER — COMPLETADO ✅ + EXPANDED** (2026-06-08).
 6.  **8.9 DATA FEED REVAMP — COMPLETADO ✅** (2026-06-22): UNION ALL optimization (138x speedup, 46h→20min). Symbol resolution fix. VA_GATE limitation documented.
 7.  **SIGNAL VALIDATION & MATURITY GATE OVERHAUL — COMPLETADO ✅** (2026-06-24): Solucionado el bloqueo de señales en backtests continuos añadiendo madurez temporal real `is_mature` en `MarketProfile`. Optimizado recálculo de POC de $O(N \times K)$ a batch $O(N)$ (speedup de 25x, throughput de 5,400 ticks/seg).
+8.  **VA_GATE REGIME FIX — COMPLETADO ✅** (2026-06-25): Eliminado bypass tóxico `is_mature`; rolling window 8h evalúa régimen actual. Validado: ranging → ALLOW, trending → BLOCK.
+9.  **VA_GATE SELECTIVE BY SETUP_TYPE — COMPLETADO ✅** (2026-06-25): Gate selectivo parametrizado por perfil — bloquea mean-reversion en trending, permite trend-following. Config `va_gate` en 9 perfiles, lógica `_apply_va_gate()` en ScenarioManager.
+
+### Próximos Pasos Inmediatos (Prioridad):
+1. **Ajustar thresholds `trend_acceptance` para LTC** — `l2_ratio_min_trend_acceptance` → 1.0-1.2, `cvd_confirmation_threshold` → 2.0-2.5, `max_pullback_penetration_pct` → 0.002-0.003. Próxima optimización LTC.
+2. **Implementar Cooldown Post-SL** — Mitigar cascadas LONG (11 LONGs consecutivos residuales en downtrend). Cooldown por `symbol + setup_type` tras N SLs consecutivos (ej. 3 SLs → 4h).
+3. **Validar en 84 Datasets 24h Certificados** — Orchestration completa para confirmar no-regresión: gate no debe ser demasiado restrictivo en rangos/trends suaves normales.
 
 ---
 
@@ -76,7 +89,8 @@
 - **LTC Optuna Optimization** (2026-06-13): 40 trials (10 init + 30 resume). Best Trial 20: score +0.0905. Params aplicados a `config/coin_profiles.py` como nuevo golden.
 - **SOL Cascade Complete** (2026-06-18): Cascada completa SOL (4 escenarios). Bug fix price=0 en trajectory_core. Guardian param discovery: l2_ratio_min_trend_acceptance nunca estuvo en PARAMETER_SPACE. Agregado y re-optimizado. Trial 3: +0.2082. SOL overall Net Taker +0.1354% ✅.
 - **V11 Exit Engine & MarketProfile Overhaul** (2026-06-24): Rediseño del `SlimExitEngine` V11. Reemplazadas salidas activas basadas en tiempo (`close_position`) con compresión pasiva lineal del bracket de intercambio (OCO). Implementado `is_mature` en `MarketProfile` para evadir el bloqueo del VA_GATE (baja `va_integrity`) en perfiles maduros. Optimizado `_recalculate_poc` para ejecutarse en lotes tras la poda de ticks, logrando una aceleración masiva del motor (5,400 ticks/seg). Validadores al 100% aprobados.
-- **Next Session**: Completar el análisis cuantitativo de los resultados mensuales de LTC y SOL en base al nuevo SlimExitEngine V11 y calibrar ventanas óptimas de compresión.
+- **VA_GATE Regime Fix** (2026-06-25): Eliminado el bypass tóxico `is_mature → max(1.0, score)` que permitía operar mean-reversion en tendencia. El rolling window de 8h en `MarketProfile` ya poda ticks viejos; `calculate_va_integrity()` ahora evalúa régimen actual. Validado: ranging → integrity > 0.15 (ALLOW), trending → integrity ~0.001 (BLOCK).
+- **Next Session**: Ajustar thresholds `trend_acceptance` para LTC (l2_ratio_min_trend_acceptance → 1.0-1.2, cvd_confirmation_threshold → 2.0-2.5); implementar Cooldown Post-SL; validar en 84 datasets certificados 24h.
 
 ---
 
@@ -86,6 +100,10 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-25 | session-close | **BACKTEST MENSUAL LTC MAYO 2026 COMPLETE + TREND_ACCEPTANCE DIAGNOSIS**: VA_GATE selectivo funcionó (bloqueó mean-reversion en downtrend, permitió trend-following), pero trend_acceptance no generó SHORTs en downtrend 10-17 mayo (-4.1%). 28 trades (26 LONG SL, 2 SHORT TP). Causa: thresholds trend_acceptance demasiado estrictos (l2_ratio_min_trend_acceptance=1.5, cvd_confirmation_threshold=4.0). Próxima optimización: reducir a 1.0-1.2 y 2.0-2.5. Single-coin orchestration corriendo en 6 datasets 24h LTC.
+- 2026-06-25 | session-close | **VA_GATE SELECTIVE BY SETUP_TYPE — PARAMETRIZED PER PROFILE**: VA_GATE now blocks only mean-reversion setups (tactical_absorption, failed_breakout, liquidity_exhaustion) when integrity < 0.15, while allowing trend-following (trend_acceptance). Added `va_gate` config to all 9 profiles with block/allow lists. New `_apply_va_gate()` in ScenarioManager reads profile config. Validated: integrity=0.5 → allows all; integrity=0.02 → allows only trend_acceptance.
+- 2026-06-25 | session-close | **BUILD_MONTHLY_DATASETS.PY BUG FIX — GLOB MATCHED ALL RAW FILES**: Fixed glob `????-??-??` → `{month_prefix}-??` that was concatenating ALL raw files of a symbol (2023-2025) into monthly datasets. Rebuilt 3 LTC monthly datasets from scratch (Mar 530MB, Apr 361MB, May 403MB). Only LTC affected (SOL had no prior raw files). Added GOTCHA #9 for corrupted gzip on interrupt.
+- 2026-06-25 | session-close | **VA_GATE REGIME FIX — REMOVED TOXIC IS_MATURE BYPASS**: Removed `is_mature → max(1.0, score)` that let bot trade mean-reversion in trending markets (caused 20 consecutive LONG SLs, -$36.52). Rolling window (8h) in `MarketProfile` naturally ages out trend; `calculate_va_integrity()` now evaluates current regime. Validated: ranging → integrity > 0.15 (ALLOW), trending → integrity ~0.001 (BLOCK), trend→range recovery after trend ages out.
 - 2026-06-24 | session-close | **V11 SLIMEXITENGINE & MARKETPROFILE SPEEDUP & GATING BYPASS**: Replaced active exits with passive bracket compression, removing all `close_position` calls. Implemented `is_mature` in `MarketProfile` to bypass the `va_integrity < 0.15` block on mature profiles, enabling continuous trading. Optimized `_recalculate_poc` during tick pruning to run once per batch, resulting in a massive 25x speedup (~5,400 ticks/sec). All 16 unit and integration tests passed.
 - 2026-06-22 | session-close | **8.9 DATA FEED REVAMP — UNION ALL OPTIMIZATION (138x SPEEDUP)**: Replaced Pandas concat+sort with SQLite UNION ALL + batch streaming (fetchmany). **Real measurement**: SOL monthly 3.9GB (~100M events) in **20 min vs 46h projected** = 138x faster. Throughput: 5M events/min with 1ms delay fidelity. Added `resolve_db_symbol()` for monthly dataset symbol resolution. VA_GATE structural limitation confirmed (blocks all signals on monthly datasets — `va_integrity=0.00` due to total_volume accumulation, expected behavior). Branch `8.9-datafeed-revamp` created and pushed. Next: Use 84 certified 24h datasets for signal validation.
 - 2026-06-19 | session-close | **SLIMEXITENGINE V10.3 UNIVERSAL — SCALE OUT & TRAILING ELIMINATED**: Refactor completo siguiendo análisis externo. `ASSET_EXIT_PROFILES` reemplazado por `UNIVERSAL_EXIT_RULES`. Scale Out eliminado (erosiona R/R), Trailing Stop eliminado (vulnerable a sweeps). Solo Break Even, Time Decay, Micro-Z Reversal con Maker-Join. 13/13 tests locales pasados. Pausa solicitada antes de backtesting.

@@ -27,7 +27,7 @@ Wipe all databases to ensure a clean test environment.
 Run the backtester on the primary audit dataset (LTC) to generate pristine signals and MFE/MAE price samples.
 ```bash
 .venv/bin/python backtest.py --run-type trade \
-  --depth-db-path data/datasets/backtest_ready/2024-01-01_LTCUSDT.db \
+  --depth-db-path data/datasets/daily_backtest_ready/2024-01-01_LTCUSDT.db \
   --symbol LTC/USDT:USDT \
   --run-type audit \
   2>&1 | tee logs/l2_audit_ltc_$(date +%Y%m%d_%H%M%S).log

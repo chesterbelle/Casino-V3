@@ -244,7 +244,7 @@ python main.py --run-type trade --mode live     # Binance Production
 **Type**: String
 
 ```bash
-python backtest.py --run-type audit --depth-db-path data/datasets/backtest_ready/2024-01-01_LTCUSDT.db
+python backtest.py --run-type audit --depth-db-path data/datasets/daily_backtest_ready/2024-01-01_LTCUSDT.db
 ```
 
 #### --historian-db
