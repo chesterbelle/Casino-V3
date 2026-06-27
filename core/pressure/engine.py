@@ -1,3 +1,27 @@
+"""
+DEUDA TÉCNICA #1: SCORING DUAL (LEGACY vs V2)
+=============================================
+Este módulo calcula DOS scores de absorción por tick:
+
+1. `absorption_score` (LEGACY):
+   - Fórmula: Basada en umbrales fijos (concentration_min, noise_max).
+   - Estado: MANTENIDO SOLO POR COMPATIBILIDAD.
+   - Uso real: NINGUNO. Los detectores AMT usan el v2.
+   - Parámetros asociados (en coin_profiles): concentration_min, noise_max.
+     → Si los ajustas, NO afectan la lógica de trading actual.
+
+2. `absorption_score_v2` (ACTUAL):
+   - Fórmula: Z-scores auto-calibrados (z_concentration, z_noise).
+   - Estado: EN PRODUCCIÓN.
+   - Uso real: TacticalAbsorption, QualityScorer.
+   - Parámetros asociados: z_score_min, absorption_score_min.
+     → ESTOS son los que controlan el edge real.
+
+DECISIÓN DE ARQUITECTURA:
+El legacy se mantiene para no romper backtests históricos durante la transición.
+Si estás optimizando parámetros, SOLO ajusta los del v2.
+"""
+
 import logging
 from collections import deque
 from dataclasses import dataclass
