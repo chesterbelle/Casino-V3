@@ -290,11 +290,14 @@ class CoinOrderFlowEngine:
         return self.velocity_zscore.get_zscore(raw_velocity)
 
 
-class PressureEngine:
+class OrderFlowEngine:
     """
     Facade — mantiene un CoinOrderFlowEngine por símbolo.
     Los escenarios reciben esta instancia y llaman get_state(symbol).
     Una sola instancia compartida entre SensorManager y SetupEngine.
+
+    NOTA: Esta clase se llamaba 'PressureEngine' por razones históricas.
+    Renombrada a OrderFlowEngine para ser consistente con CoinOrderFlowEngine.
     """
 
     def __init__(self):
