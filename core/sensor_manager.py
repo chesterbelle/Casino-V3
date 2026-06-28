@@ -12,7 +12,7 @@ import os
 from collections import defaultdict, deque
 from typing import Any, Dict, Tuple
 
-from core.pressure.engine import PressureEngine
+from core.order_flow.engine import OrderFlowEngine
 
 from .bar_aggregator import BarAggregator
 from .events import (
@@ -60,7 +60,7 @@ class SensorManager:
 
     def __init__(self, engine, timeframe: str = "1m"):
         self.engine = engine
-        self.pressure_engine = PressureEngine()
+        self.pressure_engine = OrderFlowEngine()
         self.timeframe = timeframe
         self.cooldown_bars = 5
         self._candle_index = -1
@@ -104,7 +104,7 @@ class SensorManager:
         # Load and Distribute Sensors
         self._spawn_workers()
 
-        # Inyectar PressureEngine y Parámetros en escenarios reconstruidos (v8.7+)
+        # Inyectar OrderFlowEngine y Parámetros en escenarios reconstruidos (v8.7+)
         from decision.scenarios.failed_breakout import FailedBreakoutDetector
         from decision.scenarios.liquidity_exhaustion import LiquidityExhaustionDetector
         from decision.scenarios.tactical_absorption import AbsorptionDetector
@@ -289,7 +289,7 @@ class SensorManager:
         """
         self._last_market_time = event.timestamp
 
-        # 1. Inyectar ticks en el PressureEngine (Fuente de Verdad)
+        # 1. Inyectar ticks en el OrderFlowEngine (Fuente de Verdad)
         qty = event.volume
         is_buyer_maker = event.side == "SELL"
         self.pressure_engine.update(event.symbol, qty, is_buyer_maker, event.timestamp, event.price)
@@ -370,7 +370,7 @@ class SensorManager:
         self._last_market_time = now
         sym = event.symbol
 
-        # Phase 410: Update PressureEngine with footprint data from order book
+        # Phase 410: Update OrderFlowEngine with footprint data from order book
         self.pressure_engine.update_from_orderbook(event.symbol, event.bids, event.asks, now)
 
         # Phase 1: Skewness tracking moved to throttled micro_dispatch

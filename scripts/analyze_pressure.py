@@ -1,10 +1,9 @@
 import glob
 import sqlite3
 
-import numpy as np
 import pandas as pd
 
-from core.pressure.engine import PressureEngine
+from core.order_flow.engine import OrderFlowEngine
 
 
 def analyze_pressure_distribution():
@@ -17,7 +16,7 @@ def analyze_pressure_distribution():
     print(f"DEBUG: Filas en DF: {len(df)}")
 
     # Usar datos reales del motor para validar
-    engine = PressureEngine()
+    engine = OrderFlowEngine()
     SYM = "LTC/USDT"
     results = []
     for _, row in df.iterrows():

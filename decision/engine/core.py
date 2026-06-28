@@ -50,13 +50,13 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self._profile_classified: Dict[str, bool] = defaultdict(bool)
 
         # Scenario Orchestrator (Unification of AMT + Absorption)
-        from core.pressure.engine import PressureEngine
+        from core.order_flow.engine import OrderFlowEngine
         from decision.signal_arbitrator import SignalArbitrator
 
-        # Shared PressureEngine (per-coin facade) from SensorManager.
+        # Shared OrderFlowEngine (per-coin facade) from SensorManager.
         # SensorManager owns updates; SetupEngine is read-only.
         sm = getattr(self.engine, "sensor_manager", None)
-        self.pressure_engine = sm.pressure_engine if sm else PressureEngine()
+        self.pressure_engine = sm.pressure_engine if sm else OrderFlowEngine()
         self.scenario_manager = SignalArbitrator(self.pressure_engine)
 
         # Event Subscriptions

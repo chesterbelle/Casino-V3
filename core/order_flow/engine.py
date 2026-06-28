@@ -1,5 +1,5 @@
 """
-MarketFeatureCalculator — Calculadora de Features de Microestructura.
+OrderFlowEngine — Calculadora de Features de Microestructura.
 
 Calcula 18 features por tick:
 - CVD, CVD velocity, CVD session
@@ -12,7 +12,7 @@ NO toma decisiones. NO genera señales.
 Solo calcula features para los detectores AMT.
 
 Nota: Esta clase se llamaba 'PressureEngine' por razones históricas.
-El nombre fue cambiado para reflejar su propósito real: cálculo de features.
+El nombre fue cambiado a OrderFlowEngine para reflejar su propósito real.
 """
 
 import logging
@@ -24,7 +24,7 @@ from sensors.quant.volatility_regime import RollingZScore
 
 
 @dataclass
-class PressureState:
+class OrderFlowState:
     cvd_delta: float = 0.0
     cvd_session_delta: float = 0.0
     cvd_velocity: float = 0.0
@@ -41,7 +41,7 @@ class PressureState:
     window_sell_vol: float = 0.0
 
 
-class CoinPressureEngine:
+class CoinOrderFlowEngine:
     """
     Estado de presión para UN símbolo.
     CVD, price history y parámetros de perfil aislados por moneda.
@@ -50,7 +50,7 @@ class CoinPressureEngine:
 
     def __init__(self, symbol: str):
         self.symbol = symbol
-        self.last_state = PressureState()
+        self.last_state = OrderFlowState()
 
         self.current_cvd = 0.0
         self.cvd_session = 0.0
@@ -283,7 +283,7 @@ class CoinPressureEngine:
                 levels[price] = {"ask_volume": 0, "bid_volume": qty, "delta": -qty}
         self.update(0, True, ts, mid, levels)
 
-    def get_state(self) -> PressureState:
+    def get_state(self) -> OrderFlowState:
         return self.last_state
 
     def zscore_velocity(self, raw_velocity: float) -> float:
@@ -292,17 +292,17 @@ class CoinPressureEngine:
 
 class PressureEngine:
     """
-    Facade — mantiene un CoinPressureEngine por símbolo.
+    Facade — mantiene un CoinOrderFlowEngine por símbolo.
     Los escenarios reciben esta instancia y llaman get_state(symbol).
     Una sola instancia compartida entre SensorManager y SetupEngine.
     """
 
     def __init__(self):
-        self._engines: Dict[str, CoinPressureEngine] = {}
+        self._engines: Dict[str, CoinOrderFlowEngine] = {}
 
-    def _get(self, symbol: str) -> CoinPressureEngine:
+    def _get(self, symbol: str) -> CoinOrderFlowEngine:
         if symbol not in self._engines:
-            self._engines[symbol] = CoinPressureEngine(symbol)
+            self._engines[symbol] = CoinOrderFlowEngine(symbol)
         return self._engines[symbol]
 
     def update(
@@ -316,7 +316,7 @@ class PressureEngine:
     ):
         self._get(symbol).update(qty, is_buyer_maker, ts, price, footprint_levels)
 
-    def get_state(self, symbol: str) -> PressureState:
+    def get_state(self, symbol: str) -> OrderFlowState:
         return self._get(symbol).get_state()
 
     def zscore_velocity(self, symbol: str, raw_velocity: float) -> float:

@@ -1,12 +1,12 @@
 import unittest
 
-from core.pressure.engine import PressureEngine
+from core.order_flow.engine import OrderFlowEngine
 from decision.scenarios.liquidity_exhaustion import LiquidityExhaustionDetector
 
 
 class TestReconstructedArchitecture(unittest.TestCase):
     def setUp(self):
-        self.engine = PressureEngine()
+        self.engine = OrderFlowEngine()
         self.scenario = LiquidityExhaustionDetector(self.engine)
         self.symbol = "TEST/USDT"
 
