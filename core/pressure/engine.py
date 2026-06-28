@@ -1,25 +1,18 @@
 """
-DEUDA TÉCNICA #1: SCORING DUAL (LEGACY vs V2)
-=============================================
-Este módulo calcula DOS scores de absorción por tick:
+MarketFeatureCalculator — Calculadora de Features de Microestructura.
 
-1. `absorption_score` (LEGACY):
-   - Fórmula: Basada en umbrales fijos (concentration_min, noise_max).
-   - Estado: MANTENIDO SOLO POR COMPATIBILIDAD.
-   - Uso real: NINGUNO. Los detectores AMT usan el v2.
-   - Parámetros asociados (en coin_profiles): concentration_min, noise_max.
-     → Si los ajustas, NO afectan la lógica de trading actual.
+Calcula 18 features por tick:
+- CVD, CVD velocity, CVD session
+- Concentration z-score, Noise z-score
+- Absorption score (v2 z-score based)
+- Price displacement z-score
+- Volume imbalance
 
-2. `absorption_score_v2` (ACTUAL):
-   - Fórmula: Z-scores auto-calibrados (z_concentration, z_noise).
-   - Estado: EN PRODUCCIÓN.
-   - Uso real: TacticalAbsorption, QualityScorer.
-   - Parámetros asociados: z_score_min, absorption_score_min.
-     → ESTOS son los que controlan el edge real.
+NO toma decisiones. NO genera señales.
+Solo calcula features para los detectores AMT.
 
-DECISIÓN DE ARQUITECTURA:
-El legacy se mantiene para no romper backtests históricos durante la transición.
-Si estás optimizando parámetros, SOLO ajusta los del v2.
+Nota: Esta clase se llamaba 'PressureEngine' por razones históricas.
+El nombre fue cambiado para reflejar su propósito real: cálculo de features.
 """
 
 import logging
@@ -37,8 +30,7 @@ class PressureState:
     cvd_velocity: float = 0.0
     imbalance_ratio: float = 0.0
     volatility_z: float = 0.0
-    absorption_score: float = 0.0
-    absorption_score_v2: float = 0.0
+    absorption_score_v2: float = 0.0  # Único score activo (z-score based)
     timestamp: float = 0.0
     price_displacement_z: float = 0.0
     block_long: bool = False
@@ -72,10 +64,7 @@ class CoinPressureEngine:
         self._window_buy_vol = 0.0
         self._window_sell_vol = 0.0
 
-        # Legacy params for absorption_score (retained for signal dict backward compat)
-        self.concentration_min = 0.50
-        self.noise_max = 0.35
-
+        # Parámetros de perfil (solo los activos: book_bucket_pct, stagnation_floor_pct, z_block)
         self._load_params()
 
         self.absorption_snapshots = 0
@@ -108,8 +97,6 @@ class CoinPressureEngine:
             params = profile_manager.get_sensor_params(self.symbol, "absorption_detector")
             self.stagnation_floor_pct = params.get("stagnation_floor_pct", 0.0008) if params else 0.0008
             self.book_bucket_pct = params.get("book_bucket_pct", 0.0) if params else 0.0
-            self.concentration_min = params.get("concentration_min", 0.50) if params else 0.50
-            self.noise_max = params.get("noise_max", 0.35) if params else 0.35
 
             # Load z_block from pressure_thresholds in profile
             pressure_params = profile_manager.get_pressure_thresholds(self.symbol)
@@ -119,16 +106,12 @@ class CoinPressureEngine:
             self.stagnation_floor_pct = 0.0008
             self.book_bucket_pct = 0.0
             self.z_block = 2.0
-            self.concentration_min = 0.50
-            self.noise_max = 0.35
         except Exception as e:
             logger = logging.getLogger(__name__)
             logger.exception("Error loading params for %s: %s", self.symbol, e)
             self.stagnation_floor_pct = 0.0008
             self.book_bucket_pct = 0.0
             self.z_block = 2.0
-            self.concentration_min = 0.50
-            self.noise_max = 0.35
 
     def update(
         self, qty: float, is_buyer_maker: bool, ts: float, price: float, footprint_levels: Optional[Dict] = None
@@ -206,14 +189,7 @@ class CoinPressureEngine:
                         noise = 0.0
 
                 if total_vol > 0:
-                    # Legacy score (umbrales fijos)
-                    conc_norm = max(
-                        0, (concentration - self.concentration_min) / max(1 - self.concentration_min, 0.001)
-                    )
-                    noise_norm = max(0, (self.noise_max - noise) / max(self.noise_max, 0.001))
-                    self.last_state.absorption_score = min(1.0, (conc_norm * noise_norm) ** 0.5)
-
-                    # Z-score auto-calibrado (Fase 1+2)
+                    # Z-score auto-calibrado (ÚNICO SCORE ACTIVO)
                     self.concentration_zscore.update(concentration)
                     self.noise_zscore.update(noise)
                     self.last_state.z_concentration = self.concentration_zscore.get_zscore(concentration)
@@ -229,7 +205,6 @@ class CoinPressureEngine:
 
                     self.absorption_snapshots += 1
                 else:
-                    self.last_state.absorption_score = tick_absorption
                     self.last_state.absorption_score_v2 = tick_absorption
         else:
             total_trade = self._window_buy_vol + self._window_sell_vol
@@ -237,10 +212,7 @@ class CoinPressureEngine:
                 concentration = max(self._window_buy_vol, self._window_sell_vol) / total_trade
                 noise = min(self._window_buy_vol, self._window_sell_vol) / total_trade
 
-                conc_norm = max(0, (concentration - self.concentration_min) / max(1 - self.concentration_min, 0.001))
-                noise_norm = max(0, (self.noise_max - noise) / max(self.noise_max, 0.001))
-                self.last_state.absorption_score = min(1.0, (conc_norm * noise_norm) ** 0.5)
-
+                # Z-score auto-calibrado (ÚNICO SCORE ACTIVO)
                 self.concentration_zscore.update(concentration)
                 self.noise_zscore.update(noise)
                 self.last_state.z_concentration = self.concentration_zscore.get_zscore(concentration)
@@ -256,7 +228,6 @@ class CoinPressureEngine:
 
                 self.absorption_snapshots += 1
             else:
-                self.last_state.absorption_score = tick_absorption
                 self.last_state.absorption_score_v2 = tick_absorption
 
         if qty > 0:
