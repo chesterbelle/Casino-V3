@@ -116,7 +116,7 @@ class AuditMetrics:
     losses: int = 0
     win_rate: float = 0.0
     root_cause: str = "NO_DATA"
-    best_uniforms: Dict = field(default_factory=dict)
+    best_static_grids: Dict = field(default_factory=dict)
     setup_count: int = 0
     avg_mfe: float = 0.0
     avg_mae: float = 0.0
@@ -356,7 +356,7 @@ def evaluate_with_auditor(historian_db: str) -> AuditMetrics:
             losses=raw.get("losses", 0),
             win_rate=raw.get("win_rate", 0.0),
             root_cause=raw.get("root_cause", "UNKNOWN"),
-            best_uniforms=raw.get("best_uniforms", {}),
+            best_static_grids=raw.get("best_static_grids", {}),
             setup_count=raw.get("setup_count", 0),
             avg_mfe=avg_mfe,
             avg_mae=avg_mae,
@@ -377,7 +377,7 @@ def evaluate_with_auditor(historian_db: str) -> AuditMetrics:
 def compute_composite_score(metrics: AuditMetrics, only: Optional[str] = None) -> float:
     """
     Hybrid scoring: aligns with production (AMT net_taker) while preserving
-    theoretical best_uniform as directional guide.
+    theoretical best_static_grid as directional guide.
     """
     # Scenario-specific minimum signals (per dataset, 3-regime average)
     SCENARIO_MIN_SIGNALS = {
@@ -391,8 +391,8 @@ def compute_composite_score(metrics: AuditMetrics, only: Optional[str] = None) -
         return -100.0
 
     if only is not None:
-        # Single-scenario: best_uniform for that setup + overall net_taker as proxy
-        setup_data = metrics.best_uniforms.get(only)
+        # Single-scenario: best_static_grid for that setup + overall net_taker as proxy
+        setup_data = metrics.best_static_grids.get(only)
         if setup_data is None:
             return -50.0
         best_exp = setup_data["exp"] - FEE_TAKER_RT
@@ -403,10 +403,10 @@ def compute_composite_score(metrics: AuditMetrics, only: Optional[str] = None) -
 
         score = best_exp * 0.50 + net_proxy * 0.25 + ratio_comp * 0.15 + signal_comp * 0.10 + penalty * 0.10
     else:
-        # Multi-scenario: overall net_taker primary + avg best_uniform across ALL setups
+        # Multi-scenario: overall net_taker primary + avg best_static_grid across ALL setups
         all_total = 0.0
         all_count = 0
-        for setup, data in metrics.best_uniforms.items():
+        for setup, data in metrics.best_static_grids.items():
             if setup in ("failed_breakout", "liquidity_exhaustion", "trend_acceptance", "tactical_absorption"):
                 all_total += data["exp"] - FEE_TAKER_RT
                 all_count += 1
@@ -794,7 +794,7 @@ def main():
                 if sum(1 for m in valid if "EDGE" in m.root_cause) > len(valid) / 2
                 else valid[-1].root_cause
             ),
-            best_uniforms=valid[-1].best_uniforms,
+            best_static_grids=valid[-1].best_static_grids,
             setup_count=valid[-1].setup_count,
             avg_mfe=sum(m.avg_mfe for m in valid) / len(valid),
             avg_mae=sum(m.avg_mae for m in valid) / len(valid),

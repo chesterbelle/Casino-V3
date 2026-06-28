@@ -34,6 +34,43 @@ RED = "\033[91m"
 YELLOW = "\033[93m"
 RESET = "\033[0m"
 
+STATIC_GRIDS = [
+    # Symmetric (full ladder)
+    (0.1, 0.1),
+    (0.2, 0.2),
+    (0.3, 0.3),
+    (0.4, 0.4),
+    (0.5, 0.5),
+    (0.6, 0.6),
+    (0.7, 0.7),
+    (0.8, 0.8),
+    (0.9, 0.9),
+    (1.0, 1.0),
+    (1.2, 1.2),
+    (1.5, 1.5),
+    (2.0, 2.0),
+    (2.5, 2.5),
+    # Asymmetric favorable (TP > SL)
+    (0.6, 0.3),
+    (0.8, 0.3),
+    (0.9, 0.4),
+    (1.0, 0.3),
+    (1.2, 0.3),
+    (1.5, 0.3),
+    (1.9, 0.2),
+    (2.0, 0.3),
+    # Asymmetric conservative (SL > TP)
+    (0.5, 0.8),
+    (0.6, 1.0),
+    (1.0, 2.0),
+    (1.0, 3.0),
+    (1.5, 3.0),
+    (2.0, 3.0),
+    (2.0, 4.0),
+    (2.5, 4.0),
+    (2.5, 5.0),
+]
+
 
 def header(msg):
     line = "=" * 70
@@ -150,28 +187,7 @@ class EdgeAuditor:
                     break
 
             first_touch_pnl = {}
-            for tp_t, sl_t in [
-                (0.1, 0.1),
-                (0.15, 0.15),
-                (0.2, 0.2),
-                (0.3, 0.3),
-                (0.4, 0.4),
-                (0.5, 0.5),
-                (0.6, 0.6),
-                (0.7, 0.7),
-                (0.8, 0.8),
-                (0.9, 0.9),
-                (0.9, 0.6),
-                (0.9, 1.0),
-                (1.0, 1.0),
-                (1.0, 2.0),
-                (1.0, 3.0),
-                (1.5, 3.0),
-                (2.0, 3.0),
-                (2.0, 4.0),
-                (2.5, 4.0),
-                (2.5, 5.0),
-            ]:
+            for tp_t, sl_t in STATIC_GRIDS:
                 grid_pnl = final_pnl
                 for p in prices_list:
                     if side == "LONG":
@@ -215,28 +231,7 @@ class EdgeAuditor:
     def _find_best_uniform(self, group, uniform_grids=None):
         """Find best uniform TP/SL for a group using per-signal PnL."""
         if uniform_grids is None:
-            uniform_grids = [
-                (0.1, 0.1),
-                (0.15, 0.15),
-                (0.2, 0.2),
-                (0.3, 0.3),
-                (0.4, 0.4),
-                (0.5, 0.5),
-                (0.6, 0.6),
-                (0.7, 0.7),
-                (0.8, 0.8),
-                (0.9, 0.9),
-                (0.9, 0.6),
-                (0.9, 1.0),
-                (1.0, 1.0),
-                (1.0, 2.0),
-                (1.0, 3.0),
-                (1.5, 3.0),
-                (2.0, 3.0),
-                (2.0, 4.0),
-                (2.5, 4.0),
-                (2.5, 5.0),
-            ]
+            uniform_grids = STATIC_GRIDS
         best_exp = -999
         best_config = None
         best_wr = 0
@@ -265,42 +260,7 @@ class EdgeAuditor:
 
         FEE_TAKER_RT = 0.07
         FEE_MAKER_RT = 0.02
-        UNIFORM_GRIDS = [
-            # Symmetric (full ladder)
-            (0.1, 0.1),
-            (0.2, 0.2),
-            (0.3, 0.3),
-            (0.4, 0.4),
-            (0.5, 0.5),
-            (0.6, 0.6),
-            (0.7, 0.7),
-            (0.8, 0.8),
-            (0.9, 0.9),
-            (1.0, 1.0),
-            (1.2, 1.2),
-            (1.5, 1.5),
-            (2.0, 2.0),
-            (2.5, 2.5),
-            # Asymmetric favorable (TP > SL)
-            (0.6, 0.3),
-            (0.8, 0.3),
-            (0.9, 0.4),
-            (1.0, 0.3),
-            (1.2, 0.3),
-            (1.5, 0.3),
-            (1.9, 0.2),
-            (2.0, 0.3),
-            # Asymmetric conservative (SL > TP)
-            (0.5, 0.8),
-            (0.6, 1.0),
-            (1.0, 2.0),
-            (1.0, 3.0),
-            (1.5, 3.0),
-            (2.0, 3.0),
-            (2.0, 4.0),
-            (2.5, 4.0),
-            (2.5, 5.0),
-        ]
+        UNIFORM_GRIDS = STATIC_GRIDS
 
         # ── [1] SETUP EDGE BREAKDOWN (MFE/MAE raw) ──
         suffix = " (Per Coin)" if self.by_coin else ""
@@ -335,10 +295,10 @@ class EdgeAuditor:
                     f"{setup:<20} {len(group):<6} {avg_mfe:>8.3f}% {avg_mae:>8.3f}% {color}{ratio:>6.2f}{RESET}  {avg_win:>4.0f}s"
                 )
 
-        # ── [2] ENTRY QUALITY ASSESSMENT (Uniform Grid Ground Truth) ──
+        # ── [2] ENTRY QUALITY ASSESSMENT (Static Grid Ground Truth) ──
         suffix = " (Per Coin)" if self.by_coin else ""
-        print(f"\n{BOLD}[2] ENTRY QUALITY ASSESSMENT (Uniform Grid as Ground Truth){suffix}{RESET}")
-        print(f"  The Uniform Grid tests ALL possible TP/SL combinations. If NONE produce")
+        print(f"\n{BOLD}[2] ENTRY QUALITY ASSESSMENT (Static Grid as Ground Truth){suffix}{RESET}")
+        print(f"  The Static Grid tests ALL possible TP/SL combinations. If NONE produce")
         print(f"  positive Net Taker, the entry signal ITSELF has no exploitable edge,")
         print(f"  regardless of target optimization.")
         print()
@@ -393,7 +353,7 @@ class EdgeAuditor:
                 print(
                     f"    MFE/MAE Ratio:     {ratio:.2f} {'✅' if ratio > 1.2 else '❌'} (need >1.2 for directional edge)"
                 )
-                print(f"    Best Uniform:      {tp_t:.2f}/{sl_t:.2f}% → Exp {best_exp:+.4f}%")
+                print(f"    Best Static Grid:  {tp_t:.2f}/{sl_t:.2f}% → Exp {best_exp:+.4f}%")
                 print(f"    Best Net Taker:    {best_net:+.4f}% {'✅' if best_net > 0 else '❌'}")
 
                 if best_net <= 0:
@@ -403,16 +363,16 @@ class EdgeAuditor:
                     print(f"    Fix: tighten entry filters, improve scenario conditions,")
                     print(f"    or accept that this setup type has no edge on this coin.")
                 else:
-                    # Entry has edge — check AMT targets vs best uniform
+                    # Entry has edge — check AMT targets vs best static grid
                     real_exp = group["real_pnl"].mean()
                     delta = real_exp - best_exp
                     if delta >= -0.05:
                         print(f"    AMT Targets:       Exp {real_exp:+.4f}% (within 0.05% of best)")
                         print(f"    {GREEN}VERDICT: TARGETS OK ✅{RESET}")
                     else:
-                        print(f"    AMT Targets:       Exp {real_exp:+.4f}% ({delta:+.2f}% vs best uniform)")
+                        print(f"    AMT Targets:       Exp {real_exp:+.4f}% ({delta:+.2f}% vs best static grid)")
                         print(f"    {YELLOW}VERDICT: TARGET OPTIMIZATION NEEDED ⚠️{RESET}")
-                        print(f"    AMT targets underperform the best uniform. Adjust formula.")
+                        print(f"    AMT targets underperform the best static grid. Adjust formula.")
         # ── [4] DECISION TRACE AUDIT (SetupEngine Gates) ──
         if traces is not None and not traces.empty:
             print(f"\n{BOLD}[4] DECISION TRACE AUDIT (SetupEngine Gates){RESET}")
@@ -556,7 +516,7 @@ class EdgeAuditor:
                     print(f"{RED}   The entry signal does not predict direction. Rework entry logic.{RESET}")
                 elif not all_target_ok:
                     print(f"{YELLOW}⚠️  ROOT CAUSE: TARGET FAILURE{RESET}")
-                    print(f"{YELLOW}   Entry has potential but AMT targets underperform best uniform.{RESET}")
+                    print(f"{YELLOW}   Entry has potential but AMT targets underperform best static grid.{RESET}")
                     print(f"{YELLOW}   Adjust target formula (see Section [3] for details).{RESET}")
                 else:
                     if net_taker > 0:
@@ -692,39 +652,7 @@ class EdgeAuditor:
     def get_metrics(self, window_seconds=DEFAULT_WINDOW) -> dict:
         """Run analysis and return key metrics as dict (for programmatic use)."""
         FEE_TAKER_RT = 0.07
-        UNIFORM_GRIDS = [
-            (0.1, 0.1),
-            (0.2, 0.2),
-            (0.3, 0.3),
-            (0.4, 0.4),
-            (0.5, 0.5),
-            (0.6, 0.6),
-            (0.7, 0.7),
-            (0.8, 0.8),
-            (0.9, 0.9),
-            (1.0, 1.0),
-            (1.2, 1.2),
-            (1.5, 1.5),
-            (2.0, 2.0),
-            (2.5, 2.5),
-            (0.6, 0.3),
-            (0.8, 0.3),
-            (0.9, 0.4),
-            (1.0, 0.3),
-            (1.2, 0.3),
-            (1.5, 0.3),
-            (1.9, 0.2),
-            (2.0, 0.3),
-            (0.5, 0.8),
-            (0.6, 1.0),
-            (1.0, 2.0),
-            (1.0, 3.0),
-            (1.5, 3.0),
-            (2.0, 3.0),
-            (2.0, 4.0),
-            (2.5, 4.0),
-            (2.5, 5.0),
-        ]
+        UNIFORM_GRIDS = STATIC_GRIDS
 
         signals, prices, traces = self.load_data()
         if signals.empty:
@@ -829,13 +757,13 @@ class EdgeAuditor:
 
         all_entry_fail = True
         all_target_ok = True
-        best_uniforms = {}
+        best_static_grids = {}
         for setup, s_group in df.groupby("setup_type"):
             best = self._find_best_uniform(s_group, UNIFORM_GRIDS)
             if best is None:
                 continue
             best_exp, (tp_t, sl_t), best_wr = best
-            best_uniforms[setup] = {"tp": tp_t, "sl": sl_t, "exp": best_exp, "wr": best_wr}
+            best_static_grids[setup] = {"tp": tp_t, "sl": sl_t, "exp": best_exp, "wr": best_wr}
             if best_exp - FEE_TAKER_RT > 0:
                 all_entry_fail = False
             real_exp = s_group["real_pnl"].mean()
@@ -859,14 +787,16 @@ class EdgeAuditor:
             "losses": int(total_losses),
             "win_rate": (total_wins / total_n * 100) if total_n > 0 else 0.0,
             "root_cause": root_cause,
-            "best_uniforms": best_uniforms,
+            "best_static_grids": best_static_grids,
             "setup_count": df["setup_type"].nunique(),
         }
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="data/historian.db")
+    parser.add_argument(
+        "--db", default="data/historian.db", help="Path to historian SQLite database (default: data/historian.db)"
+    )
     parser.add_argument("--window", type=int, default=14400, help="Analysis window in seconds (default: 4h)")
     parser.add_argument("--by-coin", action="store_true", help="Group results by coin within each setup")
     parser.add_argument("--coin", type=str, default=None, help="Filter to specific coin/symbol (e.g. BTC/USDT:USDT)")

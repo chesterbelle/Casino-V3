@@ -16,7 +16,7 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
-*   **Current Branch**: `dev-8.9-datafeed-revamp` (rama de trabajo diario)
+*   **Current Branch**: `feat/limpieza-profunda` (rama de trabajo actual)
 *   **Stable Branch**: `main` (versión certificada v8.9)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
@@ -131,7 +131,8 @@
 - **SOL Cascade Complete** (2026-06-18): Cascada completa SOL (4 escenarios). Bug fix price=0 en trajectory_core. Guardian param discovery: l2_ratio_min_trend_acceptance nunca estuvo en PARAMETER_SPACE. Agregado y re-optimizado. Trial 3: +0.2082. SOL overall Net Taker +0.1354% ✅.
 - **V11 Exit Engine & MarketProfile Overhaul** (2026-06-24): Rediseño del `SlimExitEngine` V11. Reemplazadas salidas activas basadas en tiempo (`close_position`) con compresión pasiva lineal del bracket de intercambio (OCO). Implementado `is_mature` en `MarketProfile` para evadir el bloqueo del VA_GATE (baja `va_integrity`) en perfiles maduros. Optimizado `_recalculate_poc` para ejecutarse en lotes tras la poda de ticks, logrando una aceleración masiva del motor (5,400 ticks/seg). Validadores al 100% aprobados.
 - **VA_GATE Regime Fix** (2026-06-25): Eliminado el bypass tóxico `is_mature → max(1.0, score)` que permitía operar mean-reversion en tendencia. El rolling window de 8h en `MarketProfile` ya poda ticks viejos; `calculate_va_integrity()` ahora evalúa régimen actual. Validado: ranging → integrity > 0.15 (ALLOW), trending → integrity ~0.001 (BLOCK).
-- **Next Session**: Ajustar thresholds `trend_acceptance` para LTC (l2_ratio_min_trend_acceptance → 1.0-1.2, cvd_confirmation_threshold → 2.0-2.5); implementar Cooldown Post-SL; validar en 84 datasets certificados 24h.
+- **Refactor feats/limpieza-profunda** (2026-06-28): Renombrado PressureEngine → OrderFlowEngine, ScenarioManager → SignalArbitrator, escenarios en instant/ + confirmation/. Validación completa post-refactor: 7 layers validadas, orchestrator single-coin-audit LTC (6/6 ✅) + SOL (7/7 ✅) en 2539s. Bugfix absorption_score en tactical_absorption.py:119. SOL targets optimizados por best uniform (FB/0.008, LE/0.007, TA/0.008). SOL l2_ratio_min 1.5→2.0. Orchestrator cleanup: protocolos generalized/probe eliminados, workers 100% dinámicos, auto-audits habilitados.
+- **Next Session**: Re-correr single-coin-audit SOL para confirmar mejora; implementar Post-SL Cooldown; ajustar thresholds trend_acceptance para LTC; merge feat/limpieza-profunda → dev-8.9-datafeed-revamp.
 
 ---
 
@@ -141,6 +142,7 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-28 | session-close | **POST-REFACTOR VALIDATION + SOL TUNING + ORCHESTRATOR CLEANUP**: Validación completa del refactor `feat/limpieza-profunda` (7 layers, LTC 6/6, SOL 7/7). Bugfix absorption_score_v2 en tactical_absorption.py. SOL targets optimizados (FB/0.008, LE/0.007, TA/0.008). SOL l2_ratio_min 1.5→2.0. Generalized/probe eliminados del orchestrator. Workers 100% dinámicos. Auto-audits en single-coin-audit. Commit `2841e14`.
 - 2026-06-25 | session-close | **BACKTEST MENSUAL LTC MAYO 2026 COMPLETE + TREND_ACCEPTANCE DIAGNOSIS**: VA_GATE selectivo funcionó (bloqueó mean-reversion en downtrend, permitió trend-following), pero trend_acceptance no generó SHORTs en downtrend 10-17 mayo (-4.1%). 28 trades (26 LONG SL, 2 SHORT TP). Causa: thresholds trend_acceptance demasiado estrictos (l2_ratio_min_trend_acceptance=1.5, cvd_confirmation_threshold=4.0). Próxima optimización: reducir a 1.0-1.2 y 2.0-2.5. Single-coin orchestration corriendo en 6 datasets 24h LTC.
 - 2026-06-25 | session-close | **VA_GATE SELECTIVE BY SETUP_TYPE — PARAMETRIZED PER PROFILE**: VA_GATE now blocks only mean-reversion setups (tactical_absorption, failed_breakout, liquidity_exhaustion) when integrity < 0.15, while allowing trend-following (trend_acceptance). Added `va_gate` config to all 9 profiles with block/allow lists. New `_apply_va_gate()` in ScenarioManager reads profile config. Validated: integrity=0.5 → allows all; integrity=0.02 → allows only trend_acceptance.
 - 2026-06-25 | session-close | **BUILD_MONTHLY_DATASETS.PY BUG FIX — GLOB MATCHED ALL RAW FILES**: Fixed glob `????-??-??` → `{month_prefix}-??` that was concatenating ALL raw files of a symbol (2023-2025) into monthly datasets. Rebuilt 3 LTC monthly datasets from scratch (Mar 530MB, Apr 361MB, May 403MB). Only LTC affected (SOL had no prior raw files). Added GOTCHA #9 for corrupted gzip on interrupt.
