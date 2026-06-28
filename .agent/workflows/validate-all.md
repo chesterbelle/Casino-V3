@@ -1,11 +1,11 @@
 ---
-description: Progressive validation pipeline for Slim v8.5 architecture (Atomic → Integration → Orchestration → Edge)
+description: Progressive validation pipeline for Post-Refactor architecture (OrderFlowEngine + Instant/Confirmation)
 ---
 
-# Validate-All: Slim v8.5 Integration Pipeline
+# Validate-All: Post-Refactor Integration Pipeline (OrderFlowEngine v8.9)
 
 ## Overview
-Validation from isolated component math → subsystem integration → orchestration → full edge sanity check.
+Validation from isolated component math → subsystem integration → orchestration → edge sanity check.
 Each layer must pass before proceeding to the next.
 
 ## Architecture Philosophy
@@ -15,6 +15,7 @@ Each layer must pass before proceeding to the next.
 - **Layer 3 (Orchestration)**: Protocol automation via `scripts/orchestrator.py`.
 - **Layer 4 (Stress)**: Concurrency and pressure benchmarks.
 - **Layer 5 (Sanity)**: Pipeline end-to-end functionality check.
+- **Layer 6 (Optimization)**: Parameter search validation via `scripts/cluster_optimizer.py`.
 
 ---
 
@@ -84,13 +85,32 @@ Each layer must pass before proceeding to the next.
 
 ---
 
-## LAYER 3: ORCHESTRATION (The Slim Engine)
+## LAYER 3: ORCHESTRATION (OrderFlowEngine + SignalArbitrator)
 
-### Layer 3.1: Protocol Determinism
+### Layer 3.1: Protocol Determinism (Single Coin)
 ```bash
 .venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
 ```
 *Success Criterion*: `data/historian_LTCUSDT.db` exists with signals and price samples.
+
+### Layer 3.2: Cluster Protocols (All Members)
+```bash
+# MID_LIQUID cluster (LTC, AVAX, OP, APT, BNB, LINK)
+.venv/bin/python scripts/orchestrator.py --protocol cluster_mid_liquid
+
+# THIN_VOLATILE cluster (XRP, DOGE)
+.venv/bin/python scripts/orchestrator.py --protocol cluster_thin_volatile
+
+# MAJOR_LIQUID cluster (SOL)
+.venv/bin/python scripts/orchestrator.py --protocol cluster_major_liquid
+```
+*Success Criterion*: All cluster members complete without import errors.
+
+### Layer 3.3: Probe Protocol (All Symbols)
+```bash
+.venv/bin/python scripts/orchestrator.py --protocol probe
+```
+*Success Criterion*: At least 10 symbols complete successfully with new architecture (OrderFlowEngine, instant/, confirmation/).
 
 ---
 
@@ -114,6 +134,42 @@ Each layer must pass before proceeding to the next.
 
 ---
 
+## LAYER 6: OPTIMIZATION (Cluster Optimizer Validation)
+
+### Layer 6.1: Cluster Optimizer (Validate-Only Mode)
+```bash
+# MID_LIQUID cluster validation
+.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --validate-only
+
+# THIN_VOLATILE cluster validation
+.venv/bin/python scripts/cluster_optimizer.py --cluster THIN_VOLATILE --validate-only
+```
+*Success Criterion*: Optimizer loads profiles, runs backtests, and generates results without import errors (verifies new paths: `decision.scenarios.instant.*`, `decision.scenarios.confirmation.*`).
+
+### Layer 6.2: Cluster Optimizer (Full Optimization - Optional)
+```bash
+# Single-scenario optimization (faster)
+.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --only tactical_absorption --iterations 10
+
+# Full optimization (all scenarios)
+.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --iterations 20
+```
+*Success Criterion*: Optimization completes, generates optimized profile file, cross-coin validation passes.
+
+---
+
+## PRE-MERGE CHECKLIST (Before merging `feat/limpieza-profunda` to `dev`)
+
+- [ ] **Layer 0**: All atomic validators pass (0.A through 0.E).
+- [ ] **Layer 1**: Data integrity + exit integration pass.
+- [ ] **Layer 2**: Signal pipeline validator passes.
+- [ ] **Layer 3**: Orchestrator protocols pass (single-coin + at least 1 cluster).
+- [ ] **Layer 6**: Cluster optimizer validate-only mode passes.
+- [ ] **No import errors** related to `PressureEngine` (should be `OrderFlowEngine`).
+- [ ] **No import errors** related to `decision.scenarios.*` (should use `instant/` and `confirmation/` submodules).
+
+---
+
 ## Known Issues
 - `minimal_math_validator.py` was deleted (broken import of deleted `decision.aggregator`).
 - Layer 4.1 requires live exchange connection — skip in offline/CI environments.
@@ -121,8 +177,8 @@ Each layer must pass before proceeding to the next.
 
 ---
 
-## Quick Validation (Offline Only)
-For environments without exchange access, run Layers 0-2 only:
+## Quick Validation (Offline Only - Pre-Merge)
+For environments without exchange access, run Layers 0-3 + Layer 6 (validate-only):
 ```bash
 # Layer 0: All atomic math tests
 .venv/bin/python utils/validators/absorption_footprint_validator.py
@@ -137,4 +193,12 @@ For environments without exchange access, run Layers 0-2 only:
 
 # Layer 2: Signal pipeline
 .venv/bin/python -m utils.validators.decision_pipeline_validator
+
+# Layer 3: Orchestrator (single-coin)
+.venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
+
+# Layer 6: Cluster Optimizer (validate-only)
+.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --validate-only
 ```
+
+**All layers must pass before merging `feat/limpieza-profunda` to `dev-8.9-datafeed-revamp`.**
