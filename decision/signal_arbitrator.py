@@ -17,7 +17,7 @@ from collections import defaultdict
 from typing import Optional
 
 from decision.engine.profile_manager import profile_manager
-from decision.scenarios import (
+from decision.scenarios.confirmation import (
     FailedBreakoutDetector,
     LiquidityExhaustionDetector,
     TrendAcceptanceDetector,

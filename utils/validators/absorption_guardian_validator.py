@@ -22,7 +22,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from core.footprint_registry import FootprintData
-from decision.scenarios.tactical_absorption import AbsorptionDetector
+from decision.scenarios.instant.tactical_absorption import AbsorptionDetector
 
 
 def ok(msg):

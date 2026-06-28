@@ -105,10 +105,16 @@ class SensorManager:
         self._spawn_workers()
 
         # Inyectar OrderFlowEngine y Parámetros en escenarios reconstruidos (v8.7+)
-        from decision.scenarios.failed_breakout import FailedBreakoutDetector
-        from decision.scenarios.liquidity_exhaustion import LiquidityExhaustionDetector
-        from decision.scenarios.tactical_absorption import AbsorptionDetector
-        from decision.scenarios.trend_acceptance import TrendAcceptanceDetector
+        from decision.scenarios.confirmation.failed_breakout import (
+            FailedBreakoutDetector,
+        )
+        from decision.scenarios.confirmation.liquidity_exhaustion import (
+            LiquidityExhaustionDetector,
+        )
+        from decision.scenarios.confirmation.trend_acceptance import (
+            TrendAcceptanceDetector,
+        )
+        from decision.scenarios.instant.tactical_absorption import AbsorptionDetector
 
         self.scenarios = {}
 

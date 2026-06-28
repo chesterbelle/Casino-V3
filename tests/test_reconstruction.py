@@ -1,7 +1,9 @@
 import unittest
 
 from core.order_flow.engine import OrderFlowEngine
-from decision.scenarios.liquidity_exhaustion import LiquidityExhaustionDetector
+from decision.scenarios.confirmation.liquidity_exhaustion import (
+    LiquidityExhaustionDetector,
+)
 
 
 class TestReconstructedArchitecture(unittest.TestCase):
