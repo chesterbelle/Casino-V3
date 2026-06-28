@@ -68,7 +68,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         logger.info("🎯 LTA V10 Orchestrator initialized (Crystal Pipe Architecture)")
 
     def get_scenario_stats(self):
-        """Expose distribution stats from ScenarioManager."""
+        """Expose distribution stats from SignalArbitrator."""
         stats = self.scenario_manager.get_stats()
         dist = stats["scenario_distribution"]
         total = stats["total_signals"]
@@ -80,7 +80,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         logger.info(f"📈 TOTAL SIGNALS DISPATCHED: {total}")
 
     async def on_candle(self, event):
-        """Propagate candle events to ScenarioManager for TrendAcceptance tracking."""
+        """Propagate candle events to SignalArbitrator for TrendAcceptance tracking."""
         from core.context_registry import ContextRegistry
 
         reg = ContextRegistry()
@@ -146,7 +146,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         va_integrity = reg.get_va_integrity(symbol)
         structural_levels = {"poc": poc, "vah": vah, "val": val, "va_integrity": va_integrity}
 
-        # 3. Evaluate Scenarios via ScenarioManager
+        # 3. Evaluate Scenarios via SignalArbitrator
         signal = self.scenario_manager.on_tick(symbol, price, timestamp, structural_levels)
 
         # 4. Process and Dispatch if signal found
@@ -212,16 +212,15 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         if event.side == "TACTICAL_CONFIRMATION_REQUIRED":
             return
 
-        # B. Tactical Signal Handling (Route via ScenarioManager)
+        # B. Tactical Signal Handling (Route via SignalArbitrator)
         if event.side in ["LONG", "SHORT", "TACTICAL"]:
             payload = md if md.get("tactical_type") else event.__dict__.copy()
             payload["symbol"] = payload.get("symbol") or event.symbol
             payload["timestamp"] = payload.get("timestamp") or event.timestamp
             payload["side"] = payload.get("side") or event.side
 
-            # Fast-Lane: tactical_absorption fires immediately
             # Fast-Lane: tactical_absorption fires immediately (instant signal).
-            # No pasa por ScenarioManager — la absorción debe detectarse en el
+            # No pasa por SignalArbitrator — la absorción debe detectarse en el
             # tick exacto. Los otros 3 escenarios (FB/LE/TA) son señales de
             # confirmación y pasan por orquestación completa.
             # Ver ADR-1 en docs/architectural_decisions.md.
@@ -236,7 +235,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
             )
             trace.add_step("SetupEngine", True, f"Received external signal: {payload.get('tactical_type')}")
 
-            # Route through ScenarioManager
+            # Route through SignalArbitrator
             orchestrated_signal = self.scenario_manager.on_signal(payload, trace=trace)
 
             if orchestrated_signal:

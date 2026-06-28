@@ -86,10 +86,8 @@ def redraw_progress(completed, total, pending_count, mem_status, elapsed, recent
 
 
 PROTOCOLS = {
-    "generalized": {"run_type": "audit", "max_workers": 2, "skip_merge": False},
-    "single-coin-audit": {"run_type": "audit", "max_workers": 2, "skip_merge": True, "skip_clean": True},
-    "trade-mode": {"run_type": "trade", "max_workers": 1, "skip_merge": True},
-    "probe": {"run_type": "audit", "max_workers": 4, "skip_merge": False, "skip_clean": True},
+    "single-coin-audit": {"run_type": "audit", "skip_merge": False, "skip_clean": True},
+    "trade-mode": {"run_type": "trade", "skip_merge": True},
 }
 
 
@@ -101,7 +99,7 @@ def discover_cluster_protocols():
             data = json.load(f)
         for cluster_name in data.get("clusters", {}):
             key = f"cluster_{cluster_name.lower()}"
-            protocols[key] = {"run_type": "audit", "max_workers": 2, "skip_merge": False}
+            protocols[key] = {"run_type": "audit", "skip_merge": False}
     except (FileNotFoundError, json.JSONDecodeError):
         pass
     return protocols
@@ -352,7 +350,7 @@ def build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset=No
     return tasks
 
 
-def calculate_workers(protocol_workers, total_tasks):
+def calculate_workers(total_tasks):
     host_cores = os.cpu_count() or 4
     cpu_workers = max(1, int(host_cores * 0.65))
 
@@ -371,7 +369,7 @@ def calculate_workers(protocol_workers, total_tasks):
 
     safe_workers = min(cpu_workers, mem_workers)
     capped = min(safe_workers, total_tasks)
-    return max(protocol_workers, capped)
+    return capped
 
 
 def run_protocol(protocol_name, symbol=None, filter_pattern=None, dataset=None):
@@ -392,8 +390,7 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None, dataset=None):
         return
 
     total = len(tasks)
-    protocol_workers = config.get("max_workers", 2)
-    actual_workers = calculate_workers(protocol_workers, total)
+    actual_workers = calculate_workers(total)
 
     _p(
         f"\n🚀 {protocol_name.upper()} — {total} backtests, {actual_workers} workers dinámicos (Host CPU: {os.cpu_count() or 4})\n"

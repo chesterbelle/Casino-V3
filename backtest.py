@@ -155,7 +155,7 @@ async def run_backtest():
     context_registry = ContextRegistry()  # noqa: E402
     croupier.context_registry = context_registry
     sensor_mgr = SensorManager(engine)
-    engine.sensor_manager = sensor_mgr  # wire shared PressureEngine to SetupEngineV4
+    engine.sensor_manager = sensor_mgr  # wire shared OrderFlowEngine to SetupEngineV4
     # 4. Telemetry Setup
     from core.telemetry import black_box
 

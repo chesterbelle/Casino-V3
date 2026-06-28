@@ -116,7 +116,7 @@ class AbsorptionDetector:
         return {
             "symbol": symbol,
             "side": side,
-            "score": state.absorption_score,
+            "score": state.absorption_score_v2,
             "price": price,
             "timestamp": timestamp,
             "scenario": "tactical_absorption",

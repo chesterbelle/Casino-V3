@@ -402,7 +402,7 @@ COIN_PROFILES = {
     "SOL_INERTIAL_TRENDING": {
         "description": "SOL — extraído de INERTIAL_TRENDING (builder), golden params",
         "guardians": {
-            "l2_ratio_min": 1.5,
+            "l2_ratio_min": 2.0,
             "l2_ratio_min_trend_acceptance": 2.0,
             "l2_ratio_min_trend_down": 2.0,
             "spread_max_ratio": 1.8,
@@ -453,10 +453,9 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"sl_pct": 0.01, "tp_pct": 0.01},
-            "liquidity_exhaustion": {"sl_pct": 0.05, "tp_pct": 0.025},
-            "tactical_absorption": {"sl_pct": 0.05, "tp_pct": 0.025},
-            "trend_acceptance": {"sl_pct": 0.04, "tp_pct": 0.025},
+            "failed_breakout": {"sl_pct": 0.008, "tp_pct": 0.008},
+            "liquidity_exhaustion": {"sl_pct": 0.007, "tp_pct": 0.007},
+            "trend_acceptance": {"sl_pct": 0.008, "tp_pct": 0.008},
         },
         "va_gate": {
             "allow_in_trending": ["trend_acceptance"],

@@ -258,16 +258,6 @@ COIN_PROFILES = {
                 "min_candles_outside": 3,
                 "pullback_tolerance_pct": 0.001,
             },
-            "tactical_absorption": {
-                "z_score_min": 3.5,
-                "cooldown": 230.0,
-                "level_tolerance_pct": 0.0037,
-                "absorption_score_min": 0.325,
-                "book_bucket_pct": 0.00075,
-                "displacement_z_max": 1.9,
-                "stagnation_floor_pct": 0.00030000000000000003,
-                "volatility_z_max": 3.7,
-            },
         },
         "targets": {
             "failed_breakout": {"sl_pct": 0.04, "tp_pct": 0.025},

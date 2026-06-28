@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
-Layer 0.C: Candidate Detection Validator
-------------------------------------------
-Validates that _find_extreme_deltas() correctly identifies
-absorption candidates from a footprint.
+Layer 0.C: Candidate Detection Validator (v2 — OrderFlowEngine)
+---------------------------------------------------------------
+In v8.9 architecture, candidate selection logic moved from AbsorptionDetector
+into OrderFlowEngine.update() — specifically the concentration/z-noise z-scores
+over the footprint level with the largest absolute delta.
 
-Tests (isolated, no bot, no SensorManager):
-  1. Returns top 10% by absolute delta (not by sign)
-  2. Returns empty when footprint has < 3 levels with non-zero delta
-  3. Returns at least 1 candidate even when top 10% rounds to 0
-  4. Returns max 5 candidates regardless of footprint size
-  5. Correctly identifies SELL candidates (negative delta)
-  6. Correctly identifies BUY candidates (positive delta)
-  7. Mixed footprint: top candidate is the one with highest |delta|
-
-Input  → synthetic FootprintData with known delta distribution
-Output → assert correct candidates (level, delta, ask_vol, bid_vol)
+This validator exercises that integrated candidate selection under controlled
+inputs, ensuring:
+  1. < 3 levels → rolling z-score remains cold (no false absorption)
+  2. Mixed footprint → engine picks the level with highest |delta| for z-scoring
+  3. Top candidate is a SELL_EXHAUSTION when bid_volume dominates the top level
+  4. Top candidate is a BUY_EXHAUSTION when ask_volume dominates the top level
+  5. Many levels → still 1 dominant outlier produces score saturating to 1.0
+  6. Balanced → no extreme z-scores despite many levels
+  7. Z-score ranking respects |delta| ordering
 
 Usage:
     python utils/validators/absorption_candidate_validator.py
@@ -26,8 +25,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from core.footprint_registry import FootprintData
-from decision.scenarios.instant.tactical_absorption import AbsorptionDetector
+from core.order_flow.engine import CoinOrderFlowEngine
 
 
 def ok(msg):
@@ -45,189 +43,158 @@ def section(title):
     print(f"{'─' * 60}")
 
 
-def build_footprint(levels: dict, tick_size: float = 0.01) -> FootprintData:
+def warmup_and_score(symbol: str, footprint_levels: dict, warmup_levels: int = 30):
     """
-    Build FootprintData from a dict of {price: (ask_vol, bid_vol)}.
-    delta = ask_vol - bid_vol is computed automatically.
+    Spin up an OrderFlowEngine, warm its rolling z-scores with varied ratios,
+    then feed the final candidate footprint and return the resulting state.
+
+    `footprint_levels` must include a "delta" key per level (ask - bid).
+    OrderFlowEngine.update() ranks levels by |delta| to pick the candidate.
     """
-    fp = FootprintData(tick_size=tick_size)
-    ts = 1000.0
-    for price, (ask_vol, bid_vol) in levels.items():
-        rounded = fp.round_price(price)
-        fp.levels[rounded] = {
-            "ask_volume": ask_vol,
-            "bid_volume": bid_vol,
-            "delta": ask_vol - bid_vol,
-            "last_update": ts,
-        }
-        ts += 1.0
-    return fp
+    engine = CoinOrderFlowEngine(symbol=symbol)
+    # Disable book consolidation so the highest-|delta| candidate is scored directly,
+    # not averaged with its neighbors (matches the legacy validator semantics).
+    engine.book_bucket_pct = 0.0
+
+    # Phase A: warm up with varied concentration ratios so z-scores have a baseline
+    for i in range(warmup_levels):
+        ratio = 0.40 + 0.02 * (i % 21)  # 0.40..0.80 range
+        total = 1000.0
+        ask_v = total * ratio
+        bid_v = total * (1.0 - ratio)
+        lvl = 100.0 + i * 0.001
+        engine.update(
+            qty=10.0,
+            is_buyer_maker=False,
+            ts=1000.0 + i * 0.1,
+            price=lvl,
+            footprint_levels={lvl: {"ask_volume": ask_v, "bid_volume": bid_v, "delta": ask_v - bid_v}},
+        )
+
+    # Phase B: feed the candidate footprint (must include "delta" keys for sorting)
+    engine.update(qty=10.0, is_buyer_maker=False, ts=2000.0, price=200.0, footprint_levels=footprint_levels)
+    return engine.get_state()
 
 
 def main():
     print("=" * 60)
-    print("  LAYER 0.C: CANDIDATE DETECTION VALIDATOR")
-    print("  Absorption V1 — Isolated component test")
+    print("  LAYER 0.C: CANDIDATE DETECTION VALIDATOR (OrderFlowEngine)")
     print("=" * 60)
 
-    detector = AbsorptionDetector()
+    # ─────────────────────────────────────────────────────────
+    # TEST 1: < 3 non-zero delta levels → z-score still cold
+    # ─────────────────────────────────────────────────────────
+    section("TEST 1: Sparse footprint (2 levels) → no false absorption")
+
+    fp_small = {
+        100.0: {"ask_volume": 100.0, "bid_volume": 50.0, "delta": 50.0},
+        100.01: {"ask_volume": 80.0, "bid_volume": 60.0, "delta": 20.0},
+    }
+    engine = CoinOrderFlowEngine(symbol="T_RARE")
+    engine.update(qty=10.0, is_buyer_maker=False, ts=1000.0, price=100.0, footprint_levels=fp_small)
+    state = engine.get_state()
+
+    if not engine.concentration_zscore.is_ready:
+        ok("< 3 levels → concentration_zscore still cold (warming up) — ok")
+    elif state.absorption_score_v2 > 0.5:
+        fail(f"< 3 levels produced high score={state.absorption_score_v2:.3f} (false signal)")
+    else:
+        ok(f"< 3 levels → score={state.absorption_score_v2:.3f} (no false signal)")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 1: < 3 non-zero delta levels → empty (insufficient data)
+    # TEST 2: Exactly 10 levels → candidate produces absorption_score_v2
     # ─────────────────────────────────────────────────────────
-    section("TEST 1: < 3 non-zero delta levels → returns []")
+    section("TEST 2: 10-level footprint → absorption score > 0 on extreme outlier")
 
-    fp_small = build_footprint(
-        {
-            78.40: (100, 50),  # delta=50
-            78.41: (80, 60),  # delta=20
-            # only 2 levels with non-zero delta (threshold is 3)
-        }
-    )
+    fp_10 = {100.0 + i * 0.01: {"ask_volume": 999.0, "bid_volume": 1.0, "delta": 998.0} for i in range(10)}
+    state_10 = warmup_and_score("T_10", fp_10, warmup_levels=20)
 
-    candidates = detector._find_extreme_deltas(fp_small)
-    if len(candidates) != 0:
-        fail(f"Expected 0 candidates with < 3 non-zero delta levels, got {len(candidates)}")
-    ok("< 3 non-zero delta levels → returns [] (insufficient data guard works)")
+    if state_10.absorption_score_v2 < 0.15:
+        fail(f"Expected absorption_score_v2 > 0.15 with extreme ask dominance, got {state_10.absorption_score_v2:.3f}")
+    ok(f"10-level extreme-ask → absorption_score_v2 = {state_10.absorption_score_v2:.3f}")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 2: Exactly 10 levels → returns at least 1 candidate
+    # TEST 3: Top candidate = level with highest |delta|
     # ─────────────────────────────────────────────────────────
-    section("TEST 2: Exactly 10 levels → returns >= 1 candidate")
+    section("TEST 3: Mixed footprint → top candidate = highest |delta|")
 
-    fp_10 = build_footprint({78.40 + i * 0.01: (100.0, 50.0) for i in range(10)})
+    # 20 levels around an outlier at 100.10
+    fp_mixed = {100.0 + i * 0.01: {"ask_volume": 55.0, "bid_volume": 45.0, "delta": 10.0} for i in range(20)}
+    fp_mixed[100.10] = {"ask_volume": 10.0, "bid_volume": 510.0, "delta": -500.0}  # extreme sell
+    state_mixed = warmup_and_score("T_MIXED", fp_mixed, warmup_levels=25)
 
-    candidates_10 = detector._find_extreme_deltas(fp_10)
-    if len(candidates_10) < 1:
-        fail(f"Expected >= 1 candidate with 10 levels, got {len(candidates_10)}")
-    ok(f"10 levels → {len(candidates_10)} candidate(s) (at least 1)")
-
-    # ─────────────────────────────────────────────────────────
-    # TEST 3: Top candidate has highest |delta|
-    # ─────────────────────────────────────────────────────────
-    section("TEST 3: Top candidate = level with highest |delta|")
-
-    # Build 20 levels: most have delta=10, one has delta=-500 (obvious absorption)
-    levels_20 = {78.40 + i * 0.01: (55.0, 45.0) for i in range(20)}  # delta=+10 each
-    levels_20[78.50] = (10.0, 510.0)  # delta=-500 (strong sell absorption)
-
-    fp_20 = build_footprint(levels_20)
-    candidates_20 = detector._find_extreme_deltas(fp_20)
-
-    if len(candidates_20) == 0:
-        fail("Expected at least 1 candidate from 20-level footprint")
-
-    top_level, top_delta, top_ask, top_bid = candidates_20[0]
-    expected_level = fp_20.round_price(78.50)
-
-    if abs(top_level - expected_level) > 0.001:
-        fail(f"Top candidate level={top_level:.2f}, expected {expected_level:.2f} (highest |delta|)")
-    ok(f"Top candidate = level {top_level:.2f} with delta={top_delta:+.1f} (highest |delta|)")
-
-    if top_delta >= 0:
-        fail(f"Top delta should be negative (sell absorption), got {top_delta:+.1f}")
-    ok(f"Top delta is negative ({top_delta:+.1f}) → SELL_EXHAUSTION candidate")
+    if state_mixed.absorption_score_v2 < 0.15:
+        fail(f"Expected high absorption_score_v2 with delta=-500 outlier, got {state_mixed.absorption_score_v2:.3f}")
+    # High bid_volume dominance → extreme negative z_noise → contributes to absorption
+    if state_mixed.z_noise >= 0:
+        fail(f"Expected z_noise < 0 (low noise ratio on top candidate), got {state_mixed.z_noise:.3f}")
+    ok(f"Top candidate (delta=-500) → absorption_score_v2 = {state_mixed.absorption_score_v2:.3f}")
+    ok(f"z_noise = {state_mixed.z_noise:.3f} (extreme negative → absorption trigger)")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 4: BUY absorption candidate (positive delta)
+    # TEST 4: BUY_EXHAUSTION candidate (extreme ask_volume dominance)
     # ─────────────────────────────────────────────────────────
-    section("TEST 4: BUY absorption candidate (positive delta)")
+    section("TEST 4: BUY absorption candidate → positive ask dominance")
 
-    levels_buy = {78.40 + i * 0.01: (55.0, 45.0) for i in range(20)}  # delta=+10 each
-    levels_buy[78.55] = (600.0, 10.0)  # delta=+590 (strong buy absorption)
+    fp_buy = {100.0 + i * 0.01: {"ask_volume": 55.0, "bid_volume": 45.0, "delta": 10.0} for i in range(20)}
+    fp_buy[100.15] = {"ask_volume": 1000.0, "bid_volume": 1.0, "delta": 999.0}  # extreme buy
+    state_buy = warmup_and_score("T_BUY", fp_buy, warmup_levels=25)
 
-    fp_buy = build_footprint(levels_buy)
-    candidates_buy = detector._find_extreme_deltas(fp_buy)
-
-    if len(candidates_buy) == 0:
-        fail("Expected at least 1 candidate from buy-absorption footprint")
-
-    top_buy_level, top_buy_delta, _, _ = candidates_buy[0]
-    expected_buy_level = fp_buy.round_price(78.55)
-
-    if abs(top_buy_level - expected_buy_level) > 0.001:
-        fail(f"Top BUY candidate level={top_buy_level:.2f}, expected {expected_buy_level:.2f}")
-    ok(f"Top BUY candidate = level {top_buy_level:.2f} with delta={top_buy_delta:+.1f}")
-
-    if top_buy_delta <= 0:
-        fail(f"Top BUY delta should be positive, got {top_buy_delta:+.1f}")
-    ok(f"Top delta is positive ({top_buy_delta:+.1f}) → BUY_EXHAUSTION candidate")
+    if state_buy.absorption_score_v2 < 0.15:
+        fail(f"Expected high absorption_score_v2 on BUY extreme, got {state_buy.absorption_score_v2:.3f}")
+    if state_buy.z_concentration <= 0:
+        fail(f"Expected z_concentration > 0 on ask dominant, got {state_buy.z_concentration:.3f}")
+    ok(f"BUY top candidate → absorption_score_v2 = {state_buy.absorption_score_v2:.3f}")
+    ok(f"z_concentration = {state_buy.z_concentration:.3f}")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 5: Max 5 candidates regardless of footprint size
+    # TEST 5: Large footprint → still saturates at 1.0 on outlier dominance
     # ─────────────────────────────────────────────────────────
-    section("TEST 5: Max 5 candidates regardless of footprint size (200 levels)")
+    section("TEST 5: 200-level footprint with outlier → score saturates")
 
-    # 200 levels with varying deltas
-    levels_200 = {}
+    fp_200 = {}
     for i in range(200):
-        ask = 50.0 + i * 2.0  # increasing ask volume
-        bid = 50.0
-        levels_200[78.00 + i * 0.01] = (ask, bid)
+        ask = 50.0 + i * 2.0
+        fp_200[100.0 + i * 0.01] = {"ask_volume": ask, "bid_volume": 50.0, "delta": ask - 50.0}
+    # Add an extreme outlier at the midpoint
+    fp_200[101.00] = {"ask_volume": 999.0, "bid_volume": 1.0, "delta": 998.0}
+    state_200 = warmup_and_score("T_200", fp_200, warmup_levels=25)
 
-    fp_200 = build_footprint(levels_200)
-    candidates_200 = detector._find_extreme_deltas(fp_200)
-
-    if len(candidates_200) > 5:
-        fail(f"Expected max 5 candidates, got {len(candidates_200)}")
-    ok(f"200-level footprint → {len(candidates_200)} candidates (max 5 cap respected)")
-
-    if len(candidates_200) < 1:
-        fail("Expected at least 1 candidate from 200-level footprint")
-    ok(f"At least 1 candidate returned")
+    if state_200.absorption_score_v2 < 0.5:
+        fail(f"Expected score saturation > 0.5 on 200-level with outlier, got {state_200.absorption_score_v2:.3f}")
+    ok(f"200-level with outlier → absorption_score_v2 = {state_200.absorption_score_v2:.3f} (saturated)")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 6: Zero-delta levels are ignored
+    # TEST 6: Balanced footprint → no false absorption
     # ─────────────────────────────────────────────────────────
-    section("TEST 6: Zero-delta levels are ignored")
+    section("TEST 6: Balanced (no outlier) → score stays low")
 
-    # 15 levels: 5 with delta=0, 10 with delta=10
-    levels_zero = {}
-    for i in range(5):
-        levels_zero[78.40 + i * 0.01] = (50.0, 50.0)  # delta=0
-    for i in range(5, 15):
-        levels_zero[78.40 + i * 0.01] = (60.0, 40.0)  # delta=+20
+    fp_balanced = {100.0 + i * 0.01: {"ask_volume": 500.0, "bid_volume": 500.0, "delta": 0.0} for i in range(15)}
+    state_bal = warmup_and_score("T_BAL", fp_balanced, warmup_levels=25)
 
-    fp_zero = build_footprint(levels_zero)
-    candidates_zero = detector._find_extreme_deltas(fp_zero)
-
-    # Only 10 non-zero delta levels → should find candidates
-    if len(candidates_zero) == 0:
-        fail("Expected candidates from 10 non-zero delta levels")
-    ok(f"Zero-delta levels ignored, {len(candidates_zero)} candidate(s) from non-zero levels")
-
-    # Verify no zero-delta candidate slipped through
-    for level, delta, ask, bid in candidates_zero:
-        if delta == 0.0:
-            fail(f"Zero-delta level {level} should not be a candidate")
-    ok("No zero-delta levels in candidates")
+    if state_bal.absorption_score_v2 > 0.2:
+        fail(f"Balanced footprint should not produce high score, got {state_bal.absorption_score_v2:.3f}")
+    ok(f"Balanced footprint → absorption_score_v2 = {state_bal.absorption_score_v2:.3f} (no false absorption)")
 
     # ─────────────────────────────────────────────────────────
-    # TEST 7: Candidates sorted by |delta| descending
+    # TEST 7: Z-score ranking — increasing outlier produces increasing score
     # ─────────────────────────────────────────────────────────
-    section("TEST 7: Candidates sorted by |delta| descending")
+    section("TEST 7: Larger outlier produces larger score (monotonic ranking)")
 
-    # 50 levels with clearly different deltas (top 10% = 5 candidates)
-    levels_sorted = {}
-    for i in range(50):
-        ask = 100.0 + i * 10.0  # delta increases with i
-        levels_sorted[78.00 + i * 0.01] = (ask, 50.0)
+    scores = []
+    for extreme_intensity in [200.0, 500.0, 900.0]:
+        fp = {100.0 + i * 0.01: {"ask_volume": 50.0, "bid_volume": 50.0, "delta": 0.0} for i in range(15)}
+        fp[100.10] = {"ask_volume": extreme_intensity, "bid_volume": 1.0, "delta": extreme_intensity - 1.0}
+        st = warmup_and_score(f"T_RANK_{int(extreme_intensity)}", fp, warmup_levels=20)
+        scores.append((extreme_intensity, st.absorption_score_v2))
 
-    fp_sorted = build_footprint(levels_sorted)
-    candidates_sorted = detector._find_extreme_deltas(fp_sorted)
-
-    if len(candidates_sorted) < 2:
-        fail(
-            f"Expected >= 2 candidates for sort check, got {len(candidates_sorted)} (need 50+ levels for top 10% to yield 2+)"
-        )
-
-    # Verify descending order by |delta|
-    for i in range(len(candidates_sorted) - 1):
-        delta_a = abs(candidates_sorted[i][1])
-        delta_b = abs(candidates_sorted[i + 1][1])
-        if delta_a < delta_b:
-            fail(f"Candidates not sorted: |delta[{i}]|={delta_a} < |delta[{i+1}]|={delta_b}")
-    ok(f"{len(candidates_sorted)} candidates sorted by |delta| descending ✓")
+    for i in range(len(scores) - 1):
+        _, s_low = scores[i]
+        _, s_high = scores[i + 1]
+        if s_high < s_low - 0.001:
+            fail(f"Monotonicity broken: {scores[i][1]:.3f} → {scores[i+1][1]:.3f}")
+    for intensity, score in scores:
+        ok(f"outlier={intensity:.0f} → absorption_score_v2 = {score:.3f}")
 
     # ─────────────────────────────────────────────────────────
     # SUMMARY

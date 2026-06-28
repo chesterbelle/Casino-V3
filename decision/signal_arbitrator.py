@@ -31,7 +31,7 @@ class SignalArbitrator:
         self.pressure = pressure_engine
 
         # Solo 3 escenarios de confirmación (FB/LE/TA). TacticalAbsorption es
-        # instant signal y bypasea ScenarioManager intencionalmente (ver ADR-1).
+        # instant signal y bypasea SignalArbitrator intencionalmente (ver ADR-1).
         self.scenarios = [
             LiquidityExhaustionDetector(self.pressure),
             FailedBreakoutDetector(self.pressure),
@@ -49,7 +49,7 @@ class SignalArbitrator:
         # Telemetry
         self.signal_stats = defaultdict(int)
 
-        logger.info("🏗️ ScenarioManager initialized (AMT V10 Architecture - UDT Enabled)")
+        logger.info("🏗️ SignalArbitrator initialized (AMT V10 Architecture - UDT Enabled)")
 
     def _apply_va_gate(self, symbol: str, va_integrity: float, candidates: list) -> list:
         """
@@ -189,7 +189,7 @@ class SignalArbitrator:
 
         # UDT: Trace tactical signal arrival
         if trace:
-            trace.add_step("ScenarioManager", True, f"Routing {tactical_type} signal", {"side": signal.get("side")})
+            trace.add_step("SignalArbitrator", True, f"Routing {tactical_type} signal", {"side": signal.get("side")})
 
         return signal
 
