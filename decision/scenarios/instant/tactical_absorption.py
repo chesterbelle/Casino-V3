@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional
 class AbsorptionDetector:
     """
     Absorption Detector v10: Profile-Calibrated + Multi-Factor Filter.
-    Consumes PressureEngine centralized state.
+    Consumes OrderFlowEngine centralized state.
+    Only fires ONCE per absorption event (not every tick during absorption).
+
+    Consumes OrderFlowEngine centralized state.
     Only fires ONCE per absorption event (not every tick during absorption).
 
     Resolves cluster-specific params at runtime via profile_manager.
@@ -85,7 +88,7 @@ class AbsorptionDetector:
         if abs(state.price_displacement_z) > displacement_z_max:
             return None
 
-        # 6. Block signals from PressureEngine (anti-fade protection)
+        # 6. Block signals from OrderFlowEngine (anti-fade protection)
         if state.block_long and state.cvd_delta < 0:
             return None
         if state.block_short and state.cvd_delta > 0:
