@@ -6,6 +6,62 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-27 SESSION] — Deep Architecture Refactor: OrderFlowEngine + Instant/Confirmation + Legacy Elimination
+
+#### Summary
+Refactorización profunda de arquitectura para eliminar deuda técnica y hacer el código auto-explicativo. Se eliminaron 6 meses de nombres mentirosos y código muerto.
+
+#### Cambios Estructurales
+
+**1. Renombrado HonestO:**
+- `PressureEngine` → `OrderFlowEngine`: El nombre anterior sugería que "presionaba" o decidía. El nuevo nombre es honesto: calcula order flow (CVD, velocity, z-scores).
+- `ScenarioManager` → `SignalArbitrator`: No "gestionaba" escenarios, arbitraba señales por prioridad × score.
+
+**2. Eliminación de Código Muerto:**
+- **Eliminados:** `concentration_min`, `noise_max`, `absorption_score` (legacy).
+- **Razón:** Esos parámetros no se usaban desde Junio 2026 (Fase 4). Solo el score v2 (`absorption_score_v2`) está activo.
+- **Impacto:** -40 líneas de código basura. Parámetros fantasmas fuera del sistema.
+
+**3. Reestructuración de Carpetas (Arquitectura Visible):**
+- **Creadas:** `decision/scenarios/instant/` (TacticalAbsorption) y `decision/scenarios/confirmation/` (FB/LE/TA).
+- **Razón:** La estructura de carpetas ahora documenta el flujo visualmente.
+  - `instant/`: Bypasea el SignalArbitrator (latencia crítica, absorción en el tick).
+  - `confirmation/`: Pasa por SignalArbitrator (VA_GATE + arbitraje, confirmación de estructura).
+- **ADR-003:** La decisión arquitectónica está documentada en esta entrada del changelog.
+
+#### Files Modified
+- `core/pressure/engine.py` → `core/order_flow/engine.py` (renombrado + limpieza legacy)
+- `decision/scenario_manager.py` → `decision/signal_arbitrator.py` (renombrado)
+- `decision/scenarios/` → reestructurado en `instant/` + `confirmation/`
+- `docs/ARCHITECTURE_MAP.md` → Actualizado con arquitectura limpia
+- `.agent/memory.md` → Actualizado + regla de "actualizar mapa con cada cambio arquitectónico"
+- `.agent/architecture_map.md` → Eliminado (obsoleto, reemplazado por docs/ARCHITECTURE_MAP.md)
+
+#### Commits
+```
+feat/limpieza-profunda branch:
+- refactor: eliminar código muerto de PressureEngine (concentration_min, noise_max, absorption_score legacy)
+- refactor: renombrar PressureEngine → OrderFlowEngine
+- refactor: reestructurar decision/scenarios/ para reflejar Instant vs Confirmación
+- refactor: agregar __init__.py con exports en instant/ y confirmation/
+- docs: eliminar .agent/architecture_map.md (obsoleto)
+- docs: actualizar ARCHITECTURE_MAP.md con arquitectura limpia
+- docs: agregar regla de arquitectura en memory.md
+```
+
+#### Validación
+- ✅ Todos los imports funcionan.
+- ✅ OrderFlowEngine instancia correctamente.
+- ✅ SignalArbitrator con 3 escenarios de confirmación.
+- ✅ TacticalAbsorption en `instant/` bypassa correctamente.
+- ✅ Tests de compilación pasados (flake8, black, isort).
+
+#### Next Steps
+- Correr backtests completos para validar no-regresión.
+- Merge a `dev-8.9-datafeed-revamp` tras validación.
+
+---
+
 ### [2026-06-25 SESSION V4] — Monthly Backtest LTC May 2026 Complete + trend_acceptance Diagnosis (Branch: 8.9-datafeed-revamp)
 
 #### Summary

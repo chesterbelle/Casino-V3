@@ -10,6 +10,7 @@
 > 6. **GOTCHA (TIMEOUTS):** Al ejecutar `scripts/orchestrator.py`, el timeout del shell debe ser muy largo (ej. 4 horas) ya que los backtests masivos toman tiempo considerable.
 > 7. **GIT FLOW (3 BRANCHES):** Ver sección "🏛️ Git Flow Metodología" más abajo.
 > 8. **GOTCHA (GIT CLEANUP):** Si ves muchas branches viejas (`git branch | wc -l` > 5), es hora de limpiar. Borra branches locales mergeadas: `git branch --merged main | grep -v "\*" | xargs git branch -D`. Las branches remotas se borran con `git push origin --delete <branch>`.
+> 9. **REGLA DE ARQUITECTURA (DOCUMENTACIÓN VIVA):** Si cambias la arquitectura (renombrar clases, mover carpetas, eliminar parámetros), **DEBES actualizar** `docs/ARCHITECTURE_MAP.md` ANTES de hacer commit. Este archivo es la fuente de verdad; si está desactualizado, miente y causa confusión.
 
 
 ## 🚀 Project Overview
@@ -69,7 +70,8 @@
 
 ### 1. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢]
 *   **Architecture**: Quality Pipeline + 4 scenarios (todos en `decision/scenarios/`) + exhaustion gate + dynamic targets + profile system
-*   **Escenarios**: TacticalAbsorption (instantáneo, bypass), FailedBreakout/LE/TrendAcceptance (confirmación, vía ScenarioManager)
+*   **Escenarios**: TacticalAbsorption (instantáneo, bypass, vive en `instant/`), FailedBreakout/LE/TrendAcceptance (confirmación, vía SignalArbitrator, viven en `confirmation/`)
+*   **OrderFlowEngine**: Calcula 18 features de order flow (CVD, z-scores, absorption). NO decide. Antes se llamaba "PressureEngine".
 *   **Profiles**: 5 perfiles microestructura — MEGA_LIQUID (ADA, ARB, NEAR), MAJOR_LIQUID (SOL), MID_LIQUID (LTC, AVAX, OP, APT, BNB, LINK), THIN_VOLATILE (XRP, DOGE), ILLIQUID_SPEC (BTC, ETH)
 *   **THIN_VOLATILE Certification** (2026-06-09): Net Taker +0.34% (vs -0.59% baseline) en XRP. Edge recuperado mediante optimización bayesiana de 49 parámetros (100 iteraciones).
 *   **ILLIQUID_SPEC Backtest** (2026-06-02): SOL +0.24% Net Taker (edge marginal), XRP -0.05%, DOGE -0.13%. Solo SOL tiene potencial. **PERO**: profile system los clasifica como MAJOR_LIQUID, no ILLIQUID_SPEC — contradicción con clustering real.
@@ -117,7 +119,7 @@
 
 ### Current Status: 🟢 84 Datasets Certified (2/2/2 per Symbol)
 
-- **Architecture**: PressureEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
+- **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
 - **Branch**: `dev-8.9-datafeed-revamp` (trabajo diario), `main` (v8.9 certificada)
 - **Cluster Optimizer** (2026-06-08): `scripts/cluster_optimizer.py` — 49 params across 8 groups (absorption, failed_breakout, liquidity_exhaustion, trend_acceptance, targets, quality, guardians, pressure). `--param-groups` for selective optimization. Weight auto-normalization. Optuna TPE + persistent SQLite + `--resume`.
 - **EdgeAuditor get_metrics()**: Programmatic API returning net_taker, root_cause, MFE/MAE, best_uniforms. Used by optimizer.
