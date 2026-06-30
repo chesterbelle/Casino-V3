@@ -324,44 +324,38 @@ def build_tasks(mode, protocol_name, symbol, filter_pattern, dataset=None):
         # ═══════════════════════════════════════════════════════════════
         # TRADE MODE: Sequential execution, single dataset
         # Purpose: Realistic trading simulation before live deployment
+        # REQUIRES: --dataset must be explicitly provided
         # ═══════════════════════════════════════════════════════════════
-        if dataset:
-            if not os.path.exists(dataset):
-                _p(f"❌ Dataset not found: {dataset}")
-                return tasks
-            db_file = os.path.basename(dataset)
-            # Extract symbol from filename
-            name = db_file.replace(".db", "")
-            raw_sym = name
-            for sep in ("_TREND_", "_BALANCE_", "_monthly_"):
-                idx = name.find(sep)
-                if idx != -1:
-                    raw_sym = name[:idx]
-                    break
-            tasks.append(
-                {
-                    "task_id": db_file.replace(".db", ""),
-                    "db_path": dataset,
-                    "symbol": format_ccxt_symbol(raw_sym),
-                    "run_type": "trade",
-                }
-            )
-        elif symbol:
-            db_file = pick_recent_dataset(symbol, filter_pattern)
-            if not db_file:
-                _p(f"  ⚠️ No dataset for {symbol}")
-                return tasks
-            tasks.append(
-                {
-                    "task_id": db_file.replace(".db", ""),
-                    "db_path": os.path.join(DB_DIR, db_file),
-                    "symbol": format_ccxt_symbol(symbol),
-                    "run_type": "trade",
-                }
-            )
-        else:
-            _p("❌ --symbol or --dataset required for trade mode")
+        if not dataset:
+            _p("❌ TRADE MODE REQUIRES --dataset")
+            _p("   Usage: python scripts/backtest_runner.py --mode trade --dataset <path_to_db>")
+            _p("   Example: python scripts/backtest_runner.py --mode trade --dataset data/datasets/daily_backtest_ready/LTC_TREND_UP_2024-03.db")
+            _p("\n   Available LTC datasets:")
+            for db_file in sorted(glob.glob(os.path.join(DB_DIR, "LTC*.db"))):
+                _p(f"     - {os.path.basename(db_file)}")
             return []
+        
+        if not os.path.exists(dataset):
+            _p(f"❌ Dataset not found: {dataset}")
+            return []
+        
+        db_file = os.path.basename(dataset)
+        # Extract symbol from filename
+        name = db_file.replace(".db", "")
+        raw_sym = name
+        for sep in ("_TREND_", "_BALANCE_", "_monthly_"):
+            idx = name.find(sep)
+            if idx != -1:
+                raw_sym = name[:idx]
+                break
+        tasks.append(
+            {
+                "task_id": db_file.replace(".db", ""),
+                "db_path": dataset,
+                "symbol": format_ccxt_symbol(raw_sym),
+                "run_type": "trade",
+            }
+        )
 
     return tasks
 
@@ -561,8 +555,9 @@ RECOMMENDED WORKFLOW
     )
     parser.add_argument(
         "--dataset",
+        required=False,
         default=None,
-        help="Exact path to a .db file. Alternative to --symbol for trade mode. Useful for testing specific datasets.",
+        help="Exact path to a .db file. REQUIRED for trade mode. Useful for testing specific datasets in audit mode.",
     )
     args = parser.parse_args()
 
