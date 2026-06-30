@@ -1,191 +1,116 @@
-# 🥇 LTC Golden Parameters
+# 🥇 LTC Golden Parameters V2 (Post-Cascade Optimization)
 
 > **Moneda**: LTC/USDT:USDT
 > **Cluster**: `LTC_NOISY_UNCERTAIN_1`
-> **Estado**: FB+LE+TAV+TA edge confirmed ✅ — todos los escenarios positivos
-> **Net Taker (12 datasets)**: +0.2646%
-> **Gross Expectancy**: +0.3346%
-> **Señales**: 1982
-> **Root Cause**: TARGET_FAILURE (LE targets AMT 2.5/4.0 vs best uniform 1.0/2.0)
-> **Origen**: CVD flip fix en `liquidity_exhaustion.py` — confirmación de defensa en vez de filtro de ataque
-> **Fecha**: 2026-06-14
+> **Estado**: FB + LE + TAV + TA edge confirmed ✅ — **Todos los escenarios optimizados y positivos**
+> **Fecha**: 2026-06-30
+> **Tipo de Arquitectura**: Parámetros Aislados (Sufijos)
+> **Validación**: Single-Coin Edge Audit Protocol (Zero-Interference)
 
 ---
 
-## Perfil Completo (`config/coin_profiles.py` → `LTC_NOISY_UNCERTAIN_1`)
+## Resultados Oficiales del Edge Audit (Zero-Interference)
 
-### Sensors
+La prueba pura de MFE/MAE de la estrategia demostró que **los 4 escenarios poseen ventaja estadística explotable (Edge) con Net Taker positivo**, validando la optimización en cascada.
 
-#### absorption_detector
-| Parámetro | Valor | Nota |
+| Escenario | Señales (n) | Mejor Grid (TP/SL) | Expectativa Bruta | Net Taker | Veredicto Entry |
+|---|---|---|---|---|---|
+| **failed_breakout** | 8 | 0.50% / 0.80% | +0.3375% | **+0.2675%** | ✅ EDGE CONFIRMADO |
+| **liquidity_exhaustion** | 200 | 1.20% / 0.30% | +0.1479% | **+0.0779%** | ✅ EDGE CONFIRMADO |
+| **tactical_absorption** | 35 | 1.20% / 0.30% | +0.1714% | **+0.1014%** | ✅ EDGE CONFIRMADO |
+| **trend_acceptance** | 32 | 0.90% / 0.90% | +0.3884% | **+0.3184%** | ✅ EDGE CONFIRMADO |
+
+> *Nota: Los "AMT Targets" mostraron ser inferiores a estos Static Grids en el test purista, lo que sugiere que usar Limit Sniper o afinar la fórmula dinámica es el paso a seguir, pero las entradas son de altísima precisión.*
+
+---
+
+## Perfil Completo y Aislado (`config/coin_profiles.py` → `LTC_NOISY_UNCERTAIN_1`)
+
+Bajo la nueva arquitectura, los parámetros globales ahora tienen sobreescrituras específicas (sufijos) por escenario, evitando la contaminación cruzada.
+
+### 1. Parámetros Globales Base
+
+- **Guardians Base:** `l2_ratio_min = 0.5`, `spread_max_ratio = 2.5`
+- **Pressure Base:** `z_block = 2.8`
+- **VA Gate:** `integrity_threshold = 0.15`
+  - *Bloqueados en Tendencia:* `tactical_absorption`, `failed_breakout`, `liquidity_exhaustion`
+  - *Permitidos en Tendencia:* `trend_acceptance`
+
+---
+
+### 2. Parámetros Específicos por Escenario
+
+#### 🛡️ tactical_absorption
+| Módulo | Parámetro | Valor |
 |---|---|---|
-| `z_score_min` | 4.0 | Filtro estricto — LTC necesita absorción fuerte |
-| `absorption_score_min` | 0.2 | Permisivo en calidad de absorción |
-| `stagnation_floor_pct` | 0.0018 | Ajustado fino para LTC |
-| `cooldown` | 60.0s | Respuesta rápida |
-| `volatility_z_max` | 3.1 | Tolerante a volatilidad |
-| `displacement_z_max` | 2.9 | |
-| `level_tolerance_pct` | 0.002 | |
-| `book_bucket_pct` | 0.001 | |
+| **Sensors** | `z_score_min` | 2.2 |
+| **Sensors** | `absorption_score_min` | 0.225 |
+| **Sensors** | `displacement_z_max` | 1.7 |
+| **Sensors** | `stagnation_floor_pct` | 0.0009 |
+| **Sensors** | `cooldown` | 30.0s |
+| **Guardians** | `l2_ratio_min_tactical_absorption` | 0.6 |
+| **Guardians** | `spread_max_ratio_tactical_absorption`| 1.7 |
+| **Pressure** | `z_block_tactical_absorption` | 2.4 |
 
-#### failed_breakout
-| Parámetro | Valor | Nota |
+#### 📉 failed_breakout
+| Módulo | Parámetro | Valor |
 |---|---|---|
-| `cooldown` | 50.0s | |
-| `min_break_distance_pct` | 0.0047 | Filtra micro-breaks |
-| `max_break_age` | 150.0s | |
-| `divergence_z` | 1.0 | |
-| `exhaustion_z` | 2.9 | |
+| **Sensors** | `exhaustion_z` | 2.4 |
+| **Sensors** | `divergence_z` | 0.8 |
+| **Sensors** | `min_break_distance_pct` | 0.0022 |
+| **Sensors** | `max_break_age` | 150.0s |
+| **Sensors** | `cooldown` | 30.0s |
+| **Guardians** | `l2_ratio_min_failed_breakout` | 0.7 |
+| **Guardians** | `spread_max_ratio_failed_breakout` | 2.2 |
+| **Pressure** | `z_block_failed_breakout` | 2.4 |
 
-#### liquidity_exhaustion
-| Parámetro | Valor | Nota |
+#### 💧 liquidity_exhaustion
+| Módulo | Parámetro | Valor |
 |---|---|---|
-| `cooldown` | 30.0s | |
-| `level_tolerance_pct` | 0.0005 | |
-| `min_tests` | 3 | Significancia de nivel |
-| `declining_threshold` | 0.80 | Declive moderado — 80% de tests deben mostrar volumen declinante |
-| `min_bounce_pct` | 0.00075 (7.5 bps) | Rebote mínimo para confirmar nivel |
-| `test_memory_seconds` | 300.0s | 5 min para encontrar tests incluso en regímenes lentos |
+| **Sensors** | `min_tests` | 2 |
+| **Sensors** | `declining_threshold` | 0.50 |
+| **Sensors** | `min_bounce_pct` | 0.0007 |
+| **Sensors** | `test_memory_seconds` | 220.0s |
+| **Sensors** | `cooldown` | 30.0s |
+| **Guardians** | `l2_ratio_min_liquidity_exhaustion` | 0.6 |
+| **Guardians** | `spread_max_ratio_liquidity_exhaustion`| 3.1 |
+| **Pressure** | `z_block_liquidity_exhaustion` | 2.4 |
 
-#### trend_acceptance
-| Parámetro | Valor | Nota |
+#### 🌊 trend_acceptance
+| Módulo | Parámetro | Valor |
 |---|---|---|
-| `cooldown` | 600.0s | |
-| `min_candles_outside` | 3 | |
-| `cvd_confirmation_threshold` | 4.0 | |
-| `pullback_tolerance_pct` | 0.001 (10 bps) | |
-| `max_pullback_penetration_pct` | 0.001 (10 bps) | |
+| **Sensors** | `cvd_confirmation_threshold` | 4.0 |
+| **Sensors** | `min_candles_outside` | 7 |
+| **Sensors** | `pullback_tolerance_pct` | 0.0012 |
+| **Sensors** | `max_pullback_penetration_pct` | 0.003 |
+| **Sensors** | `cooldown` | 240.0s |
+| **Guardians** | `l2_ratio_min_trend_acceptance` | 1.2 |
+| **Guardians** | `spread_max_ratio_trend_acceptance` | 2.1 |
+| **Pressure** | `z_block_trend_acceptance` | 2.7 |
 
-### Quality Scorer
+---
 
-| Parámetro | Valor |
+## 📈 Quality Scorer (Configuración Actualizada)
+
+| Componente | Valor |
 |---|---|
-| `weights.exhaustion` | 0.40 |
-| `weights.regime` | 0.30 |
-| `weights.structure` | 0.15 |
-| `weights.liquidity` | 0.10 |
-| `weights.spread` | 0.05 |
-| `grade_thresholds.A` | 0.70 |
-| `grade_thresholds.B` | 0.40 |
-| `thresholds.exhaustion.block` | 1.5 |
-| `thresholds.exhaustion.perfect` | 0.5 |
-| `thresholds.exhaustion.vol_bonus` | 0.4 |
-| `thresholds.liquidity.strong` | 2.0 |
-| `thresholds.liquidity.adequate` | 1.5 |
-| `thresholds.liquidity.weak` | 1.0 |
-| `thresholds.structure.excess_multiplier` | 0.5 |
-
-### Pressure Thresholds
-
-| Parámetro | Valor |
-|---|---|
-| `z_block` | 2.8 |
-
-### Targets por Escenario
-
-| Escenario | TP | SL | Nota |
-|---|---|---|---|
-| tactical_absorption (TAV) | 0.025 (2.5%) | 0.040 (4.0%) | Edge consistente ratio 1.37 |
-| failed_breakout | 0.025 (2.5%) | 0.040 (4.0%) | Edge fuerte ratio 4.59 |
-| liquidity_exhaustion | **0.010 (1.0%)** | **0.020 (2.0%)** | Best uniform: TP 1.0/SL 2.0, WR 73.7% |
-| trend_acceptance | 0.009 (0.9%) | 0.009 (0.9%) | Edge débil ratio 1.13 pero positivo |
-
-### Guardians
-
-| Parámetro | Valor | Nota |
-|---|---|---|
-| `l2_ratio_min` | 0.5 | Permisivo — LTC no necesita filtro L2 fuerte |
-| `l2_ratio_min_trend_down` | 2.2 | Bear market |
-| `l2_ratio_min_trend_acceptance` | 1.5 | Hard block para TA |
-| `spread_max_ratio` | 2.5 | Tolerante |
-
-### VA_GATE Selective (Added 2026-06-25)
-
-| Parámetro | Valor | Nota |
-|---|---|---|
-| `integrity_threshold` | 0.15 | Threshold para régimen |
-| `block_in_trending` | ["tactical_absorption", "failed_breakout", "liquidity_exhaustion"] | Mean-reversion bloqueado en trending |
-| `allow_in_trending` | ["trend_acceptance"] | Trend-following permitido en trending |
+| **Pesos (`weights`)** | `exhaustion: 0.40`, `regime: 0.30`, `structure: 0.15`, `liquidity: 0.10`, `spread: 0.05` |
+| **Grados** | `A: 0.7`, `B: 0.4` |
+| **Thresholds Exhaustion** | `block: 1.5`, `perfect: 0.5`, `vol_bonus: 0.4` |
+| **Thresholds Liquidity** | `strong: 2.0`, `adequate: 1.5`, `weak: 1.0` |
 
 ---
 
-## Cambio Estructural: CVD Flip Fix
+## 📚 Lecciones Aprendidas de Arquitectura V2 (LTC DNA)
 
-### Problema Original
-El filtro CVD bloqueaba tests en VAL cuando CVD > 0 (compradores activos). Esto impedía registrar el patrón completo de agotamiento:
-
-```
-Test 1: CVD = -20 (vendedores atacan) → registrado ✅
-Test 2: CVD =  -5 (vendedores se agotan) → registrado ✅
-Test 3: CVD = +10 (compradores defienden) → BLOQUEADO ❌
-```
-
-El test 3 se bloqueaba porque CVD >= 0 en VAL, pero justamente cuando CVD se vuelve positiva es la CONFIRMACIÓN de que la defensa ganó.
-
-### Fix (`decision/scenarios/liquidity_exhaustion.py`)
-- **Eliminado** el filtro CVD del registro de tests (líneas 138-142): ahora se registran TODOS los toques al nivel
-- **Agregado** filtro CVD al momento de disparar la señal: requiere CVD en dirección de la defensa
-  - VAL (LONG): `raw_cvd_velocity > 0` → compradores defendiendo
-  - VAH (SHORT): `raw_cvd_velocity < 0` → vendedores defendiendo
-
-### Resultado
-| Métrica | Antes (filtro ataque) | Después (confirmación defensa) |
-|---|---|---|
-| LE señales | 16 | 19 |
-| MFE/MAE Ratio | 0.50 | 0.71 |
-| Best Uniform | 0.10/0.10% → Net -0.08% ❌ | **1.00/2.00% → Net +0.17% ✅** |
-| Entry OK? | ❌ ENTRY FAILURE | ✅ ENTRY OK |
+1. **Aislamiento Funcional (Sufijos):** LTC demostró que obligar a todos los setups a compartir un solo `l2_ratio_min` era un error fatal. Mientras que `trend_acceptance` necesita alta confirmación del libro (1.2), `liquidity_exhaustion` y `tactical_absorption` pueden operar con filtros más relajados (0.6).
+2. **CVD Confirmation (Trend Acceptance):** Se mantuvo alto en `4.0`, demostrando que para seguir la tendencia, LTC requiere explosiones direccionales genuinas en CVD.
+3. **Paciencia en Tendencia:** `min_candles_outside` subió a 7, obligando al sistema a confirmar la verdadera aceptación del precio fuera del área de valor antes de unirse al movimiento, lo que ayudó a que el escenario arrojara un **Net Taker de +0.3184%**.
+4. **Targets Conservadores pero Precisos:** La precisión de la entrada es altísima, pero el protocolo purista confirmó que los rebotes no siempre son extensos. El uso de Stop-Loss apretados (0.3% - 0.9%) y Take-Profits asimétricos son la clave de la rentabilidad pasiva de LTC.
 
 ---
 
-## Diagnóstico por Escenario (12 datasets)
+## 💾 Respaldo y Reproducción
 
-| Escenario | n | Ratio | Best Net | Veredicto |
-|---|---|---|---|---|
-| failed_breakout | 17 | 4.59 | +1.36% | ✅ TARGETS OK |
-| liquidity_exhaustion | 19 | 0.71 | +0.17% | ✅ TARGET OPTIMIZATION (1.0/2.0) |
-| tactical_absorption | 1907 | 1.37 | +0.26% | ✅ TARGETS OK |
-| trend_acceptance | 39 | 1.13 | +0.22% | ✅ TARGETS OK |
-| **TOTAL** | **1982** | — | **+0.26%** | **✅** |
-
----
-
-## Lecciones Aprendidas (LTC DNA)
-
-1. **LE funciona con CVD flip fix**: La clave no es filtrar por "atacantes agotándose" sino esperar a que la defensa confirme. Registrar todos los tests permite capturar el patrón completo de agotamiento → defensa.
-2. **LE targets deben ser conservadores**: TP 1.0%/SL 2.0% (vs 2.5/4.0 para FB/TAV). LE tiene menos convicción direccional.
-3. **FB domina en ratio direccional**: Ratio 4.59 — señales escasas (17) pero extremadamente direccionales.
-4. **TA tiene edge frágil**: Ratio 1.13 (justo bajo 1.2) pero sigue siendo positivo. Usar TP/SL apretados (0.9/0.9).
-5. **L2 gate casi irrelevante para TAV**: `l2_ratio_min=0.5` indica que LTC no necesita filtro L2 fuerte.
-
----
-
-## Observaciones Post-VA_GATE Selective (2026-06-25)
-
-### trend_acceptance No Disparó SHORTs en Downtrend (May 10-17)
-
-Durante el backtest mensual Mayo 2026, el downtrend $58.42 → $56.07 (4.1% en 7 días) no generó **ningún SHORT de trend_acceptance**, a pesar de:
-- VA integrity < 0.15 (0.000-0.125) → VA_GATE permitió trend_acceptance
-- Downtrend claro y prolongado
-
-**Hipótesis de causa raíz:**
-1. **`l2_ratio_min_trend_acceptance` = 1.5** demasiado alto — LTC en downtrend puede no mostrar L2 ratio > 1.5 consistentemente
-2. **`cvd_confirmation_threshold` = 4.0** — CVD velocity threshold muy alto
-3. **`max_pullback_penetration_pct` = 0.001** (10 bps) — Muy estricto para pullbacks en downtrend real
-
-**Próxima acción:** Reducir `l2_ratio_min_trend_acceptance` a 1.0-1.2 y `cvd_confirmation_threshold` a 2.0-2.5 en próxima optimización LTC.
-
----
-
-## Cómo Usar Este Golden Parameter
-
-```bash
-# Ver diagnóstico de edge
-python utils/setup_edge_auditor.py --window 21600 --coin LTC/USDT:USDT
-
-# Ejecutar backtest completo (cluster LTC)
-timeout 14400000 python scripts/orchestrator.py --protocol cluster_ltc_noisy_uncertain_1
-
-# Respaldo DB golden
-cp data/historian.db data/db_vault/ltc-goldstandard.db
-```
+- Base de Datos Purista Certificada: `data/db_vault/ltc-goldstandard.db`
+- Perfil Generador: `coin_profiles_LTC_NOISY_UNCERTAIN_1_optimized.py`

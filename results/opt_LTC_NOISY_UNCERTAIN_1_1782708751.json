@@ -1,0 +1,114 @@
+{
+  "cluster": "LTC_NOISY_UNCERTAIN_1",
+  "optimization_time_seconds": 6878.349315166473,
+  "best_score": 1.2274956598449853,
+  "baseline": {
+    "net_taker": 1.5794499738640797,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 28.751508428112377,
+    "total_signals": 12
+  },
+  "best_params": {
+    "guardians.l2_ratio_min_failed_breakout": 0.7,
+    "guardians.spread_max_ratio_failed_breakout": 2.2,
+    "pressure_thresholds.z_block_failed_breakout": 2.4,
+    "sensors.failed_breakout.exhaustion_z": 2.4,
+    "sensors.failed_breakout.divergence_z": 0.8,
+    "sensors.failed_breakout.min_break_distance_pct": 0.0022,
+    "sensors.failed_breakout.cooldown": 30.0,
+    "sensors.failed_breakout.max_break_age": 150.0
+  },
+  "validation": {
+    "coins": {
+      "LTC/USDT:USDT": {
+        "net_taker": -0.28373971256204383,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 3,
+        "mfe_mae_ratio": 0.536682733304005
+      }
+    },
+    "cluster_avg_net_taker": -0.28373971256204383,
+    "coins_passed": 0,
+    "coins_total": 1,
+    "passed": false
+  },
+  "sensitivity": {
+    "sensors.failed_breakout.max_break_age": {
+      "range": 50.0,
+      "variation_pct": 62.5,
+      "impact": "HIGH"
+    },
+    "sensors.failed_breakout.cooldown": {
+      "range": 15.0,
+      "variation_pct": 25.0,
+      "impact": "MEDIUM"
+    },
+    "sensors.failed_breakout.exhaustion_z": {
+      "range": 1.9000000000000004,
+      "variation_pct": 95.00000000000001,
+      "impact": "HIGH"
+    },
+    "guardians.spread_max_ratio_failed_breakout": {
+      "range": 1.4,
+      "variation_pct": 70.0,
+      "impact": "HIGH"
+    },
+    "pressure_thresholds.z_block_failed_breakout": {
+      "range": 0.9000000000000004,
+      "variation_pct": 60.00000000000002,
+      "impact": "HIGH"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 37,
+      "score": 1.2274956598449853,
+      "avg_score": 1.2274956598449853
+    },
+    {
+      "number": 46,
+      "score": 1.2274956598449853,
+      "avg_score": 1.2274956598449853
+    },
+    {
+      "number": 22,
+      "score": 1.2244984090079944,
+      "avg_score": 1.2244984090079944
+    },
+    {
+      "number": 38,
+      "score": 1.2244984090079944,
+      "avg_score": 1.2244984090079944
+    },
+    {
+      "number": 44,
+      "score": 1.1705836388251916,
+      "avg_score": 1.1705836388251916
+    },
+    {
+      "number": 30,
+      "score": 1.1520680172936648,
+      "avg_score": 1.1520680172936648
+    },
+    {
+      "number": 21,
+      "score": 0.9328267573589084,
+      "avg_score": 0.9328267573589084
+    },
+    {
+      "number": 45,
+      "score": 0.8377791931169236,
+      "avg_score": 0.8377791931169236
+    },
+    {
+      "number": 43,
+      "score": 0.8301688335460269,
+      "avg_score": 0.8301688335460269
+    },
+    {
+      "number": 41,
+      "score": 0.7527808474825206,
+      "avg_score": 0.7527808474825206
+    }
+  ]
+}

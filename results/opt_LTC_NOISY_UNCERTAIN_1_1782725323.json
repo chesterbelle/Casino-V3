@@ -1,0 +1,114 @@
+{
+  "cluster": "LTC_NOISY_UNCERTAIN_1",
+  "optimization_time_seconds": 6632.897825956345,
+  "best_score": -15.983712055081668,
+  "baseline": {
+    "net_taker": 1.3936595742339641,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 23.92158326725931,
+    "total_signals": 34
+  },
+  "best_params": {
+    "guardians.l2_ratio_min_trend_acceptance": 1.2000000000000002,
+    "guardians.spread_max_ratio_trend_acceptance": 1.6,
+    "pressure_thresholds.z_block_trend_acceptance": 3.0,
+    "sensors.trend_acceptance.cooldown": 120.0,
+    "sensors.trend_acceptance.min_candles_outside": 7,
+    "sensors.trend_acceptance.cvd_confirmation_threshold": 4.0,
+    "sensors.trend_acceptance.max_pullback_penetration_pct": 0.0028000000000000004,
+    "sensors.trend_acceptance.pullback_tolerance_pct": 0.0013
+  },
+  "validation": {
+    "coins": {
+      "LTC/USDT:USDT": {
+        "net_taker": -0.11058186685757782,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 96,
+        "mfe_mae_ratio": 1.1472604904993342
+      }
+    },
+    "cluster_avg_net_taker": -0.11058186685757782,
+    "coins_passed": 0,
+    "coins_total": 1,
+    "passed": false
+  },
+  "sensitivity": {
+    "sensors.trend_acceptance.cooldown": {
+      "range": 600.0,
+      "variation_pct": 76.92307692307693,
+      "impact": "HIGH"
+    },
+    "sensors.trend_acceptance.min_candles_outside": {
+      "range": 5,
+      "variation_pct": 83.33333333333334,
+      "impact": "HIGH"
+    },
+    "sensors.trend_acceptance.cvd_confirmation_threshold": {
+      "range": 2.0,
+      "variation_pct": 50.0,
+      "impact": "HIGH"
+    },
+    "pressure_thresholds.z_block_trend_acceptance": {
+      "range": 1.1,
+      "variation_pct": 73.33333333333334,
+      "impact": "HIGH"
+    },
+    "guardians.l2_ratio_min_trend_acceptance": {
+      "range": 0.7000000000000002,
+      "variation_pct": 28.000000000000007,
+      "impact": "MEDIUM"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 22,
+      "score": -15.983712055081668,
+      "avg_score": -15.983712055081668
+    },
+    {
+      "number": 42,
+      "score": -16.05128040351937,
+      "avg_score": -16.05128040351937
+    },
+    {
+      "number": 46,
+      "score": -16.073072952820446,
+      "avg_score": -16.073072952820446
+    },
+    {
+      "number": 8,
+      "score": -16.087325111663468,
+      "avg_score": -16.087325111663468
+    },
+    {
+      "number": 30,
+      "score": -16.087325111663468,
+      "avg_score": -16.087325111663468
+    },
+    {
+      "number": 32,
+      "score": -16.087325111663468,
+      "avg_score": -16.087325111663468
+    },
+    {
+      "number": 13,
+      "score": -16.101912095206803,
+      "avg_score": -16.101912095206803
+    },
+    {
+      "number": 48,
+      "score": -16.104904858858085,
+      "avg_score": -16.104904858858085
+    },
+    {
+      "number": 45,
+      "score": -16.110358822049303,
+      "avg_score": -16.110358822049303
+    },
+    {
+      "number": 47,
+      "score": -16.111770717916833,
+      "avg_score": -16.111770717916833
+    }
+  ]
+}

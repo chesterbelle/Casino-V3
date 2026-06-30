@@ -116,7 +116,8 @@ class AuditMetrics:
     losses: int = 0
     win_rate: float = 0.0
     root_cause: str = "NO_DATA"
-    best_static_grids: Dict = field(default_factory=dict)
+    best_static_grids: dict = field(default_factory=dict)
+    setup_counts: dict = field(default_factory=dict)
     setup_count: int = 0
     avg_mfe: float = 0.0
     avg_mae: float = 0.0
@@ -170,6 +171,15 @@ def format_ccxt_symbol(sym: str) -> str:
 # ============================================================================
 
 PARAMETER_SPACE = {
+    # Global Parameters (Tuned only if --only is not passed)
+    "guardians.l2_ratio_min": (0.5, 3.0, 0.1),
+    "guardians.spread_max_ratio": (1.5, 3.5, 0.1),
+    "pressure_thresholds.z_block": (1.5, 3.0, 0.1),
+    # Quality Scorer (Global)
+    "quality_scorer.weights.exhaustion": (0.05, 0.4, 0.05),
+    "quality_scorer.weights.liquidity": (0.05, 0.4, 0.05),
+    "quality_scorer.weights.regime": (0.1, 0.5, 0.05),
+    "quality_scorer.weights.structure": (0.05, 0.3, 0.05),
     # Failed Breakout - Strict region + permissive margin
     "sensors.failed_breakout.exhaustion_z": (2.0, 4.0, 0.1),
     "sensors.failed_breakout.divergence_z": (0.5, 2.0, 0.1),
@@ -188,8 +198,6 @@ PARAMETER_SPACE = {
     "sensors.trend_acceptance.cvd_confirmation_threshold": (1.0, 5.0, 0.5),
     "sensors.trend_acceptance.max_pullback_penetration_pct": (0.001, 0.003, 0.0001),
     "sensors.trend_acceptance.pullback_tolerance_pct": (0.0005, 0.002, 0.0001),
-    # Guardians
-    "guardians.l2_ratio_min_trend_acceptance": (1.0, 2.0, 0.1),
     # Tactical Absorption - All params + expanded ranges (sensor name: absorption_detector)
     "sensors.absorption_detector.z_score_min": (2.0, 6.0, 0.1),
     "sensors.absorption_detector.cooldown": (30.0, 240.0, 10.0),
@@ -206,6 +214,7 @@ def filter_parameter_space(only: Optional[str]) -> Dict:
     """Return only the params for a specific scenario, or the full space."""
     if only is None:
         return PARAMETER_SPACE.copy()
+
     # Map scenario names to sensor prefixes
     sensor_map = {
         "failed_breakout": "failed_breakout",
@@ -215,13 +224,20 @@ def filter_parameter_space(only: Optional[str]) -> Dict:
     }
     sensor_prefix = sensor_map.get(only, only)
     pref_sensors = f"sensors.{sensor_prefix}"
-    pref_targets = f"targets.{only}"
-    filtered = {k: v for k, v in PARAMETER_SPACE.items() if k.startswith(pref_sensors) or k.startswith(pref_targets)}
-    # Include guardian params that belong to trend_acceptance
-    if only == "trend_acceptance":
-        guardian_key = "guardians.l2_ratio_min_trend_acceptance"
-        if guardian_key in PARAMETER_SPACE:
-            filtered[guardian_key] = PARAMETER_SPACE[guardian_key]
+
+    filtered = {}
+    for k, v in PARAMETER_SPACE.items():
+        if k.startswith(pref_sensors):
+            filtered[k] = v
+        # Dynamic suffixing for global params to isolate the optimization
+        elif k.startswith("guardians.") or k.startswith("pressure_thresholds.") or k.startswith("quality_scorer."):
+            # We skip quality_scorer weights for single-scenario since it's highly global
+            if k.startswith("quality_scorer.weights"):
+                continue
+            # Inject exception parameter instead of tuning the global one
+            new_key = f"{k}_{only}"
+            filtered[new_key] = v
+
     return filtered
 
 
@@ -317,6 +333,8 @@ def evaluate_with_auditor(historian_db: str) -> AuditMetrics:
 
         signals, prices, _ = auditor.load_data()
         if not signals.empty:
+            setup_counts = signals["setup_type"].value_counts().to_dict()
+            raw["setup_counts"] = setup_counts
             import numpy as np
 
             mfe_list = []
@@ -357,6 +375,7 @@ def evaluate_with_auditor(historian_db: str) -> AuditMetrics:
             win_rate=raw.get("win_rate", 0.0),
             root_cause=raw.get("root_cause", "UNKNOWN"),
             best_static_grids=raw.get("best_static_grids", {}),
+            setup_counts=raw.get("setup_counts", {}),
             setup_count=raw.get("setup_count", 0),
             avg_mfe=avg_mfe,
             avg_mae=avg_mae,
@@ -387,14 +406,21 @@ def compute_composite_score(metrics: AuditMetrics, only: Optional[str] = None) -
         "trend_acceptance": 3,
     }
     min_signals = SCENARIO_MIN_SIGNALS.get(only, MIN_SIGNALS_FOR_SIGNIFICANCE if only is None else 10)
-    if not metrics.success or metrics.total_signals < min_signals:
+    if not metrics.success:
         return -100.0
 
     if only is not None:
-        # Single-scenario: best_static_grid for that setup + overall net_taker as proxy
+        target_signals = metrics.setup_counts.get(only, 0)
+
+        if target_signals == 0:
+            return 0.0
+        elif target_signals < min_signals:
+            return -10.0
+
         setup_data = metrics.best_static_grids.get(only)
         if setup_data is None:
             return -50.0
+
         best_exp = setup_data["exp"] - FEE_TAKER_RT
         net_proxy = metrics.net_taker
         ratio_comp = min(metrics.mfe_mae_ratio - 1.0, 1.0)
@@ -537,6 +563,8 @@ def generate_output(
     best_params: Dict,
     best_score: float,
     baseline_metrics: AuditMetrics,
+    best_metrics: Optional[AuditMetrics],
+    only_scenario: Optional[str],
     validation: Dict,
     sensitivity: Dict,
     all_trials: List[Dict],
@@ -553,6 +581,24 @@ def generate_output(
     modified = copy.deepcopy(COIN_PROFILES)
     if cluster in modified:
         modified[cluster] = apply_params_to_profile(modified[cluster], best_params)
+
+        # Inject best static grids (TP/SL targets)
+        if best_metrics and best_metrics.best_static_grids:
+            if "targets" not in modified[cluster]:
+                modified[cluster]["targets"] = {}
+
+            scenarios_to_update = (
+                [only_scenario]
+                if only_scenario
+                else ["failed_breakout", "liquidity_exhaustion", "trend_acceptance", "tactical_absorption"]
+            )
+            for setup in scenarios_to_update:
+                if setup in best_metrics.best_static_grids:
+                    grid = best_metrics.best_static_grids[setup]
+                    if setup not in modified[cluster]["targets"]:
+                        modified[cluster]["targets"][setup] = {}
+                    modified[cluster]["targets"][setup]["tp_pct"] = grid["tp"]
+                    modified[cluster]["targets"][setup]["sl_pct"] = grid["sl"]
 
     if output_path is None:
         output_path = os.path.join(_BASE, "config", f"coin_profiles_{cluster}_optimized.py")
@@ -825,6 +871,7 @@ def main():
 
         overrides_payload = {args.cluster: overrides}
         scores = []
+        total_signals_all_dbs = 0
         for i, db_name in enumerate(opt_datasets):
             db_path = os.path.join(DB_DIR, db_name)
             safe_sym = symbol.replace("/", "_")
@@ -833,6 +880,10 @@ def main():
             if not hist_db:
                 return -100.0
             metrics = evaluate_with_auditor(hist_db)
+            if args.only:
+                total_signals_all_dbs += metrics.setup_counts.get(args.only, 0)
+            else:
+                total_signals_all_dbs += metrics.total_signals
             score = compute_composite_score(metrics, only=args.only)
             scores.append(score)
             try:
@@ -847,20 +898,35 @@ def main():
                 return partial
 
         avg_score = sum(scores) / len(scores)
+
+        # Global signal check to prevent Optuna from closing gates entirely
+        SCENARIO_MIN_SIGNALS = {
+            "failed_breakout": 3,
+            "tactical_absorption": 5,
+            "liquidity_exhaustion": 8,
+            "trend_acceptance": 3,
+        }
+        global_min = SCENARIO_MIN_SIGNALS.get(args.only, MIN_SIGNALS_FOR_SIGNIFICANCE if args.only is None else 10)
+
+        if total_signals_all_dbs < global_min:
+            avg_score = -50.0
+
         trial.set_user_attr("avg_score", avg_score)
         return avg_score
 
     # ── Study persistence ──
-    study_db = args.study_db or os.path.join(RESULTS_DIR, f"study_{args.cluster}.db")
+    db_suffix = f"_{args.only}" if args.only else ""
+    study_name = f"{args.cluster}{db_suffix}"
+    study_db = args.study_db or os.path.join(RESULTS_DIR, f"study_{study_name}.db")
     storage = f"sqlite:///{study_db}"
 
     print(f"\n🚀 OPTIMIZATION ({args.iterations} iterations)...")
     if args.resume and os.path.exists(study_db):
-        study = optuna.load_study(study_name=args.cluster, storage=storage)
+        study = optuna.load_study(study_name=study_name, storage=storage)
         print(f"   📂 Resumed from {study_db} ({len(study.trials)} existing trials)")
     else:
         study = optuna.create_study(
-            study_name=args.cluster,
+            study_name=study_name,
             storage=storage,
             direction="maximize",
             sampler=optuna.samplers.TPESampler(seed=42, multivariate=True, group=True),
@@ -896,12 +962,34 @@ def main():
     # ── Cross-Coin Validation ──
     validation = validate_cross_coin(args.cluster, study.best_params, args.filter)
 
+    # ── Final Evaluation for Targets ──
+    print("\n🎯 Evaluating best parameters to extract final TP/SL targets...")
+    final_scores = []
+    overrides_payload = {args.cluster: study.best_params}
+
+    for i, db_name in enumerate(opt_datasets):
+        db_path = os.path.join(DB_DIR, db_name)
+        safe_sym = symbol.replace("/", "_")
+        hist_db = run_backtest(db_path, symbol, overrides_payload, f"final_{i}_{safe_sym}")
+        if hist_db:
+            m = evaluate_with_auditor(hist_db)
+            final_scores.append(m)
+            try:
+                os.remove(hist_db)
+            except OSError:
+                pass
+
+    valid_final = [m for m in final_scores if m.success]
+    best_metrics = valid_final[-1] if valid_final else None
+
     # ── Output ──
     generate_output(
         args.cluster,
         study.best_params,
         study.best_value,
         baseline,
+        best_metrics,
+        args.only,
         validation,
         sensitivity,
         all_trials,

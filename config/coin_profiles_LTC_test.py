@@ -208,7 +208,7 @@ COIN_PROFILES = {
         "description": "LTC \u2014 FB+LE+TAV+TA edge confirmed \u2705. LE CVD flip fix, TP1.0/SL2.0.",
         "guardians": {
             "l2_ratio_min": 0.5,
-            "l2_ratio_min_trend_acceptance": 1.2000000000000002,
+            "l2_ratio_min_trend_acceptance": 2.5,
             "l2_ratio_min_trend_down": 2.2,
             "spread_max_ratio": 2.5,
             "l2_ratio_min_tactical_absorption": 0.6,
@@ -217,7 +217,7 @@ COIN_PROFILES = {
             "spread_max_ratio_failed_breakout": 2.2,
             "l2_ratio_min_liquidity_exhaustion": 0.6,
             "spread_max_ratio_liquidity_exhaustion": 3.1,
-            "spread_max_ratio_trend_acceptance": 2.1,
+            "spread_max_ratio_trend_acceptance": 1.6,
         },
         "pressure_thresholds": {
             "z_block": 2.8,
@@ -265,10 +265,10 @@ COIN_PROFILES = {
                 "test_memory_seconds": 220.0,
             },
             "trend_acceptance": {
-                "cooldown": 240.0,
-                "cvd_confirmation_threshold": 4.0,
-                "max_pullback_penetration_pct": 0.003,
-                "min_candles_outside": 7,
+                "cooldown": 180.0,
+                "cvd_confirmation_threshold": 3.0,
+                "max_pullback_penetration_pct": 0.0023,
+                "min_candles_outside": 2,
                 "pullback_tolerance_pct": 0.0012000000000000001,
             },
         },

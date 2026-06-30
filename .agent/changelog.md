@@ -6,6 +6,65 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-28 SESSION] — Post-Refactor Validation: Pipeline completa + SOL Tuning + Orchestrator Cleanup (Branch: feat/limpieza-profunda)
+
+#### Summary
+Validación completa del refactor `feat/limpieza-profunda` mediante la pipeline validate-all. Corrección de bug en `tactical_absorption.py:119`. Optimización de parámetros SOL post-refactor. Limpieza de deuda técnica del orchestrator.
+
+#### Validación por Capas
+
+| Layer | Validador | Resultado |
+|-------|-----------|-----------|
+| 0.A | absorption_footprint_validator.py | ✅ sin cambios |
+| 0.B | absorption_guardian_validator.py | ✅ reescrito contra CoinOrderFlowEngine |
+| 0.C | absorption_candidate_validator.py | ✅ reescrito contra CoinOrderFlowEngine |
+| 0.D | absorption_signal_validator.py | ✅ reescrito + bugfix |
+| 0.D (regime) | regime_guardian_validator.py | 🗑️ eliminado (obsoleto — lógica en _apply_va_gate) |
+| 0.E | exit_engine_validator.py | ✅ sin cambios |
+| 0.F | virtual_exchange_fee_validator.py | ✅ sin cambios |
+| 1.1 | Data integrity — 6 SOL historian DBs | ✅ populados |
+| 1.2 | exit_engine_integration_validator.py | ✅ |
+| 2.1 | decision_pipeline_validator.py (TraceBullet) | ✅ 25 ops, 0 mutaciones |
+| 3.1 | orchestrator single-coin-audit LTCUSDT | ✅ 6/6 done, 0 failed, 588s |
+| 3.1 | orchestrator single-coin-audit SOLUSDT | ✅ 7/7 done, 0 failed, 2539s |
+| 6.1 | cluster_optimizer LTC_NOISY_UNCERTAIN_1 --validate-only | ✅ baseline AVG +0.1353% |
+
+#### Bugfix
+- `decision/scenarios/instant/tactical_absorption.py:119` — `state.absorption_score` → `state.absorption_score_v2`
+
+#### Orchestrator Cleanup
+- Eliminados protocolos `generalized` y `probe` — solo queda `single-coin-audit`, `trade-mode` y auto-descubiertos de cluster
+- `max_workers` eliminado de todos los protocolos — `calculate_workers(total_tasks)` 100% dinámico (CPU×0.65, capped a total_tasks)
+- `single-coin-audit` ahora corre auditors al final — `skip_merge: True → False`. Cada ejecución consolida en `data/historian.db` + edge_auditor + l2_depth_auditor
+
+#### SOL Parameter Tuning (Post-Refactor)
+- Audit SOL: Net Taker global −0.2171% ❌ con 426 señales. 3/4 setups Entry OK (FB +0.0646%, LE +0.0190%, TA +0.0594%)
+- Tactical_absorption ENTRY_FAIL pero golden pasado (+0.1465%) demuestra que el edge existe
+- **SOL targets optimizados** por best uniform del auditor: FB/0.008, LE/0.007, TA/0.008
+- **SOL l2_ratio_min**: 1.5 → 2.0 por discriminación L2 comprobada (High Wall MFE/MAE ratio 13.40 vs Thin Wall 0.22)
+
+#### Files Modified
+- `decision/scenarios/instant/tactical_absorption.py` — Bugfix absorption_score → absorption_score_v2
+- `utils/validators/absorption_guardian_validator.py` — Reescrito contra CoinOrderFlowEngine
+- `utils/validators/absorption_candidate_validator.py` — Reescrito contra CoinOrderFlowEngine
+- `utils/validators/absorption_signal_validator.py` — Reescrito + cluster_cache injection
+- `utils/validators/regime_guardian_validator.py` — 🗑️ Eliminado
+- `scripts/orchestrator.py` — Generalized/probe eliminados, workers 100% dinámicos, auto-audits
+- `config/coin_profiles.py` — SOL targets/guardians actualizados
+
+#### Commit
+```
+2841e14 feat: post-refactor validation + orchestrator cleanup
+```
+
+#### Next Steps
+- Re-correr single-coin-audit SOL para confirmar mejora tras targets + l2_ratio_min
+- Implementar Post-SL Cooldown (pendiente de roadmap)
+- Ajustar thresholds trend_acceptance para LTC (próxima prioridad roadmap)
+- Merge feat/limpieza-profunda → dev-8.9-datafeed-revamp tras confirmación de no-regresión
+
+---
+
 ### [2026-06-27 SESSION] — Deep Architecture Refactor: OrderFlowEngine + Instant/Confirmation + Legacy Elimination
 
 #### Summary
