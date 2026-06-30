@@ -16,7 +16,7 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
-*   **Current Branch**: `feat/limpieza-profunda` (rama de trabajo actual)
+*   **Current Branch**: `dev-8.9-datafeed-revamp` (rama de trabajo actual)
 *   **Stable Branch**: `main` (versión certificada v8.9)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
@@ -75,7 +75,7 @@
 *   **Profiles**: 5 perfiles microestructura — MEGA_LIQUID (ADA, ARB, NEAR), MAJOR_LIQUID (SOL), MID_LIQUID (LTC, AVAX, OP, APT, BNB, LINK), THIN_VOLATILE (XRP, DOGE), ILLIQUID_SPEC (BTC, ETH)
 *   **THIN_VOLATILE Certification** (2026-06-09): Net Taker +0.34% (vs -0.59% baseline) en XRP. Edge recuperado mediante optimización bayesiana de 49 parámetros (100 iteraciones).
 *   **ILLIQUID_SPEC Backtest** (2026-06-02): SOL +0.24% Net Taker (edge marginal), XRP -0.05%, DOGE -0.13%. Solo SOL tiene potencial. **PERO**: profile system los clasifica como MAJOR_LIQUID, no ILLIQUID_SPEC — contradicción con clustering real.
-*   **Métrica Forense (LTCUSDT 24h)**: Net Taker +0.06%, MFE/MAE 1.63, Win Rate 59.8%
+*   **Métrica Forense (LTCUSDT 24h)**: Net Taker +0.3184% (cascade optimized, 2026-06-30), MFE/MAE 1.63 baseline
 *   **Multi-Coin**: 3/10 coins con edge (SUI, AVAX, LTC). Edge instrument-dependiente.
 *   **Exhaustion Gate**: Bloquea agresores intensificándose (delta_ratio > 1.5)
 *   **Target Proximity**: 0.83 avg, 68.6% achieved
@@ -99,21 +99,17 @@
 
 ---
 
-## 📉 Roadmap
-1.  **CRYSTAL REFORGE — COMPLETADO ✅**: Quality Pipeline + Profile System implementado
-2.  **VERIFICAR INTEGRIDAD DE NUEVA ARQUITECTURA (PRESSURE ENGINE) — COMPLETADO ✅**: Los 4 escenarios migrados producen señales consistentes.
-3.  **CROSS-VALIDATION — PENDIENTE**: Validar robustez de parámetros por perfil.
-4.  **FIX D1: DETECTORES PER-CLUSTER — COMPLETADO ✅** (2026-06-08).
-5.  **CLUSTER OPTIMIZER — COMPLETADO ✅ + EXPANDED** (2026-06-08).
-6.  **8.9 DATA FEED REVAMP — COMPLETADO ✅** (2026-06-22): UNION ALL optimization (138x speedup, 46h→20min). Symbol resolution fix. VA_GATE limitation documented.
-7.  **SIGNAL VALIDATION & MATURITY GATE OVERHAUL — COMPLETADO ✅** (2026-06-24): Solucionado el bloqueo de señales en backtests continuos añadiendo madurez temporal real `is_mature` en `MarketProfile`. Optimizado recálculo de POC de $O(N \times K)$ a batch $O(N)$ (speedup de 25x, throughput de 5,400 ticks/seg).
-8.  **VA_GATE REGIME FIX — COMPLETADO ✅** (2026-06-25): Eliminado bypass tóxico `is_mature`; rolling window 8h evalúa régimen actual. Validado: ranging → ALLOW, trending → BLOCK.
-9.  **VA_GATE SELECTIVE BY SETUP_TYPE — COMPLETADO ✅** (2026-06-25): Gate selectivo parametrizado por perfil — bloquea mean-reversion en trending, permite trend-following. Config `va_gate` en 9 perfiles, lógica `_apply_va_gate()` en ScenarioManager.
+## 📍 Ruta Actual (Fuente de Verdad del Roadmap)
 
-### Próximos Pasos Inmediatos (Prioridad):
-1. **Ajustar thresholds `trend_acceptance` para LTC** — `l2_ratio_min_trend_acceptance` → 1.0-1.2, `cvd_confirmation_threshold` → 2.0-2.5, `max_pullback_penetration_pct` → 0.002-0.003. Próxima optimización LTC.
-2. **Implementar Cooldown Post-SL** — Mitigar cascadas LONG (11 LONGs consecutivos residuales en downtrend). Cooldown por `symbol + setup_type` tras N SLs consecutivos (ej. 3 SLs → 4h).
-3. **Validar en 84 Datasets 24h Certificados** — Orchestration completa para confirmar no-regresión: gate no debe ser demasiado restrictivo en rangos/trends suaves normales.
+### Completado (historial en changelog.md):
+Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation ✅ | 8.9 Data Feed Revamp (138x) ✅ | Refactor feat/limpieza-profunda ✅ Mergeado | LTC trend_acceptance Optimized (+0.3184%) ✅
+
+### Siguientes Pasos (Priorizados):
+1. **`--run-type trade` LTC 24h** — Ejecutar orchestrator en modo trade sobre dataset 24h LTC para validar comportamiento real post-optimización.
+2. **Validar 84 datasets 24h** — Orchestration multi-coin completa para confirmar no-regresión post-refactor.
+3. **Implementar Cooldown Post-SL** — Mitigar cascadas LONG por `symbol + setup_type` tras N SLs consecutivos (ej. 3 SLs → 4h).
+4. **Optimizar SOL trend_acceptance** — MFE/MAE 0.56, edge no encontrado aún.
+5. **Certificación v9.0.0** — Backtests verdes multi-coin → tag + merge a `main`.
 
 ---
 
@@ -121,6 +117,14 @@
 
 - **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
 - **Branch**: `dev-8.9-datafeed-revamp` (trabajo diario), `main` (v8.9 certificada)
+- **Backtest Runner**: Unificado en `scripts/backtest_runner.py` con dos modos:
+  - **Audit Mode** (`--mode audit`): Ejecución paralela de múltiples backtests, merge de historian DBs, edge auditor. Para validación estadística de edge en 6 datasets.
+  - **Trade Mode** (`--mode trade`): Ejecución secuencial de 1 backtest, simulación realista de trading. Para validación final antes de live deployment.
+- **Workflow Estándar**:
+  1. Optimizar: `cluster_optimizer.py --cluster LTC --iterations 50`
+  2. Auditar: `backtest_runner.py --mode audit --symbol LTCUSDT`
+  3. Validar trade: `backtest_runner.py --mode trade --symbol LTCUSDT`
+  4. Certificar: Merge a main + tag
 - **Cluster Optimizer** (2026-06-08): `scripts/cluster_optimizer.py` — 49 params across 8 groups (absorption, failed_breakout, liquidity_exhaustion, trend_acceptance, targets, quality, guardians, pressure). `--param-groups` for selective optimization. Weight auto-normalization. Optuna TPE + persistent SQLite + `--resume`.
 - **EdgeAuditor get_metrics()**: Programmatic API returning net_taker, root_cause, MFE/MAE, best_uniforms. Used by optimizer.
 - **Profile Classification Fix**: `_classify_and_set_profile()` checks `clusters_fixed.json` BEFORE runtime classification.
@@ -132,7 +136,7 @@
 - **V11 Exit Engine & MarketProfile Overhaul** (2026-06-24): Rediseño del `SlimExitEngine` V11. Reemplazadas salidas activas basadas en tiempo (`close_position`) con compresión pasiva lineal del bracket de intercambio (OCO). Implementado `is_mature` en `MarketProfile` para evadir el bloqueo del VA_GATE (baja `va_integrity`) en perfiles maduros. Optimizado `_recalculate_poc` para ejecutarse en lotes tras la poda de ticks, logrando una aceleración masiva del motor (5,400 ticks/seg). Validadores al 100% aprobados.
 - **VA_GATE Regime Fix** (2026-06-25): Eliminado el bypass tóxico `is_mature → max(1.0, score)` que permitía operar mean-reversion en tendencia. El rolling window de 8h en `MarketProfile` ya poda ticks viejos; `calculate_va_integrity()` ahora evalúa régimen actual. Validado: ranging → integrity > 0.15 (ALLOW), trending → integrity ~0.001 (BLOCK).
 - **Refactor feats/limpieza-profunda** (2026-06-28): Renombrado PressureEngine → OrderFlowEngine, ScenarioManager → SignalArbitrator, escenarios en instant/ + confirmation/. Validación completa post-refactor: 7 layers validadas, orchestrator single-coin-audit LTC (6/6 ✅) + SOL (7/7 ✅) en 2539s. Bugfix absorption_score en tactical_absorption.py:119. SOL targets optimizados por best uniform (FB/0.008, LE/0.007, TA/0.008). SOL l2_ratio_min 1.5→2.0. Orchestrator cleanup: protocolos generalized/probe eliminados, workers 100% dinámicos, auto-audits habilitados.
-- **Next Session**: Re-correr single-coin-audit SOL para confirmar mejora; implementar Post-SL Cooldown; ajustar thresholds trend_acceptance para LTC; merge feat/limpieza-profunda → dev-8.9-datafeed-revamp.
+- **Next Session**: Ejecutar orchestrator con `--run-type trade` en LTC 24h; validar no-regresión en 84 datasets; implementar Post-SL Cooldown; optimizar SOL trend_acceptance.
 
 ---
 
@@ -142,6 +146,8 @@
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
+- 2026-06-30 | sync-docs | **ROADMAP CLEANUP, BRANCH CLEANUP & CLI --help OVERHAUL**: Roadmap unificado en memory.md como fuente de verdad única. `feat/limpieza-profunda` eliminada. `session-close.md` → `sync-docs.md`. --help mejorado en orchestrator.py, backtest.py, cluster_optimizer.py. Próximo paso: `--run-type trade` LTC 24h.
+- 2026-06-30 | session-close | **LTC CASCADE OPTIMIZATION & GOLDEN PARAMS**: Resuelto bug en cluster_optimizer (envenenamiento del signal count por setups irrelevantes). Optimización de 50 iteraciones para trend_acceptance en LTC logró +0.3184% Net Taker. Se actualizó coin_profiles.py, se guardó la DB gold-standard, y se reescribió ltc.md a V2. Cambios mergeados a dev-8.9-datafeed-revamp. Próximo paso: probar con run-type trade en 24h y luego dataset mensual.
 - 2026-06-28 | session-close | **POST-REFACTOR VALIDATION + SOL TUNING + ORCHESTRATOR CLEANUP**: Validación completa del refactor `feat/limpieza-profunda` (7 layers, LTC 6/6, SOL 7/7). Bugfix absorption_score_v2 en tactical_absorption.py. SOL targets optimizados (FB/0.008, LE/0.007, TA/0.008). SOL l2_ratio_min 1.5→2.0. Generalized/probe eliminados del orchestrator. Workers 100% dinámicos. Auto-audits en single-coin-audit. Commit `2841e14`.
 - 2026-06-25 | session-close | **BACKTEST MENSUAL LTC MAYO 2026 COMPLETE + TREND_ACCEPTANCE DIAGNOSIS**: VA_GATE selectivo funcionó (bloqueó mean-reversion en downtrend, permitió trend-following), pero trend_acceptance no generó SHORTs en downtrend 10-17 mayo (-4.1%). 28 trades (26 LONG SL, 2 SHORT TP). Causa: thresholds trend_acceptance demasiado estrictos (l2_ratio_min_trend_acceptance=1.5, cvd_confirmation_threshold=4.0). Próxima optimización: reducir a 1.0-1.2 y 2.0-2.5. Single-coin orchestration corriendo en 6 datasets 24h LTC.
 - 2026-06-25 | session-close | **VA_GATE SELECTIVE BY SETUP_TYPE — PARAMETRIZED PER PROFILE**: VA_GATE now blocks only mean-reversion setups (tactical_absorption, failed_breakout, liquidity_exhaustion) when integrity < 0.15, while allowing trend-following (trend_acceptance). Added `va_gate` config to all 9 profiles with block/allow lists. New `_apply_va_gate()` in ScenarioManager reads profile config. Validated: integrity=0.5 → allows all; integrity=0.02 → allows only trend_acceptance.

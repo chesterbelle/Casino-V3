@@ -6,6 +6,59 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-06-30 SESSION V2] — Roadmap Cleanup, Branch Cleanup & CLI --help Overhaul (Branch: dev-8.9-datafeed-revamp)
+
+#### Summary
+Sesión de organización profunda. Se identificó y resolvió desorden en el roadmap (información duplicada entre memory.md y changelog.md, items obsoletos). Se fusionó y eliminó `feat/limpieza-profunda`. Se renombró `session-close.md` → `sync-docs.md` para evitar confusión semántica. Se mejoraron los `--help` de los 3 scripts principales para que el agente pueda operar sin documentación externa.
+
+#### Actions
+1. **Roadmap Unificado**: Se movió el roadmap a `memory.md` como fuente de verdad única. Los "Next Steps" en `changelog.md` son ahora contexto histórico. Se limpiaron items ya completados (LTC trend_acceptance optimization, merge del refactor).
+2. **Branch Cleanup**: `feat/limpieza-profunda` eliminada (ya mergeada en `dev-8.9-datafeed-revamp`). Branch actual cambiada a `dev-8.9-datafeed-revamp`.
+3. **`session-close.md` → `sync-docs.md`**: Renombrado para que el usuario pueda invocar el protocolo a mitad de sesión sin implicar cierre. Se añadieron 3 pasos: roadmap sync, branch cleanup, y deduplicación.
+4. **`--help` Overhaul**:
+   - `scripts/orchestrator.py`: Epílogo con protocolos explicados, ejemplos por comando, flujo estándar de 4 pasos.
+   - `backtest.py`: Descripción completa, epílogo con flags clave, ejemplos de uso manual.
+   - `scripts/cluster_optimizer.py`: 4 ejemplos reales, flujo típico de 4 pasos, descripción de cada flag.
+
+#### Files Modified
+| Archivo | Cambio |
+|---------|--------|
+| `.agent/memory.md` | Roadmap unificado como fuente de verdad; branch actual actualizada; "Next Session" sincronizado |
+| `.agent/workflows/session-close.md` | Renombrado a `sync-docs.md` |
+| `.agent/workflows/sync-docs.md` | +3 pasos (roadmap sync, branch cleanup, dedup) |
+| `.agent/changelog.md` | Referencia a session-close.md corregida |
+| `scripts/orchestrator.py` | --help con epílogo completo, ejemplos, flujo estándar |
+| `backtest.py` | --help con descripción, epílogo, flags clave |
+| `scripts/cluster_optimizer.py` | --help con 4 ejemplos, flujo típico, --param-groups eliminado (nunca implementado) |
+
+#### Next Steps (ver roadmap en memory.md)
+1. Ejecutar orchestrator con `--run-type trade` en LTC 24h
+2. Validar 84 datasets 24h
+3. Implementar Cooldown Post-SL
+4. Optimizar SOL trend_acceptance
+
+---
+
+### [2026-06-30 SESSION] — LTC Cascade Optimization & Golden Parameters Update (Branch: dev-8.9-datafeed-revamp)
+
+#### Summary
+Resolución del bug de scoring en `cluster_optimizer.py` (las señales no se contaban bien y el score penalizaba a los setups). Se extrajo el count correcto del auditor y se optimizó exitosamente `trend_acceptance` para LTC en modo cascada (50 iteraciones). Los parámetros dorados para LTC fueron consolidados y documentados.
+
+#### Actions
+1. **Bug fix: Optimizer Scoring**: Se modificó `scripts/cluster_optimizer.py` para usar `setup_counts` directamente desde `auditor.setup_metrics` porque el "Total Signals" global estaba envenenando el penalty ratio.
+2. **LTC Cascade Optimization**: Se iteró 50 veces sobre los parámetros de `trend_acceptance`. El mejor set logró un Net Taker final certificado de **+0.3184%** en la prueba "Zero Interference".
+3. **Golden Parameters**:
+   - Se sobrescribió `config/coin_profiles.py` con los nuevos parámetros aislados por sufijo.
+   - Se actualizó el "Gold Standard" DB en `data/db_vault/ltc-goldstandard.db`.
+   - Se reescribió `ltc.md` al modelo V2.
+4. **Git Merge**: Todo se unió y pusheo a `dev-8.9-datafeed-revamp`.
+
+#### Next Steps
+- Ejecutar el Orchestrator con `--run-type trade` en un dataset de 24h para LTC para validar el comportamiento real (y no solo audit mode).
+- Si es exitoso, correrlo con el dataset mensual para validar la reestructuración de `8.9-datafeed-revamp`.
+
+---
+
 ### [2026-06-28 SESSION] — Post-Refactor Validation: Pipeline completa + SOL Tuning + Orchestrator Cleanup (Branch: feat/limpieza-profunda)
 
 #### Summary
@@ -1940,7 +1993,7 @@ Ejecutamos la suite completa de validación `validate-all.md` para certificar qu
 #### 3. Archivos Modificados en esta Sesión
 *   `croupier/croupier.py` — Fix self.clock → time.time (2 ocurrencias)
 *   `scripts/orchestrator.py` — Restauración de PROTOCOLS, DB_DIR, LOG_DIR y helpers
-*   `.agent/session-close.md` — Documento de cierre de sesión
+*   `.agent/workflows/sync-docs.md` — Documento de sincronización de documentación
 
 #### 4. Próximos Pasos
 1. Considerar backlog de Fase 3.2 (__slots__ en OpenPosition con @dataclass(slots=True))

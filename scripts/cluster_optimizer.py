@@ -704,44 +704,102 @@ def get_safe_workers(max_workers: Optional[int] = None, total_tasks: int = 1) ->
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Cluster Optimizer — Bayesian Parameter Search for Casino-V3",
+        prog="cluster_optimizer",
+        description="Optimización bayesiana (Optuna TPE) de parámetros para un cluster. "
+        "Busca la combinación óptima de 49 parámetros en 8 grupos para maximizar Net Taker.",
+        epilog="""EJEMPLOS:
+
+  # Optimización completa de MID_LIQUID con LTC, 100 iteraciones
+  python scripts/cluster_optimizer.py --cluster MID_LIQUID --coin LTCUSDT --iterations 100 --study-db data/db_vault/ltc_study.db
+
+  # Reanudar estudio interrumpido
+  python scripts/cluster_optimizer.py --cluster MID_LIQUID --coin LTCUSDT --study-db data/db_vault/ltc_study.db --resume
+
+  # Optimizar solo trend_acceptance (ignora otros escenarios)
+  python scripts/cluster_optimizer.py --cluster MID_LIQUID --coin LTCUSDT --iterations 30 --only trend_acceptance
+
+  # Validar parámetros actuales (sin optimizar)
+  python scripts/cluster_optimizer.py --cluster MID_LIQUID --coin LTCUSDT --validate-only
+
+FLUJO TÍPICO:
+  1. python cluster_optimizer.py --cluster MID_LIQUID --iterations 50 --study-db data/db_vault/mid_liquid_study.db
+  2. Revisar best_params en output
+  3. python cluster_optimizer.py --cluster MID_LIQUID --study-db data/db_vault/mid_liquid_study.db --resume (si quieres más iters)
+  4. Aplicar manualmente los parámetros a config/coin_profiles.py
+""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--cluster",
         required=True,
-        choices=[
-            "MEGA_LIQUID",
-            "MAJOR_LIQUID",
-            "MID_LIQUID",
-            "THIN_VOLATILE",
-            "ILLIQUID_SPEC",
-            "SOL_INERTIAL_TRENDING",
-            "AVAX_NOISY_UNCERTAIN",
-            "LTC_NOISY_UNCERTAIN_1",
-            "INERTIAL_TRENDING",
-            "NOISY_UNCERTAIN",
-            "NOISY_UNCERTAIN_1",
-        ],
+        choices=sorted(
+            [
+                "MEGA_LIQUID",
+                "MAJOR_LIQUID",
+                "MID_LIQUID",
+                "THIN_VOLATILE",
+                "ILLIQUID_SPEC",
+                "SOL_INERTIAL_TRENDING",
+                "AVAX_NOISY_UNCERTAIN",
+                "LTC_NOISY_UNCERTAIN_1",
+                "INERTIAL_TRENDING",
+                "NOISY_UNCERTAIN",
+                "NOISY_UNCERTAIN_1",
+            ]
+        ),
+        help="Nombre del cluster a optimizar. Los miembros se leen de config/clusters_fixed.json.",
     )
-    parser.add_argument("--coin", help="Representative coin")
+    parser.add_argument(
+        "--coin",
+        help="Moneda representativa del cluster (default: primer miembro). "
+        "Debe tener datasets disponibles en daily_backtest_ready/.",
+    )
     parser.add_argument(
         "--only",
         type=str,
         default=None,
         choices=["failed_breakout", "liquidity_exhaustion", "trend_acceptance", "tactical_absorption"],
-        help="Optimizar solo un escenario. Filtra PARAMETER_SPACE y scoring a ese escenario.",
+        help="Optimizar solo un escenario. Reduce PARAMETER_SPACE a los parámetros de ese setup.",
     )
-    parser.add_argument("--iterations", type=int, default=50)
     parser.add_argument(
-        "--min-workers", type=int, default=1, help="Minimum worker floor (dynamic calc based on RAM/CPU)"
+        "--iterations",
+        type=int,
+        default=50,
+        help="Número de iteraciones de Optuna (default: 50). Más iteraciones = mejor convergencia, más tiempo.",
     )
-    parser.add_argument("--filter", type=str, default=None)
-    parser.add_argument("--output", type=str, default=None)
-    parser.add_argument("--validate-only", action="store_true")
-    parser.add_argument("--sensitivity", action="store_true", default=True)
-    parser.add_argument("--study-db", type=str, default=None, help="SQLite DB for persistent study (survives cancel)")
-    parser.add_argument("--resume", action="store_true", help="Resume existing study from --study-db")
+    parser.add_argument(
+        "--min-workers",
+        type=int,
+        default=1,
+        help="Mínimo de workers paralelos. El cálculo dinámico usa 65%% de CPUs disponibles (default: 1).",
+    )
+    parser.add_argument(
+        "--filter", type=str, default=None, help="Filtro por fecha en datasets (ej. '2025' para solo datasets de 2025)."
+    )
+    parser.add_argument("--output", type=str, default=None, help="Ruta personalizada para el reporte de salida.")
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="No optimizar. Solo ejecutar edge auditor con los parámetros actuales del perfil y reportar Net Taker baseline.",
+    )
+    parser.add_argument(
+        "--sensitivity",
+        action="store_true",
+        default=True,
+        help="Ejecutar análisis de sensibilidad post-optimización (default: True).",
+    )
+    parser.add_argument(
+        "--study-db",
+        type=str,
+        default=None,
+        help="Ruta a un archivo .db para persistir el estudio de Optuna. Permite reanudar con --resume si se interrumpe. "
+        "Ej: data/db_vault/ltc_study.db",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reanudar estudio existente desde --study-db. Omite las iteraciones ya completadas.",
+    )
     args = parser.parse_args()
 
     import optuna

@@ -53,23 +53,59 @@ logger = logging.getLogger("Backtest-V4")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Casino V4 Backtester")
-    parser.add_argument("--data", type=str, default=None, help="Path to historical CSV/Parquet file")
-    parser.add_argument("--symbol", type=str, default="BTC/USDT:USDT", help="Symbol to backtest")
-    parser.add_argument("--balance", type=float, default=10000.0, help="Initial balance")
-    parser.add_argument("--bet-size", type=float, default=0.01, help="Fixed bet size fraction")
-    parser.add_argument("--delay", type=float, default=0.0, help="Artificial delay between events")
-    parser.add_argument("--limit", type=int, default=None, help="Stop after N events")
-    parser.add_argument(
-        "--depth-db-path", type=str, default=None, help="Path to Historian DB containing depth_snapshots (Phase 1300)"
+    parser = argparse.ArgumentParser(
+        prog="backtest",
+        description="Backtest individual para Casino-V3 con datos L2 reales. "
+        "Normalmente se invoca a través del orchestrator (scripts/orchestrator.py).",
+        epilog="""USO TÍPICO (vía orchestrator):
+  python scripts/orchestrator.py --protocol single-coin-audit --symbol SOLUSDT --filter 2025
+
+USO MANUAL:
+  python backtest.py --depth-db-path data/datasets/daily_backtest_ready/LTC_TREND_UP_2024-03.db --symbol LTCUSDT --run-type audit
+
+FLAGS CLAVE:
+  --depth-db-path    Ruta al .db del dataset. Es el único modo de cargar datos L2 reales.
+  --run-type         audit = solo registra señales (sin trades). trade = ejecuta órdenes reales.
+  --historian-db     Cambia el archivo de salida. Usado por el orchestrator para aislar
+                     cada backtest paralelo en un historian temporal (historian_<task>.db).
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--historian-db", type=str, default=None, help="Custom output path for historian.db")
+    parser.add_argument("--data", type=str, default=None, help="[Obsoleto] Usar --depth-db-path en su lugar.")
+    parser.add_argument(
+        "--symbol",
+        type=str,
+        default="BTC/USDT:USDT",
+        help="Símbolo en formato CCXT (ej. LTCUSDT, SOLUSDT, BTC/USDT:USDT).",
+    )
+    parser.add_argument("--balance", type=float, default=10000.0, help="Balance inicial en USDT (default: 10000).")
+    parser.add_argument(
+        "--bet-size", type=float, default=0.01, help="Fracción del balance por trade (default: 0.01 = 1%%)."
+    )
+    parser.add_argument(
+        "--delay", type=float, default=0.0, help="Delay artificial entre eventos (ms). Solo para debug visual."
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Detener después de N eventos. Útil para tests rápidos."
+    )
+    parser.add_argument(
+        "--depth-db-path",
+        type=str,
+        default=None,
+        help="Ruta al archivo .db del dataset. Contiene depth_snapshots + market_trades. Requerido para datos reales.",
+    )
+    parser.add_argument(
+        "--historian-db",
+        type=str,
+        default=None,
+        help="Ruta de salida personalizada para historian.db. El orquestador lo usa para aislar ejecuciones paralelas.",
+    )
     parser.add_argument(
         "--run-type",
         type=str,
         required=True,
         choices=["audit", "trade"],
-        help="Define la intención del motor: auditar señales o ejecutar trades.",
+        help="audit: solo registra señales (zero-interference). trade: ejecuta órdenes con brackets TP/SL.",
     )
     return parser.parse_args()
 

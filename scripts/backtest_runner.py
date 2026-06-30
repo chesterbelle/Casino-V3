@@ -1,3 +1,47 @@
+#!/usr/bin/env python3
+"""
+===============================================================================
+🎯 BACKTEST RUNNER — Unified Backtest Execution Engine
+===============================================================================
+
+Two modes of operation:
+
+  AUDIT MODE (Parallel):
+    - Executes multiple backtests simultaneously
+    - Merges historian databases
+    - Runs edge auditor for statistical validation
+    - Use: Validate edge across 6 datasets (2 TREND + 2 BALANCE per symbol)
+
+  TRADE MODE (Sequential):
+    - Executes single backtest with realistic trading simulation
+    - Reports PnL, win rate, and execution quality
+    - Use: Final validation before live deployment
+
+WORKFLOW:
+  1. Optimize params → cluster_optimizer.py
+  2. Audit edge      → backtest_runner.py --mode audit --symbol LTCUSDT
+  3. Validate trade  → backtest_runner.py --mode trade --symbol LTCUSDT
+  4. Certify         → Merge to main + tag release
+
+USAGE EXAMPLES:
+  # Audit mode (default) - validates edge across all 6 datasets
+  python scripts/backtest_runner.py --symbol LTCUSDT
+
+  # Audit mode with filter (e.g., only 2024 datasets)
+  python scripts/backtest_runner.py --symbol LTCUSDT --filter 2024
+
+  # Trade mode - validates single most recent dataset
+  python scripts/backtest_runner.py --mode trade --symbol LTCUSDT
+
+  # Trade mode - validates specific dataset
+  python scripts/backtest_runner.py --mode trade --dataset data/datasets/.../LTC_TREND_UP_2024-03.db
+
+  # Cluster-wide audit (all symbols in MID_LIQUID cluster)
+  python scripts/backtest_runner.py --protocol cluster_mid_liquid
+
+===============================================================================
+"""
+
 import argparse
 import glob
 import json
@@ -83,26 +127,6 @@ def redraw_progress(completed, total, pending_count, mem_status, elapsed, recent
         f"\r⏳ [En progreso] {completed}/{total} completados | {pending_count} ejecutándose | {mem_status} | Transcurrido: {elapsed:.0f}s "
     )
     sys.stdout.flush()
-
-
-PROTOCOLS = {
-    "single-coin-audit": {"run_type": "audit", "skip_merge": False, "skip_clean": True},
-    "trade-mode": {"run_type": "trade", "skip_merge": True},
-}
-
-
-def discover_cluster_protocols():
-    protocols = {}
-    path = os.path.join(_BASE, "config", "clusters_fixed.json")
-    try:
-        with open(path) as f:
-            data = json.load(f)
-        for cluster_name in data.get("clusters", {}):
-            key = f"cluster_{cluster_name.lower()}"
-            protocols[key] = {"run_type": "audit", "skip_merge": False}
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    return protocols
 
 
 DB_DIR = "data/datasets/daily_backtest_ready"
@@ -245,60 +269,68 @@ def run_backtest(task_config):
         return False
 
 
-def build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset=None):
-    config = all_protocols.get(protocol_name)
+def build_tasks(mode, protocol_name, symbol, filter_pattern, dataset=None):
+    """
+    Build task list based on mode and protocol.
+
+    AUDIT MODE:
+      - single-coin-audit: 6 datasets (2 TREND_UP + 2 TREND_DOWN + 2 BALANCE)
+      - cluster_*: All datasets for all symbols in cluster
+      - trade-mode: Not available in audit mode
+
+    TRADE MODE:
+      - single-coin-audit: Most recent dataset only
+      - trade-mode: Most recent or specific dataset
+      - cluster_*: Not available in trade mode (one at a time)
+    """
     tasks = []
 
-    if protocol_name.startswith("cluster_"):
-        cluster_key = protocol_name[len("cluster_") :]
-        members = get_cluster_members(cluster_key)
-        for sym in members:
-            datasets = get_datasets_for_symbol(sym, filter_pattern)
+    if mode == "audit":
+        # ═══════════════════════════════════════════════════════════════
+        # AUDIT MODE: Parallel execution across multiple datasets
+        # Purpose: Statistical edge validation
+        # ═══════════════════════════════════════════════════════════════
+        if protocol_name.startswith("cluster_"):
+            cluster_key = protocol_name[len("cluster_") :]
+            members = get_cluster_members(cluster_key)
+            for sym in members:
+                datasets = get_datasets_for_symbol(sym, filter_pattern)
+                for db_file in datasets:
+                    tasks.append(
+                        {
+                            "task_id": db_file.replace(".db", ""),
+                            "db_path": os.path.join(DB_DIR, db_file),
+                            "symbol": format_ccxt_symbol(sym),
+                            "run_type": "audit",
+                        }
+                    )
+        elif protocol_name == "single-coin-audit":
+            if not symbol:
+                symbol = "LTCUSDT"
+            datasets = get_datasets_for_symbol(symbol, filter_pattern)
             for db_file in datasets:
                 tasks.append(
                     {
                         "task_id": db_file.replace(".db", ""),
                         "db_path": os.path.join(DB_DIR, db_file),
-                        "symbol": format_ccxt_symbol(sym),
-                        "run_type": config["run_type"],
+                        "symbol": format_ccxt_symbol(symbol),
+                        "run_type": "audit",
                     }
                 )
-    elif protocol_name == "single-coin-audit":
-        if not symbol:
-            symbol = "LTCUSDT"
-        datasets = get_datasets_for_symbol(symbol, filter_pattern)
-        for db_file in datasets:
-            tasks.append(
-                {
-                    "task_id": db_file.replace(".db", ""),
-                    "db_path": os.path.join(DB_DIR, db_file),
-                    "symbol": format_ccxt_symbol(symbol),
-                    "run_type": config["run_type"],
-                }
-            )
-    elif protocol_name == "probe":
-        all_syms = discover_all_symbols()
-        for sym in all_syms:
-            db_file = pick_recent_dataset(sym, filter_pattern)
-            if not db_file:
-                _p(f"  ⚠️ No dataset for {sym}")
-                continue
-            tasks.append(
-                {
-                    "task_id": f"{db_file.replace('.db', '')}",
-                    "db_path": os.path.join(DB_DIR, db_file),
-                    "symbol": sym,
-                    "run_type": config["run_type"],
-                }
-            )
-    elif protocol_name == "trade-mode":
+        elif protocol_name == "trade-mode":
+            _p("❌ trade-mode not available in audit mode. Use --mode trade instead.")
+            return []
+    elif mode == "trade":
+        # ═══════════════════════════════════════════════════════════════
+        # TRADE MODE: Sequential execution, single dataset
+        # Purpose: Realistic trading simulation before live deployment
+        # ═══════════════════════════════════════════════════════════════
         if dataset:
             if not os.path.exists(dataset):
                 _p(f"❌ Dataset not found: {dataset}")
                 return tasks
             db_file = os.path.basename(dataset)
-            # Extract symbol from filename: e.g. SOLUSDT_TREND_UP_2026-01-26.db → SOLUSDT
-            # Also handles monthly: LTC_monthly_2026_05.db → LTC
+            # Extract symbol from filename
             name = db_file.replace(".db", "")
             raw_sym = name
             for sep in ("_TREND_", "_BALANCE_", "_monthly_"):
@@ -311,13 +343,10 @@ def build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset=No
                     "task_id": db_file.replace(".db", ""),
                     "db_path": dataset,
                     "symbol": format_ccxt_symbol(raw_sym),
-                    "run_type": config["run_type"],
+                    "run_type": "trade",
                 }
             )
-        elif not symbol:
-            _p("❌ --symbol (or --dataset) required for trade-mode")
-            return tasks
-        else:
+        elif symbol:
             db_file = pick_recent_dataset(symbol, filter_pattern)
             if not db_file:
                 _p(f"  ⚠️ No dataset for {symbol}")
@@ -327,25 +356,12 @@ def build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset=No
                     "task_id": db_file.replace(".db", ""),
                     "db_path": os.path.join(DB_DIR, db_file),
                     "symbol": format_ccxt_symbol(symbol),
-                    "run_type": config["run_type"],
+                    "run_type": "trade",
                 }
             )
-    elif "datasets" in config:
-        for db_file in config["datasets"]:
-            path = os.path.join(DB_DIR, db_file)
-            if not os.path.exists(path):
-                _p(f"  ⚠️ Missing: {path}")
-                continue
-            tasks.append(
-                {
-                    "task_id": db_file.replace(".db", ""),
-                    "db_path": path,
-                    "symbol": config.get("symbol", format_ccxt_symbol(db_file)),
-                    "run_type": config["run_type"],
-                }
-            )
-    else:
-        _p(f"❌ Unknown protocol type: {protocol_name}")
+        else:
+            _p("❌ --symbol or --dataset required for trade mode")
+            return []
 
     return tasks
 
@@ -372,28 +388,26 @@ def calculate_workers(total_tasks):
     return capped
 
 
-def run_protocol(protocol_name, symbol=None, filter_pattern=None, dataset=None):
-    all_protocols = {**PROTOCOLS, **discover_cluster_protocols()}
-    config = all_protocols.get(protocol_name)
-    if not config:
-        _p(f"❌ Unknown protocol: {protocol_name}")
+def run_protocol(mode, protocol_name, symbol=None, filter_pattern=None, dataset=None):
+    if not protocol_name:
+        protocol_name = "single-coin-audit"
+
+    if not clean_data_if_needed(mode, protocol_name):
         return
 
-    if not config.get("skip_clean", False):
-        clean_temp_data()
-    else:
-        os.makedirs(LOG_DIR, exist_ok=True)
-
-    tasks = build_tasks(protocol_name, symbol, filter_pattern, all_protocols, dataset)
+    tasks = build_tasks(mode, protocol_name, symbol, filter_pattern, dataset)
     if not tasks:
         _p("❌ No tasks to run. Check dataset availability.")
         return
 
     total = len(tasks)
-    actual_workers = calculate_workers(total)
 
+    # Trade mode always runs sequentially (1 worker)
+    actual_workers = 1 if mode == "trade" else calculate_workers(total)
+
+    mode_label = "🔍 AUDIT" if mode == "audit" else "📊 TRADE"
     _p(
-        f"\n🚀 {protocol_name.upper()} — {total} backtests, {actual_workers} workers dinámicos (Host CPU: {os.cpu_count() or 4})\n"
+        f"\n🚀 {mode_label} MODE — {total} backtest(s), {actual_workers} worker(s) dinámicos (Host CPU: {os.cpu_count() or 4})\n"
     )
 
     completed = 0
@@ -435,36 +449,133 @@ def run_protocol(protocol_name, symbol=None, filter_pattern=None, dataset=None):
 
     elapsed = time.time() - start_time
     _p(f"\n{'='*50}")
-    _p(f"📊 {protocol_name.upper()} — {completed} done, {failed} failed, {elapsed:.0f}s")
+    _p(f"📊 {mode_label} MODE — {completed} done, {failed} failed, {elapsed:.0f}s")
 
     if failed == 0 and _running:
-        skip_merge = config.get("skip_merge", False)
-        if config["run_type"] == "audit" and not skip_merge:
+        if mode == "audit":
+            # ═══════════════════════════════════════════════════════════════
+            # POST-AUDIT PROCESSING (Audit mode only)
+            # - Merge historian databases
+            # - Run edge auditor
+            # - Run L2 depth auditor
+            # ═══════════════════════════════════════════════════════════════
             _p("\n🔗 Merging historian databases...")
             subprocess.run([venv_python, "utils/merge_historian.py"], check=True)
             _p("\n📊 Running edge auditor...")
             subprocess.run([venv_python, "utils/setup_edge_auditor.py", "--window", "21600"], check=True)
             _p("\n📊 Running L2 depth auditor...")
             subprocess.run([venv_python, "utils/l2_depth_auditor.py", "--db", "data/historian.db"], check=True)
-        _p("\n✅ Protocol complete.")
+            _p("\n✅ Audit mode complete.")
+        else:
+            # Trade mode: Just report final status
+            _p("\n✅ Trade mode complete. Check logs/ for detailed PnL report.")
     elif failed > 0:
         _p(f"\n⚠️  {failed} backtest(s) failed. Check logs/ for details.")
 
 
+def clean_data_if_needed(mode, protocol_name):
+    """Clean temp data only for audit mode (not for trade mode)."""
+    if mode == "audit" and protocol_name != "trade-mode":
+        clean_temp_data()
+    else:
+        os.makedirs(LOG_DIR, exist_ok=True)
+    return True
+
+
 if __name__ == "__main__":
-    all_protocols = {**PROTOCOLS, **discover_cluster_protocols()}
-    parser = argparse.ArgumentParser(description="Smart Orchestrator for Casino-V3")
-    parser.add_argument("--protocol", choices=list(all_protocols.keys()), required=True)
-    parser.add_argument("--symbol", help="Symbol for single-coin-audit")
-    parser.add_argument("--filter", help="Filter pattern for datasets (e.g. 2025)")
+    epilog = """
+═══════════════════════════════════════════════════════════════════════════
+MODES OF OPERATION
+═══════════════════════════════════════════════════════════════════════════
+
+🔍 AUDIT MODE (Default):
+   Executes multiple backtests in parallel, merges results, and runs
+   statistical edge analysis. Use for validating edge across datasets.
+
+   Examples:
+     # Audit all 6 datasets for a symbol (2 TREND + 2 BALANCE)
+     python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
+
+     # Audit with year filter
+     python scripts/backtest_runner.py --mode audit --symbol LTCUSDT --filter 2024
+
+     # Audit entire cluster (all symbols)
+     python scripts/backtest_runner.py --mode audit --protocol cluster_mid_liquid
+
+📊 TRADE MODE:
+   Executes single backtest with realistic trading simulation. Use for
+   final validation before live deployment.
+
+   Examples:
+     # Trade most recent dataset
+     python scripts/backtest_runner.py --mode trade --symbol LTCUSDT
+
+     # Trade specific dataset
+     python scripts/backtest_runner.py --mode trade --dataset data/datasets/.../LTC_TREND_UP_2024-03.db
+
+═══════════════════════════════════════════════════════════════════════════
+RECOMMENDED WORKFLOW
+═══════════════════════════════════════════════════════════════════════════
+
+1. Optimize parameters:
+   python scripts/cluster_optimizer.py --cluster LTC_NOISY_UNCERTAIN_1 --iterations 50
+
+2. Audit edge (statistical validation):
+   python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
+   → Look for: Net Taker > 0, all scenarios "TARGETS OK"
+
+3. Validate trade (realistic simulation):
+   python scripts/backtest_runner.py --mode trade --symbol LTCUSDT
+   → Look for: Positive PnL, acceptable win rate
+
+4. Certify and deploy:
+   # After successful audit + trade validation, merge to main branch
+"""
+
+    parser = argparse.ArgumentParser(
+        prog="backtest_runner",
+        description="🎯 Unified Backtest Execution Engine — Audit edge statistically or validate in trade simulation",
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["audit", "trade"],
+        default="audit",
+        help="Execution mode: 'audit' for parallel statistical validation (default), 'trade' for sequential realistic simulation",
+    )
+    parser.add_argument(
+        "--protocol",
+        default=None,
+        help="Protocol to run: 'single-coin-audit' (default), 'cluster_<name>', or 'trade-mode' (auto-detected in trade mode)",
+    )
+    parser.add_argument(
+        "--symbol",
+        default=None,
+        help="Symbol to test (e.g., LTCUSDT, SOLUSDT). Required for single-coin-audit. Optional for trade-mode if using --dataset.",
+    )
+    parser.add_argument(
+        "--filter",
+        default=None,
+        help="Filter datasets by date pattern (e.g., 2024, 2025-03). Uses substring match on filename.",
+    )
     parser.add_argument(
         "--dataset",
-        help="Specific dataset path for trade-mode (e.g. data/datasets/daily_backtest_ready/LTC_TREND_UP_2024-03.db)",
+        default=None,
+        help="Exact path to a .db file. Alternative to --symbol for trade mode. Useful for testing specific datasets.",
     )
     args = parser.parse_args()
 
+    # Auto-detect protocol if not specified
+    protocol = args.protocol
+    if not protocol:
+        protocol = "trade-mode" if args.mode == "trade" else "single-coin-audit"
+
     try:
-        run_protocol(args.protocol, args.symbol, args.filter, args.dataset)
+        run_protocol(args.mode, protocol, args.symbol, args.filter, args.dataset)
     except Exception as e:
         _p(f"\n❌ FATAL: {e}")
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)

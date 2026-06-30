@@ -273,10 +273,10 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"sl_pct": 1.2, "tp_pct": 1.2},
-            "liquidity_exhaustion": {"sl_pct": 2.5, "tp_pct": 2.5},
-            "tactical_absorption": {"sl_pct": 2.0, "tp_pct": 1.0},
-            "trend_acceptance": {"sl_pct": 2.5, "tp_pct": 2.5},
+            "failed_breakout": {"sl_pct": 0.008, "tp_pct": 0.005},
+            "liquidity_exhaustion": {"sl_pct": 0.003, "tp_pct": 0.012},
+            "tactical_absorption": {"sl_pct": 0.003, "tp_pct": 0.012},
+            "trend_acceptance": {"sl_pct": 0.009, "tp_pct": 0.009},
         },
         "va_gate": {
             "allow_in_trending": ["trend_acceptance"],

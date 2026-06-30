@@ -1,8 +1,8 @@
 ---
-description: Protocolo de Cierre de Sesión (Actualiza memory.md y changelog.md)
+description: Sincroniza documentación (Actualiza memory.md y changelog.md)
 ---
 
-# Protocolo de Cierre de Sesión (/session-close)
+# Protocolo de Sincronización de Documentación (/sync-docs)
 
 ## 🎯 Objetivo
 Asegurar que el conocimiento técnico, las decisiones estratégicas y las métricas de rendimiento queden preservadas de forma estructurada antes de finalizar la interacción.
@@ -20,10 +20,12 @@ Asegurar que el conocimiento técnico, las decisiones estratégicas y las métri
 *   **Tabla Comparativa**: Si hay un nuevo "Baseline" certificado, actualizar la tabla de estrategias.
 *   **Manual Técnico & Gotchas**: Si se descubrió una regla nueva o un comportamiento extraño del exchange/bot, añadirlo a la sección correspondiente.
 *   **Objetivo de Sesión**: Actualizar la meta para la siguiente sesión basándose en lo concluido hoy.
-*   **Roadmap**: Si se completó una refactorización grande (ej. OrderFlowEngine, instant/confirmation), agregar en el roadmap la **verificación pre-merge** para la próxima sesión (ver Paso 4).
+*   **Roadmap**: El roadmap vivo está ÚNICAMENTE en `memory.md` (sección "📍 Ruta Actual"). Refleja lo que sigue AHORA, no el historial. Los "Next Steps" en `changelog.md` son contexto histórico de esa sesión, NO fuente de verdad. Al actualizar, limpia items obsoletos y asegura que no haya duplicación entre ambos archivos.
 
 ### Paso 3: Verificación de Integridad
 *   **Regla del Minuto**: El `memory.md` debe seguir siendo legible y útil en menos de 1 minuto. Si se está volviendo demasiado largo, mover detalles al `changelog.md`.
+*   **Roadmap Sync**: Comparar "📍 Ruta Actual" en `memory.md` con lo completado en esta sesión. Mover items completados al historial y eliminar duplicación con "Next Steps" del `changelog.md`.
+*   **Branch Cleanup**: Correr `git branch --merged dev-8.9-datafeed-revamp | grep -v "\*" | xargs git branch -D` para eliminar feat branches ya mergeadas.
 *   **Estado de Git**: Confirmar si se realizó `commit` o `tag` y reflejarlo en el Memory.
 
 ### Paso 4: Roadmap de Verificación Pre-Merge (Si hubo refactorización)
