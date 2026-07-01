@@ -390,14 +390,21 @@ async def run_backtest():
 
 
 if __name__ == "__main__":
+    _exit_code = 0
     try:
         asyncio.run(run_backtest())
     except KeyboardInterrupt:
-        pass
-    except Exception as e:
+        logger.warning("🛑 Backtest interrupted by user.")
+        _exit_code = 1
+    except BaseException as e:
         logger.error(f"💥 Backtest failed: {e}", exc_info=True)
+        for handler in logging.root.handlers:
+            handler.flush()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        _exit_code = 1
     finally:
         # Phase 2000: Force-exit to kill any zombie multiprocessing feeder threads.
         # multiprocessing.Queue uses background threads that can deadlock on pipe writes
         # if workers are terminated with unread data. os._exit bypasses all cleanup.
-        os._exit(0)
+        os._exit(_exit_code)
