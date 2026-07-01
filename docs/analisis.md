@@ -1,131 +1,192 @@
-# Auditoría Cuantitativa — Capa Lógica de Trading (AMT + Order Flow)
+# Auditoría de Condiciones de Entrada vs. Teoría de Subasta (AMT)
 
-**Auditor:** Senior Quant / Hedge Fund Risk Desk
-**Objeto:** Evaluación holística del *edge* de mercado del bot Casino-V3
-**Evidencia base:** 3 backtests mensuales LTC (Mar/Abr/May 2026) + lectura directa de la capa de decisión
-**Veredicto de una línea:** *No hay edge estructural. Hay un generador de señales sin coherencia entre ubicación y dirección, brackets rotos, y un gate de régimen que no gatea. Lo que se midió como "edge" es ruido con varianza de un solo mes favorable.*
+**Foco:** ¿La lógica que dispara trades es teóricamente coherente con los principios de Market Auction Theory?
+**Objeto:** Los 4 detectores (`tactical_absorption`, `liquidity_exhaustion`, `failed_breakout`, `trend_acceptance`) y sus condiciones de entrada.
+**Preguntas que responde este documento:**
+1. ¿Qué debería ser cada setup según AMT/Dalton?
+2. ¿Qué está midiendo el código hoy?
+3. ¿Dónde se rompe la teoría? ¿Qué variable proxy es incorrecta?
+4. ¿Cómo debería escribirse la condición correcta?
 
----
-
-## 0. Evidencia forense (los números no mienten)
-
-| Mes | PnL | Trades | Win Rate | Profit Factor | Ratio SL:TP (conteo) |
-|-----|-----|--------|----------|---------------|----------------------|
-| Marzo 2026 | +$1.48 (+0.01%) | 209 | 33.5% | 1.23 | 2.0 : 1 |
-| Abril 2026 | **-$14.14 (-0.14%)** | 60 | **6.7%** | **0.27** | **10.8 : 1** |
-| Mayo 2026 | +$17.49 (+0.17%) | 149 | 40.3% | 1.81 | 2.2 : 1 |
-| **Agregado** | **+$4.83 (+0.05%)** | 418 | ~30% | ~1.0 | ~2.5 : 1 |
-
-**Lectura de trader:** Un PF agregado de ~1.0 sobre 3 meses no es un edge, es breakeven antes de costos de oportunidad. La varianza inter-mensual (de 0.27 a 1.81 PF) es enorme para el mismo activo y los mismos parámetros. **Eso es la firma de un sistema que depende del régimen de mercado que le toque, no de una ventaja estadística.** Abril (mercado que no le convino) reveló la asimetría negativa real: cuando el mercado no coopera, el sistema sangra con 6.7% de aciertos.
+> No se discute aquí TP/SL, sizing, brackets, calidad ni VA_GATE. Esos son problemas ortogonales. Esto es exclusivamente sobre **la decisión de entrada**.
 
 ---
 
-## 1. Puntos ciegos de la subasta (dónde falla catastróficamente)
+## Marco teórico primero (el estándar contra el que auditar)
 
-### 1.1 CRÍTICO — Los brackets TP/SL están numéricamente rotos
-Perfil activo `LTC_NOISY_UNCERTAIN_1` (`config/coin_profiles_LTC_NOISY_UNCERTAIN_1_optimized.py:275-280`):
-```python
-"failed_breakout":     {"sl_pct": 1.2, "tp_pct": 1.2}    # 120%
-"liquidity_exhaustion":{"sl_pct": 2.5, "tp_pct": 2.5}    # 250%
-"tactical_absorption": {"sl_pct": 2.0, "tp_pct": 1.0}    # 200% SL / 100% TP
-"trend_acceptance":    {"sl_pct": 2.5, "tp_pct": 2.5}    # 250%
-```
-El código (`decision/engine/targets.py:70-75`) hace `price * (1 ± pct)`. Con `sl_pct=2.5` en un LONG, el SL cae en `price*(1-2.5)` = **precio negativo**. Los brackets nunca funcionan como stops estructurales: son marcadores absurdos que el motor de salida temporal (`SlimExitEngine V11`) ignora o llena de inmediato. **Toda la gestión de riesgo por precio está deshabilitada de facto.** El sistema sale por tiempo/compresión, no por invalidación estructural del setup. Esto es inaceptable en producción.
+Toda la lógica de AMT parte de tres principios de Dalton que deben respetarse literales:
 
-### 1.2 CRÍTICO — `tactical_absorption` fadea contra la subasta sin coherencia ubicación↔dirección
+1. **Initiative (Initiator)**: la mano que crea el delta. Si CVD sube, el initiative es comprador (agresivo). Si CVD cae, el initiative es vendedor. **El initiative define la dirección del riesgo atacado.**
+
+2. **Response**: el profesional en el otro lado del book que **no se mueve por precio, sino por el excesivo initiative del atacante**. Compra en 낮 el VAL cuando los vendedores atacan y se quedan sin munición (Initiative exhausted).
+
+3. **Auction failures**: cuando el initiative ataca un borde de valor (VAH/VAL) y el Delta NO confirma — el que está cargando el riesgo pierde convicción. La subasta "falla" y el precio regresa al rango.
+
+Las tres formas válidas de tomar posición en subasta:
+
+| Patrón AMT                              | Condición de entrada correcta                                                 | Dirección del trade                                  |
+|-----------------------------------------|-------------------------------------------------------------------------------|------------------------------------------------------|
+| **Initiative exhaustion (RESPONSIVE)**  | Ataques repetidos al mismo borde con Delta cada vez más débil + Response del lado contrario | Contraria al initiative que falla                    |
+| **Failed auction**                      | Excedencia del borde con NO confirmación de Delta + regreso al rango          | Contraria a la falsa ruptura                         |
+| **Acceptance breakout (INITIATIVE)**    | Excedencia del borde CON confirmación de Delta + extensión + pullback al borde | A favor de la iniciativa que sí confirma              |
+
+Cada setup tiene **un lado** (LONG o SHORT) que no es negociable: lo dicta la mano atacante y su respuesta. Lo que se acepta es la **dirección del initiative** o su **contraria**.
+
+Ahora sí, auditoría setup por setup.
+
+---
+
+## 1. `tactical_absorption` — Lo más roto del bot
+
+### Qué dice AMT que debe ser
+Tactical absorption es el caso puro de RESPONSE: el bot detecta que el **initiative vendedor atacó fuerte** (volumen grande, delta vendedor) y que **el bid absorbió toda esa venta sin que el precio cayera al siguiente nivel**. Es la firma profesional de que alguien defiende un nivel. La entrada es a favor del RESPONSE — **LONG cuando el initiative vendedor se agota en el VAL**, SHORT cuando el initiative comprador se agota en el VAH.
+
+### Qué mide el código
 `decision/scenarios/instant/tactical_absorption.py:112`:
 ```python
 side = "LONG" if state.cvd_session_delta < 0 else "SHORT"
 ```
-La dirección se decide **solo por el signo del CVD de sesión**, no por dónde está el precio respecto al nodo. El bot puede abrir un LONG pegado al VAH (resistencia) simplemente porque el CVD de sesión es negativo. Peor: `cvd_session_delta` se resetea cada 4h (`order_flow/engine.py`), así que cerca de un reset la dirección **se voltea arbitrariamente**. En AMT esto es herejía: comprar absorción en el extremo alto de la subasta es pararse frente a la iniciativa vendedora. Y este setup **evade el VA_GATE por completo** (ver §1.4).
+La dirección **se decide por el signo del CVD de sesión acumulada, sin importar el borde donde está parado el precio**. No hay test de qué lado del book está absorbiendo (bid vs ask). No hay mapeo a VAL/POC/VAH. No hay identificación de qué lado del orderbook anuló el ataque.
 
-**Escenario de falla catastrófica:** Tendencia bajista sostenida (como parte de Abril). El precio testea el VAL/POC repetidamente en su camino a abajo. `cvd_session_delta` negativo → el bot dispara LONGs de absorción una y otra vez contra la tendencia. Cada rebote muere. Resultado: 6.7% win rate, 10.8:1 SL:TP. **Eso es exactamente lo que muestra Abril.**
+### La falla teórica concreta
+1. **Inversión lógica de Response**: AMA lo largo de "los compradores defendieron la presión vendedora", el código dispara LONG porque el CVD es negativo. Pero un CVD negativo *per se* puede significar que **los vendedores están ganando iniciativa**, no que se agotaron. La condición correcta no es el signo, es la **convergencia**: el delta de los últimos *k* ventanas*t decreciendo en magnitud mientras el volumen permanece alto. Eso es exhaustion.
 
-### 1.3 ALTO — `va_integrity` es una métrica sin normalizar contra un umbral arbitrario
-`core/market_profile.py:210-235`:
-```python
-concentration = poc_vol / total_volume
-magnetism     = 1.0 / (va_range_pct * 100)
-score         = concentration * magnetism
-```
-`magnetism` no está acotado. Con un VA estrecho, `va_range_pct → 0` y `magnetism → ∞`, disparando `va_integrity` muy por encima de 1.0, lo que hace que **casi siempre supere el umbral de 0.15 y el gate deje pasar todo**. En un dataset mensual, `total_volume` acumula el mes entero → `concentration` colapsa → el gate se comporta de forma impredecible. La métrica que decide "¿estamos en subasta balanceada o en tendencia?" es dimensionalmente inconsistente. **El regime filter no filtra régimen; filtra ruido.**
+2. **Bidireccionalidad ausente**: AMT dice que la absorción en el **bid** (defendiendo el lado bajo) PROTECTORIAL y entra LONG; absorción en el **ask** (defendiendo el lado alto) PROTECTORIAL y entra SHORT. El código actual dispara LONG o SHORT cerca del POC, VAH o VAL **sin chequear qué lado del book hizo el trabajo**.
 
-### 1.4 ALTO — El gate de régimen no gatea al setup más peligroso
-`va_gate.block_in_trending` lista `tactical_absorption`, pero ese setup viaja por el *Fast-Lane* (`decision/engine/core.py:227`) y **nunca pasa por `SignalArbitrator._apply_va_gate`**. Es decir: el único setup contra-tendencia de alto riesgo está *nominalmente* bloqueado en tendencia pero *realmente* exento del bloqueo. Es un cinturón de seguridad pintado en la puerta.
+3. **Sesión-reset artefact**: `cvd_session_delta` se resetea cada 4 h. Cerca del reset, el CVD cae a ~0 y los criterios de signo se vuelven ruidosos o simplemente dejan de disparar.
 
-### 1.5 MEDIO — Los detectores de confirmación casi nunca disparan por buenas razones (y cuando disparan, es por fragmentación)
-- `liquidity_exhaustion` keyea el historial de tests por `f"{level}_{price:.2f}"` (`liquidity_exhaustion.py:131`). VAH/VAL driftan tick a tick → cada test cae en una key distinta → **los tests nunca se acumulan a `min_tests`**. Cuando sí acumula, es por coincidencia de redondeo, no por estructura.
-- `trend_acceptance` exige `cvd_velocity > 4.0` donde `cvd_velocity` es un **z-score** (4 sigma). La ventana de entrada es `(vah, vah*1.0012]` — 12 bps. Un pullback rápido salta la ventana en un tick → cancela en vez de entrar.
-- El "delta declinante" de exhaustion compara z-scores, no agresión absoluta. Un z cae porque la std rodante se ensancha, no porque haya menos agresión. **La narrativa AMT está rota a nivel de señal.**
+### Conclusión de auditoría
+`tactical_absorption` está midiendo el síntoma equivocado. **No hay forma de que la dirección sea teóricamente correcta como está codificada hoy.** Cualquier mejora de TP/SL, sizing o calidad es ruido mientras esta condición sea así. *Esta es la única falla bloqueante del bot en términos puramente teóricos.*
 
-### 1.6 MEDIO — HVN/LVN calculados pero nunca usados
-`core/footprint_registry.py:157-171` (`get_volume_profile`) existe "para TP dinámico por nodos de volumen" — pero `targets.py` nunca lo llama. Los TP/SL son porcentajes planos. **El corazón de AMT (operar los nodos de volumen) es código muerto.** El bot dice hacer AMT pero opera porcentajes fijos.
+### Cómo debería escribirse la condición (sketch AMT-puro)
+- Detectar "ventana agotada" por reducción de `|cvd_velocity|` sostenido (z-score decay, no signo).
+- Detectar **qué lado del book defendió**: comparar bid_imbalance vs ask_imbalance en la banda del borde relevante. Si has absorbido en el bid cerca del VAL → LONG. Si ask absorbió cerca del VAH → SHORT. **Si no hay evidencia del lado del book, NO disparar.**
+- Anclar al **borde que se está defendiendo**, no al POC ni a una "zona genérica cerca del valor". En AMT la diferencia entre POC y VAL importa porque el POC no es un borde — es donde se concentra el precio a través del tiempo. Combatir absorption en POC es una lectura que no existe en AMT; el POC no es una defensa, es un imán.
 
 ---
 
-## 2. Crítica de trader: "esto se mejora así y así"
+## 2. `liquidity_exhaustion` — Conceptualmente correcto pero implementado con proxy mala
 
-El objetivo no es "hacer que funcione en esos 3 datasets" (eso es curve-fitting). El objetivo es **construir coherencia estructural** para que el edge sea robusto a cualquier régimen. En orden de impacto:
+### Qué dice AMT que debe ser
+La respuesta básica de un profesional: el seller/vendor ha atacado el mismo nivel múltiples veces, cada vez con menos agresión (delta declining), y al final el comprador aparece para defender. La entrada es la **respuesta profesional a la initiative exhaustion**: en sentido contrario al initiative que falla.
 
-### FIX 1 — Reparar los brackets (bloqueante, trivial, mayor impacto)
-Los targets deben ser fracciones reales. `tp_pct: 2.5` debe ser `0.025` (2.5%). Corregir `config/coin_profiles_LTC_NOISY_UNCERTAIN_1_optimized.py:275-280`:
+### Qué mide el código
+`decision/scenarios/confirmation/liquidity_exhaustion.py:107-108`:
 ```python
-"failed_breakout":     {"sl_pct": 0.012, "tp_pct": 0.012}
-"liquidity_exhaustion":{"sl_pct": 0.025, "tp_pct": 0.025}   # o mejor, RR positivo
-"tactical_absorption": {"sl_pct": 0.010, "tp_pct": 0.020}   # invertir a RR 2:1
-"trend_acceptance":    {"sl_pct": 0.025, "tp_pct": 0.025}
+raw_cvd_velocity = getattr(state, "cvd_velocity", 0.0)
+current_delta = abs(raw_cvd_velocity)
 ```
-Y añadir validación de rango en `param_validation` que rechace cualquier `pct >= 1.0`. **Sin esto, ninguna otra mejora es medible** porque el riesgo por precio no existe.
-
-### FIX 2 — Acoplar dirección a la ubicación en la subasta (arreglar la incoherencia AMT)
-En `tactical_absorption.py:112`, la dirección NO debe salir del signo del CVD de sesión. Debe salir de **dónde está el precio y qué está absorbiendo el book**:
-- Cerca del VAL con bid absorbiendo venta agresiva → LONG (comprador defendiendo el borde bajo del valor).
-- Cerca del VAH con ask absorbiendo compra agresiva → SHORT.
-- Cerca del POC sin confirmación de borde → **no operar** (el POC es imán, no borde).
-
-Regla: *nunca fadear en el extremo equivocado del valor.* Un LONG solo es válido en la mitad inferior del VA; un SHORT solo en la mitad superior. Esto elimina el modo de falla de Abril de raíz.
-
-### FIX 3 — Meter `tactical_absorption` bajo el VA_GATE (cerrar el bypass)
-Rutear el Fast-Lane a través de `_apply_va_gate` antes de emitir, o replicar el chequeo de régimen en `sensor_manager`. En tendencia fuerte, la absorción contra-tendencia debe estar **prohibida de verdad**, no en el papel.
-
-### FIX 4 — Normalizar `va_integrity` a [0,1] con significado
-`magnetism` debe acotarse. Propuesta:
+El "delta" del test es `|cvd_velocity|`, que es un **z-score**, no una magnitud absoluta de aggressive. Luego líneas 150-152:
 ```python
-va_range_pct = max(va_range_pct, epsilon)
-magnetism = min(1.0, target_range / va_range_pct)   # relativo a un rango típico del activo
-integrity = concentration * magnetism   # ahora en [0,1] interpretable
+is_declining = all(
+    recent[i]["delta"] < recent[i - 1]["delta"] * declining_threshold for i in range(1, len(recent))
+)
 ```
-Y calibrar el umbral por activo con datos, no un 0.15 mágico global. Un gate que no distingue régimen es peor que no tener gate porque da falsa confianza.
+Busca que cada z sea estrictamente decreciente.
 
-### FIX 5 — Estabilizar la identidad de niveles (arreglar fragmentación de tests)
-En vez de keyear por `price:.2f`, keyear por **banda de nivel** (VAL/VAH como zonas de ±tolerancia, no como precios exactos). Un test cuenta si el precio entra en la banda del nivel *lógico* (VAL), sin importar el decimal exacto. Esto hace que `liquidity_exhaustion` acumule tests como debe.
+### La falla teórica
+- **El "delta declining" mide el z-score, no la aggression**. Un z decrece porque la ventana rodante se **ensancha** (más variabilidad) tanto como porque la aggression decrece. En AMT no mides initialization exhaustion con z; mides con magnitud de flujo dividido entre volumen realizado. Esto convierte el "delta declining" en un indicador de **reducción de la concentración del flujo**, no de reducción del flujo.
 
-### FIX 6 — Normalizar el riesgo por trade (no por nocional)
-`players/adaptive.py:66` dimensiona por % de nocional fijo (A=1%, B=0.5%) ignorando la distancia al SL. Un trade con SL de 5% arriesga 5x más capital que uno con SL de 1% para el mismo "grade". Cambiar a **sizing por riesgo constante**:
-```python
-risk_per_trade = equity * risk_pct        # ej. 0.5% del equity en riesgo
-qty = risk_per_trade / (sl_distance_abs)  # nocional derivado del stop
-```
-Esto normaliza la asimetría y hace que grades y RR sean comparables entre setups.
+- **Fragmentación de identidad del nivel**: línea 131:
+  ```python
+  level_key = f"{level_name}_{level_price:.2f}"
+  ```
+  El historial de tests se keya por precio exacto a 2 decimales. En mercados líquidos, VAH/VAL pueden moverse 0.05% entre tests consecutivos sin que sea "otro nivel" desde el punto de vista AMT. Pero el código cuenta cada test como parte de un *nivel diferente* con level_key diferente, porque el precio exacto cambió. **No acumula tests.** Es como llevar un diario de "cuántas veces defendí 54.32" en vez de "cuántas veces defendí el VAH".
 
-### FIX 7 — Conectar los TP a nodos de volumen reales (activar el AMT prometido)
-Usar `get_volume_profile` (código muerto hoy) para poner TP en el siguiente LVN (el precio viaja rápido por los vacíos de volumen) y SL detrás del HVN/borde de valor invalidante. Esto convierte los targets de porcentajes arbitrarios en niveles estructurales — que es *todo el punto* de operar subasta.
+- La condición de defensa (líneas 156-159) está bien: requiere que `cvd_velocity` sea positivo para defender VAL (compradores retornando). Aquí sí respetan AMT.
+
+### Conclusión de auditoría
+La idea está alineada con AMT (multiple test + declining aggression + response). La **implementación se equivoca en dos lugares**: el delta debería ser magnitud bruta de flow, no z-score relativizado a la std rolling, y los tests deberían agruparse por **borde lógico (VAL, VAH, POC)** no por precio decimal exacto. Con esos dos cambios, la condición se vuelve coherente.
+
+### Mejoras concretas
+1. `current_delta = |net_delta_volume|` (acumulado de la ventana relacionado al mismo lado del book que ataca), **NO** `|z|`.
+2. `level_key = f"{symbol}_{level_name}"` (solo el nombre del borde, ignorando el precio exacto para identificar un test de VAL vs otro distinto VAL).
+3. Cuando la `declining_threshold` sea 0.5-0.7 (config actual), validar que **no se acepten declines negativos del lado equivocado** (i.e., que el decline en magnitud venga por exhaustion, no por el lado equivocado del book).
 
 ---
 
-## 3. Diagnóstico de por qué "pasó el audit" pero pierde en trade real
+## 3. `failed_breakout` — El más cercano a AMT, pero con un agujero
 
-El *audit mode* mide expectancy de señales sobre muestreo de precios (sin ejecución, sin brackets, sin SlimExitEngine). Con brackets rotos y salida temporal, **el audit y el trade miden cosas distintas**. El "+0.1144% Net Taker" del audit nunca fue una promesa de PnL ejecutable — fue una estadística de señal desconectada de la ejecución real. Los 3 meses de trade lo confirman: el edge de señal no sobrevive al contacto con la ejecución.
+### Qué dice AMT que debe ser
+Una failed auction clásica: el initiative ataca un borde (sale del VAL o VAH), el Delta **no acompaña** (no confirma), y el precio regresa dentro del rango. La entrada está en el momento del regreso al rango, en sentido contrario al initiative atacante.
+
+### Qué mide el código
+`decision/scenarios/confirmation/failed_breakout.py:96-114`:
+- **Fase 1**: detecta break con un buffer (`min_break_distance_pct` default 0.0003 = 3 bps), guarda timestamp + CVD al momento del break.
+- **Fase 2**: espera que el precio regrese dentro del rango dentro de `max_break_age` (60s default).
+- **Fase 3**: valida divergencia. Dos criterios:
+  - `exhaustion_z = 2.0`: si el CVD acompañó la ruptura con `avg_velocity_z > 2.0`, lo trata como trend acceptance y descarta.
+  - `divergence_z = 0.5`: requiere que `|avg_velocity_z| < 0.5` o que el CVD haya ido **opuesto** a la ruptura.
+
+### La falla teórica
+1. **No discrimina "fail" por exhaustion vs "fail" por response**. AMT distingue dos modos:
+   - **Initiative exhausts**: el vendedor intentó, no pudo, se queda sinconvenientes. La entrada es LODGING porque el comprador va a defender.
+   - **Initiative recognized**: el vendedor intenta, **alguien del lado contrario lo convence de que está mal** (se ve bid cargado). La entrada también es LONG, pero por una dynamically más robusta: hay respuesta visible.
+   El código actual ignora este matiz. Solo valida que la CVD no haya acompañado fuerte (proxy de "no hay initiative"). Lo trata todo igual.
+
+2. **La ventana de 60 segundos es muy estrecha**. Una false break en AMT a menudo toma minutos en completar (el precio revisa el borde, retrocede un poco, lo re-ataca, falla). Exigir re-entrada en menos de 60s descarta muchas failed auctions reales que se desarrollan en escalas de minutos.
+
+3. **Acumulación de un solo pending_breaks por símbolo** (line 96: `self.pending_breaks.get(symbol)`). Si el primer break es justo y el segundo llega antes de cumplirse el primero, el segundo se IGNORA. En AMT no puedes ignorar breaks porque el mercado emite la información — capturarla toda es parte del surveillance.
+
+### Conclusión de auditoría
+Fallaría muchas aulas reales pero capturaría muchas aulas falsas. La estructura conceptual respeta AMT. Los defectos son calibración, no conceptuales.
+
+### Mejoras concretas
+1. Mantener múltiples pending breaks simultáneamente (lista), no uno por símbolo.
+2. Aumentar `max_break_age` por defecto a esperar más tiempo en regímenes donde el rango es ancho.
+3. Cuando hay divergencia, NO confiar solo en `cvd_velocity`. Añadir un check de **volumen seco en el book durante el break** (spikes de absorption en el lado contrario en footprint): eso *demuestra* que hubo response, no solo "no hubo initiative".
 
 ---
 
-## 4. Prioridad de trabajo (ruta a un edge real)
+## 4. `trend_acceptance` — El único que respeta AMT y aun así tiene sus issue
 
-1. **FIX 1** (brackets) — bloqueante. Re-correr los 3 meses. Sin esto no se puede medir nada.
-2. **FIX 2 + FIX 3** (coherencia direccional + gate real) — matan la asimetría negativa de Abril.
-3. **FIX 6** (riesgo normalizado) — hace comparables los resultados entre setups.
-4. **FIX 4 + FIX 5** (integrity + niveles) — recuperan la fidelidad de las señales.
-5. **FIX 7** (TP por nodos) — activa el AMT que el sistema dice hacer.
-6. Re-auditar mes a mes buscando PF > 1.3 **consistente** (no un mes bueno y dos malos). Validar en régimen adverso (tendencia fuerte) como test de estrés, no solo en meses balanceados.
+### Qué dice AMT que debe ser
+Initiative breakout: el precio sale de la VA con CVD concentrado en la dirección del breakout, extiende un poco (prueba que los contrarios no defienden), y vuelve a probar el borde roto ("pullback to the broken level"). El borde roto (ahora support/resistance) es donde AL initiative ganadora hace la pausa, y allí se entra Ahorra.
 
-**Métrica de éxito honesta:** No busques el mes que gana. Busca que el peor mes no destruya. Un sistema con PF 1.2 estable en 6 meses vale infinitamente más que uno con 1.81 en mayo y 0.27 en abril.
+### Qué mide el código
+`trend_acceptance.py:107-128`: requiere `price > vah` con `cvd_velocity > 4.0`, o simétrico para short. Threshold 4.0 (z-score 4-sigma). Confirma si `max_price` extienda más allá de `min_breakout_distance_bps` antes de tocar el "pullback level".
+
+### La falla teórica
+1. **`cvd_confirmation_threshold = 4.0` es muy alto**. Un z-score de 4-sigma ocurre **rara vez** (en distribución normal, ~una vez cada ~16k eventos). Combinado con la necesidad de `price > vah` simultáneo, esto se vuelve un setup que "solo dispara en movimientos parabólicos". El resultado es que **el setup casi nunca se ejecuta**, y cuando lo hace es tarde. En AMT un breakout aceptable confirma con z entre 1.5 y 3.0, no 4, porque el modelo mide initiative relativa, no intensidad absoluta.
+
+2. **El janela del pullback es muy estrecha** (12 bps por defecto). `breakout_distance >= 20 bps` para validar que la ruptura extendió. Un pullback de 12 bps en una ruptura que extiende 20 requiere que el precio se dé vuelta muy rápido. Si se da vuelta lenta (más realista en AMT), el precio cae por debajo del pullback_level antes de que `breakout_distance_bps` se acumule. La condición se cancela cuando `price <= vah` (line 170) — literalmente se pierde la entrada.
+
+3. **`max_pullback_penetration_pct` está siendo mal bridgeppado** como `min_breakout_distance_bps` (lines 78-79). Esto confunde dos cosas: distancia de ruptura mínima vs máxima profundidad de pullback permitida. Es un defecto de naming, no de concepto.
+
+4. **Los cooldowns de 240–600 segundos** son muy altos para un breakout trend. AMT dice que el último breakout es el más relevante; cooldowns largos simplemente **mutilan la estadística del setup**.
+
+### Conclusión de auditoría
+Conceptualmente es el setup más AMT-aligned. Pero el Threshold 4-sigma lo deja inerte, la ventana de pullback es estrecha, y los cooldowns son excesivos. **El setup funciona bien en teoría, fatalmente calibrado en práctica.**
+
+### Mejoras concretas
+1. `cvd_confirmation_threshold: 1.5–2.5` (z-score 1.5-2.5).
+2. Aumentar `pullback_bps` a 25-50 para recoger pullbacks más lentos y naturales.
+3. Eliminar `max_breakout_distance_bps` como filtro; permitir que CUALQUIER pullback al nivel roto sea una entrada válida, siempre y cuando la CVD del breakout fue positivo. La distancia de extensión es informativa, no filter.
+4. Bajar cooldown a 60-120s. Breakouts válidos pueden parecer consecutivos.
+
+---
+
+## Síntesis: lo que está bien y lo que no
+
+| Setup | Conceptual AMT | Implementación actual | Diagnóstico |
+|-------|----------------|------------------------|------------|
+| `tactical_absorption` | Response a initiative exhaustion | Dirección por signo del CVD sin importar el book side | **Teóricamente incorrecto** — es la falla bloqueante |
+| `liquidity_exhaustion` | Multiple test + declining attack + response reciente | Mide delta con z-score en vez de flujo; fragmenta nivel por decimal | Estructura correcta, proxies mal elegidas |
+| `failed_breakout` | Break + no confirmación de delta + regreso al rango | Solo 1 break pendiente, ventana muy corta, sin discriminar response real | Estructura correcta, escala mal calibrada |
+| `trend_acceptance` | Breakout + delta confirmation + extensión + pullback al borde | Threshold z=4 imposible, ventana pullback estrecha, cooldown enorme | Conceptualmente bien pero firewall de thresholds lo inutiliza |
+
+## ¿Dónde está el "edge" teórico real?
+
+De los 4 setups, **solo `liquidity_exhaustion` y `trend_acceptance` miden el patrón AMT correcto**. Pero ambos están calibrados para disparar **casi nunca**, lo que significa que el bot está operando primariamente `tactical_absorption` (donde la condición está conceptualmente mal) y siendo ahogado en falsas entradas o en `failed_breakout` (donde solo se ejecuta una pequeña fracción).
+
+**El edge AMT — si existe — está enterrado bajo:**
+1. Una condición de entrada conceptualmente rota (`tactical_absorption`).
+2. Dos condiciones correctas pero inertes por exceso de threshold (`liquidity_exhaustion` y `trend_acceptance`).
+3. Una que no logra capturar el patrón natural de la failed auction por ventana (`failed_breakout`).
+
+## Trabajo derivado de este análisis (no implementación)
+
+1. Reescribir `tactical_absorption.on_tick` para que **mapée location→direction coherentemente**: bid absorbiendo en/cerca del VAL → LONG; ask absorbiendo en/cerca del VAH → SHORT; sin absorción clara en book → descartar.
+2. Cambiar el delta de `liquidity_exhaustion`: de `|z(cvd_velocity)|` a `|net_volume_flow|` y arreglar la identidad del nivel a solo el nombre del borde.
+3. En `failed_breakout`: soportar múltiples pending breaks; ajustar `max_break_age` por régimen; añadir check de absorption-side en el book durante el break para distinguir response.
+4. Bajar los thresholds en `trend_acceptance` para que el setup pueda disparar con normalidad (z 1.5-2.0, pullback 25-50 bps, cooldown 60-120s).
