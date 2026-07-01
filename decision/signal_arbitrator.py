@@ -27,8 +27,9 @@ logger = logging.getLogger("SignalArbitrator")
 
 
 class SignalArbitrator:
-    def __init__(self, pressure_engine):
+    def __init__(self, pressure_engine, context_registry=None):
         self.pressure = pressure_engine
+        self.context_registry = context_registry
 
         # Solo 3 escenarios de confirmación (FB/LE/TA). TacticalAbsorption es
         # instant signal y bypasea SignalArbitrator intencionalmente (ver ADR-1).

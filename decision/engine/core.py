@@ -57,7 +57,7 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         # SensorManager owns updates; SetupEngine is read-only.
         sm = getattr(self.engine, "sensor_manager", None)
         self.pressure_engine = sm.pressure_engine if sm else OrderFlowEngine()
-        self.scenario_manager = SignalArbitrator(self.pressure_engine)
+        self.scenario_manager = SignalArbitrator(self.pressure_engine, context_registry=self.context_registry)
 
         # Event Subscriptions
         self.engine.subscribe(EventType.TICK, self.on_tick)
