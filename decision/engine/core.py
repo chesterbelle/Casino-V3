@@ -11,7 +11,6 @@ from collections import defaultdict, deque
 from typing import Dict
 
 from config import trading as config
-from core.coin_profiler import coin_profiler
 from core.events import (
     EventType,
     MicrostructureBatchEvent,
@@ -178,31 +177,17 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         except Exception as e:
             logger.debug(f"Static profile lookup failed for {symbol}: {e}")
 
-        # 2. Fallback: runtime classification via microstructure metrics
-        spread_data = self.context_registry.spread_state.get(symbol, {})
-        spread_current = spread_data.get("current", 0)
-        spread_avg = spread_data.get("avg_5m", 1)
-        spread_ratio = spread_current / spread_avg if spread_avg > 0 else 1.0
-
-        depth_ratio = self.context_registry.l2_imbalance.get(symbol, 1.0)
-
-        pulse = self.context_registry.get_pulse(symbol)
-        speed = pulse.get("speed", 0.0)
-
-        coin_stats = {
-            "spread_ratio": spread_ratio,
-            "depth_ratio": depth_ratio,
-            "speed": speed,
-        }
-
-        profile = coin_profiler.classify(symbol, coin_stats)
-        profile_manager.set_profile(symbol, profile)
-        self._profile_classified[symbol] = True
-
-        logger.info(
-            f"🏷️ [PROFILE] {symbol} → {profile} (runtime) | "
-            f"spread_ratio={spread_ratio:.2f}, depth_ratio={depth_ratio:.2f}, speed={speed:.4f}"
+        # 2. Fallback: coin not in static taxonomy → CRITICAL ERROR
+        # Every coin must have an explicit profile. Default profiles are
+        # dangerous because they apply generic thresholds, sensors, and
+        # targets that are not calibrated for the coin, producing
+        # silently misleading backtest results.
+        msg = (
+            f"🚨 [PROFILE] {symbol} not found in clusters_fixed.json. "
+            f"Add {symbol} to config/clusters_fixed.json before running."
         )
+        logger.critical(msg)
+        raise ValueError(msg)
 
     async def on_signal(self, event: SignalEvent):
         """Signal Entry Point: Handles external tactical signals."""

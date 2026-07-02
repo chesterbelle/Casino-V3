@@ -6,7 +6,7 @@
         "vel_rev": 993.5,
         "pers_brk": 0.5556
       },
-      "members": ["SOL/USDT:USDT"],
+      "members": ["SOL/USDT:USDT", "SOLUSDT"],
       "n_members": 1
     },
     "AVAX_NOISY_UNCERTAIN": {
@@ -15,7 +15,7 @@
         "vel_rev": 442.4,
         "pers_brk": 0.0
       },
-      "members": ["AVAX/USDT:USDT"],
+      "members": ["AVAX/USDT:USDT", "AVAXUSDT"],
       "n_members": 1
     },
     "INERTIAL_TRENDING": {
@@ -25,8 +25,8 @@
         "pers_brk": 0.7566
       },
       "members": [
-        "ETH/USDT:USDT",
-        "LINK/USDT:USDT"
+        "ETH/USDT:USDT", "ETHUSDT",
+        "LINK/USDT:USDT", "LINKUSDT"
       ],
       "n_members": 2
     },
@@ -37,7 +37,7 @@
         "pers_brk": 0.0
       },
       "members": [
-        "NEAR/USDT:USDT"
+        "NEAR/USDT:USDT", "NEARUSDT"
       ],
       "n_members": 1
     },
@@ -47,7 +47,7 @@
         "vel_rev": 0.0,
         "pers_brk": 0.3443
       },
-      "members": ["LTC/USDT:USDT"],
+      "members": ["LTC/USDT:USDT", "LTCUSDT"],
       "n_members": 1
     },
     "NOISY_UNCERTAIN_1": {
@@ -57,14 +57,14 @@
         "pers_brk": 0.3443
       },
       "members": [
-        "XRP/USDT:USDT",
-        "DOGE/USDT:USDT",
-        "BNB/USDT:USDT",
-        "BTC/USDT:USDT",
-        "ADA/USDT:USDT",
-        "APT/USDT:USDT",
-        "ARB/USDT:USDT",
-        "OP/USDT:USDT"
+        "XRP/USDT:USDT", "XRPUSDT",
+        "DOGE/USDT:USDT", "DOGEUSDT",
+        "BNB/USDT:USDT", "BNBUSDT",
+        "BTC/USDT:USDT", "BTCUSDT",
+        "ADA/USDT:USDT", "ADAUSDT",
+        "APT/USDT:USDT", "APTUSDT",
+        "ARB/USDT:USDT", "ARBUSDT",
+        "OP/USDT:USDT", "OPUSDT"
       ],
       "n_members": 8
     }
