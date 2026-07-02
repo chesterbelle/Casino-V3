@@ -94,22 +94,31 @@ class AbsorptionDetector:
         if state.block_short and state.cvd_delta > 0:
             return None
 
-        # 7. Structural level proximity
-        poc = structural_levels.get("poc", 0.0)
+        # 7. Structural level proximity → AMT direction mapping
+        #
+        # AMT Rule: Absorption is RESPONSE to exhausted INITIATIVE.
+        #   - Near VAL + sellers attacked (CVD < 0) + bid absorbed → LONG
+        #     (bid defended the low edge, sellers exhausted)
+        #   - Near VAH + buyers attacked (CVD > 0) + ask absorbed → SHORT
+        #     (ask defended the high edge, buyers exhausted)
+        #   - Near POC only → NO SIGNAL
+        #     (POC is a price magnet, not a defensive edge in AMT)
+        #
         vah = structural_levels.get("vah", 0.0)
         val = structural_levels.get("val", 0.0)
 
-        if poc <= 0:
-            return None
-
-        near_poc = abs(price - poc) <= (poc * level_tolerance_pct)
         near_vah = vah > 0 and abs(price - vah) <= (vah * level_tolerance_pct)
         near_val = val > 0 and abs(price - val) <= (val * level_tolerance_pct)
 
-        if not (near_poc or near_vah or near_val):
+        if near_val and state.cvd_session_delta < 0:
+            # Sellers attacked VAL, bid absorbed → LONG (response to seller exhaustion)
+            side = "LONG"
+        elif near_vah and state.cvd_session_delta > 0:
+            # Buyers attacked VAH, ask absorbed → SHORT (response to buyer exhaustion)
+            side = "SHORT"
+        else:
+            # Not at a defensive edge, or CVD doesn't confirm exhaustion → skip
             return None
-
-        side = "LONG" if state.cvd_session_delta < 0 else "SHORT"
 
         self.last_fire_ts[symbol] = timestamp
 

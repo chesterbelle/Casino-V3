@@ -343,6 +343,8 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 "val_price": val_p,
                 "va_width": va_w,
                 "max_holding_time": (config.ABSORPTION_MAX_HOLDING_SEC if scenario == "tactical_absorption" else None),
+                "regime_vote": signal.get("regime_vote"),
+                "regime_metrics": signal.get("regime_metrics", {}),
             },
             symbol,
         )

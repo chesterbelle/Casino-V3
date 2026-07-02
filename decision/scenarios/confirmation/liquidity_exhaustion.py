@@ -105,7 +105,10 @@ class LiquidityExhaustionDetector:
             return None
 
         raw_cvd_velocity = getattr(state, "cvd_velocity", 0.0)
-        current_delta = abs(raw_cvd_velocity)
+        # AMT Fix: Use raw flow magnitude for declining aggression test,
+        # not z-score. Z-score can decline due to expanding std window,
+        # not due to actual exhaustion of attacking flow.
+        current_delta = abs(getattr(state, "cvd_delta", 0.0))
 
         vah = structural_levels.get("vah", 0.0)
         val = structural_levels.get("val", 0.0)
@@ -117,7 +120,7 @@ class LiquidityExhaustionDetector:
             if level_price <= 0:
                 continue
 
-            bounce_key = f"{symbol}_{level_name}_{level_price:.2f}"
+            bounce_key = f"{symbol}_{level_name}"
 
             # Track max bounce distance from level (positive = away from level)
             if level_name == "VAL":
@@ -128,7 +131,11 @@ class LiquidityExhaustionDetector:
                 self._max_bounce[bounce_key] = bounce_distance
 
             if abs(price - level_price) <= (level_price * level_tolerance_pct):
-                level_key = f"{level_name}_{level_price:.2f}"
+                # AMT Fix: Accumulate tests per logical border (VAL/VAH),
+                # not per exact decimal price. The VA border may shift
+                # slightly between snapshots, but AMT treats it as the
+                # same structural level being tested.
+                level_key = f"{symbol}_{level_name}"
                 tests = self.level_tests[symbol][level_key]
 
                 # Fix 1: Bounce guard — skip test if prior tests had no bounce

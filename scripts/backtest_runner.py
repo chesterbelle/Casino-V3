@@ -134,6 +134,12 @@ LOG_DIR = "logs"
 TASK_TIMEOUT = 86400
 
 
+def set_db_dir(new_db_dir: str) -> None:
+    """Set the DB_DIR globally (used for --dataset-dir flag)."""
+    global DB_DIR
+    DB_DIR = new_db_dir
+
+
 def _p(msg):
     """Print with immediate flush."""
     print(msg, flush=True)
@@ -329,16 +335,18 @@ def build_tasks(mode, protocol_name, symbol, filter_pattern, dataset=None):
         if not dataset:
             _p("❌ TRADE MODE REQUIRES --dataset")
             _p("   Usage: python scripts/backtest_runner.py --mode trade --dataset <path_to_db>")
-            _p("   Example: python scripts/backtest_runner.py --mode trade --dataset data/datasets/daily_backtest_ready/LTC_TREND_UP_2024-03.db")
+            _p(
+                "   Example: python scripts/backtest_runner.py --mode trade --dataset data/datasets/daily_backtest_ready/LTC_TREND_UP_2024-03.db"
+            )
             _p("\n   Available LTC datasets:")
             for db_file in sorted(glob.glob(os.path.join(DB_DIR, "LTC*.db"))):
                 _p(f"     - {os.path.basename(db_file)}")
             return []
-        
+
         if not os.path.exists(dataset):
             _p(f"❌ Dataset not found: {dataset}")
             return []
-        
+
         db_file = os.path.basename(dataset)
         # Extract symbol from filename
         name = db_file.replace(".db", "")
@@ -483,18 +491,21 @@ MODES OF OPERATION
 ═══════════════════════════════════════════════════════════════════════════
 
 🔍 AUDIT MODE (Default):
-   Executes multiple backtests in parallel, merges results, and runs
-   statistical edge analysis. Use for validating edge across datasets.
+    Executes multiple backtests in parallel, merges results, and runs
+    statistical edge analysis. Use for validating edge across datasets.
 
-   Examples:
-     # Audit all 6 datasets for a symbol (2 TREND + 2 BALANCE)
-     python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
+    Examples:
+      # Audit all 6 datasets for a symbol (2 TREND + 2 BALANCE)
+      python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 
-     # Audit with year filter
-     python scripts/backtest_runner.py --mode audit --symbol LTCUSDT --filter 2024
+      # Audit with year filter
+      python scripts/backtest_runner.py --mode audit --symbol LTCUSDT --filter 2024
 
-     # Audit entire cluster (all symbols)
-     python scripts/backtest_runner.py --mode audit --protocol cluster_mid_liquid
+      # Audit entire cluster (all symbols)
+      python scripts/backtest_runner.py --mode audit --protocol cluster_mid_liquid
+
+      # Audit monthly datasets (point to monthly dir)
+      python scripts/backtest_runner.py --mode audit --symbol LTCUSDT --dataset-dir data/datasets/monthly_backtest_ready
 
 📊 TRADE MODE:
    Executes single backtest with realistic trading simulation. Use for
@@ -559,7 +570,17 @@ RECOMMENDED WORKFLOW
         default=None,
         help="Exact path to a .db file. REQUIRED for trade mode. Useful for testing specific datasets in audit mode.",
     )
+    parser.add_argument(
+        "--dataset-dir",
+        required=False,
+        default=None,
+        help="Custom dataset directory. Default: data/datasets/daily_backtest_ready. Use --dataset-dir data/datasets/monthly_backtest_ready for monthly datasets.",
+    )
     args = parser.parse_args()
+
+    # Set custom dataset directory if provided
+    if args.dataset_dir:
+        set_db_dir(args.dataset_dir)
 
     # Auto-detect protocol if not specified
     protocol = args.protocol

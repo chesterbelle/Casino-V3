@@ -6,7 +6,110 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
-### [2026-06-30 SESSION V2] — Roadmap Cleanup, Branch Cleanup & CLI --help Overhaul (Branch: dev-8.9-datafeed-revamp)
+### [2026-07-02 SESSION] — Multi-Layer Regime Classifier for trend_acceptance (Branch: dev-8.9-datafeed-revamp)
+
+#### Summary
+Sesión enfocada en resolver la rentabilidad negativa estructural de `trend_acceptance`. Se diagnosticó que el `va_integrity` actual colapsaba en mercados de rango consolidado, permitiendo falsos quiebres. Se implementó un `RegimeClassifier` multi-capa (POC Migration, Volatility Ratio, VA Expansion) que evalúa el régimen del mercado de forma determinista y bloquea las señales en mercados de rango.
+
+#### Root Cause Analysis
+- El sistema clasificaba erróneamente mercados de rango denso como "tendencia" porque el `va_integrity` colapsaba matemáticamente al consolidarse el POC. Esto hacía que el `VA_GATE` se abriera de par en par y permitiera que el `trend_acceptance` disparara (y fallara) durante chop y mean-reversion.
+
+#### Actions
+1. **[NUEVO] `decision/regime_classifier.py`**:
+   - Implementado clasificador de régimen multi-capa con 3 sensores de AMT: `poc_migration`, `vol_ratio` y `va_expansion`.
+   - Votación por consenso (necesita 2 de 3 votos direccionales) para declarar tendencia o rango.
+2. **[MODIFICADO] `decision/signal_arbitrator.py`**:
+   - Integrado `RegimeClassifier` en `_apply_va_gate`. Se eliminó el uso directo de `va_integrity`.
+3. **[MODIFICADO] `config/coin_profiles.py`**:
+   - Inyectados parámetros (thresholds) del clasificador de régimen en todos los perfiles de monedas bajo el bloque `va_gate`.
+4. **[MODIFICADO] `decision/engine/core.py`**:
+   - Inyección de `regime_vote` y `regime_metrics` en la metadata de la señal (`trigger_meta`) para facilitar el diagnóstico durante el backtest.
+5. **Aplazamiento**: Se pospuso la ejecución de los backtests y validación para la próxima sesión a solicitud del usuario.
+
+#### Files Modified
+| Archivo | Cambio |
+|---------|--------|
+| `decision/regime_classifier.py` | [NUEVO] Lógica de consenso de régimen (3-signal voter) |
+| `decision/signal_arbitrator.py` | Integración del nuevo clasificador en `_apply_va_gate` |
+| `config/coin_profiles.py` | Inyección de parámetros de régimen en 9 perfiles |
+| `decision/engine/core.py` | Logueo de `regime_vote` en trigger_meta |
+
+#### Next Steps (ver roadmap en memory.md)
+1. Ejecutar el protocolo `/long-range-edge-audit` para validar empíricamente que el `RegimeClassifier` mejora el Net Taker del `trend_acceptance` eliminando falsos positivos en mercados sin tendencia.
+
+### [2026-07-01 SESSION] — AMT Crystal Layer Fixes: LE Level Identity + TAV Direction Logic (Branch: dev-8.9-datafeed-revamp)
+
+#### Summary
+Sesión de diagnóstico profundo y corrección estructural. Se ejecutó audit mensual LTC (3 meses: Mar-May 2026) que reveló que los golden params estaban overfit a los 6 datasets de 24h (-0.1994% Net Taker mensual vs +0.1144% en 24h). Se analizaron 4 auditorías externas (Gemma, Minimax, DeepSeek, análisis principal) y se creó un plan de 3 acciones. Se implementaron las acciones 1 y 2 con resultados positivos verificados.
+
+#### Root Cause Analysis
+- **Monthly audit pre-fix**: 861 señales, 19.3% WR, **-0.1994% Net Taker** ❌ (ROOT CAUSE: ENTRY FAILURE)
+- **Problema #1**: `liquidity_exhaustion` generaba 642 señales (74.5%) porque `level_key = f"{level_name}_{level_price:.2f}"` fragmentaba tests por precio decimal exacto. Cada micro-variación del VAL creaba un "nivel nuevo". Nunca acumulaba exhaustion real.
+- **Problema #2**: `tactical_absorption` decidía dirección por `cvd_session_delta < 0 → LONG` sin verificar en qué borde del VA estaba ni qué lado del book absorbió. Teóricamente incorrecto según AMT (Minimax lo identificó como "la falla bloqueante").
+- **Problema #3**: `trend_acceptance` con 146 señales a 14.4% WR y MFE/MAE de 0.01 en mensual — dispara en chop/transiciones de régimen. No resuelto en esta sesión.
+
+#### Actions
+1. **Fix `liquidity_exhaustion` — Level Identity + Delta Proxy**:
+   - `level_key` cambiado de `f"{level_name}_{level_price:.2f}"` a `f"{symbol}_{level_name}"` — tests se acumulan por borde lógico (VAL/VAH)
+   - `current_delta` cambiado de `abs(cvd_velocity)` (z-score) a `abs(cvd_delta)` (flujo bruto) — mide exhaustion real, no variabilidad estadística
+   - `bounce_key` simplificado a borde lógico para consistencia
+2. **Fix `tactical_absorption` — Direction by Book Side + VA Edge**:
+   - Eliminada lógica `side = "LONG" if cvd_session_delta < 0 else "SHORT"`
+   - Reemplazada por mapeo AMT: VAL + sellers exhausted → LONG, VAH + buyers exhausted → SHORT
+   - Absorción cerca del POC → `return None` (POC no es borde defensivo en AMT)
+3. **Roadmap Update**: Cooldown Post-SL eliminado del roadmap (decisión del usuario — mejor calidad de entradas reduce cascadas orgánicamente)
+
+#### Files Modified
+| Archivo | Cambio |
+|---------|--------|
+| `decision/scenarios/confirmation/liquidity_exhaustion.py` | level_key lógico, delta proxy bruto, bounce_key lógico |
+| `decision/scenarios/instant/tactical_absorption.py` | Dirección por VA edge + book side, filtro POC |
+| `.agent/memory.md` | Roadmap actualizado, Post-SL Cooldown eliminado |
+
+#### Métricas Comparativas
+
+**Audit 24h LTC (6 datasets) — No-regresión:**
+
+| Métrica | Pre-fix | Post-fix | Delta |
+|---|---|---|---|
+| Señales | 275 | **82** | **-70%** |
+| Win Rate | 31.3% | **53.7%** | **+22pp** |
+| Net Taker | +0.1144% | **+0.2352%** | **+106%** |
+| LE señales | 200 | **7** | **-96.5%** |
+| LE WR | 23.0% | **46.2%** | **+23pp** |
+| LE Net | +0.078% | **+0.322%** | **4x** |
+
+**Audit Mensual LTC (Mar-May 2026) — Validación out-of-sample:**
+
+| Métrica | Pre-fix | Post-fix | Delta |
+|---|---|---|---|
+| Señales | 861 | **221** | **-74%** |
+| Root Cause | ENTRY FAILURE | **TARGET FAILURE** | 🔄 progreso |
+| LE señales | 642 | **7** | **-99%** |
+| LE WR | 18.7% | **57.1%** | **+38pp** |
+| LE Net | -0.082% | **+0.487%** | **flip a positivo** |
+| LE Best Static Net | -0.033% | **+0.918%** | 🟢 |
+| TA señales | 145 | 146 | sin cambio |
+| TA Net | -0.709% | -0.711% | **sigue roto** |
+| Global Net | -0.199% | -0.530% | ⚠️ peor en aggregate |
+
+**Nota**: El Net global empeoró porque LE ya no "diluye" con 642 señales mildly negativas. Ahora TA (146 señales a -0.71%) domina el average. El problema está 100% concentrado en `trend_acceptance`.
+
+#### Hallazgos y Lecciones
+1. **El fix de LE fue el cambio de mayor impacto en la historia del bot**: De 642 señales basura a 7 quirúrgicas con 57.1% WR y +0.49% Net.
+2. **El fix de TAV fue marginal**: Redujo señales de 27→21 pero no mejoró WR significativamente (14.8%→14.3%).
+3. **`trend_acceptance` es THE problema en mensual**: 146 señales con MFE/MAE de 0.01 — el precio va en contra 92.5% del tiempo. No es un problema de targets ni de parámetros — es un problema de que dispara en chop/transiciones donde no hay tendencia real.
+4. **Root Cause cambió de ENTRY FAILURE a TARGET FAILURE**: Esto es progreso real — las entradas de LE ahora tienen edge, pero los targets AMT no lo capturan.
+5. **Cooldown Post-SL fue descartado del roadmap**: Mejor calidad de entradas reduce cascadas orgánicamente.
+
+#### Next Steps (ver roadmap en memory.md)
+1. Resolver `trend_acceptance` en mensual (filtro de régimen intra-mes o desactivación temporal)
+2. Walk-Forward Validation Protocol
+3. Validar 84 datasets 24h post-fixes
+
+---
+
+
 
 #### Summary
 Sesión de organización profunda. Se identificó y resolvió desorden en el roadmap (información duplicada entre memory.md y changelog.md, items obsoletos). Se fusionó y eliminó `feat/limpieza-profunda`. Se renombró `session-close.md` → `sync-docs.md` para evitar confusión semántica. Se mejoraron los `--help` de los 3 scripts principales para que el agente pueda operar sin documentación externa.

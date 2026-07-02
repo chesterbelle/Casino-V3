@@ -52,11 +52,10 @@ class SignalArbitrator:
 
         logger.info("🏗️ SignalArbitrator initialized (AMT V10 Architecture - UDT Enabled)")
 
-    def _apply_va_gate(self, symbol: str, va_integrity: float, candidates: list) -> list:
+    def _apply_va_gate(self, symbol: str, candidates: list) -> list:
         """
-        Apply selective VA_GATE based on profile config.
-        - If integrity >= threshold: allow all enabled setups
-        - If integrity < threshold: block setups in 'block_in_trending', allow only 'allow_in_trending'
+        Apply selective VA_GATE based on profile config — AMT PURE LOGIC.
+        Uses RegimeClassifier V1 to detect TRENDING or RANGE regime.
         """
         profile_name = profile_manager.get_profile_name(symbol)
         if not profile_name:
@@ -70,27 +69,36 @@ class SignalArbitrator:
         if not va_gate:
             return candidates  # No va_gate config, allow all
 
-        threshold = va_gate.get("integrity_threshold", 0.15)
-        if va_integrity >= threshold:
-            return candidates  # Regime healthy, allow all
+        # Get block lists from profile config (with safe defaults)
+        block_in_trending = set(
+            va_gate.get("block_in_trending", ["failed_breakout", "liquidity_exhaustion", "tactical_absorption"])
+        )
+        block_in_range = set(va_gate.get("block_in_range", ["trend_acceptance"]))
 
-        # Regime degraded (trending/collapsed) - apply selective filter
-        block_set = set(va_gate.get("block_in_trending", []))
-        allow_set = set(va_gate.get("allow_in_trending", []))
+        if not self.context_registry:
+            return candidates
 
-        filtered = []
-        for sig in candidates:
-            setup_type = sig.get("scenario", "unknown")
-            if setup_type in allow_set:
-                filtered.append(sig)
-            elif setup_type in block_set:
-                logger.debug(
-                    f"🛡️ [VA_GATE] {symbol} integrity={va_integrity:.3f} < {threshold} — "
-                    f"blocking mean-reversion setup: {setup_type}"
-                )
-            else:
-                # Setup not in either list - default allow
-                filtered.append(sig)
+        from decision.regime_classifier import regime_classifier
+
+        regime, metrics = regime_classifier.classify(symbol, self.context_registry, va_gate)
+
+        if regime == "RANGE":
+            # RANGE regime (VA intact) — borders respected)
+            filtered = [sig for sig in candidates if sig.get("scenario") not in block_in_range]
+            if len(filtered) != len(candidates):
+                blocked = [s.get("scenario") for s in candidates if s.get("scenario") in block_in_range]
+                logger.debug(f"🛡️ [VA_GATE RANGE] {symbol} votes={metrics.get('trend_votes')} — blocked: {blocked}")
+        else:
+            # TRENDING regime (VA — value migrating)
+            filtered = [sig for sig in candidates if sig.get("scenario") not in block_in_trending]
+            if len(filtered) != len(candidates):
+                blocked = [s.get("scenario") for s in candidates if s.get("scenario") in block_in_trending]
+                logger.debug(f"🛡️ [VA_GATE TREND] {symbol} votes={metrics.get('trend_votes')} — blocked: {blocked}")
+
+        # Inject metrics into remaining candidates
+        for sig in filtered:
+            sig["regime_vote"] = regime
+            sig["regime_metrics"] = metrics
 
         return filtered
 
@@ -99,9 +107,7 @@ class SignalArbitrator:
         Main orchestration logic (The Arbitrator).
         Fuses multiple signals in the same direction and resolves conflicts.
         """
-        # 0. VA Maturity Gate — selective by setup_type based on profile config
-        va_integrity = structural_levels.get("va_integrity", 1.0)
-
+        # 0. Structural setup done by Core/ContextRegistry
         # 1. Collect all candidate signals from Fast Lane
         candidates = []
 
@@ -117,7 +123,7 @@ class SignalArbitrator:
             return None
 
         # 2. Apply selective VA_GATE filter
-        candidates = self._apply_va_gate(symbol, va_integrity, candidates)
+        candidates = self._apply_va_gate(symbol, candidates)
         if not candidates:
             return None
 
