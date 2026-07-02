@@ -104,7 +104,7 @@
 Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation ✅ | 8.9 Data Feed Revamp (138x) ✅ | Refactor feat/limpieza-profunda ✅ Mergeado | LTC trend_acceptance Optimized (+0.3184%) ✅ | **AMT Crystal Fixes (LE level_key + TAV direction)** ✅ Net Taker 24h: +0.2352% (2x mejora)
 
 ### Siguientes Pasos (Priorizados):
-1. **Validar RegimeClassifier (backtesting mode audit mensual)** — Correr protocolo `/long-range-edge-audit` para LTC y certificar que el nuevo clasificador multi-capa bloquea los falsos quiebres de `trend_acceptance`.
+1. **Validar RegimeClassifier (backtesting mode audit mensual)** — Correr protocolo `python scripts/backtest_runner.py --mode audit --symbol LTCUSDT --dataset-dir data/datasets/monthly_backtest_ready` para certificar que el nuevo clasificador multi-capa bloquea los falsos quiebres de `trend_acceptance`.
 2. **Walk-Forward Validation Protocol** — Train en 6 datasets 24h, validate en mensual más antiguo, test en mensuales restantes. Implementar en cluster_optimizer.py.
 3. **Validar 84 datasets 24h** — Orchestration multi-coin post-AMT-fixes para confirmar no-regresión global.
 
@@ -143,7 +143,7 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
 ## 📝 Timeline de Sesiones Recientes
-- 2026-07-02 | sync-docs | **MULTI-LAYER REGIME CLASSIFIER FOR TREND_ACCEPTANCE**: Implementado `RegimeClassifier` usando 3 señales AMT (POC Migration, Vol Ratio, VA Expansion) para resolver la vulnerabilidad del `VA_GATE` en mercados de rango. Modificados `signal_arbitrator.py`, `coin_profiles.py` y `core.py`. Próxima sesión: Validar con backtesting en modo audit mensual.
+- 2026-07-02 | sync-docs | **MULTI-LAYER REGIME CLASSIFIER FOR TREND_ACCEPTANCE**: Implementado `RegimeClassifier` usando 3 señales AMT (POC Migration, Vol Ratio, VA Expansion) para resolver la vulnerabilidad del `VA_GATE` en mercados de rango. Modificados `signal_arbitrator.py`, `coin_profiles.py` y `core.py`. Próxima sesión: Validar con `backtest_runner.py --mode audit` en modo mensual.
 - 2026-06-30 | sync-docs | **ROADMAP CLEANUP, BRANCH CLEANUP & CLI --help OVERHAUL**: Roadmap unificado en memory.md como fuente de verdad única. `feat/limpieza-profunda` eliminada. `session-close.md` → `sync-docs.md`. --help mejorado en orchestrator.py, backtest.py, cluster_optimizer.py. Próximo paso: `--run-type trade` LTC 24h.
 - 2026-06-30 | session-close | **LTC CASCADE OPTIMIZATION & GOLDEN PARAMS**: Resuelto bug en cluster_optimizer (envenenamiento del signal count por setups irrelevantes). Optimización de 50 iteraciones para trend_acceptance en LTC logró +0.3184% Net Taker. Se actualizó coin_profiles.py, se guardó la DB gold-standard, y se reescribió ltc.md a V2. Cambios mergeados a dev-8.9-datafeed-revamp. Próximo paso: probar con run-type trade en 24h y luego dataset mensual.
 - 2026-06-28 | session-close | **POST-REFACTOR VALIDATION + SOL TUNING + ORCHESTRATOR CLEANUP**: Validación completa del refactor `feat/limpieza-profunda` (7 layers, LTC 6/6, SOL 7/7). Bugfix absorption_score_v2 en tactical_absorption.py. SOL targets optimizados (FB/0.008, LE/0.007, TA/0.008). SOL l2_ratio_min 1.5→2.0. Generalized/probe eliminados del orchestrator. Workers 100% dinámicos. Auto-audits en single-coin-audit. Commit `2841e14`.
