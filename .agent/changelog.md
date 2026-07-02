@@ -24,7 +24,10 @@ Sesión enfocada en resolver la rentabilidad negativa estructural de `trend_acce
    - Inyectados parámetros (thresholds) del clasificador de régimen en todos los perfiles de monedas bajo el bloque `va_gate`.
 4. **[MODIFICADO] `decision/engine/core.py`**:
    - Inyección de `regime_vote` y `regime_metrics` en la metadata de la señal (`trigger_meta`) para facilitar el diagnóstico durante el backtest.
-5. **Aplazamiento**: Se pospuso la ejecución de los backtests y validación para la próxima sesión a solicitud del usuario.
+5. **Backtest y Validación**: Se ejecutó `backtest_runner.py` en modo auditoría para LTC (marzo-mayo 2026).
+   - El clasificador redujo las señales TA de 146 a 119 (-18.5%).
+   - Sin embargo, el Edge Auditor reveló un `ENTRY FAILURE` para `trend_acceptance`: la proximidad promedio a TP es apenas 0.63 y el Net Taker máximo alcanzable es -0.0608% incluso con la mejor combinación teórica de TP/SL (0.10/0.10%).
+6. **Plan de Optimización**: Creado `.agent/workflows/optimizar-trend-acceptance.md` definiendo el uso de `cluster_optimizer.py --only trend_acceptance` para buscar parámetros de entrada mediante Optuna.
 
 #### Files Modified
 | Archivo | Cambio |
@@ -33,9 +36,10 @@ Sesión enfocada en resolver la rentabilidad negativa estructural de `trend_acce
 | `decision/signal_arbitrator.py` | Integración del nuevo clasificador en `_apply_va_gate` |
 | `config/coin_profiles.py` | Inyección de parámetros de régimen en 9 perfiles |
 | `decision/engine/core.py` | Logueo de `regime_vote` en trigger_meta |
+| `.agent/workflows/optimizar-trend-acceptance.md` | [NUEVO] Workflow para optimizar parámetros TA |
 
 #### Next Steps (ver roadmap en memory.md)
-1. Ejecutar el protocolo `/long-range-edge-audit` para validar empíricamente que el `RegimeClassifier` mejora el Net Taker del `trend_acceptance` eliminando falsos positivos en mercados sin tendencia.
+1. Ejecutar el workflow `.agent/workflows/optimizar-trend-acceptance.md` usando Optuna para buscar hiperparámetros que solucionen el ENTRY FAILURE de `trend_acceptance`.
 
 ### [2026-07-01 SESSION] — AMT Crystal Layer Fixes: LE Level Identity + TAV Direction Logic (Branch: dev-8.9-datafeed-revamp)
 
