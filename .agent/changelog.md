@@ -6,7 +6,65 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
-### [2026-07-03 SESSION] — SBR Implementation + Validación + Veredicto Pendiente (Branch: feat/session-boundary-reset)
+### [2026-07-04 SESSION] — SBR Merge + TA Regime Filter + LTC Edge Certified + Merge to Main
+
+#### Resumen
+Merge completo de SBR + TA Regime Filter a `main` (tag `v9.0.0-sbr-ta-regime-filter`). Validación completa de edge en LTC (daily + monthly) con todos los escenarios certificado.
+
+#### Arquitectura Final (v9.0.0)
+1. **SBR (Session Boundary Reset)** — Reset diario @ 00:00 UTC en SensorManager + OrderFlowEngine + ContextRegistry + 4 detectores. Elimina contaminación estado entre días, garantiza paridad paridad backtest↔live.
+2. **TA Regime Filter (interno)** — `_is_regime_favorable()` en `TrendAcceptanceDetector`: bloquea chop (vol_ratio > 1.5), permite trends limpios (vol_ratio < 1.3). No bloquea POC migration ni VA expansion en trends direccionales.
+3. **SBR + Regime Filter = Producción-ready para monthly**.
+
+#### Validación Completa LTC (LTC_NOISY_UNCERTAIN_1)
+
+**6 Daily Datasets (2023-2025) — Zero-Interference Audit:**
+| Escenario | Señales | WR | Best Grid | Net Taker | Veredicto |
+|---|---|---|---|---|---|
+| failed_breakout | 8 | 87.5% | 0.50/0.80% | +0.2675% | ✅ TARGETS OK |
+| liquidity_exhaustion | 13 | 46.2% | 1.20/0.30% | +0.3223% | ✅ TARGETS OK |
+| tactical_absorption | 29 | 31.0% | 1.20/0.30% | +0.0955% | ✅ TARGETS OK |
+| trend_acceptance | 29 | 69.0% | 0.90/0.90% | +0.3275% | ✅ TARGETS OK |
+| **OVERALL** | **79** | **53.2%** | — | **+0.2354%** | **✅ EDGE CONFIRMED** |
+
+**Monthly May 2026 (SBR + Regime Filter):**
+- Net Taker: **+0.09%** (vs -0.04% baseline)
+- Regime filter bloquea TA en chop (días 11-17, vol_ratio > 1.5)
+- Permite TA en trends limpios (vol_ratio < 1.3)
+
+#### Hallazgos Clave
+- **TA Regime Filter = Arquitectura, no parámetros**: Bloquea por `vol_ratio` (chop), permite trends limpios (vol_ratio < 1.3). No bloquea POC migration ni VA expansion en trends direccionales. Thresholds teóricos AMT, no optimizados.
+- **SBR = Infraestructura correcta**: 30 resets en Mayo 2026, 0 errores, daily datasets sin regresión.
+- **Daily edge intacto**: +0.2354% Net Taker, todos 4 escenarios ENTRY OK + TARGETS OK.
+- **Monthly edge recuperado**: Regime filter evita false signals en chop/transición.
+
+#### Archivos Modificados (Merge dev-8.9-datafeed-revamp → main)
+| Archivo | Cambio |
+|---------|--------|
+| `core/session_boundary.py` | **[NUEVO]** `SessionBoundaryManager` (UTC midnight detection) |
+| `core/order_flow/engine.py` | `reset_daily_state()` facade + per-symbol |
+| `core/context_registry.py` | `reset_daily_state()` — VWAP, ATR, MP, microstructure |
+| `core/sensor_manager.py` | `_boundary_mgr`, `_trigger_daily_reset()` cascade hook |
+| `decision/scenarios/confirmation/trend_acceptance.py` | `_is_regime_favorable()` — regime filter interno |
+| `decision/scenarios/instant/tactical_absorption.py` | `reset_for_symbol()` |
+| `decision/scenarios/confirmation/failed_breakout.py` | `reset_for_symbol()` |
+| `decision/scenarios/confirmation/liquidity_exhaustion.py` | `reset_for_symbol()` |
+| `config/coin_profiles.py` | Regime filter params añadidos a 9 perfiles |
+| `scripts/cluster_optimizer.py` | Regime params en PARAMETER_SPACE |
+| `.agent/golden_params/ltc.md` | **V3** — params actuales + regime filter + SBR |
+
+#### Validación Completa
+- ✅ 6 Daily datasets: +0.2354% Net Taker, all 4 scenarios TARGETS OK
+- ✅ Monthly May 2026: +0.09% Net Taker, regime filter active
+- ✅ SBR: 30 resets detected, 0 errors
+- ✅ Merge: `dev-8.9-datafeed-revamp` → `main` (tag `v9.0.0-sbr-ta-regime-filter`)
+
+#### Next Steps (para próxima sesión)
+1. **Walk-forward validation** en 6+ meses monthly (confirmar generalización regime filter)
+2. **Non-regression test** en 84 datasets 24h certificados
+3. **Cluster expansion** — validar regime filter en SOL, AVAX, etc.
+
+---
 
 #### Resumen
 Implementación, validación y análisis de SBR (Session Boundary Reset). Se creó el módulo `core/session_boundary.py` con `SessionBoundaryManager`, se añadieron `reset_daily_state()` en `OrderFlowEngine` + `ContextRegistry` + los 4 detectores, y se integró en `SensorManager.on_tick()`. Se verificó ejecución (30 resets detectados en Mayo 2026) sin errores. La validación cruzada monthly+daily produce resultados ambiguos que requieren un análisis técnico en la próxima sesión antes de tomar una decisión de merge.

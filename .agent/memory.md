@@ -15,13 +15,12 @@
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
-*   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System.
-*   **Current Branch**: `feat/session-boundary-reset` (rama temporal para SBR — veredicto pendiente sobre merge a `dev-8.9-datafeed-revamp`)
-*   **Active Branch(Daily Work)**: `dev-8.9-datafeed-revamp` (rama de trabajo diario, donde se haría el merge si se aprueba SBR)
-*   **Stable Branch**: `main` (versión certificada v8.9)
+*   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
+*   **Current Branch**: `dev-8.9-datafeed-revamp` (rama de trabajo diario)
+*   **Stable Branch**: `main` (versión certificada **v9.0.0-sbr-ta-regime-filter**)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
-*   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized).
-*   **Datasets**: **84 certificados** (2 TREND_UP, 2 TREND_DOWN, 2 BALANCE × 14 símbolos) en `data/datasets/daily_daily_backtest_ready/`. +6 mensuales LTC/SOL limpios en `data/datasets/monthly_daily_backtest_ready/`.
+*   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized + Regime Filter + SBR).
+*   **Datasets**: **84 certificados** (2 TREND_UP, 2 TREND_DOWN, 2 BALANCE × 14 símbolos) en `data/datasets/daily_backtest_ready/`. +6 mensuales LTC/SOL en `data/datasets/monthly_backtest_ready/`.
 
 
 ## 🏛️ Git Flow Metodología (3 Branches)
@@ -93,28 +92,30 @@
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets
 
-### 4. Capa de Escudo (Risk / Regime) — [EN DESARROLLO 🟡]
+### 4. Capa de Escudo (Risk / Regime) — [CERTIFICADA 🟢]
 *   **VA_GATE Regime Filter**: Rolling window 8h evalúa estructura de volumen actual; bloquea mean-reversion en tendencia (integrity ~0.001), permite en rango (integrity > 0.15).
-*   **VA_GATE Selective by Setup_Type**: Gate selectivo parametrizado por perfil — bloquea mean-reversion (tactical_absorption, failed_breakout, liquidity_exhaustion) en trending, permite trend-following (trend_acceptance). Config `va_gate` en 9 perfiles, lógica `_apply_va_gate()` en ScenarioManager.
+*   **VA_GATE Selective by Setup_Type**: Gate selectivo parametrizado por perfil — bloquea mean-reversion (tactical_absorption, failed_breakout, liquidity_exhaustion) en trending, permite trend-following (trend_acceptance). Config `va_gate` en 9 perfiles, lógica `_apply_va_gate()` en SignalArbitrator.
+*   **TA Regime Filter (Interno)**: `_is_regime_favorable()` en `TrendAcceptanceDetector` — bloquea chop (vol_ratio > 1.5), permite clean trends (vol_ratio < 1.3). No bloquea POC migration ni VA expansion en trends direccionales limpios. Thresholds teóricos AMT.
 
 ---
 
 ## 📍 Ruta Actual (Fuente de Verdad del Roadmap)
 
 ### Completado (historial en changelog.md):
-Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation ✅ | 8.9 Data Feed Revamp (138x) ✅ | Refactor feat/limpieza-profunda ✅ Mergeado | LTC trend_acceptance Optimized (+0.3184%) ✅ | **AMT Crystal Fixes (LE level_key + TAV direction)** ✅ Net Taker 24h: +0.2352% (2x mejora)
+Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation ✅ | 8.9 Data Feed Revamp (138x) ✅ | Refactor feat/limpieza-profunda ✅ Mergeado | LTC trend_acceptance Optimized (+0.3184%) ✅ | **AMT Crystal Fixes (LE level_key + TAV direction)** ✅ Net Taker 24h: +0.2352% (2x mejora) | **SBR Merge** ✅ | **TA Regime Filter** ✅ | **LTC Edge Certified** ✅ (+0.2354% Net Taker daily, +0.09% monthly) | **Merge to Main v9.0.0** ✅
 
 ### Siguientes Pasos (Priorizados):
-1. **(PRIORIDAD INMEDIATA) Decisión de Merge SBR — Próxima sesión** — Análisis técnico del resultado en `tabla_resultados_sbr_v8.9.md`. El branch `feat/session-boundary-reset` está listo pero **no mergeado**. Decidir: ¿merge a `dev-8.9-datafeed-revamp` o descartar?
-2. Ejecutar el protocolo `.agent/workflows/sync-docs.md` después del veredicto → ya se está ejecutando al cierre de esta sesión.
-3. Validar RegimeClassifier / Walk-Forward (de la sesión 2026-07-02) — items de la sesión previa, ahora lower priority.
+1. **Walk-Forward Validation** — 6+ meses monthly (confirmar generalización regime filter)
+2. **Non-Regression Test** — 84 datasets 24h certificados (confirmar estabilidad daily edge)
+3. **Cluster Expansion** — Validar regime filter en SOL, AVAX, ETH, etc.
+4. **Dataset Expansion** — Descargar más monthly datasets para walk-forward robusto
 
 ---
 
 ### Current Status: 🟢 84 Datasets Certified (2/2/2 per Symbol)
 
-- **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4.
-- **Branch**: `dev-8.9-datafeed-revamp` (trabajo diario), `main` (v8.9 certificada)
+- **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4 + **TA Regime Filter** + **SBR**.
+- **Branch**: `dev-8.9-datafeed-revamp` (trabajo diario), `main` (v9.0.0-sbr-ta-regime-filter certificada)
 - **Backtest Runner**: Unificado en `scripts/backtest_runner.py` con dos modos:
   - **Audit Mode** (`--mode audit`): Ejecución paralela de múltiples backtests, merge de historian DBs, edge auditor. Para validación estadística de edge en 6 datasets.
   - **Trade Mode** (`--mode trade`): Ejecución secuencial de 1 backtest, simulación realista de trading. Para validación final antes de live deployment.
@@ -134,7 +135,7 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 - **V11 Exit Engine & MarketProfile Overhaul** (2026-06-24): Rediseño del `SlimExitEngine` V11. Reemplazadas salidas activas basadas en tiempo (`close_position`) con compresión pasiva lineal del bracket de intercambio (OCO). Implementado `is_mature` en `MarketProfile` para evadir el bloqueo del VA_GATE (baja `va_integrity`) en perfiles maduros. Optimizado `_recalculate_poc` para ejecutarse en lotes tras la poda de ticks, logrando una aceleración masiva del motor (5,400 ticks/seg). Validadores al 100% aprobados.
 - **VA_GATE Regime Fix** (2026-06-25): Eliminado el bypass tóxico `is_mature → max(1.0, score)` que permitía operar mean-reversion en tendencia. El rolling window de 8h en `MarketProfile` ya poda ticks viejos; `calculate_va_integrity()` ahora evalúa régimen actual. Validado: ranging → integrity > 0.15 (ALLOW), trending → integrity ~0.001 (BLOCK).
 - **Refactor feats/limpieza-profunda** (2026-06-28): Renombrado PressureEngine → OrderFlowEngine, ScenarioManager → SignalArbitrator, escenarios en instant/ + confirmation/. Validación completa post-refactor: 7 layers validadas, orchestrator single-coin-audit LTC (6/6 ✅) + SOL (7/7 ✅) en 2539s. Bugfix absorption_score en tactical_absorption.py:119. SOL targets optimizados por best uniform (FB/0.008, LE/0.007, TA/0.008). SOL l2_ratio_min 1.5→2.0. Orchestrator cleanup: protocolos generalized/probe eliminados, workers 100% dinámicos, auto-audits habilitados.
-- **Next Session**: Ejecutar el workflow `.agent/workflows/optimizar-trend-acceptance.md` usando Optuna (`--only trend_acceptance`) para LTC. Validar resultados con backtest mensual y luego regresar a la validación de no-regresión en los 84 datasets para confirmar estabilidad.
+- **Next Session**: Walk-forward validation 6+ meses monthly + non-regression 84 datasets + cluster expansion.
 
 ---
 
