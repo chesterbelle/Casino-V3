@@ -10,6 +10,7 @@ Entry conditions:
     1. Price EXITS the VA with CVD confirmation
     2. Price EXTENDS beyond the broken level (minimum breakout distance)
     3. Price PULLS BACK toward the broken level without re-entering VA
+    4. Regime filter: VA stable, POC not migrating, vol not expanding
 
 Signal: At the pullback to the broken level
 """
@@ -22,9 +23,10 @@ logger = logging.getLogger("AMTScenarios.TrendAcceptance")
 
 
 class TrendAcceptanceDetector:
-    def __init__(self, pressure_engine, params=None) -> None:
+    def __init__(self, pressure_engine, params=None, context_registry=None) -> None:
         self.name = "TrendAcceptance"
         self.pressure = pressure_engine
+        self.context_registry = context_registry
         self.active_breakouts: Dict[str, dict] = {}
         self.last_fire_ts = defaultdict(float)
         self._cluster_cache: Dict[str, dict] = {}
@@ -34,6 +36,11 @@ class TrendAcceptanceDetector:
         self.cvd_confirmation_threshold = 5.0
         self.pullback_bps = 12.0
         self.min_breakout_distance_bps = 20.0
+
+        # Regime filter thresholds (can be overridden by profile)
+        self.regime_poc_migration_max = 0.005
+        self.regime_vol_ratio_max = 1.5
+        self.regime_va_expansion_max = 1.1
 
     def reset_for_symbol(self, symbol: str) -> None:
         """Clear per-symbol state at daily boundary."""
@@ -50,6 +57,12 @@ class TrendAcceptanceDetector:
 
             params = profile_manager.get_sensor_params(symbol, "trend_acceptance")
             params = validate_params(params or {}, "trend_acceptance")
+
+            # Load regime filter thresholds from profile
+            if params:
+                self.regime_poc_migration_max = params.get("regime_poc_migration_max", self.regime_poc_migration_max)
+                self.regime_vol_ratio_max = params.get("regime_vol_ratio_max", self.regime_vol_ratio_max)
+                self.regime_va_expansion_max = params.get("regime_va_expansion_max", self.regime_va_expansion_max)
         except ImportError:
             params = {}
         except Exception as e:
@@ -68,6 +81,43 @@ class TrendAcceptanceDetector:
         if symbol in self.last_fire_ts:
             if now_ts - self.last_fire_ts[symbol] > max_age:
                 del self.last_fire_ts[symbol]
+
+    def _is_regime_favorable(self, symbol: str) -> bool:
+        """
+        Check if market regime is favorable for trend_acceptance.
+
+        Returns False (block signal) if:
+        - POC migrating too fast (unstable value area)
+        - Volatility ratio too high (chop/expansion, not trend)
+        - VA expanding too fast (transition, not acceptance)
+
+        Uses ContextRegistry for real-time regime metrics.
+        """
+        if not self.context_registry:
+            return True  # No registry = allow (backward compat)
+
+        # 1. POC Migration - fast migration = unstable VA
+        poc_migration = self.context_registry.get_poc_migration(symbol)
+        if abs(poc_migration) > self.regime_poc_migration_max:
+            logger.debug(
+                f"🛡️ [TA REGIME] {symbol} blocked: POC migration {poc_migration:.4f} > {self.regime_poc_migration_max}"
+            )
+            return False
+
+        # 2. Volatility Ratio - high ratio = chop/expansion not clean trend
+        vol_ratio = self.context_registry.get_volatility_ratio(symbol)
+        if vol_ratio > self.regime_vol_ratio_max:
+            logger.debug(f"🛡️ [TA REGIME] {symbol} blocked: vol_ratio {vol_ratio:.2f} > {self.regime_vol_ratio_max}")
+            return False
+
+        # 3. VA Expansion - rapid expansion = transition not acceptance
+        va_integrity = self.context_registry.get_va_integrity(symbol)
+        # Low integrity = expanding VA = transition
+        if va_integrity > 0 and va_integrity < 0.15:
+            logger.debug(f"🛡️ [TA REGIME] {symbol} blocked: va_integrity {va_integrity:.3f} < 0.15 (expanding VA)")
+            return False
+
+        return True
 
     def on_tick(self, symbol: str, price: float, timestamp: float, structural_levels: dict) -> Optional[Dict[str, Any]]:
         if price <= 0:
@@ -113,6 +163,10 @@ class TrendAcceptanceDetector:
         # --- Initiate new breakout if price exits VA with CVD confirmation ---
         is_above = price > vah
         is_below = price < val
+
+        # Regime filter: block new breakouts in unfavorable regime
+        if not self._is_regime_favorable(symbol):
+            return None
 
         if is_above and cvd_slope > cvd_confirmation_threshold:
             self.active_breakouts[symbol] = {
@@ -180,6 +234,10 @@ class TrendAcceptanceDetector:
 
         pullback_level = vah * (1 + pullback_bps / 10000)
         if price <= pullback_level:
+            # Regime filter: confirm regime still favorable at pullback
+            if not self._is_regime_favorable(symbol):
+                bo["cancelled"] = True
+                return None
             breakout_distance_bps = (bo["max_price"] / vah - 1) * 10000
             if breakout_distance_bps >= min_breakout_distance_bps:
                 logger.debug(
@@ -227,6 +285,10 @@ class TrendAcceptanceDetector:
 
         pullback_level = val * (1 - pullback_bps / 10000)
         if price >= pullback_level:
+            # Regime filter: confirm regime still favorable at pullback
+            if not self._is_regime_favorable(symbol):
+                bo["cancelled"] = True
+                return None
             breakout_distance_bps = (1 - bo["min_price"] / val) * 10000
             if breakout_distance_bps >= min_breakout_distance_bps:
                 logger.debug(

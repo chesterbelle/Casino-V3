@@ -198,6 +198,10 @@ PARAMETER_SPACE = {
     "sensors.trend_acceptance.cvd_confirmation_threshold": (1.0, 5.0, 0.5),
     "sensors.trend_acceptance.max_pullback_penetration_pct": (0.001, 0.003, 0.0001),
     "sensors.trend_acceptance.pullback_tolerance_pct": (0.0005, 0.002, 0.0001),
+    # Trend Acceptance - Regime Filter
+    "sensors.trend_acceptance.regime_poc_migration_max": (0.002, 0.01, 0.0005),
+    "sensors.trend_acceptance.regime_vol_ratio_max": (1.2, 2.0, 0.05),
+    "sensors.trend_acceptance.regime_va_expansion_max": (1.05, 1.3, 0.01),
     # Tactical Absorption - All params + expanded ranges (sensor name: absorption_detector)
     "sensors.absorption_detector.z_score_min": (2.0, 6.0, 0.1),
     "sensors.absorption_detector.cooldown": (30.0, 240.0, 10.0),

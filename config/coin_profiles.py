@@ -55,6 +55,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.003,
                 "min_candles_outside": 5,
                 "pullback_tolerance_pct": 0.001,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {
@@ -200,6 +203,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.002,
                 "min_candles_outside": 4,
                 "pullback_tolerance_pct": 0.0015,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {
@@ -285,6 +291,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.003,
                 "min_candles_outside": 7,
                 "pullback_tolerance_pct": 0.0012000000000000001,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {
@@ -354,6 +363,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.002,
                 "min_candles_outside": 5,
                 "pullback_tolerance_pct": 0.001,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {
@@ -423,6 +435,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.001,
                 "min_candles_outside": 4,
                 "pullback_tolerance_pct": 0.0015,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {
@@ -492,6 +507,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.0025,
                 "min_candles_outside": 5,
                 "pullback_tolerance_pct": 0.0008,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {
@@ -565,6 +583,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.0006000000000000001,
                 "min_candles_outside": 4,
                 "pullback_tolerance_pct": 0.002,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {
@@ -639,6 +660,9 @@ COIN_PROFILES = {
                 "max_pullback_penetration_pct": 0.0006000000000000001,
                 "min_candles_outside": 4,
                 "pullback_tolerance_pct": 0.002,
+                "regime_poc_migration_max": 0.005,
+                "regime_vol_ratio_max": 1.5,
+                "regime_va_expansion_max": 1.1,
             },
         },
         "targets": {

@@ -12,6 +12,7 @@ import os
 from collections import defaultdict, deque
 from typing import Any, Dict, Tuple
 
+from core.context_registry import ContextRegistry
 from core.order_flow.engine import OrderFlowEngine
 from core.session_boundary import SessionBoundaryManager
 
@@ -127,7 +128,9 @@ class SensorManager:
 
         self.scenarios["liquidity_exhaustion"] = LiquidityExhaustionDetector(self.pressure_engine)
         self.scenarios["failed_breakout"] = FailedBreakoutDetector(self.pressure_engine)
-        self.scenarios["trend_acceptance"] = TrendAcceptanceDetector(self.pressure_engine)
+        self.scenarios["trend_acceptance"] = TrendAcceptanceDetector(
+            self.pressure_engine, context_registry=ContextRegistry()
+        )
         self.scenarios["tactical_absorption"] = AbsorptionDetector(self.pressure_engine)
 
         # Phase 7: Micro-Event Batching to prevent Main Loop stalls
