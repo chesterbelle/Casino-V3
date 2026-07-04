@@ -87,35 +87,57 @@ class TrendAcceptanceDetector:
         Check if market regime is favorable for trend_acceptance.
 
         Returns False (block signal) if:
-        - POC migrating too fast (unstable value area)
-        - Volatility ratio too high (chop/expansion, not trend)
-        - VA expanding too fast (transition, not acceptance)
+        - Volatility ratio too high (chop/expansion, not trend) — HARD BLOCK
+        - POC migrating fast WITH high vol (chop) = unstable VA
+        - VA expanding too fast WITH high vol = transition, not clean trend
 
+        Allows high POC migration and VA expansion when it's a CLEAN trend:
+        - Low vol ratio (< 1.3) = directional move, no chop
+        - Low VA integrity is EXPECTED in trends (VA moves with price)
         Uses ContextRegistry for real-time regime metrics.
         """
         if not self.context_registry:
             return True  # No registry = allow (backward compat)
 
-        # 1. POC Migration - fast migration = unstable VA
+        # Get all metrics at once
         poc_migration = self.context_registry.get_poc_migration(symbol)
-        if abs(poc_migration) > self.regime_poc_migration_max:
+        vol_ratio = self.context_registry.get_volatility_ratio(symbol)
+        va_integrity = self.context_registry.get_va_integrity(symbol)
+
+        # 1. Volatility Ratio - high ratio = chop/expansion (HARD BLOCK)
+        if vol_ratio > self.regime_vol_ratio_max:
             logger.debug(
-                f"🛡️ [TA REGIME] {symbol} blocked: POC migration {poc_migration:.4f} > {self.regime_poc_migration_max}"
+                f"🛡️ [TA REGIME] {symbol} blocked: vol_ratio {vol_ratio:.2f} > {self.regime_vol_ratio_max} (chop)"
             )
             return False
 
-        # 2. Volatility Ratio - high ratio = chop/expansion not clean trend
-        vol_ratio = self.context_registry.get_volatility_ratio(symbol)
-        if vol_ratio > self.regime_vol_ratio_max:
-            logger.debug(f"🛡️ [TA REGIME] {symbol} blocked: vol_ratio {vol_ratio:.2f} > {self.regime_vol_ratio_max}")
+        # 2. POC Migration - only block if HIGH migration AND high vol (chop)
+        # Allow high POC migration if it's a clean directional trend (low vol ratio)
+        poc_abs = abs(poc_migration)
+        is_clean_trend = vol_ratio < 1.3  # Just low vol = directional, no chop
+
+        if poc_abs > self.regime_poc_migration_max and not is_clean_trend:
+            logger.debug(
+                f"🛡️ [TA REGIME] {symbol} blocked: POC migration {poc_abs:.4f} > {self.regime_poc_migration_max} "
+                f"(vol_ratio={vol_ratio:.2f}, va_integrity={va_integrity:.3f}, clean={is_clean_trend})"
+            )
             return False
 
-        # 3. VA Expansion - rapid expansion = transition not acceptance
-        va_integrity = self.context_registry.get_va_integrity(symbol)
-        # Low integrity = expanding VA = transition
-        if va_integrity > 0 and va_integrity < 0.15:
-            logger.debug(f"🛡️ [TA REGIME] {symbol} blocked: va_integrity {va_integrity:.3f} < 0.15 (expanding VA)")
-            return False
+        # 3. VA Expansion Ratio - rapid expansion = transition (but allow during clean trends)
+        poc, vah, val = self.context_registry.get_structural(symbol)
+        if poc and vah and val and poc > 0:
+            current_width_pct = (vah - val) / poc * 100
+            last_width = getattr(self, f"_last_va_width_{symbol}", current_width_pct)
+            setattr(self, f"_last_va_width_{symbol}", current_width_pct)
+            if last_width > 0:
+                va_expansion_ratio = current_width_pct / last_width
+                # Only block VA expansion if it's NOT a clean trend
+                is_clean_trend = vol_ratio < 1.3
+                if va_expansion_ratio > self.regime_va_expansion_max and not is_clean_trend:
+                    logger.debug(
+                        f"🛡️ [TA REGIME] {symbol} blocked: VA expanding rapidly ratio={va_expansion_ratio:.3f} (vol={vol_ratio:.2f}, clean={is_clean_trend})"
+                    )
+                    return False
 
         return True
 
