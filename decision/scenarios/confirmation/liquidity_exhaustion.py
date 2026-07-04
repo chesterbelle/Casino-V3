@@ -38,6 +38,15 @@ class LiquidityExhaustionDetector:
         self.declining_threshold = 0.7
         self.min_bounce_pct = 0.0003
 
+    def reset_for_symbol(self, symbol: str) -> None:
+        """Clear per-symbol state at daily boundary."""
+        self.level_tests.pop(symbol, None)
+        self.last_fire_ts.pop(symbol, None)
+        self._cluster_cache.pop(symbol, None)
+        stale_bounce = [k for k in list(self._max_bounce) if k.startswith(f"{symbol}_")]
+        for k in stale_bounce:
+            del self._max_bounce[k]
+
     def _get_params(self, symbol: str) -> dict:
         if symbol in self._cluster_cache:
             return self._cluster_cache[symbol]

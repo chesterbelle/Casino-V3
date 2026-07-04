@@ -35,6 +35,12 @@ class TrendAcceptanceDetector:
         self.pullback_bps = 12.0
         self.min_breakout_distance_bps = 20.0
 
+    def reset_for_symbol(self, symbol: str) -> None:
+        """Clear per-symbol state at daily boundary."""
+        self.active_breakouts.pop(symbol, None)
+        self.last_fire_ts.pop(symbol, None)
+        self._cluster_cache.pop(symbol, None)
+
     def _get_params(self, symbol: str) -> dict:
         if symbol in self._cluster_cache:
             return self._cluster_cache[symbol]

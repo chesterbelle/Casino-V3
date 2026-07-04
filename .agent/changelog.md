@@ -6,6 +6,71 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
+### [2026-07-03 SESSION] — SBR Implementation + Validación + Veredicto Pendiente (Branch: feat/session-boundary-reset)
+
+#### Resumen
+Implementación, validación y análisis de SBR (Session Boundary Reset). Se creó el módulo `core/session_boundary.py` con `SessionBoundaryManager`, se añadieron `reset_daily_state()` en `OrderFlowEngine` + `ContextRegistry` + los 4 detectores, y se integró en `SensorManager.on_tick()`. Se verificó ejecución (30 resets detectados en Mayo 2026) sin errores. La validación cruzada monthly+daily produce resultados ambiguos que requieren un análisis técnico en la próxima sesión antes de tomar una decisión de merge.
+
+#### Diagnóstico Previo
+- Hipótesis inicial: estado acumulativo en MarketProfile/CVD/z-scores跨 días contamina el monthly.
+- Evidencia previa: TEST days aislados (1, 10, 15, 20 de Mayo 2026) generaban **0 señales** vs ~4 señales cada uno en el monthly continuo → contaminación confirmada.
+- Baseline original: TA generaba 119 señales (15.1% WR, -0.71% Net) en monthly vs 36 (58.3% WR) en daily.
+
+#### Acciones
+1. **[NUEVO] `core/session_boundary.py`**:
+   - `SessionBoundaryManager` con detección idempotente de cambio de día UTC.
+2. **[MODIFICADO] `core/order_flow/engine.py`**:
+   - `CoinOrderFlowEngine.reset_daily_state()` + facade `OrderFlowEngine.reset_daily_state(symbol)`.
+3. **[MODIFICADO] `core/context_registry.py`**:
+   - `reset_daily_state(symbol)` — resetea VWAP, spread, ATR, MarketProfile, micro_state, liquidity, etc.
+4. **[MODIFICADO] `core/sensor_manager.py`**:
+   - Instancia `_boundary_mgr`. `_trigger_daily_reset(symbol, ts)` en cascada (SensorManager + OrderFlow + ContextRegistry + 4 detectores).
+   - Hook al inicio de `on_tick()` antes de cualquier procesamiento.
+5. **[MODIFICADO] 4 detectores** (`trend_acceptance`, `failed_breakout`, `liquidity_exhaustion`, `tactical_absorption`):
+   - Nuevo método `reset_for_symbol(symbol)` — limpia estado per-symbol.
+6. **[NUEVO] `docs/historical_results/tabla_resultados_sbr_v8.9.md`**:
+   - Tabla comparativa con datos raw por escenario (TA, LE, TACT, FB), discriminada por dataset.
+7. **Validación**:
+   - 6 dailies (2023-2025): **+0.23% Net Taker overall** ✅ (sin regresión)
+   - 3 monthly 2026: Marzo -0.03%, **Abril +0.16% ✅**, Mayo -0.04%
+   - Mayo: TA pasó de 119 → 24 señales (-80%), pero las 24 restantes son 0% WR
+   - 30 resets detectados a lo largo de Mayo 2026, 0 errores
+
+#### Hallazgos
+- **TA colapsa en 2026 mensual**: 30.6% WR (Marzo), 0% WR (Abril, Mayo). Con SBR limpio, el escenario sigue perdiendo. No es contaminación, es régimen/cambio de mercado.
+- **LE + TACT compensan parcialmente**: En Abril, LE +0.52% + TACT +0.19% cargan al TA (-0.97%) → overall +0.16%.
+- **Dailies intactos**: TA mantiene 67-100% WR en dailies tendenciales.
+- **Bug previo del perfil**: El baseline original (-0.4754% monthly) se calculó con `clusters_fixed.json` que tenía símbolos en formato `XXX/USDT:USDT` vs datasets en `XXXUSDT` — los perfiles siempre caían al DEFAULT. Ya corregido en `feat-profile-fix` previo.
+
+#### Archivos Modificados
+| Archivo | Cambio |
+|---------|--------|
+| `core/session_boundary.py` | **[NUEVO]** `SessionBoundaryManager` |
+| `core/order_flow/engine.py` | `reset_daily_state()` en `CoinOrderFlowEngine` y facade |
+| `core/context_registry.py` | `reset_daily_state(symbol)` — VWAP, ATR, MarketProfile, etc. |
+| `core/sensor_manager.py` | `_bbox_mgr`, `_trigger_daily_reset`, hook en `on_tick()` |
+| `decision/scenarios/confirmation/trend_acceptance.py` | `reset_for_symbol(symbol)` |
+| `decision/scenarios/confirmation/failed_breakout.py` | `reset_for_symbol(symbol)` |
+| `decision/scenarios/confirmation/liquidity_exhaustion.py` | `reset_for_symbol(symbol)` |
+| `decision/scenarios/instant/tactical_absorption.py` | `reset_for_symbol(symbol)` |
+| `docs/historical_results/tabla_resultados_sbr_v8.9.md` | **[NUEVO]** Tabla comparativa de resultados |
+
+#### Branch State
+- Branch actual: `feat/session-boundary-reset` (creado desde `dev-8.9-datafeed-revamp`)
+- 8 archivos modificados, 1 nuevo + 1 nuevo doc
+- **NO MERGED** — veredicto pendiente
+
+#### Next Steps (Para la próxima sesión)
+1. Análisis técnico de Mayo 2026 → entender por qué TA tiene 0% WR incluso con SBR.
+2. Decisión binaria:
+   - **Merge a dev-8.9-datafeed-revamp** si se concluye que SBR es稳健 (limpio, no daña dailies)
+   - **Discart branch / borrar feat-** si se concluye que es overengineering o cambia la lógica del optuna fijado
+3. Validación post-merge: `validate-all.md`, `orchestrator.py single-coin-audit` sobre los 84 datasets y los 6 mensuales.
+
+#### Notas / Gotchas
+- El bug del `clusters_fixed.json` (símbolos en formato CCXT) ya estaba corregido antes de esta sesión. Si no, los resultados monthly jamás hubieran tenido sentido.
+- SBR agrega un **blind spot de 15 min por día** post-reset (MarketProfile `is_mature = False` hasta acumular ~900s). Una solución "perfecta" lo mitigaría no reseteando MarketProfile, pero eso introduciría contaminación otra vez.
+
 ### [2026-07-02 SESSION] — Multi-Layer Regime Classifier for trend_acceptance (Branch: dev-8.9-datafeed-revamp)
 
 #### Summary

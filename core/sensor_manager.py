@@ -13,6 +13,7 @@ from collections import defaultdict, deque
 from typing import Any, Dict, Tuple
 
 from core.order_flow.engine import OrderFlowEngine
+from core.session_boundary import SessionBoundaryManager
 
 from .bar_aggregator import BarAggregator
 from .events import (
@@ -75,6 +76,9 @@ class SensorManager:
             logger.info("🚫 SensorManager: Parallel workers DISABLED (running in-process)")
         else:
             logger.info(f"🏭 SensorManager: Initializing with {self.num_workers} workers")
+
+        # SBR: Session Boundary Reset Manager
+        self._boundary_mgr = SessionBoundaryManager()
 
         # Phase 1: Real-time Microstructural Tracking
         self.tick_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=10000))
@@ -288,12 +292,56 @@ class SensorManager:
                 except Exception:
                     pass  # Queue full — drop message rather than block
 
+    def _trigger_daily_reset(self, symbol: str, timestamp: float):
+        """
+        Cascading daily reset at 00:00 UTC boundary.
+        Resets all cumulative state so that monthly/live emulates
+        a sequence of isolated daily datasets.
+        """
+        logger.info("🔄 [SBR] Daily reset for %s @ timestamp %.0f", symbol, timestamp)
+
+        # 1. Self state (SensorManager)
+        self.tick_history[symbol].clear()
+        self.cvd_state[symbol] = 0.0
+        self.ob_skewness[symbol] = 0.0
+        self.last_price[symbol] = 0.0
+        self._last_micro_dispatch.pop(symbol, None)
+        self._last_z_update.pop(symbol, None)
+        self._last_tick_dispatch.pop(symbol, None)
+        self._last_ob_dispatch.pop(symbol, None)
+        # Recreate micro z-score (fresh distribution)
+        from sensors.quant.volatility_regime import RollingZScore
+
+        self.micro_zscores[symbol] = RollingZScore(window_size=120)
+        # Reset depth/spread attributes if they exist
+        if hasattr(self, "bid_depth_5") and symbol in self.bid_depth_5:
+            self.bid_depth_5[symbol] = 0.0
+            self.ask_depth_5[symbol] = 0.0
+            self.current_spread[symbol] = 0.0
+
+        # 2. OrderFlowEngine
+        self.pressure_engine.reset_daily_state(symbol)
+
+        # 3. ContextRegistry
+        from core.context_registry import ContextRegistry
+
+        ContextRegistry().reset_daily_state(symbol)
+
+        # 4. Scenario detectors
+        for scenario in self.scenarios.values():
+            if hasattr(scenario, "reset_for_symbol"):
+                scenario.reset_for_symbol(symbol)
+
     async def on_tick(self, event: TickEvent):
         """
         Phase 410: Broadcast new trades (ticks) to workers.
         Phase 1: Track CVD and emit Microstructure.
         """
         self._last_market_time = event.timestamp
+
+        # SBR: Check for daily boundary reset before any processing
+        if self._boundary_mgr.is_new_day(event.symbol, event.timestamp):
+            self._trigger_daily_reset(event.symbol, event.timestamp)
 
         # 1. Inyectar ticks en el OrderFlowEngine (Fuente de Verdad)
         qty = event.volume

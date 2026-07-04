@@ -74,6 +74,26 @@ class CoinOrderFlowEngine:
         self.price_history = deque(maxlen=200)
         self.price_returns = deque(maxlen=200)
 
+    def reset_daily_state(self):
+        """Full daily reset — zeros all cumulative state for this symbol.
+        Called at 00:00 UTC boundary by SessionBoundaryManager."""
+        self.current_cvd = 0.0
+        self.cvd_session = 0.0
+        self._last_cvd_session_reset_ts = 0.0
+        self.cvd_history.clear()
+        self.velocity_zscore = RollingZScore(window_size=200)
+        self.concentration_zscore = RollingZScore(window_size=500)
+        self.noise_zscore = RollingZScore(window_size=500)
+        self._trade_aggr_window.clear()
+        self._window_buy_vol = 0.0
+        self._window_sell_vol = 0.0
+        self.absorption_snapshots = 0
+        self.last_price = 0.0
+        self.last_trade_price = 0.0
+        self.price_history.clear()
+        self.price_returns.clear()
+        self.last_state = OrderFlowState()
+
     def reset_cvd_session(self):
         """Resets session-scoped CVD and z-scores to eliminate drift across liquidity windows."""
         self.cvd_session = 0.0
@@ -327,6 +347,11 @@ class OrderFlowEngine:
 
     def update_from_orderbook(self, symbol: str, bids: list, asks: list, ts: float) -> None:
         self._get(symbol).update_from_orderbook(bids, asks, ts)
+
+    def reset_daily_state(self, symbol: str) -> None:
+        """Full daily reset for a symbol — zeros all cumulative state."""
+        if symbol in self._engines:
+            self._engines[symbol].reset_daily_state()
 
     def reset_cvd_session(self, symbol: str) -> None:
         """Resets session-scoped CVD for a symbol to eliminate drift."""

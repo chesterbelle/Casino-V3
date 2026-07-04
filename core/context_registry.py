@@ -157,6 +157,68 @@ class ContextRegistry:
         """
         self._session_structural[symbol] = {"poc": poc, "vah": vah, "val": val, "va_integrity": va_integrity}
 
+    def reset_daily_state(self, symbol: str):
+        """Full daily reset — zeros all cumulative state for a symbol.
+        Called at 00:00 UTC boundary by SessionBoundaryManager.
+        Preserves active_trades, _session_structural, _regime_v2, regimes, otf."""
+        sym_key = self._norm_key(symbol)
+
+        # MarketProfile reset
+        profile = self.profiles.get(symbol)
+        if profile:
+            profile.reset()
+
+        # VWAP
+        self.vwap_history[sym_key].clear()
+        self.vwap_accumulators[sym_key] = {"pv": 0.0, "v": 0.0}
+        self._vwap_residuals[sym_key] = {"history": deque(maxlen=500), "sum_sq": 0.0}
+        self.vwap_state[sym_key] = {"vwap": 0.0, "std": 0.0}
+
+        # Micro state
+        if sym_key in self.micro_state:
+            del self.micro_state[sym_key]
+
+        # Spread
+        if symbol in self.spread_state:
+            del self.spread_state[symbol]
+        if symbol in self._spread_running_sum:
+            del self._spread_running_sum[symbol]
+
+        # ATR
+        if symbol in self.ranges_short:
+            self.ranges_short[symbol].clear()
+        if symbol in self.ranges_long:
+            self.ranges_long[symbol].clear()
+        if symbol in self._range_short_running_sum:
+            del self._range_short_running_sum[symbol]
+        if symbol in self._range_long_running_sum:
+            del self._range_long_running_sum[symbol]
+        if symbol in self.atrs:
+            self.atrs[symbol] = {"short": 0.0, "long": 0.0}
+
+        # Liquidity heatmap
+        if sym_key in self.liquidity_walls:
+            self.liquidity_walls[sym_key].clear()
+        if sym_key in self._wall_age:
+            self._wall_age[sym_key].clear()
+        self.l2_imbalance[sym_key] = 1.0
+
+        # IB levels
+        if symbol in self.ib_levels:
+            del self.ib_levels[symbol]
+
+        # Pressure state
+        if symbol in self.pressure_state:
+            del self.pressure_state[symbol]
+
+        # Tick stats
+        if symbol in self.tick_stats:
+            self.tick_stats[symbol] = {"speed": 0.0, "last_ts": 0.0, "count": 0}
+
+        # Current window
+        if symbol in self.current_window:
+            del self.current_window[symbol]
+
     def reset_profile(self, symbol: str):
         """Phase 1150: Resets MarketProfile for a symbol to prevent cumulative drift.
         Should be called at the start of each new trading session / dataset.

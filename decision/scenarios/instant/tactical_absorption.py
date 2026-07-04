@@ -29,6 +29,11 @@ class AbsorptionDetector:
         self.displacement_z_max = 3.0
         self.absorption_score_min = 0.5
 
+    def reset_for_symbol(self, symbol: str) -> None:
+        """Clear per-symbol state at daily boundary."""
+        self.last_fire_ts.pop(symbol, None)
+        self._cluster_cache.pop(symbol, None)
+
     def _get_params(self, symbol: str) -> dict:
         if symbol in self._cluster_cache:
             return self._cluster_cache[symbol]
