@@ -108,6 +108,7 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 1. **Walk-Forward Validation** — 6 LTC monthly (Ene–Jun 2026) evaluar generalización regime filter
 2. **Non-Regression Test** — 84 datasets 24h certificados (confirmar estabilidad daily edge)
 3. **Cluster Expansion** — Validar regime filter en SOL, AVAX, ETH, etc.
+4. **LTC Regime Params Optimization** — Optuna solo `trend_acceptance` params en monthly (tras walk-forward)
 
 ---
 
@@ -134,7 +135,7 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 - **V11 Exit Engine & MarketProfile Overhaul** (2026-06-24): Rediseño del `SlimExitEngine` V11. Reemplazadas salidas activas basadas en tiempo (`close_position`) con compresión pasiva lineal del bracket de intercambio (OCO). Implementado `is_mature` en `MarketProfile` para evadir el bloqueo del VA_GATE (baja `va_integrity`) en perfiles maduros. Optimizado `_recalculate_poc` para ejecutarse en lotes tras la poda de ticks, logrando una aceleración masiva del motor (5,400 ticks/seg). Validadores al 100% aprobados.
 - **VA_GATE Regime Fix** (2026-06-25): Eliminado el bypass tóxico `is_mature → max(1.0, score)` que permitía operar mean-reversion en tendencia. El rolling window de 8h en `MarketProfile` ya poda ticks viejos; `calculate_va_integrity()` ahora evalúa régimen actual. Validado: ranging → integrity > 0.15 (ALLOW), trending → integrity ~0.001 (BLOCK).
 - **Refactor feats/limpieza-profunda** (2026-06-28): Renombrado PressureEngine → OrderFlowEngine, ScenarioManager → SignalArbitrator, escenarios en instant/ + confirmation/. Validación completa post-refactor: 7 layers validadas, orchestrator single-coin-audit LTC (6/6 ✅) + SOL (7/7 ✅) en 2539s. Bugfix absorption_score en tactical_absorption.py:119. SOL targets optimizados por best uniform (FB/0.008, LE/0.007, TA/0.008). SOL l2_ratio_min 1.5→2.0. Orchestrator cleanup: protocolos generalized/probe eliminados, workers 100% dinámicos, auto-audits habilitados.
-- **Next Session**: Walk-forward validation 6+ meses monthly + non-regression 84 datasets + cluster expansion.
+- **Next Session**: Walk-forward validation 3 splits (Ene-Feb→Mar, Ene-Mar→Abr, Ene-Abr→May-Jun) + non-regression 84 daily + cluster expansion.
 
 ---
 

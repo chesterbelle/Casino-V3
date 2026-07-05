@@ -6,7 +6,47 @@
 > 3. **REGLA DE ORO GIT:** 3 BOTS incompatibles en distintas ramas. NUNCA hacer merge/rebase.
 > 4. **REGLA DE PUSH:** Solo tras orden expresa del usuario.
 
-### [2026-07-04 SESSION] — SBR Merge + TA Regime Filter + LTC Edge Certified + Merge to Main
+### [2026-07-04 SESSION] — Walk-Forward Plan + Dataset Expansion + sync-docs
+
+#### Resumen
+Definición del plan de walk-forward validation para regime filter en monthly LTC (6 meses Ene-Jun 2026). Descarga y procesamiento de datasets mensuales Ene, Feb, Jun 2026. Sin reentrenamiento — validación out-of-sample pura.
+
+#### Datasets Disponibles (LTC Monthly)
+| Mes | Dataset | Tamaño | Estado |
+|---|---|---|---|
+| 2026-01 | LTC_monthly_2026_01.db | 895 MB | ✅ Nuevo |
+| 2026-02 | LTC_monthly_2026_02.db | 752 MB | ✅ Nuevo |
+| 2026-03 | LTC_monthly_2026_03.db | 732 MB | ✅ Existente |
+| 2026-04 | LTC_monthly_2026_04.db | 499 MB | ✅ Existente |
+| 2026-05 | LTC_monthly_2026_05.db | 555 MB | ✅ Existente |
+| 2026-06 | LTC_monthly_2026_06.db | 525 MB | ✅ Nuevo |
+
+**Total: 6 meses LTC + 3 meses SOL = Walk-forward ready**
+
+#### Plan Walk-Forward (3 Splits Temporales — Sin Reentrenar)
+
+| Split | Train (monthly) | Test | Qué Valida |
+|---|---|---|---|
+| 1 | Ene-Feb | Mar | Transición Ene-Feb → Mar |
+| 2 | Ene-Mar | Abr | Estabilidad 3 meses |
+| 3 | Ene-Abr | May-Jun | Generalización 4→2 meses |
+
+**Sin reentrenar Optuna** — validación out-of-sample pura del regime filter + SBR existente.
+
+#### Archivos Modificados
+| Archivo | Cambio |
+|---|---|
+| `config/coin_profiles.py` | LTC params ya actualizados (regime filter params V3) |
+| `data/datasets/monthly_backtest_ready/` | +3 LTC monthly (Ene, Feb, Jun 2026) |
+
+#### Next Steps (próxima sesión)
+1. Ejecutar Split 1: Train Ene-Feb → Test Mar
+2. Ejecutar Split 2: Train Ene-Mar → Test Abr
+3. Ejecutar Split 3: Train Ene-Abr → Test May-Jun
+4. Si todos pasan → certificar regime filter monthly
+4. Si falla → Optuna regime filter params en monthly
+
+---
 
 #### Resumen
 Merge completo de SBR + TA Regime Filter a `main` (tag `v9.0.0-sbr-ta-regime-filter`). Validación completa de edge en LTC (daily + monthly) con todos los escenarios certificado.
