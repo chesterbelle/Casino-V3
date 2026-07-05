@@ -66,6 +66,34 @@ Merge completo de SBR + TA Regime Filter a `main` (tag `v9.0.0-sbr-ta-regime-fil
 
 ---
 
+### [2026-07-04 SESSION V2] — LTC Dataset Expansion: 3 Nuevos Months (Ene, Feb, Jun 2026)
+
+#### Resumen
+Extensión de cobertura temporal de LTC de 3 → 6 meses mensuales. Descarga de 89 días de raw data L2 + trades vía CryptoHFTData (3 meses ~4.5 GB comprimidos). Procesamiento a SQLite vía `build_monthly_datasets.py`. Limpieza automática de raw files (~4.5 GB liberados).
+
+#### Acciones
+1. **Análisis de mercado**: `price_history_analyzer` mostró LTC en TREND_DOWN todos los meses disponibles (-22.6%, -8.6%, -19.5%).
+2. **Descarga secuencial**: 3 meses de LTCUSDT vía `cryptohftdata_fetcher.py` con `--start/--end`:
+   - Ene 2026 (31 días, 62 files, ~1.9 GB)
+   - Feb 2026 (28 días, 56 files, ~1.5 GB)
+   - Jun 2026 (30 días, 60 files, ~1.1 GB)
+3. **Integridad verificada**: `gzip -t` en todos los files. 2 corruptos detectados y re-descargados con `--force`.
+4. **Build mensual**: Modificado `build_monthly_datasets.py` (MONTHS + SYMBOLS) para procesar Ene, Feb, Jun. Script restaurado a valores originales tras ejecución.
+
+#### Datasets Creados
+| Dataset | Régimen | Tamaño |
+|---------|---------|--------|
+| `LTC_monthly_2026_01.db` | TREND_DOWN -22.6% | 895 MB |
+| `LTC_monthly_2026_02.db` | TREND_DOWN -8.6% | 719 MB |
+| `LTC_monthly_2026_06.db` | TREND_DOWN -19.5% | 525 MB |
+
+#### Estado Final
+- 6 LTC monthly datasets (vs 3 antes): Ene–Jun 2026
+- Raw files: 0 (limpiados automáticamente por build script)
+- `build_monthly_datasets.py` restaurado a MONTHS/SYMBOLS originales
+
+---
+
 #### Resumen
 Implementación, validación y análisis de SBR (Session Boundary Reset). Se creó el módulo `core/session_boundary.py` con `SessionBoundaryManager`, se añadieron `reset_daily_state()` en `OrderFlowEngine` + `ContextRegistry` + los 4 detectores, y se integró en `SensorManager.on_tick()`. Se verificó ejecución (30 resets detectados en Mayo 2026) sin errores. La validación cruzada monthly+daily produce resultados ambiguos que requieren un análisis técnico en la próxima sesión antes de tomar una decisión de merge.
 

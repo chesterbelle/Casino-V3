@@ -223,8 +223,8 @@ Cada símbolo tiene exactamente **2 TREND_UP + 2 TREND_DOWN + 2 BALANCE** = 6 da
 | **Total** | **28** | **28** | **28** | **84 ✅** |
 
 ### Datasets Mensuales
-6 archivos en `data/datasets/monthly_daily_backtest_ready/`:
-- 3 LTC (Mar–May 2026)
+9 archivos en `data/datasets/monthly_backtest_ready/`:
+- 6 LTC (Ene–Jun 2026)
 - 3 SOL (Mar–May 2026)
 
 ### Nomenclatura
