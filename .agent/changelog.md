@@ -91,6 +91,7 @@ Extensión de cobertura temporal de LTC de 3 → 6 meses mensuales. Descarga de 
 - 6 LTC monthly datasets (vs 3 antes): Ene–Jun 2026
 - Raw files: 0 (limpiados automáticamente por build script)
 - `build_monthly_datasets.py` restaurado a MONTHS/SYMBOLS originales
+- Creada branch `dev-9.0-walkforward` desde `main` para aislar walk-forward validation
 
 ---
 

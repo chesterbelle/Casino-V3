@@ -25,7 +25,7 @@ Asegurar que el conocimiento técnico, las decisiones estratégicas y las métri
 ### Paso 3: Verificación de Integridad
 *   **Regla del Minuto**: El `memory.md` debe seguir siendo legible y útil en menos de 1 minuto. Si se está volviendo demasiado largo, mover detalles al `changelog.md`.
 *   **Roadmap Sync**: Comparar "📍 Ruta Actual" en `memory.md` con lo completado en esta sesión. Mover items completados al historial y eliminar duplicación con "Next Steps" del `changelog.md`.
-*   **Branch Cleanup**: Correr `git branch --merged dev-8.9-datafeed-revamp | grep -v "\*" | xargs git branch -D` para eliminar feat branches ya mergeadas.
+*   **Branch Cleanup**: Correr `git branch --merged dev-9.0-walkforward | grep -v "\*" | xargs git branch -D` para eliminar feat branches ya mergeadas.
 *   **Estado de Git**: Confirmar si se realizó `commit` o `tag` y reflejarlo en el Memory.
 
 ### Paso 4: Roadmap de Verificación Pre-Merge (Si hubo refactorización)

@@ -16,7 +16,7 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
-*   **Current Branch**: `dev-8.9-datafeed-revamp` (rama de trabajo diario)
+*   **Current Branch**: `dev-9.0-walkforward` (rama de walk-forward, desde main v9.0.0)
 *   **Stable Branch**: `main` (versión certificada **v9.0.0-sbr-ta-regime-filter**)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized + Regime Filter + SBR).
@@ -114,7 +114,7 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 ### Current Status: 🟢 84 Daily + 9 Monthly Datasets (2/2/2 per Symbol)
 
 - **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4 + **TA Regime Filter** + **SBR**.
-- **Branch**: `dev-8.9-datafeed-revamp` (trabajo diario), `main` (v9.0.0-sbr-ta-regime-filter certificada)
+- **Branch**: `dev-9.0-walkforward` (walk-forward), `main` (v9.0.0-sbr-ta-regime-filter certificada)
 - **Backtest Runner**: Unificado en `scripts/backtest_runner.py` con dos modos:
   - **Audit Mode** (`--mode audit`): Ejecución paralela de múltiples backtests, merge de historian DBs, edge auditor. Para validación estadística de edge en 6 datasets.
   - **Trade Mode** (`--mode trade`): Ejecución secuencial de 1 backtest, simulación realista de trading. Para validación final antes de live deployment.
