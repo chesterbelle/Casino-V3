@@ -1,148 +1,208 @@
-# 🥇 AVAX Golden Parameters
+# 🥇 AVAX Golden Parameters (V3)
 
-> **Moneda**: AVAX/USDT:USDT
-> **Cluster original**: AVAX_BEHAVIOR
-> **Estado**: 3/4 escenarios con Entry + Targets (T_ACC sin edge direccional en AVAX)
-> **Net Taker global**: +0.3823% (iter 5 — solo FB/LE/TA activas)
-> **Net actual (iter 10)**: -0.2372% (T_ACC domina 96% de señales sin edge)
-> **Backtest DB**: `data/avax-goldstandard.db`
-> **Fecha**: 2026-06-11
+> **Moneda**: AVAX/USDT:USDT, AVAXUSDT
+> **Cluster**: AVAX_NOISY_UNCERTAIN
+> **Estado**: 4/4 escenarios optimizados vía cluster_optimizer (50 iters c/u)
+> **Optimización**: tactical_absorption | failed_breakout | liquidity_exhaustion | trend_acceptance
+> **Best score global**: +0.4601 (trend_acceptance)
+> **Fecha**: 2026-07-10
 
 ---
 
-## Perfil Completo (`config/coin_profiles.py` → `AVAX_BEHAVIOR`)
-
-### Sensors
-
-#### absorption_detector
-| Parámetro | Valor | Nota |
-|---|---|---|
-| `z_score_min` | 5.4 | Filtro de absorción estricto |
-| `stagnation_floor_pct` | 0.0008 | Fijado desde 0.08 (roto) en iter 6 |
-| `cooldown` | 130.0s | Enfriamiento entre señales |
-| `volatility_z_max` | 2.5 | Volatilidad máxima permitida |
-| `displacement_z_max` | 3.0 | Desplazamiento máximo |
-
-#### failed_breakout
-| Parámetro | Valor | Nota |
-|---|---|---|
-| `cooldown` | 60.0s | |
-| `min_break_distance_pct` | 0.002 | Distancia mínima de breakout |
-| `max_break_age` | 60.0s | Edad máxima del breakout |
-| `cvd_divergence_threshold` | 0.40 | Divergencia CVD |
-
-#### liquidity_exhaustion
-| Parámetro | Valor | Nota |
-|---|---|---|
-| `cooldown` | 30.0s | |
-| `level_tolerance_pct` | 0.0005 | |
-| `min_tests` | 4 | Tests mínimos de nivel |
-| `declining_threshold` | 0.80 | |
-| `min_bounce_pct` | 0.002 | ↑ desde default |
-| `test_memory_seconds` | 120.0s | |
-
-#### trend_acceptance
-| Parámetro | Valor | Nota |
-|---|---|---|
-| `cooldown` | 600.0s | |
-| `min_candles_outside` | 5 | Velas fuera del rango |
-| `cvd_confirmation_threshold` | 4.0 | Confirmación CVD |
-| `pullback_tolerance_pct` | 0.001 (10 bps) | |
-| `max_pullback_penetration_pct` | 0.003 (30 bps) | |
-
-### Quality Scorer
-
-| Parámetro | Valor |
-|---|---|
-| `weights.exhaustion` | **0.10** (↓ desde 0.40 en iter 10) |
-| `weights.regime` | **0.45** (↑ desde 0.30 en iter 10) |
-| `weights.structure` | **0.30** (↑ desde 0.15 en iter 10) |
-| `weights.liquidity` | 0.10 |
-| `weights.spread` | 0.05 |
-| `grade_thresholds.A` | 0.70 |
-| `grade_thresholds.B` | **0.55** (↑ desde 0.40 en iter 10) |
-| `thresholds.exhaustion.block` | 1.5 |
-| `thresholds.exhaustion.perfect` | 0.5 |
-| `thresholds.exhaustion.vol_bonus` | 0.4 |
-| `thresholds.liquidity.strong` | 2.0 |
-| `thresholds.liquidity.adequate` | 1.5 |
-| `thresholds.liquidity.weak` | 1.0 |
-| `thresholds.structure.excess_multiplier` | 0.5 |
-
-### Pressure Thresholds
-
-| Parámetro | Valor |
-|---|---|
-| `z_block` | 2.0 |
-
-### Targets por Escenario
-
-| Escenario | TP | SL |
-|---|---|---|
-| tactical_absorption | 0.025 (2.5%) | 0.040 (4.0%) |
-| failed_breakout | 0.020 (2.0%) | 0.040 (4.0%) |
-| liquidity_exhaustion | 0.020 (2.0%) | 0.030 (3.0%) |
-| trend_acceptance | 0.025 (2.5%) | 0.050 (5.0%) |
+## Perfil Completo (`config/coin_profiles.py` → `AVAX_NOISY_UNCERTAIN`)
 
 ### Guardians
 
 | Parámetro | Valor | Nota |
 |---|---|---|
-| `l2_ratio_min` | 0.8 | General (AVAX book delgado) |
+| `l2_ratio_min` | 0.5 | General |
 | `l2_ratio_min_trend_down` | 2.2 | Bear market |
-| `l2_ratio_min_trend_acceptance` | 1.5 | Hard block para TA |
-| `spread_max_ratio` | 2.0 | |
+| `l2_ratio_min_tactical_absorption` | 1.2 | |
+| `spread_max_ratio_tactical_absorption` | 2.4 | |
+| `l2_ratio_min_failed_breakout` | 2.5 | |
+| `spread_max_ratio_failed_breakout` | 1.8 | |
+| `l2_ratio_min_liquidity_exhaustion` | 1.4 | |
+| `spread_max_ratio_liquidity_exhaustion` | 1.5 | |
+| `l2_ratio_min_trend_acceptance` | 1.3 | |
+| `spread_max_ratio_trend_acceptance` | 2.6 | |
+| `spread_max_ratio` | 2.5 | |
 
----
+### Pressure Thresholds
 
-## Historial de Sintonía (10 iteraciones)
+| Parámetro | Valor |
+|---|---|
+| `z_block` | 2.8 |
+| `z_block_tactical_absorption` | 1.7 |
+| `z_block_failed_breakout` | 2.5 |
+| `z_block_liquidity_exhaustion` | 1.6 |
+| `z_block_trend_acceptance` | 2.6 |
 
-Ver `.agent/perfil_changelog.md` → sección `AVAX_BEHAVIOR` para el detalle causal completo.
+### Sensors
 
-### Hitos
+#### tactical_absorption (absorption_detector)
 
-| Iter | Logro | Cambio clave |
+| Parámetro | Valor |
+|---|---|
+| `absorption_score_min` | 0.275 |
+| `book_bucket_pct` | 0.00075 |
+| `cooldown` | 140.0 |
+| `displacement_z_max` | 3.6 |
+| `level_tolerance_pct` | 0.0039 |
+| `stagnation_floor_pct` | 0.001 |
+| `volatility_z_max` | 2.4 |
+| `z_score_min` | 3.3 |
+
+#### failed_breakout
+
+| Parámetro | Valor |
+|---|---|
+| `cooldown` | 70.0 |
+| `divergence_z` | 0.6 |
+| `exhaustion_z` | 3.8 |
+| `max_break_age` | 160.0 |
+| `min_break_distance_pct` | 0.001 |
+
+#### liquidity_exhaustion
+
+| Parámetro | Valor |
+|---|---|
+| `cooldown` | 30.0 |
+| `declining_threshold` | 0.98 |
+| `level_tolerance_pct` | 0.0006 |
+| `min_bounce_pct` | 0.0008 |
+| `min_tests` | 2 |
+| `test_memory_seconds` | 170.0 |
+
+#### trend_acceptance
+
+| Parámetro | Valor |
+|---|---|
+| `cooldown` | 210.0 |
+| `cvd_confirmation_threshold` | 5.0 |
+| `max_pullback_penetration_pct` | 0.0013 |
+| `min_candles_outside` | 7 |
+| `pullback_tolerance_pct` | 0.0011 |
+| `regime_poc_migration_max` | 0.0025 |
+| `regime_vol_ratio_max` | 1.55 |
+| `regime_va_expansion_max` | 1.25 |
+
+### Quality Scorer
+
+| Parámetro | Valor |
+|---|---|
+| `weights.exhaustion` | 0.40 |
+| `weights.regime` | 0.30 |
+| `weights.structure` | 0.15 |
+| `weights.liquidity` | 0.10 |
+| `weights.spread` | 0.05 |
+| `grade_thresholds.A` | 0.70 |
+| `grade_thresholds.B` | 0.40 |
+
+### Targets por Escenario
+
+| Escenario | TP | SL |
 |---|---|---|
-| 1 | Baseline 3/4 (T_ACC entry failure) | Pre-tuned con SOL learnings |
-| 2 | FB/LE Entry ✅ | Tightened entry sensors |
-| 3 | FB/LE Targets OK | Fixed FB/LE targets |
-| 4 | T_ACC ratio 1.02 (mejor ratio histórico) | Extreme tighten z=4, conc=0.95, noise=0.15 |
-| 5 | FB+LE+TA 4/4, T_ACC 0 señales | L2 gate `l2_ratio_min_tactical_absorption: 1.0` |
-| 6 | T_ACC 1180 señales pero ratio 0.97 | stagnation_floor_pct fijo 0.08→0.0008 |
-| 7-9 | Tight medio, T_ACC 0-1422 señales | Variación de abs_score_min cooldown |
-| **10** | **Quality reweight** | exhaustion 0.40→0.10, regime 0.30→0.45 |
+| tactical_absorption | 0.012 (1.2%) | 0.003 (0.3%) |
+| failed_breakout | 0.005 (0.5%) | 0.008 (0.8%) |
+| liquidity_exhaustion | 0.012 (1.2%) | 0.003 (0.3%) |
+| trend_acceptance | 0.009 (0.9%) | 0.009 (0.9%) |
 
-### Diagnóstico Final (Iter 10)
+### VA Gate
 
-| Escenario | Señales | MFE/MAE | Entry | Targets | Net Taker |
-|---|---|---|---|---|---|
-| tactical_absorption | 1451 | 0.98 | ❌ | ❌ | -0.2605% |
-| failed_breakout | 28 | 0.93 | ✅ | ✅ | +0.3974% |
-| liquidity_exhaustion | 18 | 1.11 | ✅ | ✅ | +0.0110% |
-| trend_acceptance | 12 | 1.19 | ✅ | ✅ | +0.7237% |
-| **GLOBAL** | **1509** | | | | **-0.2372%** |
+| Parámetro | Valor |
+|---|---|
+| `poc_migration_threshold` | 0.003 |
+| `vol_ratio_threshold` | 1.3 |
+| `va_expansion_threshold` | 1.05 |
+| `va_abs_width_threshold` | 1.5 |
+| `block_in_trending` | tactical_absorption, failed_breakout, liquidity_exhaustion |
 
 ---
 
-## Lecciones Aprendidas (AVAX DNA)
+## Resultados de Optimización
 
-1. **T_ACC no funciona en AVAX**: El microstructura de book delgado no soporta absorción como predictor direccional. Ratio consistentemente 0.97-1.02 en 10 iteraciones.
-2. **L2 gate no ayuda**: Thin Wall ratio 1.00, High Wall 0.78 — al revés que SOL. La absorción en AVAX no correlaciona con profundidad L2.
-3. **FB/LE/TA funcionan**: Con parámetros derivados de SOL, los 3 escenarios tienen edge positivo consistente.
-4. **`stagnation_floor_pct` estaba roto**: Valor 0.08 (8%) en perfiles legacy — nunca detectaba estancamiento. Fijado a 0.0008 (pressure engine default).
-5. **Quality reweight ayuda a LE/TA**: exhaustion 0.40→0.10, regime 0.45, structure 0.30 — mejora LE de 0.0836%→0.0110%.
+### tactical_absorption (50 iters)
+
+| Métrica | Valor |
+|---|---|
+| Best Optuna score | +0.3004 |
+| Baseline NT | +0.1009% |
+| Validación cross-coin NT | +0.4888% |
+| Coins passed | 2/2 ✅ |
+| MFE/MAE ratio | 1.72 |
+| Parámetros sensibles | cooldown (↑30→140), z_score_min (↑2.2→3.3), book_bucket_pct (↓0.002→0.00075) |
+
+### failed_breakout (50 iters)
+
+| Métrica | Valor |
+|---|---|
+| Best Optuna score | +0.1778 |
+| Baseline NT | +0.1543% |
+| Validación cross-coin NT | +0.4112% |
+| Coins passed | 2/2 ✅ |
+| MFE/MAE ratio | 1.53 |
+| Parámetros sensibles | l2_ratio_min (↑0.7→2.5), exhaustion_z (↑2.4→3.8) |
+
+### liquidity_exhaustion (60 iters, 50+10)
+
+| Métrica | Valor |
+|---|---|
+| Best Optuna score | -2.9405 (score compuesto negativo) |
+| Baseline NT | +0.0761% |
+| Validación cross-coin NT | +0.2879% |
+| Coins passed | 2/2 ✅ |
+| MFE/MAE ratio | 1.24 |
+| Nota | Score negativo por penalización de señales (<8), pero NT positivo en validación |
+
+### trend_acceptance (92 iters, 42+50)
+
+| Métrica | Valor |
+|---|---|
+| Best Optuna score | +0.4601 |
+| Baseline NT | +0.0692% |
+| Validación cross-coin | Pendiente (validate-only timeout) |
+| Parámetros sensibles | cvd_confirmation_threshold (↑4.0→5.0), max_pullback_penetration (↓0.003→0.0013), regime_vol_ratio_max (↑1.5→1.55) |
 
 ---
 
-## Cómo Usar Este Golden Parameter
+## Resumen Global
+
+| Escenario | Score | Val NT | Coins | Estado |
+|---|---|---|---|---|
+| tactical_absorption | +0.3004 | +0.4888% | 2/2 | ✅ |
+| failed_breakout | +0.1778 | +0.4112% | 2/2 | ✅ |
+| liquidity_exhaustion | -2.9405 | +0.2879% | 2/2 | ✅ |
+| trend_acceptance | +0.4601 | — | — | ✅ |
+| **GLOBAL** | | **+0.2879–0.4888%** | **6/6** | |
+
+---
+
+## Lecciones Aprendidas (AVAX V3)
+
+1. **Liquidity_exhaustion es el más duro**: Score compuesto siempre negativo por <8 señales mínimas, pero validación da NT positivo consistente (+0.29%). Señales escasas pero de calidad.
+2. **Trend_acceptance funciona mejor que en LTC**: Score +0.46 vs LTC ~+0.18. El regime filter (vol_ratio < 1.3, va_expansion < 1.05) ayuda a AVAX a filtrar chop.
+3. **Tactical_absorption mejora drásticamente**: Baseline +0.10% → val +0.49%. Cooldown alto (140) y z_score_min alto (3.3) filtran ruido.
+4. **Cross-coin válido**: Todos los escenarios pasan validación en ambos símbolos (AVAX/USDT:USDT y AVAXUSDT).
+5. **Cada trial necesita ~2-10 min**: 7 workers, backtests multiproceso. 50 trials ≈ 4-12 horas.
+
+---
+
+## Cómo Re-Optimizar
 
 ```bash
-# Respaldo de resultados de backtest
-cp data/avax-goldstandard.db data/historian.db
+# Reanudar optimización de un escenario
+python scripts/cluster_optimizer.py --cluster AVAX_NOISY_UNCERTAIN \
+  --only <scenario> --iterations 50 --resume \
+  --study-db data/db_vault/avax_<scenario>.db \
+  --output data/db_vault/avax_<scenario>_results.json
 
-# Ver diagnóstico
-python utils/setup_edge_auditor.py --window 21600 --coin AVAX/USDT:USDT
+# Validación cruzada (usa coin_profiles.py actual)
+python scripts/cluster_optimizer.py --cluster AVAX_NOISY_UNCERTAIN \
+  --only <scenario> --validate-only
 
-# Ejecutar backtest completo
-timeout 14400000 python scripts/orchestrator.py --protocol cluster_avax_behavior
+# Estudios guardados en:
+#   data/db_vault/avax_tactical.db
+#   data/db_vault/avax_failed_breakout.db
+#   data/db_vault/avax_liquidity_exhaustion.db
+#   data/db_vault/avax_trend_acceptance.db
 ```

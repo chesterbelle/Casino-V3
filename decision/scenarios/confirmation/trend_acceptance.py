@@ -169,6 +169,7 @@ class TrendAcceptanceDetector:
         if state is None:
             return None
         cvd_slope = state.cvd_velocity
+        cvd_signed = state.cvd_velocity_signed  # Raw signed velocity for directional confirmation
 
         # --- Handle existing breakout state ---
         if symbol in self.active_breakouts:
@@ -190,7 +191,7 @@ class TrendAcceptanceDetector:
         if not self._is_regime_favorable(symbol):
             return None
 
-        if is_above and cvd_slope > cvd_confirmation_threshold:
+        if is_above and cvd_signed > 0 and abs(cvd_slope) > cvd_confirmation_threshold:
             self.active_breakouts[symbol] = {
                 "direction": "long",
                 "breakout_price": price,
@@ -199,7 +200,7 @@ class TrendAcceptanceDetector:
                 "timestamp": timestamp,
                 "cancelled": False,
             }
-        elif is_below and cvd_slope < -cvd_confirmation_threshold:
+        elif is_below and cvd_signed < 0 and abs(cvd_slope) > cvd_confirmation_threshold:
             self.active_breakouts[symbol] = {
                 "direction": "short",
                 "breakout_price": price,

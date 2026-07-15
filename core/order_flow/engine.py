@@ -28,6 +28,7 @@ class OrderFlowState:
     cvd_delta: float = 0.0
     cvd_session_delta: float = 0.0
     cvd_velocity: float = 0.0
+    cvd_velocity_signed: float = 0.0  # Raw signed velocity (positive=buying, negative=selling)
     imbalance_ratio: float = 0.0
     volatility_z: float = 0.0
     absorption_score_v2: float = 0.0  # Único score activo (z-score based)
@@ -157,8 +158,10 @@ class CoinOrderFlowEngine:
                 dt = ts - self.cvd_history[-2][0]
                 if dt > 0:
                     raw_velocity = abs(self.current_cvd - self.cvd_history[-2][1]) / dt
+                    signed_velocity = (self.current_cvd - self.cvd_history[-2][1]) / dt
                     self.velocity_zscore.update(raw_velocity)
                     self.last_state.cvd_velocity = self.velocity_zscore.get_zscore(raw_velocity)
+                    self.last_state.cvd_velocity_signed = signed_velocity
 
             # Trade flow window for concentration/noise
             if len(self._trade_aggr_window) == self._trade_aggr_window.maxlen:

@@ -83,17 +83,21 @@ def validate_params(params_dict: dict, scenario: str) -> dict:
     try:
         schema = VALIDATION_MAP[scenario]
         validated = schema(**params_dict)
-        return validated.model_dump()
+        # Preserve extra profile keys (e.g. regime_*, pullback_tolerance_pct,
+        # max_pullback_penetration_pct, min_candles_outside) that the Pydantic
+        # schema does not model but the sensor still consumes via bridges.
+        return {**validated.model_dump(), **params_dict}
     except ValidationError as e:
         logger.error("Parameter validation error for %s: %s", scenario, e)
         # Return partial params with defaults for invalid fields
+        cleaned = dict(params_dict)
         for error in e.errors():
             field = error["loc"][0]
             logger.warning("Invalid param '%s' for %s: %s", field, scenario, error["msg"])
             # Skip invalid field, let it fall back to default
-            if field in params_dict:
-                del params_dict[field]
-        return schema(**params_dict).model_dump()
+            cleaned.pop(field, None)
+        validated = schema(**cleaned)
+        return {**validated.model_dump(), **cleaned}
     except Exception as e:
         logger.exception("Unexpected validation error for %s: %s", scenario, e)
         return params_dict
