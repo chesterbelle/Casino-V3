@@ -102,10 +102,10 @@
 
 | Escenario | TP | SL |
 |---|---|---|
-| tactical_absorption | 0.012 (1.2%) | 0.003 (0.3%) |
-| failed_breakout | 0.005 (0.5%) | 0.008 (0.8%) |
-| liquidity_exhaustion | 0.012 (1.2%) | 0.003 (0.3%) |
-| trend_acceptance | 0.009 (0.9%) | 0.009 (0.9%) |
+| tactical_absorption | 0.025 (2.5%) | 0.025 (2.5%) |
+| failed_breakout | 0.025 (2.5%) | 0.025 (2.5%) |
+| liquidity_exhaustion | 0.025 (2.5%) | 0.040 (4.0%) |
+| trend_acceptance | 0.025 (2.5%) | 0.025 (2.5%) |
 
 ### VA Gate
 

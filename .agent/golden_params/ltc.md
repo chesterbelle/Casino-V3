@@ -18,9 +18,9 @@ La prueba pura de MFE/MAE de la estrategia demostró que **los 4 escenarios pose
 | **failed_breakout** | 8 | 0.50% / 0.80% | +0.3375% | **+0.2675%** | ✅ EDGE CONFIRMADO |
 | **liquidity_exhaustion** | 13 | 1.20% / 0.30% | +0.3923% | **+0.3223%** | ✅ EDGE CONFIRMADO |
 | **tactical_absorption** | 29 | 1.20% / 0.30% | +0.1655% | **+0.0955%** | ✅ EDGE CONFIRMADO |
-| **trend_acceptance** | 29 | 0.90% / 0.90% | +0.3975% | **+0.3275%** | ✅ EDGE CONFIRMADO |
+| **trend_acceptance** | 29 | 0.90% / 0.90% | +0.3289% | **+0.2589%** | ✅ EDGE CONFIRMADO |
 
-> **Overall**: Net Taker **+0.2354%** (Taker 0.07%), Gross Expectancy **+0.3054%**
+> **Overall**: Net Taker **+0.1803%** (Taker 0.07%), Gross Expectancy **+0.2503%**, WR **52.8%**
 
 ---
 
@@ -152,7 +152,7 @@ def _is_regime_favorable(self, symbol: str) -> bool:
 
 | Dataset | Net Taker | TA WR | Notas |
 |---|---|---|---|
-| **6 Daily (2023-2025)** | **+0.2354%** | **69%** | Edge confirmado todos los setups |
+| **6 Daily (2023-2025)** | **+0.1803%** | **67.6%** | Edge confirmado todos los setups (Post-CVD Bug Fix) |
 | **Monthly May 2026** | **+0.09%** | — | Regime filter bloquea chop (días 11-17), permite clean trends |
 
 SBR + Regime Filter = **Producción-ready para monthly**.

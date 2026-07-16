@@ -72,8 +72,8 @@ signed_velocity = (self.current_cvd - self.cvd_history[-2][1]) / dt  # NUEVO
 LTC generaba SHORTs "por accidente": su flujo steady hacía que mean/std > 4 durante periodos de calma → `z < -4` se cumplía raramente pero consistentemente. Estos SHORTs funcionaban por persistencia de trends (no por sell-offs reales). AVAX (spiky) nunca alcanzaba `z < -4` → 0 SHORTs.
 
 #### Next Steps
-1. **Non-Regression LTC** — Re-correr audit mensual LTC con fix para confirmar no regresión
-2. **Target Optimization AVAX** — Root cause actual: TARGET FAILURE (AMT targets < best static grid)
+1. ~~**Non-Regression LTC**~~ ✅ **COMPLETADO**: Audit mensual LTC (6 meses) con fix confirma 0 regresión (+0.18% Net Taker overall, TA WR 67.6%).
+2. ~~**Target Optimization AVAX**~~ ✅ **COMPLETADO**: Ejecutamos el `setup_edge_auditor.py` y actualizamos el perfil `AVAX_NOISY_UNCERTAIN` con los Best Static Grid targets.
 3. **Non-Regression 84 dailies** — Confirmar estabilidad
 4. **Cluster Expansion** — SOL, ETH, etc.
 

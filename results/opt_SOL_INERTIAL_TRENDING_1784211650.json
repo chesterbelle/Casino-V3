@@ -1,0 +1,123 @@
+{
+  "cluster": "SOL_INERTIAL_TRENDING",
+  "optimization_time_seconds": 90.06390476226807,
+  "best_score": -100.0,
+  "baseline": {
+    "net_taker": 0.5384306649655344,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 3.9966287411959254,
+    "total_signals": 50
+  },
+  "best_params": {
+    "guardians.l2_ratio_min_trend_acceptance": 2.4000000000000004,
+    "guardians.spread_max_ratio_trend_acceptance": 3.3,
+    "pressure_thresholds.z_block_trend_acceptance": 2.4,
+    "sensors.trend_acceptance.cooldown": 660.0,
+    "sensors.trend_acceptance.min_candles_outside": 4,
+    "sensors.trend_acceptance.cvd_confirmation_threshold": 3.0,
+    "sensors.trend_acceptance.max_pullback_penetration_pct": 0.0015,
+    "sensors.trend_acceptance.pullback_tolerance_pct": 0.0011,
+    "sensors.trend_acceptance.regime_poc_migration_max": 0.0075,
+    "sensors.trend_acceptance.regime_vol_ratio_max": 1.8,
+    "sensors.trend_acceptance.regime_va_expansion_max": 1.1400000000000001
+  },
+  "validation": {
+    "coins": {
+      "SOL/USDT:USDT": {
+        "net_taker": -0.15064516129032257,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 31,
+        "mfe_mae_ratio": 1.4846019672886384
+      },
+      "SOLUSDT": {
+        "net_taker": -0.15064516129032257,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 31,
+        "mfe_mae_ratio": 1.4846019672886384
+      }
+    },
+    "cluster_avg_net_taker": -0.15064516129032257,
+    "coins_passed": 0,
+    "coins_total": 2,
+    "passed": false
+  },
+  "sensitivity": {
+    "sensors.trend_acceptance.cooldown": {
+      "range": 690.0,
+      "variation_pct": 88.46153846153845,
+      "impact": "HIGH"
+    },
+    "sensors.trend_acceptance.min_candles_outside": {
+      "range": 4,
+      "variation_pct": 66.66666666666666,
+      "impact": "HIGH"
+    },
+    "sensors.trend_acceptance.cvd_confirmation_threshold": {
+      "range": 4.0,
+      "variation_pct": 100.0,
+      "impact": "HIGH"
+    },
+    "guardians.l2_ratio_min_trend_acceptance": {
+      "range": 1.9000000000000004,
+      "variation_pct": 76.00000000000001,
+      "impact": "HIGH"
+    },
+    "guardians.spread_max_ratio_trend_acceptance": {
+      "range": 1.7999999999999998,
+      "variation_pct": 89.99999999999999,
+      "impact": "HIGH"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 0,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 1,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 2,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 3,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 4,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 5,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 6,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 7,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 8,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 9,
+      "score": -100.0,
+      "avg_score": 0
+    }
+  ]
+}

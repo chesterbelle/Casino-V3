@@ -1,0 +1,120 @@
+{
+  "cluster": "SOL_INERTIAL_TRENDING",
+  "optimization_time_seconds": 89.01937174797058,
+  "best_score": -100.0,
+  "baseline": {
+    "net_taker": 0.5384306649655344,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 3.9966287411959254,
+    "total_signals": 50
+  },
+  "best_params": {
+    "guardians.l2_ratio_min_failed_breakout": 1.6,
+    "guardians.spread_max_ratio_failed_breakout": 3.5,
+    "pressure_thresholds.z_block_failed_breakout": 2.0,
+    "sensors.failed_breakout.exhaustion_z": 3.4000000000000004,
+    "sensors.failed_breakout.divergence_z": 1.1,
+    "sensors.failed_breakout.min_break_distance_pct": 0.0028000000000000004,
+    "sensors.failed_breakout.cooldown": 55.0,
+    "sensors.failed_breakout.max_break_age": 120.0
+  },
+  "validation": {
+    "coins": {
+      "SOL/USDT:USDT": {
+        "net_taker": -0.3700000000000035,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 3,
+        "mfe_mae_ratio": 0.8720137604097004
+      },
+      "SOLUSDT": {
+        "net_taker": -0.3700000000000035,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 3,
+        "mfe_mae_ratio": 0.8720137604097004
+      }
+    },
+    "cluster_avg_net_taker": -0.3700000000000035,
+    "coins_passed": 0,
+    "coins_total": 2,
+    "passed": false
+  },
+  "sensitivity": {
+    "sensors.failed_breakout.max_break_age": {
+      "range": 70.0,
+      "variation_pct": 87.5,
+      "impact": "HIGH"
+    },
+    "sensors.failed_breakout.cooldown": {
+      "range": 45.0,
+      "variation_pct": 75.0,
+      "impact": "HIGH"
+    },
+    "guardians.l2_ratio_min_failed_breakout": {
+      "range": 2.0,
+      "variation_pct": 80.0,
+      "impact": "HIGH"
+    },
+    "guardians.spread_max_ratio_failed_breakout": {
+      "range": 1.8,
+      "variation_pct": 90.0,
+      "impact": "HIGH"
+    },
+    "sensors.failed_breakout.exhaustion_z": {
+      "range": 1.6999999999999997,
+      "variation_pct": 84.99999999999999,
+      "impact": "HIGH"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 0,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 1,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 2,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 3,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 4,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 5,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 6,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 7,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 8,
+      "score": -100.0,
+      "avg_score": 0
+    },
+    {
+      "number": 9,
+      "score": -100.0,
+      "avg_score": 0
+    }
+  ]
+}

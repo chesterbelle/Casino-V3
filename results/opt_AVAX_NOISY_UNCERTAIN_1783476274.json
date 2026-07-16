@@ -1,0 +1,120 @@
+{
+  "cluster": "AVAX_NOISY_UNCERTAIN",
+  "optimization_time_seconds": 42942.53141903877,
+  "best_score": 0.17782713848305065,
+  "baseline": {
+    "net_taker": 0.1543055555555535,
+    "root_cause": "TARGET_FAILURE",
+    "mfe_mae_ratio": 0.8792796486621034,
+    "total_signals": 12
+  },
+  "best_params": {
+    "guardians.l2_ratio_min_failed_breakout": 2.5,
+    "guardians.spread_max_ratio_failed_breakout": 1.8,
+    "pressure_thresholds.z_block_failed_breakout": 2.5,
+    "sensors.failed_breakout.exhaustion_z": 3.8,
+    "sensors.failed_breakout.divergence_z": 0.6,
+    "sensors.failed_breakout.min_break_distance_pct": 0.001,
+    "sensors.failed_breakout.cooldown": 70.0,
+    "sensors.failed_breakout.max_break_age": 160.0
+  },
+  "validation": {
+    "coins": {
+      "AVAX/USDT:USDT": {
+        "net_taker": 0.41124999999999196,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 16,
+        "mfe_mae_ratio": 1.53394899573176
+      },
+      "AVAXUSDT": {
+        "net_taker": 0.41124999999999196,
+        "root_cause": "TARGET_FAILURE",
+        "total_signals": 16,
+        "mfe_mae_ratio": 1.53394899573176
+      }
+    },
+    "cluster_avg_net_taker": 0.41124999999999196,
+    "coins_passed": 2,
+    "coins_total": 2,
+    "passed": "True"
+  },
+  "sensitivity": {
+    "sensors.failed_breakout.max_break_age": {
+      "range": 60.0,
+      "variation_pct": 75.0,
+      "impact": "HIGH"
+    },
+    "sensors.failed_breakout.cooldown": {
+      "range": 50.0,
+      "variation_pct": 83.33333333333334,
+      "impact": "HIGH"
+    },
+    "guardians.l2_ratio_min_failed_breakout": {
+      "range": 2.3,
+      "variation_pct": 92.0,
+      "impact": "HIGH"
+    },
+    "sensors.failed_breakout.exhaustion_z": {
+      "range": 1.9000000000000004,
+      "variation_pct": 95.00000000000001,
+      "impact": "HIGH"
+    },
+    "pressure_thresholds.z_block_failed_breakout": {
+      "range": 1.0,
+      "variation_pct": 66.66666666666666,
+      "impact": "HIGH"
+    }
+  },
+  "top_trials": [
+    {
+      "number": 19,
+      "score": 0.17782713848305065,
+      "avg_score": 0.17782713848305065
+    },
+    {
+      "number": 34,
+      "score": 0.12248776904993519,
+      "avg_score": 0.12248776904993519
+    },
+    {
+      "number": 15,
+      "score": 0.08389031949969357,
+      "avg_score": 0.08389031949969357
+    },
+    {
+      "number": 40,
+      "score": -2.880997871516285,
+      "avg_score": -2.880997871516285
+    },
+    {
+      "number": 42,
+      "score": -2.888572439655965,
+      "avg_score": -2.888572439655965
+    },
+    {
+      "number": 30,
+      "score": -2.9114488617146352,
+      "avg_score": -2.9114488617146352
+    },
+    {
+      "number": 24,
+      "score": -3.0933433947815323,
+      "avg_score": -3.0933433947815323
+    },
+    {
+      "number": 9,
+      "score": -3.1442694268887315,
+      "avg_score": -3.1442694268887315
+    },
+    {
+      "number": 39,
+      "score": -3.1769825883359464,
+      "avg_score": -3.1769825883359464
+    },
+    {
+      "number": 23,
+      "score": -3.1789849195313113,
+      "avg_score": -3.1789849195313113
+    }
+  ]
+}

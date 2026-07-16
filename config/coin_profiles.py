@@ -76,10 +76,10 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"sl_pct": 0.003, "tp_pct": 0.020},
-            "liquidity_exhaustion": {"sl_pct": 0.020, "tp_pct": 0.020},
-            "tactical_absorption": {"sl_pct": 0.002, "tp_pct": 0.019},
-            "trend_acceptance": {"sl_pct": 0.015, "tp_pct": 0.015},
+            "failed_breakout": {"sl_pct": 0.025, "tp_pct": 0.025},
+            "liquidity_exhaustion": {"sl_pct": 0.040, "tp_pct": 0.025},
+            "tactical_absorption": {"sl_pct": 0.025, "tp_pct": 0.025},
+            "trend_acceptance": {"sl_pct": 0.025, "tp_pct": 0.025},
         },
         "va_gate": {
             "poc_migration_threshold": 0.003,
@@ -528,9 +528,10 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"sl_pct": 0.008, "tp_pct": 0.008},
-            "liquidity_exhaustion": {"sl_pct": 0.007, "tp_pct": 0.007},
-            "trend_acceptance": {"sl_pct": 0.008, "tp_pct": 0.008},
+            "failed_breakout": {"sl_pct": 0.005, "tp_pct": 0.050},
+            "liquidity_exhaustion": {"sl_pct": 0.050, "tp_pct": 0.050},
+            "tactical_absorption": {"sl_pct": 0.020, "tp_pct": 0.020},
+            "trend_acceptance": {"sl_pct": 0.010, "tp_pct": 0.050},
         },
         "va_gate": {
             "poc_migration_threshold": 0.003,
