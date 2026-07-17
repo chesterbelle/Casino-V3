@@ -19,14 +19,21 @@ if _opt_overrides:
     try:
         parsed = json.loads(_opt_overrides)
         for profile_name, overrides in parsed.items():
-            if profile_name in COIN_PROFILES:
-                for key, value in overrides.items():
-                    parts = key.split(".")
-                    d = COIN_PROFILES[profile_name]
-                    for part in parts[:-1]:
-                        d = d.setdefault(part, {})
-                    d[parts[-1]] = value
-                _logger.info(f"📋 [PROFILE] Applied {len(overrides)} overrides to {profile_name}")
+            if profile_name not in COIN_PROFILES:
+                import copy
+
+                from config.base_profile import BASE_TEMPLATE
+
+                COIN_PROFILES[profile_name] = copy.deepcopy(BASE_TEMPLATE)
+                COIN_PROFILES[profile_name].setdefault("optimization_status", {})["is_certified"] = True
+
+            for key, value in overrides.items():
+                parts = key.split(".")
+                d = COIN_PROFILES[profile_name]
+                for part in parts[:-1]:
+                    d = d.setdefault(part, {})
+                d[parts[-1]] = value
+            _logger.info(f"📋 [PROFILE] Applied {len(overrides)} overrides to {profile_name}")
     except (json.JSONDecodeError, TypeError, KeyError) as e:
         _logger.warning(f"⚠️ Failed to apply OPT_PROFILE_OVERRIDES: {e}")
 
