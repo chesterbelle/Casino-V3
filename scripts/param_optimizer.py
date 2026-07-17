@@ -139,14 +139,9 @@ class TrialResult:
 # ============================================================================
 
 
-def load_cluster_config() -> Dict:
-    with open(os.path.join(_BASE, "config", "clusters_fixed.json")) as f:
-        return json.load(f)
-
-
 def get_cluster_members(cluster_name: str) -> List[str]:
-    config = load_cluster_config()
-    return config["clusters"].get(cluster_name, {}).get("members", [])
+    # Legacy function kept for signature compatibility during refactoring
+    return [cluster_name]
 
 
 def get_datasets_for_symbol(symbol: str, filter_pattern: Optional[str] = None) -> List[str]:
@@ -578,31 +573,34 @@ def generate_output(
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     sys.path.insert(0, os.path.join(_BASE, "config"))
+    from base_profile import BASE_TEMPLATE
     from coin_profiles import COIN_PROFILES, DEFAULT_PROFILE
 
     sys.path.pop(0)
 
     modified = copy.deepcopy(COIN_PROFILES)
-    if symbol in modified:
-        modified[symbol] = apply_params_to_profile(modified[symbol], best_params)
+    if symbol not in modified:
+        modified[symbol] = copy.deepcopy(BASE_TEMPLATE)
 
-        # Inject best static grids (TP/SL targets)
-        if best_metrics and best_metrics.best_static_grids:
-            if "targets" not in modified[symbol]:
-                modified[symbol]["targets"] = {}
+    modified[symbol] = apply_params_to_profile(modified[symbol], best_params)
 
-            scenarios_to_update = (
-                [only_scenario]
-                if only_scenario
-                else ["failed_breakout", "liquidity_exhaustion", "trend_acceptance", "tactical_absorption"]
-            )
-            for setup in scenarios_to_update:
-                if setup in best_metrics.best_static_grids:
-                    grid = best_metrics.best_static_grids[setup]
-                    if setup not in modified[symbol]["targets"]:
-                        modified[symbol]["targets"][setup] = {}
-                    modified[symbol]["targets"][setup]["tp_pct"] = grid["tp"]
-                    modified[symbol]["targets"][setup]["sl_pct"] = grid["sl"]
+    # Inject best static grids (TP/SL targets)
+    if best_metrics and best_metrics.best_static_grids:
+        if "targets" not in modified[symbol]:
+            modified[symbol]["targets"] = {}
+
+        scenarios_to_update = (
+            [only_scenario]
+            if only_scenario
+            else ["failed_breakout", "liquidity_exhaustion", "trend_acceptance", "tactical_absorption"]
+        )
+        for setup in scenarios_to_update:
+            if setup in best_metrics.best_static_grids:
+                grid = best_metrics.best_static_grids[setup]
+                if setup not in modified[symbol]["targets"]:
+                    modified[symbol]["targets"][setup] = {}
+                modified[symbol]["targets"][setup]["tp_pct"] = grid["tp"]
+                modified[symbol]["targets"][setup]["sl_pct"] = grid["sl"]
 
     if output_path is None:
         output_path = os.path.join(_BASE, "config", f"coin_profiles_{symbol}_optimized.py")
@@ -736,27 +734,7 @@ FLUJO TÍPICO:
     parser.add_argument(
         "--symbol",
         required=True,
-        choices=sorted(
-            [
-                "MEGA_LIQUID",
-                "MAJOR_LIQUID",
-                "MID_LIQUID",
-                "THIN_VOLATILE",
-                "ILLIQUID_SPEC",
-                "SOL_INERTIAL_TRENDING",
-                "AVAX_NOISY_UNCERTAIN",
-                "LTC_NOISY_UNCERTAIN_1",
-                "INERTIAL_TRENDING",
-                "NOISY_UNCERTAIN",
-                "NOISY_UNCERTAIN_1",
-            ]
-        ),
-        help="Nombre del cluster a optimizar. Los miembros se leen de config/clusters_fixed.json.",
-    )
-    parser.add_argument(
-        "--coin_unused",
-        help="Moneda representativa del cluster (default: primer miembro). "
-        "Debe tener datasets disponibles en daily_backtest_ready/.",
+        help="Símbolo a optimizar (ej. ARBUSDT). Reemplaza al antiguo sistema de clusters.",
     )
     parser.add_argument(
         "--only",
@@ -811,12 +789,9 @@ FLUJO TÍPICO:
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     workers = calculate_workers(min_workers=args.min_workers, total_tasks=args.iterations)
-    members = get_cluster_members(args.symbol)
-    if not members:
-        print(f"❌ Cluster {args.symbol} not found")
-        sys.exit(1)
+    members = [args.symbol]
 
-    representative = args.coin or members[0]
+    representative = args.symbol
     datasets = get_datasets_for_symbol(representative, args.filter)
     if not datasets:
         print(f"❌ No datasets for {representative}")
@@ -852,13 +827,14 @@ FLUJO TÍPICO:
         print(f"   Parameters:   {len(active_space)} ({', '.join(active_space.keys())})")
 
     sys.path.insert(0, os.path.join(_BASE, "config"))
+    from base_profile import BASE_TEMPLATE
     from coin_profiles import COIN_PROFILES
 
     sys.path.pop(0)
     base_profile = COIN_PROFILES.get(args.symbol, {})
     if not base_profile:
-        print(f"❌ Cluster {args.symbol} not in coin_profiles.py")
-        sys.exit(1)
+        print(f"⚠️ Profile {args.symbol} not found in coin_profiles.py. Using BASE_TEMPLATE.")
+        base_profile = copy.deepcopy(BASE_TEMPLATE)
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
