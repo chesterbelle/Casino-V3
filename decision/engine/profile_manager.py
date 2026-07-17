@@ -9,10 +9,8 @@ No fallback to default profiles is allowed (Fail-Fast).
 import json
 import logging
 import os
-from copy import deepcopy
 from typing import Any, Dict
 
-from config.base_profile import BASE_TEMPLATE
 from config.coin_profiles import COIN_PROFILES
 
 _logger = logging.getLogger("ProfileManager")
@@ -35,9 +33,6 @@ if _opt_overrides:
 logger = _logger
 
 
-
-
-
 class ProfileManager:
     """
     Manages per-symbol profile parameters for the Crystal Layer.
@@ -52,17 +47,22 @@ class ProfileManager:
         Get full profile dict for a symbol.
         Raises ValueError if the symbol does not have an explicitly optimized profile.
         """
-        if symbol not in self.profiles:
-            error_msg = f"No optimized profile found for symbol '{symbol}'. Strict 1:1 mapping enforced."
+        # Normalize symbol: 'AVAX/USDT:USDT' -> 'AVAXUSDT'
+        lookup_symbol = symbol.replace("/", "").split(":")[0]
+
+        if lookup_symbol not in self.profiles:
+            error_msg = f"No optimized profile found for symbol '{symbol}' (lookup: '{lookup_symbol}'). Strict 1:1 mapping enforced."
             logger.critical(f"🚨 [PROFILE ERROR] {error_msg}")
             raise ValueError(error_msg)
 
-        profile = self.profiles[symbol]
-        
+        profile = self.profiles[lookup_symbol]
+
         # Check certification flag
         opt_status = profile.get("optimization_status", {})
         if not opt_status.get("is_certified", False):
-            error_msg = f"Profile for '{symbol}' is NOT certified (optimization_status.is_certified is False or missing)."
+            error_msg = (
+                f"Profile for '{symbol}' is NOT certified (optimization_status.is_certified is False or missing)."
+            )
             logger.critical(f"🚨 [PROFILE ERROR] {error_msg}")
             raise ValueError(error_msg)
 

@@ -109,11 +109,13 @@
 ### Completado (historial en changelog.md):
 Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation ✅ | 8.9 Data Feed Revamp (138x) ✅ | Refactor feat/limpieza-profunda ✅ Mergeado | LTC trend_acceptance Optimized (+0.3184%) ✅ | **AMT Crystal Fixes (LE level_key + TAV direction)** ✅ Net Taker 24h: +0.2352% (2x mejora) | **SBR Merge** ✅ | **TA Regime Filter** ✅ | **LTC Edge Certified** ✅ (+0.2354% Net Taker daily, +0.09% monthly) | **Merge to Main v9.0.0** ✅ | **Dataset Expansion (LTC 3→6 monthly)** ✅ | **LTC Validación OOS Mensual** ✅ (4 splits Ene–Jun 2026, +2.4676% acum, +0.617%/mes, 4/4 splits positivos — `docs/historical_results/LTC_result.md`) | **AVAX Param Optimization** ✅ (4/4 escenarios, best score +0.4601, `docs/../golden_params/avax.md`) | **AVAX Validación OOS Mensual LIMPIA** ✅ (4 splits Mar–Jun 2026, +0.2217% acum, 3/4 escenarios positivos, TA ENTRY FAILURE — perfil generaliza PARCIALMENTE, `docs/historical_results/AVAX_result.md`)
 
-112: ### Siguientes Pasos (Priorizados) — ACTUALIZADO 2026-07-16:
+112: ### Siguientes Pasos (Priorizados) — ACTUALIZADO 2026-07-17:
 1. ~~**Non-Regression Test LTC**~~ ✅ **COMPLETADO**: Audit mensual LTC (6 meses) con fix `cvd_velocity_signed` confirma 0 regresión.
 2. ~~**Target Optimization AVAX**~~ ✅ **COMPLETADO**: Ejecutamos el `setup_edge_auditor.py` sobre AVAX y actualizamos el perfil `AVAX_NOISY_UNCERTAIN` con los Best Static Grid targets. (TA Net Taker +0.54%).
 3. ~~**SOL Param Optimization**~~ ✅ **COMPLETADO**: Optuna reveló entradas estadísticamente perfectas (MFE/MAE > 4). Audit identificó el TARGET_FAILURE y se inyectaron targets asimétricos extremos (TP 5.0%, SL 0.5-1.0%) logrando +0.54% a +1.13% Net Taker.
 4. ~~**SOL Validación OOS Mensual**~~ ✅ **COMPLETADO**: Audit OOS ejecutado sobre 3 meses (Mar-May 2026, ~12 GB). Rendimiento espectacular: **+2.1474% Net Taker** consolidado, todos los escenarios positivos. Los targets asimétricos generalizan a la perfección.
+5. ~~**Fix ProfileManager Symbol Lookup**~~ ✅ **COMPLETADO**: Se solucionó el bug de 0 señales. El motor inyectaba el nombre CCXT `LTC/USDT:USDT` pero el diccionario usaba `LTCUSDT`, causando una excepción silenciada en cada tick.
+6. **Optimización Paramétrica a Otras Monedas** 🚀 **PRÓXIMO**: Con la arquitectura de perfiles 1:1 verificada y sin pérdida de edge, iniciaremos la expansión del portafolio mediante Optuna en nuevas monedas candidatas.
 ### Current Status: 🟢 84 Daily + 9 Monthly Datasets (2/2/2 per Symbol)
 
 - **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4 + **TA Regime Filter** + **SBR**.
