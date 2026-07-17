@@ -12,6 +12,8 @@ import os
 from typing import Any, Dict
 
 from config.coin_profiles import COIN_PROFILES
+from config.base_profile import BASE_TEMPLATE
+from copy import deepcopy
 
 _logger = logging.getLogger("ProfileManager")
 _opt_overrides = os.environ.get("OPT_PROFILE_OVERRIDES")
@@ -33,6 +35,15 @@ if _opt_overrides:
 logger = _logger
 
 
+
+def deep_update(base, overrides):
+    for k, v in overrides.items():
+        if isinstance(v, dict) and k in base and isinstance(base[k], dict):
+            deep_update(base[k], v)
+        else:
+            base[k] = v
+    return base
+
 class ProfileManager:
     """
     Manages per-symbol profile parameters for the Crystal Layer.
@@ -52,7 +63,20 @@ class ProfileManager:
             logger.critical(f"🚨 [PROFILE ERROR] {error_msg}")
             raise ValueError(error_msg)
 
-        return self.profiles[symbol]
+        overrides = self.profiles[symbol]
+        
+        # Check certification flag
+        opt_status = overrides.get("optimization_status", {})
+        if not opt_status.get("is_certified", False):
+            error_msg = f"Profile for '{symbol}' is NOT certified (optimization_status.is_certified is False or missing)."
+            logger.critical(f"🚨 [PROFILE ERROR] {error_msg}")
+            raise ValueError(error_msg)
+
+        # Merge base template with overrides
+        full_profile = deepcopy(BASE_TEMPLATE)
+        deep_update(full_profile, overrides)
+        
+        return full_profile
 
     def get_param(self, symbol: str, *path: str) -> Any:
         """

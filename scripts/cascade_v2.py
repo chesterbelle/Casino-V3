@@ -140,7 +140,6 @@ def load_opt_profile(symbol):
         return None
     import importlib.util
 
-    import importlib.util
     spec = importlib.util.spec_from_file_location(f"opt_{symbol}", opt_file)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -367,5 +366,5 @@ def main():
 
 
 if __name__ == "__main__":
-    
+
     main()
