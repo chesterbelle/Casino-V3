@@ -281,7 +281,7 @@ def build_tasks(mode, protocol_name, symbol, filter_pattern, dataset=None):
 
     AUDIT MODE:
       - single-coin-audit: 6 datasets (2 TREND_UP + 2 TREND_DOWN + 2 BALANCE)
-      - cluster_*: All datasets for all symbols in cluster
+
       - trade-mode: Not available in audit mode
 
     TRADE MODE:

@@ -57,13 +57,9 @@ class SignalArbitrator:
         Apply selective VA_GATE based on profile config — AMT PURE LOGIC.
         Uses RegimeClassifier V1 to detect TRENDING or RANGE regime.
         """
-        profile_name = profile_manager.get_profile_name(symbol)
-        if not profile_name:
-            return candidates  # No profile, allow all (backward compat)
-
-        profile = profile_manager.get_profile(profile_name)
+        profile = profile_manager.get_profile(symbol)
         if not profile:
-            return candidates
+            return candidates  # No profile, allow all (backward compat)
 
         va_gate = profile.get("va_gate")
         if not va_gate:

@@ -2,7 +2,8 @@
 Profile Manager — Crystal Layer Parameter Management (Per-Symbol)
 
 Loads and provides profile-specific parameters per symbol for the Crystal Layer.
-Each coin is assigned a profile, and all components use that symbol's profile parameters.
+Each coin MUST have an explicitly optimized profile in COIN_PROFILES.
+No fallback to default profiles is allowed (Fail-Fast).
 """
 
 import json
@@ -10,11 +11,8 @@ import logging
 import os
 from typing import Any, Dict
 
-from config.coin_profiles import COIN_PROFILES, DEFAULT_PROFILE
+from config.coin_profiles import COIN_PROFILES
 
-# If OPT_PROFILE_OVERRIDES is set (Optuna trial override), apply param overrides
-# on top of the base profiles. Format: JSON string of
-# {"profile_name": {"dot.separated.path": value, ...}}
 _logger = logging.getLogger("ProfileManager")
 _opt_overrides = os.environ.get("OPT_PROFILE_OVERRIDES")
 if _opt_overrides:
@@ -38,65 +36,23 @@ logger = _logger
 class ProfileManager:
     """
     Manages per-symbol profile parameters for the Crystal Layer.
-    Each symbol is classified into a profile, and all components
-    read parameters for the specific symbol being processed.
+    Enforces a strict 1:1 mapping between symbol and profile.
     """
 
     def __init__(self):
         self.profiles = COIN_PROFILES
-        self.default_profile = DEFAULT_PROFILE
-        self.symbol_profiles: Dict[str, str] = {}  # symbol → profile_name
-
-    def set_profile(self, symbol: str, profile_name: str) -> bool:
-        """
-        Set profile for a specific symbol.
-        If CASINO_FORCE_PROFILE env var is set, overrides the profile.
-
-        Args:
-            symbol: Coin symbol (e.g., "BTC/USDT:USDT")
-            profile_name: Name of the profile to assign
-
-        Returns:
-            True if profile was set, False if not found (uses default)
-        """
-        # Allow forcing a specific profile via environment variable
-        forced = os.environ.get("CASINO_FORCE_PROFILE")
-        if forced:
-            profile_name = forced
-
-        if profile_name in self.profiles:
-            self.symbol_profiles[symbol] = profile_name
-            logger.info(f"📋 [PROFILE] {symbol} → {profile_name}")
-            return True
-        else:
-            logger.warning(f"⚠️ [PROFILE] Unknown profile: {profile_name}, using default for {symbol}")
-            self.symbol_profiles[symbol] = self.default_profile
-            return False
-
-    def get_profile_name(self, symbol: str) -> str:
-        """Get profile name for a symbol. If not set, resolves from fixed taxonomy."""
-        if symbol in self.symbol_profiles:
-            return self.symbol_profiles[symbol]
-
-        # Attempt to resolve from fixed taxonomy
-        try:
-            import json
-
-            with open("config/clusters_fixed.json") as f:
-                data = json.load(f)
-
-            for profile, info in data["clusters"].items():
-                if symbol in info.get("members", []):
-                    return profile
-        except Exception as e:
-            logger.debug(f"Taxonomy lookup failed for {symbol}: {e}")
-
-        return self.default_profile
 
     def get_profile(self, symbol: str) -> dict:
-        """Get full profile dict for a symbol."""
-        name = self.get_profile_name(symbol)
-        return self.profiles.get(name, {})
+        """
+        Get full profile dict for a symbol.
+        Raises ValueError if the symbol does not have an explicitly optimized profile.
+        """
+        if symbol not in self.profiles:
+            error_msg = f"No optimized profile found for symbol '{symbol}'. Strict 1:1 mapping enforced."
+            logger.critical(f"🚨 [PROFILE ERROR] {error_msg}")
+            raise ValueError(error_msg)
+
+        return self.profiles[symbol]
 
     def get_param(self, symbol: str, *path: str) -> Any:
         """
@@ -132,11 +88,7 @@ class ProfileManager:
         return self.get_param(symbol, "quality_scorer") or {}
 
     def get_target_params(self, symbol: str, scenario: str, regime: str = None) -> Dict:
-        """Get target parameters for a specific scenario and symbol.
-
-        If regime is provided and per-regime targets exist, returns regime-specific
-        targets. Falls back to generic targets if no per-regime override.
-        """
+        """Get target parameters for a specific scenario and symbol."""
         targets = self.get_param(symbol, "targets", scenario) or {}
         if regime and "regime" in targets:
             regime_targets = targets["regime"]

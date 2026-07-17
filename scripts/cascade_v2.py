@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 """
 Cascade v2 Optimizer — Scenario-by-scenario optimization with safe merge.
-Usage: python cascade_v2.py --cluster AVAX_NOISY_UNCERTAIN --coin AVAXUSDT --iterations 50 --max-retries 3
+Usage: python cascade_v2.py --symbol AVAX_NOISY_UNCERTAIN --coin AVAXUSDT --iterations 50 --max-retries 3
 """
 
 import argparse
 import copy
-import glob
-import json
-import os
-import subprocess
-import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENV_PYTHON = os.path.join(BASE, ".venv", "bin", "python")
@@ -101,13 +96,13 @@ SHARED_KEYS = {
 }
 
 
-def run_optimizer(cluster, coin, scenario, iterations, study_db):
-    """Run cluster_optimizer for a single scenario."""
+def run_optimizer(symbol, coin, scenario, iterations, study_db):
+    """Run param_optimizer for a single scenario."""
     cmd = [
         VENV_PYTHON,
-        "scripts/cluster_optimizer.py",
-        "--cluster",
-        cluster,
+        "scripts/param_optimizer.py",
+        "--symbol",
+        symbol,
         "--coin",
         coin,
         "--only",
@@ -127,9 +122,9 @@ def run_optimizer(cluster, coin, scenario, iterations, study_db):
     return True
 
 
-def get_best_score(cluster):
+def get_best_score(symbol):
     """Extract best score from latest result JSON."""
-    files = glob.glob(os.path.join(BASE, "results", f"opt_{cluster}_*.json"))
+    files = glob.glob(os.path.join(BASE, "results", f"opt_{symbol}_*.json"))
     if not files:
         return None
     latest = max(files, key=os.path.getctime)
@@ -138,58 +133,59 @@ def get_best_score(cluster):
     return data.get("best_score")
 
 
-def load_opt_profile(cluster):
+def load_opt_profile(symbol):
     """Load the generated optimized profile module."""
-    opt_file = os.path.join(BASE, "config", f"coin_profiles_{cluster}_optimized.py")
+    opt_file = os.path.join(BASE, "config", f"coin_profiles_{symbol}_optimized.py")
     if not os.path.exists(opt_file):
         return None
     import importlib.util
 
-    spec = __import__("importlib.util").util.spec_from_file_location(f"opt_{cluster}", opt_file)
-    mod = __import__("importlib.util").util.module_from_spec(spec)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(f"opt_{symbol}", opt_file)
+    mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.COIN_PROFILES
 
 
-def safe_merge(base, opt, cluster, scenario):
+def safe_merge(base, opt, symbol, scenario):
     """Merge only scenario-specific keys from opt into base."""
     keys = SCENARIO_KEYS[scenario]
 
     # Scenario-specific keys
     for top_key, subkeys in keys.items():
-        if top_key not in base[cluster]:
-            base[cluster][top_key] = {}
-        if top_key in opt[cluster]:
+        if top_key not in base[symbol]:
+            base[symbol][top_key] = {}
+        if top_key in opt[symbol]:
             if top_key == "sensors":
                 # Nested: sensors[scenario_name][param]
-                if scenario not in base[cluster]["sensors"]:
-                    base[cluster]["sensors"][scenario] = {}
-                if scenario in opt[cluster]["sensors"]:
+                if scenario not in base[symbol]["sensors"]:
+                    base[symbol]["sensors"][scenario] = {}
+                if scenario in opt[symbol]["sensors"]:
                     for param in subkeys:
-                        if param in opt[cluster]["sensors"][scenario]:
-                            base[cluster]["sensors"][scenario][param] = opt[cluster]["sensors"][scenario][param]
+                        if param in opt[symbol]["sensors"][scenario]:
+                            base[symbol]["sensors"][scenario][param] = opt[symbol]["sensors"][scenario][param]
             else:
                 # Flat: guardians[key], pressure_thresholds[key], targets[key]
-                if top_key not in base[cluster]:
-                    base[cluster][top_key] = {}
-                if top_key in opt[cluster]:
+                if top_key not in base[symbol]:
+                    base[symbol][top_key] = {}
+                if top_key in opt[symbol]:
                     for sk in subkeys:
-                        if sk in opt[cluster][top_key]:
-                            base[cluster][top_key][sk] = opt[cluster][top_key][sk]
+                        if sk in opt[symbol][top_key]:
+                            base[symbol][top_key][sk] = opt[symbol][top_key][sk]
 
 
-def merge_shared(base, opt, cluster):
+def merge_shared(base, opt, symbol):
     """Merge shared keys (once, from last opt)."""
     for top_key, subkeys in SHARED_KEYS.items():
-        if top_key in opt[cluster]:
-            if top_key not in base[cluster]:
-                base[cluster][top_key] = {}
+        if top_key in opt[symbol]:
+            if top_key not in base[symbol]:
+                base[symbol][top_key] = {}
             for sk in subkeys:
-                if sk in opt[cluster][top_key]:
-                    base[cluster][top_key][sk] = opt[cluster][top_key][sk]
+                if sk in opt[symbol][top_key]:
+                    base[symbol][top_key][sk] = opt[symbol][top_key][sk]
 
 
-def validate_net_taker(cluster, coin, scenario):
+def validate_net_taker(symbol, coin, scenario):
     """Run quick audit backtest to confirm Net Taker > 0 for this scenario."""
     print(f"  🔍 Validating {scenario} with backtest...")
     # Find latest daily dataset for the coin
@@ -200,11 +196,11 @@ def validate_net_taker(cluster, coin, scenario):
         [
             f
             for f in os.listdir(db_dir)
-            if f.startswith(cluster.replace("_", "").replace("NOISY", "").replace("UNCERTAIN", "").replace("1", ""))
+            if f.startswith(symbol.replace("_", "").replace("NOISY", "").replace("UNCERTAIN", "").replace("1", ""))
         ]
     )
     if not files:
-        files = sorted([f for f in os.listdir(db_dir) if cluster.split("_")[0] in f])
+        files = sorted([f for f in os.listdir(db_dir) if symbol.split("_")[0] in f])
     if not files:
         print("  ⚠️ No datasets found, skipping validation")
         return True
@@ -254,7 +250,7 @@ def validate_net_taker(cluster, coin, scenario):
     # Clean up
     try:
         os.remove(hist_db)
-    except:
+    except Exception:
         pass
 
     return net > 0 and sc_count > 0
@@ -262,23 +258,23 @@ def validate_net_taker(cluster, coin, scenario):
 
 def main():
     parser = argparse.ArgumentParser(description="Cascade v2 — Scenario-by-scenario optimization")
-    parser.add_argument("--cluster", required=True, help="Cluster name (e.g., AVAX_NOISY_UNCERTAIN)")
+    parser.add_argument("--symbol", required=True, help="Cluster name (e.g., AVAX_NOISY_UNCERTAIN)")
     parser.add_argument("--coin", required=True, help="Coin symbol (e.g., AVAXUSDT)")
     parser.add_argument("--iterations", type=int, default=50, help="Optuna iterations per attempt")
     parser.add_argument("--max-retries", type=int, default=3, help="Max retries per scenario")
     parser.add_argument("--study-db", help="Study DB path (auto-generated if not provided)")
     args = parser.parse_args()
 
-    cluster = args.cluster
+    symbol = args.symbol
     coin = args.coin
     iterations = args.iterations
     max_retries = args.max_retries
 
-    study_db = args.study_db or os.path.join(BASE, "data", "db_vault", f"{cluster}_cascade_v2.db")
+    study_db = args.study_db or os.path.join(BASE, "data", "db_vault", f"{symbol}_cascade_v2.db")
     os.makedirs(os.path.dirname(study_db), exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"🔄 CASCADE v2 — {cluster}")
+    print(f"🔄 CASCADE v2 — {symbol}")
     print(f"{'='*60}")
     print(f"  Coin: {coin}")
     print(f"  Iterations per attempt: {iterations}")
@@ -303,25 +299,25 @@ def main():
         for attempt in range(1, max_retries + 1):
             print(f"\n  📝 Attempt {attempt}/{max_retries} for {scenario}")
 
-            ok = run_optimizer(cluster, coin, scenario, iterations, study_db)
+            ok = run_optimizer(symbol, coin, scenario, iterations, study_db)
             if not ok:
                 print(f"  ❌ Optimizer failed")
                 continue
 
-            best_score = get_best_score(cluster)
+            best_score = get_best_score(symbol)
             print(f"  🎯 Best composite score: {best_score:.4f}")
 
             # Load and merge
-            opt = load_opt_profile(cluster)
+            opt = load_opt_profile(symbol)
             if not opt:
                 print("  ❌ No optimized profile generated")
                 continue
 
-            safe_merge(merged, opt, cluster, scenario)
+            safe_merge(merged, opt, symbol, scenario)
             print(f"  ✅ Merged {scenario} params")
 
             # Validate with real backtest
-            if validate_net_taker(cluster, coin, scenario):
+            if validate_net_taker(symbol, coin, scenario):
                 print(f"  ✅ Validation PASSED (Net Taker > 0)")
                 success = True
                 break
@@ -330,13 +326,13 @@ def main():
                 # Revert this scenario's merge by reloading base
                 from coin_profiles import COIN_PROFILES as BASE_PROFILES
 
-                merged[cluster] = copy.deepcopy(BASE_PROFILES[cluster])
+                merged[symbol] = copy.deepcopy(BASE_PROFILES[symbol])
                 # Re-apply previously successful scenarios
                 for sc, opt_f in optimized_scenarios.items():
-                    opt_mod = __import__("importlib.util").util.spec_from_file_location(f"opt_{sc}", opt_f)
-                    opt_m = __import__("importlib.util").util.module_from_spec(opt_mod)
+                    opt_mod = importlib.util.spec_from_file_location(f"opt_{sc}", opt_f)
+                    opt_m = importlib.util.module_from_spec(opt_mod)
                     opt_mod.loader.exec_module(opt_m)
-                    safe_merge(merged, opt_m.COIN_PROFILES, cluster, sc)
+                    safe_merge(merged, opt_m.COIN_PROFILES, symbol, sc)
 
         if not success:
             print(f"\n❌ FAILED to achieve positive Net Taker for {scenario} after {max_retries} attempts")
@@ -344,7 +340,7 @@ def main():
             sys.exit(1)
 
         # Save this scenario's opt file for final merge
-        opt_file = os.path.join(BASE, "config", f"coin_profiles_{cluster}_optimized.py")
+        opt_file = os.path.join(BASE, "config", f"coin_profiles_{symbol}_optimized.py")
         if os.path.exists(opt_file):
             optimized_scenarios[scenario] = opt_file
             print(f"  💾 Saved optimized profile: {opt_file}")
@@ -352,27 +348,24 @@ def main():
     # Final merge of shared keys (from last scenario's opt)
     print(f"\n{'='*60}")
     print("🔧 Final merge of shared keys...")
-    last_opt = load_opt_profile(cluster)
+    last_opt = load_opt_profile(symbol)
     if last_opt:
-        merge_shared(merged, last_opt, cluster)
+        merge_shared(merged, last_opt, symbol)
 
     # Save final merged profile
-    final_file = os.path.join(BASE, "config", f"coin_profiles_{cluster}_cascade_merged.py")
+    final_file = os.path.join(BASE, "config", f"coin_profiles_{symbol}_cascade_merged.py")
     with open(final_file, "w") as f:
-        f.write(f'"""\nOptimized for {cluster} via Cascade v2\nGenerated by cascade_v2.py\n"""\n\n')
+        f.write(f'"""\nOptimized for {symbol} via Cascade v2\nGenerated by cascade_v2.py\n"""\n\n')
         f.write(f"COIN_PROFILES = {json.dumps(merged, indent=4)}\n\n")
         f.write(f'DEFAULT_PROFILE = "{DEFAULT_PROFILE}"\n')
 
     print(f"\n✅ Merged profile saved to: {final_file}")
     print(f"\n⚠️  REVIEW BEFORE APPLYING:")
     print(f"   1. Check {final_file}")
-    print(f"   2. Copy COIN_PROFILES[{cluster}] to config/coin_profiles.py")
+    print(f"   2. Copy COIN_PROFILES[{symbol}] to config/coin_profiles.py")
     print(f"\n🎉 Cascade v2 complete! All {len(SCENARIOS)} scenarios validated with positive Net Taker.")
 
 
 if __name__ == "__main__":
-    import glob
-    import os
-    import sys
-
+    
     main()

@@ -45,8 +45,11 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         self._prune_interval = 1.0
         self._micro_count = 0
 
-        # Profile classification tracking
-        self._profile_classified: Dict[str, bool] = defaultdict(bool)
+        # Memories (5s)
+        self.micro_memory = defaultdict(lambda: deque(maxlen=500))
+        self._last_micro_prune_ts = 0.0
+        self._prune_interval = 1.0
+        self._micro_count = 0
 
         # Scenario Orchestrator (Unification of AMT + Absorption)
         from core.order_flow.engine import OrderFlowEngine
@@ -133,10 +136,6 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
         if timestamp - self.last_fire_ts[symbol] < self.fire_cooldown:
             return
 
-        # 2. Classify coin profile on first encounter
-        if not self._profile_classified[symbol]:
-            self._classify_and_set_profile(symbol)
-
         # Get structural levels + VA integrity from ContextRegistry
         from core.context_registry import ContextRegistry
 
@@ -156,38 +155,6 @@ class SetupEngineV4(TelemetryMixin, TargetingMixin):
                 trace = black_box.get_trace(signal["trace_id"])
 
             await self._process_signal(signal, trace=trace)
-
-    def _classify_and_set_profile(self, symbol: str):
-        """Classify coin into profile. Static JSON takes priority over runtime classification."""
-        if not self.context_registry:
-            return
-
-        # 1. First: check static assignment in clusters_fixed.json
-        try:
-            import json
-
-            with open("config/clusters_fixed.json") as f:
-                data = json.load(f)
-            for profile_name, info in data.get("clusters", {}).items():
-                if symbol in info.get("members", []):
-                    profile_manager.set_profile(symbol, profile_name)
-                    self._profile_classified[symbol] = True
-                    logger.info(f"🏷️ [PROFILE] {symbol} → {profile_name} (static from clusters_fixed.json)")
-                    return
-        except Exception as e:
-            logger.debug(f"Static profile lookup failed for {symbol}: {e}")
-
-        # 2. Fallback: coin not in static taxonomy → CRITICAL ERROR
-        # Every coin must have an explicit profile. Default profiles are
-        # dangerous because they apply generic thresholds, sensors, and
-        # targets that are not calibrated for the coin, producing
-        # silently misleading backtest results.
-        msg = (
-            f"🚨 [PROFILE] {symbol} not found in clusters_fixed.json. "
-            f"Add {symbol} to config/clusters_fixed.json before running."
-        )
-        logger.critical(msg)
-        raise ValueError(msg)
 
     async def on_signal(self, event: SignalEvent):
         """Signal Entry Point: Handles external tactical signals."""
