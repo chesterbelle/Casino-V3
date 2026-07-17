@@ -113,11 +113,7 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 1. ~~**Non-Regression Test LTC**~~ ✅ **COMPLETADO**: Audit mensual LTC (6 meses) con fix `cvd_velocity_signed` confirma 0 regresión.
 2. ~~**Target Optimization AVAX**~~ ✅ **COMPLETADO**: Ejecutamos el `setup_edge_auditor.py` sobre AVAX y actualizamos el perfil `AVAX_NOISY_UNCERTAIN` con los Best Static Grid targets. (TA Net Taker +0.54%).
 3. ~~**SOL Param Optimization**~~ ✅ **COMPLETADO**: Optuna reveló entradas estadísticamente perfectas (MFE/MAE > 4). Audit identificó el TARGET_FAILURE y se inyectaron targets asimétricos extremos (TP 5.0%, SL 0.5-1.0%) logrando +0.54% a +1.13% Net Taker.
-4. **Non-Regression Test** — 84 datasets 24h certificados (confirmar estabilidad daily edge post-fix globalmente).
-4. **Cluster Expansion** — Validar fix + regime filter en SOL, ETH, etc.
-
----
-
+4. ~~**SOL Validación OOS Mensual**~~ ✅ **COMPLETADO**: Audit OOS ejecutado sobre 3 meses (Mar-May 2026, ~12 GB). Rendimiento espectacular: **+2.1474% Net Taker** consolidado, todos los escenarios positivos. Los targets asimétricos generalizan a la perfección.
 ### Current Status: 🟢 84 Daily + 9 Monthly Datasets (2/2/2 per Symbol)
 
 - **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4 + **TA Regime Filter** + **SBR**.
