@@ -115,8 +115,19 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 3. ~~**SOL Param Optimization**~~ ✅ **COMPLETADO**: Optuna reveló entradas estadísticamente perfectas (MFE/MAE > 4). Audit identificó el TARGET_FAILURE y se inyectaron targets asimétricos extremos (TP 5.0%, SL 0.5-1.0%) logrando +0.54% a +1.13% Net Taker.
 4. ~~**SOL Validación OOS Mensual**~~ ✅ **COMPLETADO**: Audit OOS ejecutado sobre 3 meses (Mar-May 2026, ~12 GB). Rendimiento espectacular: **+2.1474% Net Taker** consolidado, todos los escenarios positivos. Los targets asimétricos generalizan a la perfección.
 5. ~~**Fix ProfileManager Symbol Lookup**~~ ✅ **COMPLETADO**: Se solucionó el bug de 0 señales. El motor inyectaba el nombre CCXT `LTC/USDT:USDT` pero el diccionario usaba `LTCUSDT`, causando una excepción silenciada en cada tick.
-6. **Optimización Paramétrica a Otras Monedas** 🚀 **PRÓXIMO**: Con la arquitectura de perfiles 1:1 verificada y sin pérdida de edge, iniciaremos la expansión del portafolio mediante Optuna en nuevas monedas candidatas.
-### Current Status: 🟢 84 Daily + 9 Monthly Datasets (2/2/2 per Symbol)
+6. **Optimización Paramétrica a Otras Monedas (Ordenado por Peso / Velocidad)** 🚀 **PRÓXIMO**:
+   Para minimizar el tiempo de iteración en Optuna, avanzaremos desde los datasets más livianos hasta los más pesados institucionales. **Regla estricta:** Haremos la optimización de **una en una**, respetando estrictamente el orden de esta lista.
+   - [ ] 1. **ARB** (107 MB) - *Súper rápido*
+   - [ ] 2. **NEAR** (118 MB)
+   - [ ] 3. **OP** (145 MB)
+   - [ ] 4. **APT** (195 MB)
+   - [ ] 5. **LINK** (247 MB)
+   - [ ] 6. **ADA** (408 MB) - *(Nota: tiene 18 datasets, el triple que el resto)*
+   - [ ] 7. **BNB** (599 MB)
+   - [ ] 8. **XRP** (832 MB)
+   - [ ] 9. **DOGE** (922 MB)
+   - [ ] 10. **BTC** (1436 MB) - *Pesado*
+   - [ ] 11. **ETH** (2259 MB) - *El más lento (Orderbook masivo)*
 
 - **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4 + **TA Regime Filter** + **SBR**.
 - **Branch**: `dev-9.0-validacion-oos` (validación OOS mensual), `main` (v9.0.0-sbr-ta-regime-filter certificada)
