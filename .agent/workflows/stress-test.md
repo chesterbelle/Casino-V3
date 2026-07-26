@@ -2,45 +2,109 @@
 description: Protocolo para validar que el bot opera sin errores de ejecución (Error Recovery = $0)
 ---
 
-# Stress Test Protocol
+# Stress Test Protocol (V9.2.0)
 
 ## Objetivo Principal
-Validar que **Error Recovery = $0.00** (0 error trades).
+Validar que **Error Recovery = $0.00** (0 error trades) y que la infraestructura de ejecución es resiliente bajo carga y en operación prolongada.
 
 Cada error que aparece en "Error Recovery" representa un fallo en la arquitectura de ejecución.
 El objetivo es eliminarlos completamente.
 
-## Pre-requisitos
-// turbo
+---
+
+## FASE A: Chaos Test (Mecánico — Fuerza Bruta)
+
+### Objetivo
+Saturar el motor de ejecución (`Croupier`, `OCOManager`, WebSockets) con órdenes sintéticas inyectadas directamente, sin depender de señales de la estrategia. Esto prueba que las tuberías de ejecución no se rompen bajo presión.
+
+### Pre-requisitos
 ```bash
 .venv/bin/python -m utils.validators.multi_symbol_validator --mode demo --size 500
 ```
 **Debe pasar**: CONCURRENCY ✅ PASS, INTEGRITY ✅ PASS
 
-## Pasos
-
-### 1. Limpiar Estado
-// turbo
+### Paso A.1: Limpiar Estado
 ```bash
-.venv/bin/python reset_data.py
+.venv/bin/python utils/reset_data.py
 ```
 
-### 2. Ejecutar Test (120 minutos Hiperactivos)
+### Paso A.2: Ejecutar Chaos Test (10 minutos, 9 monedas)
 ```bash
-.venv/bin/python main.py --run-type trade --mode demo --symbol MULTI --timeout 120 --fast-track --close-on-exit 2>&1 | tee logs/stress_test_$(date +%Y%m%d_%H%M%S).log
+.venv/bin/python -m utils.validators.multi_symbol_chaos_tester \
+  --symbols LTCUSDT,BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,DOGEUSDT,XRPUSDT,AVAXUSDT,LINKUSDT \
+  --mode demo \
+  --size 200 \
+  --duration 600 \
+  --max-ops 50 \
+  2>&1 | tee logs/chaos_test_$(date +%Y%m%d_%H%M%S).log
 ```
 
-### 3. Auditoría Estadística (Protocolo V2)
-// turbo
-```bash
-.venv/bin/python utils/audit_logs.py logs/stress_test_$(ls -t logs/ | head -1)
+### Paso A.3: Analizar Resultado
+El script imprime su propio `CHAOS TEST SUMMARY`. Verificar:
 
-find data/ -type f -name "*.csv*" -delete
-.venv/bin/python utils/update_memory.py --workflow stress-test
+### Criterios de Éxito (Chaos)
+- [ ] **Error Trades = 0** ← CRÍTICO
+- [ ] **Integrity = ✅ PASS** (Tracker vacío, Exchange limpio)
+- [ ] **Stall Detected = False** (Watchdog sin colgar)
+- [ ] **Event Integrity = 100%** (0 logs de `WS Event UNMATCHED`)
+- [ ] **Total Ops > 30** (Suficiente volumen de estrés)
+
+---
+
+## FASE B: Endurance Test (Estratégico — Resistencia Real)
+
+### Objetivo
+Correr el bot real (`main.py`) durante un periodo prolongado (24-48h) para detectar fugas de memoria (memory leaks), degradación de rendimiento, o errores intermitentes que solo se manifiestan a largo plazo.
+
+**Nota:** Con los filtros estrictos de la v9.2.0 (VA_GATE, TrendAcceptance, Z-Scores), el bot ejecuta muy pocos trades por sesión. El objetivo aquí NO es volumen de trades, sino estabilidad de proceso.
+
+### Paso B.1: Limpiar Estado
+```bash
+.venv/bin/python utils/reset_data.py
 ```
 
-### 4. Analizar SESSION SUMMARY
-Al finalizar, revisar:
+### Paso B.2: Ejecutar Endurance Test (Single Coin, 24h)
+```bash
+.venv/bin/python main.py \
+  --run-type trade \
+  --mode demo \
+  --exchange binance \
+  --symbol LTCUSDT \
+  --close-on-exit \
+  2>&1 | tee logs/endurance_test_$(date +%Y%m%d_%H%M%S).log
+```
+*Dejar correr mínimo 24 horas. Monitorear RAM con `htop` periódicamente.*
+
+### Paso B.3 (Opcional): Endurance Multi-Coin (48h)
+```bash
+.venv/bin/python main.py \
+  --run-type trade \
+  --mode demo \
+  --exchange binance \
+  --symbol MULTI \
+  --close-on-exit \
+  2>&1 | tee logs/endurance_multi_$(date +%Y%m%d_%H%M%S).log
+```
+
+### Paso B.4: Auditoría Post-Endurance
+```bash
+.venv/bin/python utils/audit_logs.py logs/endurance_test_$(ls -t logs/endurance_* | head -1 | xargs basename)
+```
+
+### Criterios de Éxito (Endurance)
+- [ ] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
+- [ ] **Proceso no crasheó** durante las 24h+
+- [ ] **RAM estable** (No creció >50% respecto al inicio)
+- [ ] **Event Integrity = 100%** (0 logs de `WS Event UNMATCHED`)
+- [ ] **API Stability = 100%** (0 logs de error `(-4120)`)
+- [ ] **Airlock Latency = 100%** (0 warnings de `🐢 High Airlock Latency`)
+- [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
+- [ ] Los trades ejecutados (si los hay) cerraron limpiamente
+
+---
+
+## SESSION SUMMARY (Referencia)
+Al finalizar cualquiera de las fases, el bot imprime:
 ```
 ==========================================
 🏁 SESSION SUMMARY (Persistent Historian)
@@ -55,20 +119,6 @@ Al finalizar, revisar:
       • HFT Core Efficiency: XX.X%
 ==========================================
 ```
-
-## Criterio de Éxito
-- [ ] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
-- [ ] **Trade Efficiency Ratio < 1.5** (Trades/Signals) ← FASE 300
-- [ ] **Ghost Removals = 0** (No Auditor healing allowed) ← FASE 300
-- [ ] **Exchange Errors (-4003) = 0** ← FASE 300
-- [ ] **Event Integrity = 100%** (0 logs de `WS Event UNMATCHED`)
-- [ ] **API Stability = 100%** (0 logs de error `(-4120)`)
-- [ ] **Airlock Latency = 100%** (0 warnings de `🐢 High Airlock Latency`)
-- [ ] **Audit Adjust < $1.00**
-- [ ] **Volume > 50 trades** ejecutados
-- [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
-- [ ] **HFT Latency (T0-T2) < 50ms** (Avg) ← FASE 240
-- [ ] **HFT Core Efficiency > 90%** (Processing < 1ms)
 
 ## Resilience Performance (Phase 160)
 - [ ] **Healing Efficiency > 90%** (`Healed / (Healed + Force-Closed)`)

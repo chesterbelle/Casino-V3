@@ -214,15 +214,13 @@ No es la estrategia general, no es la infraestructura base
 
 **Objetivo**: Confirmar que los parámetros optimizados no rompieron edge en datos históricos.
 
-**Procedimiento**:
+**Procedimiento**: Ejecutar `backtest_runner.py` en modo audit para cada activo certificado.
 ```bash
-# Ejecutar validación completa
-python scripts/orchestrator.py single-coin-audit --symbol LTCUSDT
-python scripts/orchestrator.py single-coin-audit --symbol SOLUSDT
-python scripts/orchestrator.py single-coin-audit --symbol AVAXUSDT
-python scripts/orchestrator.py single-coin-audit --symbol XRPUSDT
-python scripts/orchestrator.py single-coin-audit --symbol DOGEUSDT
-# ... repetir para los 14 símbolos
+# Ejemplo para un activo:
+python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
+
+# Repetir para cada activo certificado:
+# SOLUSDT, AVAXUSDT, XRPUSDT, DOGEUSDT, ADAUSDT, BNBUSDT, LINKUSDT, OPUSDT
 ```
 
 **Métricas de éxito**:
@@ -230,7 +228,6 @@ python scripts/orchestrator.py single-coin-audit --symbol DOGEUSDT
 - Win Rate >= baseline
 - MFE/MAE >= baseline
 - Zero crashes
-- Tiempo total < 2 horas
 
 **Criterio de paso**:
 - >= 80% de activos mantienen o mejoran baseline
@@ -238,66 +235,45 @@ python scripts/orchestrator.py single-coin-audit --symbol DOGEUSDT
 
 **Tiempo estimado**: 2-3 días de ejecución + análisis
 
-### 1.2 Stress Test Multi-Coin Simultáneo
+### 1.2 Validación de Infraestructura Completa (`/validate-all`)
 
-**Objetivo**: Verificar que el sistema aguanta múltiples activos en paralelo sin degradación.
+**Objetivo**: Certificar que cada componente aislado funciona correctamente antes de someterlos a presión conjunta.
 
-**Procedimiento**:
-```bash
-# Test con 5 activos simultáneos (sin BTC/ETH)
-python main.py --run-type trade --symbol MULTI --mode demo \
-  --bet-size 0.01 --timeout 30 \
-  --max-symbols 5  # LTC, SOL, AVAX, XRP, DOGE
+**Procedimiento**: Ejecutar el workflow `/validate-all` completo (Capas 0 a 6).
 
-# Monitorear:
-# - Memory usage (debe ser < 4GB)
-# - CPU usage (debe ser < 80%)
-# - Latency tick-to-order (debe ser < 10ms)
-# - Signal rate (debe ser similar a backtest individual)
-```
+> 👉 El protocolo detallado, comandos exactos y criterios de éxito viven en:
+> [`.agent/workflows/validate-all.md`](file:///home/chesterbelle/Casino-V3/.agent/workflows/validate-all.md)
 
-**Métricas de éxito**:
-- Zero OOM errors
-- Zero crashes
-- Latencia estable
-- Memory growth < 100MB/hora
-- Win Rate similar a backtests individuales
+**Resumen de capas**:
+- **Capa 0**: Math atómica (Footprint, Absorption, ExitEngine, SignalArbitrator, Fees)
+- **Capa 1**: Integridad de datos + integración de salidas
+- **Capa 2**: Pipeline de señales (TradeProposal) + pipeline de ejecución (VirtualExchange)
+- **Capa 3**: Orquestación (Orchestrator protocols)
+- **Capa 4**: Stress & Chaos (multi_symbol_chaos_tester)
+- **Capa 6**: Cluster Optimizer (validate-only)
 
-**Criterio de paso**:
-- Sistema corre 30 minutos sin problemas
-- Si hay crashes → investigar y fixear antes de continuar
-
-**Tiempo estimado**: 1 día de testing
-
-### 1.3 Validación de Infraestructura Completa
-
-**Checklist**:
-```bash
-# 1. Validadores layer 0-5
-python -m utils.validators.decision_pipeline_validator
-python -m utils.validators.trading_flow_validator --mode demo
-python -m utils.validators.multi_symbol_validator --mode demo --size 500
-python -m utils.validators.hft_latency_benchmark --mode demo --iterations 3
-
-# 2. Reconexión WebSocket
-# Manual: Desconectar internet por 30s, verificar reconexión automática
-
-# 3. Emergency shutdown
-# Manual: Ctrl+C durante trading, verificar cleanup correcto
-
-# 4. Rate limit monitoring
-# Verificar que no se exceden limits de Binance
-```
-
-**Métricas de éxito**:
-- Todos los validadores pasan
-- Reconexión automática funciona
-- Shutdown limpia posiciones correctamente
-- Zero rate limit violations
-
-**Criterio de paso**: 100% del checklist aprobado
+**Criterio de paso**: Todas las capas pasan sin errores.
 
 **Tiempo estimado**: 1-2 días
+
+### 1.3 Stress Test Multi-Coin (`/stress-test`)
+
+**Objetivo**: Verificar que el sistema aguanta carga real sostenida sin degradación, fugas de memoria ni errores de ejecución.
+
+**Procedimiento**: Ejecutar el workflow `/stress-test` (Fase A: Chaos + Fase B: Endurance).
+
+> 👉 El protocolo detallado, comandos exactos y criterios de éxito viven en:
+> [`.agent/workflows/stress-test.md`](file:///home/chesterbelle/Casino-V3/.agent/workflows/stress-test.md)
+
+**Resumen de fases**:
+- **Fase A (Chaos Test)**: Inyección de órdenes sintéticas a 9 monedas durante 10 min para saturar WebSockets/Croupier/OCOManager. Valida Error Recovery = $0.00 y 0 eventos UNMATCHED.
+- **Fase B (Endurance Test)**: Bot real (`main.py`) corriendo 24-48h para detectar fugas de RAM y errores intermitentes.
+
+**Criterio de paso**:
+- Fase A: Error Trades = 0, Integrity = PASS, Total Ops > 30
+- Fase B: 0 crashes, RAM estable, trades limpios
+
+**Tiempo estimado**: 1-3 días
 
 ### 1.4 Análisis de Drawdown y Riesgo
 

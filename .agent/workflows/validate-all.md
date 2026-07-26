@@ -39,11 +39,11 @@ Each layer must pass before proceeding to the next.
 ```
 *Tests*: Profile resolution, Micro-Z Reversal (4 scenarios), Scale Out (4 scenarios), grace period, pending guard.
 
-### Layer 0.D: Regime Guardian Decision Matrix
+### Layer 0.D: SignalArbitrator Regime Gating
 ```bash
-.venv/bin/python utils/validators/regime_guardian_validator.py
+.venv/bin/python utils/validators/signal_arbitrator_validator.py
 ```
-*Tests*: 7-case TREND matrix + BALANCE logic + Z-score disambiguation.
+*Tests*: TRENDING vs RANGE regime gating, TacticalAbsorption blocking, TrendAcceptance blocking, conflict resolution.
 
 ### Layer 0.E: VirtualExchange Fee Accounting
 ```bash
@@ -79,7 +79,7 @@ Each layer must pass before proceeding to the next.
 
 ### Layer 2.2: Execution Pipeline (VirtualExchange)
 ```bash
-.venv/bin/python -m utils.validators.trading_flow_validator --execute-orders
+.venv/bin/python -m utils.validators.trading_flow_validator --exchange binance --symbol MULTI
 ```
 *Tests*: Connection, order cancel, OCO bracket, position tracking, close, orphan cleanup, shutdown, error handling. **Requires Binance testnet credentials.**
 
@@ -184,7 +184,7 @@ For environments without exchange access, run Layers 0-3 + Layer 6 (validate-onl
 .venv/bin/python utils/validators/absorption_footprint_validator.py
 .venv/bin/python utils/validators/absorption_guardian_validator.py
 .venv/bin/python utils/validators/exit_engine_validator.py
-.venv/bin/python utils/validators/regime_guardian_validator.py
+.venv/bin/python utils/validators/signal_arbitrator_validator.py
 .venv/bin/python utils/validators/virtual_exchange_fee_validator.py
 
 # Layer 1: Data integrity + exit integration

@@ -64,6 +64,7 @@ graph TD
 | **SetupEngine** | `decision/engine/setup_engine.py` | 1-300 | Convierte señal en orden con TP/SL dinámicos por perfil. |
 | **ProfileManager** | `decision/engine/profile_manager.py` | 1-120 | Resuelve perfil de cada símbolo (cluster) y devuelve parámetros. |
 | **CoinProfiles** | `config/coin_profiles.py` | 1-500 | **Aquí están los parámetros de cada cluster.** |
+| **SignalArbitratorValidator** | `utils/validators/signal_arbitrator_validator.py` | 1-143 | Valida VA_GATE regime gating: TRENDING bloquea mean-reversion, RANGE permite trend-following, conflictos resueltos deterministicamente. |
 
 ---
 
