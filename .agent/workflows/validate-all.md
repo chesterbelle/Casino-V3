@@ -2,7 +2,7 @@
 description: Progressive validation pipeline for Post-Refactor architecture (OrderFlowEngine + Instant/Confirmation)
 ---
 
-# Validate-All: Post-Refactor Integration Pipeline (OrderFlowEngine v8.9)
+# Validate-All: Integration Pipeline (v9.3)
 
 ## Overview
 Validation from isolated component math → subsystem integration → orchestration → edge sanity check.
@@ -87,30 +87,18 @@ Each layer must pass before proceeding to the next.
 
 ## LAYER 3: ORCHESTRATION (OrderFlowEngine + SignalArbitrator)
 
-### Layer 3.1: Protocol Determinism (Single Coin)
+### Layer 3.1: Single Coin Audit (Backtest Runner)
 ```bash
-.venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
+.venv/bin/python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 ```
-*Success Criterion*: `data/historian_LTCUSDT.db` exists with signals and price samples.
+*Success Criterion*: `data/historian.db` exists with signals and price samples.
 
-### Layer 3.2: Cluster Protocols (All Members)
+### Layer 3.2: Multi-Coin Audit (Cluster)
 ```bash
-# MID_LIQUID cluster (LTC, AVAX, OP, APT, BNB, LINK)
-.venv/bin/python scripts/orchestrator.py --protocol cluster_mid_liquid
-
-# THIN_VOLATILE cluster (XRP, DOGE)
-.venv/bin/python scripts/orchestrator.py --protocol cluster_thin_volatile
-
-# MAJOR_LIQUID cluster (SOL)
-.venv/bin/python scripts/orchestrator.py --protocol cluster_major_liquid
+# All certified symbols via run_non_regression.sh
+.venv/bin/bash scripts/run_non_regression.sh
 ```
-*Success Criterion*: All cluster members complete without import errors.
-
-### Layer 3.3: Probe Protocol (All Symbols)
-```bash
-.venv/bin/python scripts/orchestrator.py --protocol probe
-```
-*Success Criterion*: At least 10 symbols complete successfully with new architecture (OrderFlowEngine, instant/, confirmation/).
+*Success Criterion*: All symbols complete without errors, edge maintained.
 
 ---
 
@@ -128,7 +116,7 @@ Each layer must pass before proceeding to the next.
 
 ### Layer 5.1: Pipeline Sanity (Single Dataset Audit)
 ```bash
-.venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
+.venv/bin/python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 ```
 *Success Criterion*: Edge auditor completes without error, baseline report generated.
 
@@ -136,35 +124,32 @@ Each layer must pass before proceeding to the next.
 
 ## LAYER 6: OPTIMIZATION (Cluster Optimizer Validation)
 
-### Layer 6.1: Cluster Optimizer (Validate-Only Mode)
+### Layer 6.1: Param Optimizer (Validate Mode)
 ```bash
-# MID_LIQUID cluster validation
-.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --validate-only
+# MID_LIQUID cluster validation via param_optimizer
+.venv/bin/python scripts/param_optimizer.py --symbol LTCUSDT --validate-only
 
 # THIN_VOLATILE cluster validation
-.venv/bin/python scripts/cluster_optimizer.py --cluster THIN_VOLATILE --validate-only
+.venv/bin/python scripts/param_optimizer.py --symbol XRPUSDT --validate-only
 ```
-*Success Criterion*: Optimizer loads profiles, runs backtests, and generates results without import errors (verifies new paths: `decision.scenarios.instant.*`, `decision.scenarios.confirmation.*`).
+*Success Criterion*: Optimizer loads profiles and validates without import errors.
 
-### Layer 6.2: Cluster Optimizer (Full Optimization - Optional)
+### Layer 6.2: Backtest Runner (Full Audit)
 ```bash
-# Single-scenario optimization (faster)
-.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --only tactical_absorption --iterations 10
-
-# Full optimization (all scenarios)
-.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --iterations 20
+# Full audit via backtest_runner (replaces old cluster_optimizer)
+.venv/bin/python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 ```
-*Success Criterion*: Optimization completes, generates optimized profile file, cross-coin validation passes.
+*Success Criterion*: Audit completes, edge auditor generates report, historian DB populated.
 
 ---
 
-## PRE-MERGE CHECKLIST (Before merging `feat/limpieza-profunda` to `dev`)
+## PRE-MERGE CHECKLIST (Before merging to `main`)
 
 - [ ] **Layer 0**: All atomic validators pass (0.A through 0.E).
 - [ ] **Layer 1**: Data integrity + exit integration pass.
 - [ ] **Layer 2**: Signal pipeline validator passes.
-- [ ] **Layer 3**: Orchestrator protocols pass (single-coin + at least 1 cluster).
-- [ ] **Layer 6**: Cluster optimizer validate-only mode passes.
+- [ ] **Layer 3**: Backtest runner audit passes (single-coin).
+- [ ] **Layer 6**: Param optimizer validate mode passes.
 - [ ] **No import errors** related to `PressureEngine` (should be `OrderFlowEngine`).
 - [ ] **No import errors** related to `decision.scenarios.*` (should use `instant/` and `confirmation/` submodules).
 
@@ -194,11 +179,11 @@ For environments without exchange access, run Layers 0-3 + Layer 6 (validate-onl
 # Layer 2: Signal pipeline
 .venv/bin/python -m utils.validators.decision_pipeline_validator
 
-# Layer 3: Orchestrator (single-coin)
-.venv/bin/python scripts/orchestrator.py --protocol single-coin-audit --symbol LTCUSDT
+# Layer 3: Backtest runner audit (single-coin)
+.venv/bin/python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 
-# Layer 6: Cluster Optimizer (validate-only)
-.venv/bin/python scripts/cluster_optimizer.py --cluster MID_LIQUID --validate-only
+# Layer 6: Param optimizer (validate)
+.venv/bin/python scripts/param_optimizer.py --symbol LTCUSDT --validate-only
 ```
 
-**All layers must pass before merging `feat/limpieza-profunda` to `dev-8.9-datafeed-revamp`.**
+**All layers must pass before merge.**
