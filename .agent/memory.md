@@ -8,6 +8,14 @@
 > 4. **GOTCHA (CRYPTOHFTDATA SEQUENTIAL):** Para símbolos grandes (ETH, BTC), usar `--sequential` en `cryptohftdata_fetcher.py` para descargar hora por hora en vez de las 24 en paralelo. Sin ello, el proceso muere por OOM (~24-48GB RAM para ETH orderbook). Con sequential, cada hora se descomprime, convierte y escribe al CSV.gz individualmente.
 > 5. **GOTCHA (L2_PROCESSOR NAMING):** `l2_processor.py` busca raw files por substring `--name`. El fetcher crea `{exchange}_{type}_{date}_{symbol}` pero el processor espera `{symbol}_{date}`. Renombrar raw files antes de procesar o especificar `--name` con el orden correcto.
 > 6. **GOTCHA (TIMEOUTS):** Al ejecutar `scripts/orchestrator.py`, el timeout del shell debe ser muy largo (ej. 4 horas) ya que los backtests masivos toman tiempo considerable.
+> 15. **GOTCHA (NOHUP PARA PROCESOS LARGOS):** Nunca correr backtests/audits con `timeout` — al cortar abruptamente deja WAL/SHM huérfanos que cuelgan futuras ejecuciones. En su lugar, usar `nohup` para no bloquear al agente:
+>     ```bash
+>     nohup python3 scripts/backtest_runner.py --mode audit --symbol LINKUSDT > /tmp/audit_{symbol}.log 2>&1 &
+>     ```
+>     Luego monitorear con `tail -f /tmp/audit_{symbol}.log`. Para reparar WAL/SHM huérfanos existentes:
+>     ```bash
+>     python3 -c "conn=sqlite3.connect('dataset.db'); conn.execute('PRAGMA wal_checkpoint(TRUNCATE)'); conn.execute('PRAGMA journal_mode=DELETE'); conn.execute('VACUUM'); conn.close()"
+>     ```
 > 7. **GIT FLOW (3 BRANCHES):** Ver sección "🏛️ Git Flow Metodología" más abajo.
 > 8. **GOTCHA (GIT CLEANUP):** Si ves muchas branches viejas (`git branch | wc -l` > 5), es hora de limpiar. Borra branches locales mergeadas: `git branch --merged main | grep -v "\*" | xargs git branch -D`. Las branches remotas se borran con `git push origin --delete <branch>`.
 > 9. **REGLA DE ARQUITECTURA (DOCUMENTACIÓN VIVA):** Si cambias la arquitectura (renombrar clases, mover carpetas, eliminar parámetros), **DEBES actualizar** `docs/ARCHITECTURE_MAP.md` ANTES de hacer commit. Este archivo es la fuente de verdad; si está desactualizado, miente y causa confusión.
@@ -16,12 +24,18 @@
 >     - **Validación OOS mensual** = correr los datasets **mensuales** (`data/datasets/monthly_backtest_ready/AVAX_monthly_2026_0M.db`) SIN reentrenar. Los params se ajustaron en diario, NUNCA en mensual → es out-of-sample real. **Esto es lo que estamos haciendo ahora con AVAX.** (Un walk-forward estricto re-optimiza en cada ventana; nosotros optimizamos una vez en diario y validamos holdout en mensual — por eso el término preciso es "validación OOS mensual", no "walk-forward".)
 > 12. **HIPÓTESIS ACTUAL (no confundir con "arreglar AVAX"):** Validar si el **sistema de perfiles** generaliza la estrategia ajustada en LTC a AVAX usando **SOLO parámetros de perfil** (sin cambios de código). El perfil AVAX = copy-paste del perfil LTC + ajustes por moneda. Cualquier cambio de código en los sensores CONTAMINA el test de generalización → PROHIBIDO.
 > 13. **REGLA DE NO-CONTAMINACIÓN:** NO ejecutar cambios (código/config/backtest) sin instrucción explícita "sí" del usuario. Investigar/leer es libre. Pasos chicos y reversibles. El branch `dev-9.0-validacion-oos` solo es un nombre git; el método es validación OOS mensual.
+> 14. **REGLA GIT MERGE (SANTUARIO MAIN):** NUNCA hagas `git merge` a `main`, `git push origin main`, ni `git push origin --tags` sin autorización explícita "sí" del usuario. La certificación (merge + tag) la decides TÚ, no el agente. El agente solo prepara; tú certificas.
+> 16. **GOTCHA (PER-DATASET RESULTS):** El `historian.db` (`data/historian.db`) es el unificado del audit más reciente. Contiene señales de TODOS los datasets en `signals`, cada una con `session_id` único por dataset. Para separar por dataset:
+>     1. Identificar sessions: `SELECT session_id, COUNT(*), MIN(timestamp) FROM signals GROUP BY session_id ORDER BY MIN(timestamp)` → cada session_id corresponde a un dataset ordenado por fecha.
+>     2. Mapear timestamps a datasets: cada dataset (`DOGEUSDT_TREND_UP_2025-04-01.db`) tiene señales cuyo `MIN(timestamp)` cae en el día del dataset.
+>     3. Extraer por session: crear DB temporal filtrando `signals WHERE session_id='...'` + `price_samples` por rango de timestamp, y correr `setup_edge_auditor.py --db <filtered.db>`.
+>     Esto evita re-correr backtests. Los `session_id` están en formato `sess_SYMBOL_hash` y se mapean por fecha al dataset correspondiente.
 
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
-*   **Current Branch**: `dev-9.0-validacion-oos` (rama de validación OOS mensual, desde main v9.0.0)
+*   **Current Branch**: `dev-9.2-param-optimization` (rama de optimización paramétrica)
 *   **Stable Branch**: `main` (versión certificada **v9.0.0-sbr-ta-regime-filter**)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized + Regime Filter + SBR).
@@ -109,7 +123,7 @@
 ### Completado (historial en changelog.md):
 Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation ✅ | 8.9 Data Feed Revamp (138x) ✅ | Refactor feat/limpieza-profunda ✅ Mergeado | LTC trend_acceptance Optimized (+0.3184%) ✅ | **AMT Crystal Fixes (LE level_key + TAV direction)** ✅ Net Taker 24h: +0.2352% (2x mejora) | **SBR Merge** ✅ | **TA Regime Filter** ✅ | **LTC Edge Certified** ✅ (+0.2354% Net Taker daily, +0.09% monthly) | **Merge to Main v9.0.0** ✅ | **Dataset Expansion (LTC 3→6 monthly)** ✅ | **LTC Validación OOS Mensual** ✅ (4 splits Ene–Jun 2026, +2.4676% acum, +0.617%/mes, 4/4 splits positivos — `docs/historical_results/LTC_result.md`) | **AVAX Param Optimization** ✅ (4/4 escenarios, best score +0.4601, `docs/../golden_params/avax.md`) | **AVAX Validación OOS Mensual LIMPIA** ✅ (4 splits Mar–Jun 2026, +0.2217% acum, 3/4 escenarios positivos, TA ENTRY FAILURE — perfil generaliza PARCIALMENTE, `docs/historical_results/AVAX_result.md`)
 
-112: ### Siguientes Pasos (Priorizados) — ACTUALIZADO 2026-07-17:
+112: ### Siguientes Pasos (Priorizados) — ACTUALIZADO 2026-07-20:
 1. ~~**Non-Regression Test LTC**~~ ✅ **COMPLETADO**: Audit mensual LTC (6 meses) con fix `cvd_velocity_signed` confirma 0 regresión.
 2. ~~**Target Optimization AVAX**~~ ✅ **COMPLETADO**: Ejecutamos el `setup_edge_auditor.py` sobre AVAX y actualizamos el perfil `AVAX_NOISY_UNCERTAIN` con los Best Static Grid targets. (TA Net Taker +0.54%).
 3. ~~**SOL Param Optimization**~~ ✅ **COMPLETADO**: Optuna reveló entradas estadísticamente perfectas (MFE/MAE > 4). Audit identificó el TARGET_FAILURE y se inyectaron targets asimétricos extremos (TP 5.0%, SL 0.5-1.0%) logrando +0.54% a +1.13% Net Taker.
@@ -117,28 +131,30 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 5. ~~**Fix ProfileManager Symbol Lookup**~~ ✅ **COMPLETADO**: Se solucionó el bug de 0 señales. El motor inyectaba el nombre CCXT `LTC/USDT:USDT` pero el diccionario usaba `LTCUSDT`, causando una excepción silenciada en cada tick.
 6. **Optimización Paramétrica a Otras Monedas (Ordenado por Peso / Velocidad)** 🚀 **PRÓXIMO**:
    Para minimizar el tiempo de iteración en Optuna, avanzaremos desde los datasets más livianos hasta los más pesados institucionales. **Regla estricta:** Haremos la optimización de **una en una**, respetando estrictamente el orden de esta lista.
-   - [ ] 1. **ARB** (107 MB) - *Súper rápido*
-   - [ ] 2. **NEAR** (118 MB)
-   - [ ] 3. **OP** (145 MB)
-   - [ ] 4. **APT** (195 MB)
-   - [ ] 5. **LINK** (247 MB)
-   - [ ] 6. **ADA** (408 MB) - *(Nota: tiene 18 datasets, el triple que el resto)*
-   - [ ] 7. **BNB** (599 MB)
-   - [ ] 8. **XRP** (832 MB)
-   - [ ] 9. **DOGE** (922 MB)
-   - [ ] 10. **BTC** (1436 MB) - *Pesado*
-   - [ ] 11. **ETH** (2259 MB) - *El más lento (Orderbook masivo)*
+   - [x] 1. **ARB** (107 MB) - *Completado* ✅
+   - [x] 2. **NEAR** (118 MB) - *Completado* ✅
+   - [x] 3. **OP** (145 MB) - *Completado* ✅
+    - [x] 4. **APT** (195 MB) - *Completado* ✅
+     - [x] 5. **LINK** (247 MB) - *Completado* ✅
+     - [x] 6. **DOGE** (922 MB) - *Completado* ✅
+     - [x] 7. **ADA** (408 MB) - *Completado* ✅
+    - [x] 8. **BNB** (599 MB) - *Completado* ✅
+    - [x] 9. **XRP** (832 MB) - *Completado* ✅
+    - [x] 10. **BTC** (1436 MB) - *Pausado (OOM/Thrashing). Diferido para Fase 3.* ⏳
+    - [x] 11. **ETH** (2259 MB) - *Placeholder Creado. Diferido para Fase 3.* ⏳
+
 
 - **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4 + **TA Regime Filter** + **SBR**.
-- **Branch**: `dev-9.0-validacion-oos` (validación OOS mensual), `main` (v9.0.0-sbr-ta-regime-filter certificada)
+- **Branch**: `dev-9.2-param-optimization` (optimización paramétrica), `main` (v9.0.0-sbr-ta-regime-filter certificada)
 - **Backtest Runner**: Unificado en `scripts/backtest_runner.py` con dos modos:
   - **Audit Mode** (`--mode audit`): Ejecución paralela de múltiples backtests, merge de historian DBs, edge auditor. Para validación estadística de edge en 6 datasets.
   - **Trade Mode** (`--mode trade`): Ejecución secuencial de 1 backtest, simulación realista de trading. Para validación final antes de live deployment.
 - **Workflow Estándar**:
-  1. Optimizar: `cluster_optimizer.py --cluster LTC --iterations 50`
+  1. Optimizar: `param_optimizer.py --symbol LTCUSDT --iterations 50`
   2. Auditar: `backtest_runner.py --mode audit --symbol LTCUSDT`
-  3. Validar trade: `backtest_runner.py --mode trade --symbol LTCUSDT`
-  4. Certificar: Merge a main + tag
+  3. Crear golden params: `.agent/golden_params/{symbol}.md` con resultados del audit, targets asimétricos y perfil completo.
+  4. Validar trade/OOS: `backtest_runner.py --mode trade --symbol LTCUSDT` o validación OOS mensual.
+  5. Certificar: **Solo por orden explícita del usuario** (merge a main + tag)
 - **Cluster Optimizer** (2026-06-08): `scripts/cluster_optimizer.py` — 49 params across 8 groups (absorption, failed_breakout, liquidity_exhaustion, trend_acceptance, targets, quality, guardians, pressure). `--param-groups` for selective optimization. Weight auto-normalization. Optuna TPE + persistent SQLite + `--resume`.
 - **EdgeAuditor get_metrics()**: Programmatic API returning net_taker, root_cause, MFE/MAE, best_uniforms. Used by optimizer.
 - **Profile Classification Fix**: `_classify_and_set_profile()` checks `clusters_fixed.json` BEFORE runtime classification.
@@ -159,8 +175,14 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 > **Parámetros actuales**: z_score_min=1.5, concentration_min=0.40, noise_max=0.35
 > **Próximo ajuste**: Implementar Iteración 3 ("El Bisturí") — elevar drásticamente los requerimientos de entrada (z_score_min=3.5, concentration_min=0.75, noise_max=0.20) para rescatar el edge en TAV/LE/FB eliminando el ruido.
 ...
-## 📝 Timeline de Sesiones Recientes
-- 2026-07-15 | bugfix + audit mensual | **AVAX TA ENTRY FAILURE RESUELTO — BUG `abs()` EN CVD VELOCITY**: Análisis profundo reveló bug en `core/order_flow/engine.py:159`: `abs()` destruía info direccional del CVD, haciendo que SHORT breakouts requirieran near-zero activity (semánticamente invertido). Fix: nuevo campo `cvd_velocity_signed` (sin `abs()`) en `OrderFlowState` + `trend_acceptance.py` usa `cvd_signed` para dirección + `abs(cvd_slope)` para magnitud. **Zero regresión** (campo original `cvd_velocity` intacto). Audit mensual AVAX (6 meses Ene–Jun 2026): TA pasó de **0 SHORTs → 1,359 SHORTs** (77.5%), WR 53.8%, Net Taker **+0.2410%** ✅, MFE/MAE 3.03. Overall Net Taker **+0.3500%** ✅. 4/4 escenarios Entry OK. Root cause actual: TARGET FAILURE (AMT targets subrinden best static grid 2.50/2.50%).
+## 🏗️ Metodología de Ingeniería Confiable (Fase Producción)
+Dado el paso de R&D a Producción (Paper Trading, Validación de Infraestructura), el proyecto adopta la siguiente triada documental para separar la planificación, ejecución y registro:
+
+1. **`task.md` (El "Durante")**: Documento efímero (lista de checkboxes) creado en el directorio de artefactos para orquestar los pasos exactos de una prueba en curso. Al terminar el día, su contenido se descarta o consolida.
+2. **`changelog.md` (El "Después")**: Registro histórico inmutable. Almacena resúmenes concisos de lo que se logró al finalizar una tarea importante (ej. "Se completó Non-Regression Test para 9 activos").
+3. **`memory.md` (El "Por qué")**: La Biblia Arquitectónica (este documento). Mantiene las reglas doradas, el estatus global del proyecto y las decisiones técnicas de alto nivel (como la exclusión de BTC). No contiene ruido diario.
+
+*(El registro diario o "Timeline" ha sido purgado de este documento y será gestionado en el `changelog.md` a partir de la Fase 1).*
 - 2026-07-13 | validación OOS mensual + root-cause fix | **AVAX VALIDACIÓN OOS MENSUAL CORREGIDO — EDGE MARGINAL ⚠️ + BUG DE RAÍZ DESCUBIERTO**: Hallazgo crítico: `decision/engine/param_validation.py::validate_params` hacía `schema(**params).model_dump()`, y Pydantic descartaba las claves extra del perfil (`regime_*`, `max_pullback_penetration_pct`, `min_candles_outside`, `pullback_tolerance_pct`). El sensor TA tiene "bridges" que las consumen, pero al no llegar caía a defaults → **los golden params de AVAX NUNCA se aplicaron de verdad** (ni en optimización ni en validación OOS mensual previo). Además el sync de los 6 params TA a `config/coin_profiles.py` estaba incompleto. FIX: `validate_params` ahora preserva claves extra (`{**dump, **params}`), y se sincronizaron los 6 params TA (cooldown 210, cvd 5.0, regime_vol 1.55, regime_poc 0.0025, regime_va 1.25, max_pullback 0.0013, min_candles 7, pullback_tol 0.0011). Verificado en vivo (log `vol_ratio > 1.55`). Re-run validación OOS mensual 4 splits con golden params COMPLETOS: Net Taker acum **+0.0325%** (+0.0081%/mes), **2/4 positivos** (Mar +0.0689%, Jun +0.1279%; Abr -0.0607%, May -0.1036%) — esencialmente igual de marginal que el run anterior (+0.0436%). **trend_acceptance = lastre comprobado**: con golden params completos disparó 74/77/78 señales en Mar/Abr/May y perdió en los 3 (-0.31/-0.12/-0.35%); Junio mejor mes con **0 señales TA** (THIN WALL L2<1.3). LE (+0.1261%) y TACT (+0.1800%) ganadores. **Root cause TARGET FAILURE en los 4 meses**. Detalle: `docs/historical_results/AVAX_result.md`. **NO certificado** — requiere desactivar TA en AVAX + target optimization.
 - 2026-07-10 | sync-docs | **AVAX PARAM OPTIMIZATION COMPLETE (4/4 escenarios)**: Optimizados los 4 escenarios AVAX vía cluster_optimizer (50 iters c/u). Best score global +0.4601 (trend_acceptance). Val NT +0.29–0.49%, 6/6 coins passed. TACT baseline +0.10%→val +0.49%, FB val +0.41%, LE val +0.29% (score compuesto negativo por <8 señales pero NT positivo), TA score +0.46 (mejor que LTC ~+0.18). Golden params en `.agent/golden_params/avax.md`. Studies en `data/db_vault/avax_*.db`. **Próximo: validación OOS mensual AVAX**.
 - 2026-07-04 | validación OOS mensual | **LTC VALIDACIÓN OOS MENSUAL COMPLETE (4 splits)**: Ejecutados 4 splits out-of-sample (Ene–Jun 2026) sin reentrenar. Net Taker acumulado +2.4676% (+0.617%/mes), 4/4 splits positivos. Regime filter certificado: bloquea TA en Mayo (chop vol_ratio 2.0), permite en Marzo/Abril/Junio (trends limpios). LE mejor escenario (+0.3261% avg), FB +0.2158%, TA +0.1791% (con filtro), TACT +0.0310%. Detalle en `docs/historical_results/LTC_result.md`.

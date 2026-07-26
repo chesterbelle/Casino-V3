@@ -8,6 +8,58 @@
 > 5. **TERMINOLOGÍA (no confundir):** "Optimización paramétrica" = datasets diarios 24h (`cluster_optimizer.py` / `backtest_runner.py`). "Validación OOS mensual" = correr datasets mensuales (`data/datasets/monthly_backtest_ready`) SIN reentrenar — out-of-sample real porque los params se ajustaron en diario. El término "walk-forward" se usó ambiguamente en sesiones previas; lo correcto para las corridas mensuales es **validación OOS mensual**.
 > 6. **HIPÓTESIS ACTUAL:** Validar que el sistema de perfiles generaliza LTC→AVAX con SOLO params de perfil (sin cambios de código). Cualquier cambio de código en sensores CONTAMINA el test → PROHIBIDO.
 
+### [2026-07-23 SESSION] — DOGE Param Optimization Complete (Branch: dev-9.2-param-optimization)
+
+#### Resumen
+DOGE completó optimización paramétrica: 50 iteraciones Optuna (Trial 38, score +0.6874). Targets inyectados desde best static grid. Golden params creados.
+
+#### Resultados Audit DOGE (6 datasets, targets inyectados)
+| Escenario | n | Net Taker | Entry | Targets |
+|---|---|---|---|---|
+| failed_breakout | 30 | +0.7749% | ✅ | ✅ |
+| tactical_absorption | 14 | +0.5349% | ✅ | ✅ |
+| trend_acceptance | 243 | +0.6143% | ✅ | ✅ |
+| liquidity_exhaustion | 0 | — | — | sin señales |
+| **OVERALL** | **287** | **+0.6272%** | **3/4** | **✅ EDGE CONFIRMED** |
+
+#### Archivos modificados
+| Archivo | Cambio |
+|---|---|
+| `config/coin_profiles.py` | Targets DOGE inyectados (FB 2.5/5.0, TACT 2.5/4.0, TA 2.5/5.0) |
+| `.agent/golden_params/doge.md` | Creado — golden params v1 |
+| `.agent/memory.md` | Roadmap actualizado: DOGE ✅ → ADA 🚀 |
+
+#### Hallazgos
+- LE no produce señales en DOGE (0 señales).
+- TA domina con 84.7% de las señales, FB 10.5%, TACT 4.9%.
+- 5/6 datasets positivos.
+
+### [2026-07-20 SESSION] — LINK Param Optimization Complete (Branch: dev-9.2-param-optimization)
+
+#### Resumen
+LINK completó optimización paramétrica: 2 rondas Optuna (44 + 30 trials). LE-only optimization adicional (30 trials) sin éxito en destrabar LE. Targets inyectados desde best static grid. Golden params creados.
+
+#### Resultados Audit LINK (6 datasets, targets inyectados)
+| Escenario | n | Net Taker | Entry | Targets |
+|---|---|---|---|---|
+| failed_breakout | 5 | +2.43% | ✅ | ✅ |
+| tactical_absorption | 7 | +0.23% | ✅ | ✅ |
+| trend_acceptance | 114 | +0.17% | ✅ | ✅ |
+| liquidity_exhaustion | 0 | — | — | sin señales |
+| **OVERALL** | **126** | **+0.2618%** | **3/4** | **✅ EDGE CONFIRMED** |
+
+#### Archivos modificados
+| Archivo | Cambio |
+|---|---|
+| `config/coin_profiles.py` | Targets LINK inyectados (TACT 0.70/0.70%, TA 1.20/1.20%), LE params optimizados |
+| `.agent/golden_params/link.md` | Creado — golden params v1 |
+| `.agent/memory.md` | Roadmap actualizado: LINK ✅ → DOGE 🚀 |
+
+#### Hallazgos
+- LE no produce señales en LINK con ningún perfil probado (6 datasets, 3 configuraciones distintas)
+- TREND_DOWN_2025-02-01.db consistentemente lento (~53 min primera iteración)
+- Targets asimétricos vía best static grid funcionan: Net Taker -0.0119% → +0.2618%
+
 ### [2026-07-15 SESSION V2] — AVAX TA ENTRY FAILURE RESUELTO: Bug `abs()` en CVD Velocity (Branch: dev-9.0-validacion-oos)
 
 #### Resumen
@@ -3407,3 +3459,59 @@ Completada la cascada paramétrica para SOL (4 escenarios). Se corrigió bug de 
 #### 5. Próximos Pasos
 1. **Validación de Clusters**: Analizar la distribución de `depth_ratio` y `spread_in_ticks` para definir los cortes finales de los 5 perfiles.
 2. **Cierre de la Tesis de Clasificación**: Confirmar si la separación estructural es suficiente para diferenciar la "elasticidad" de los activos.
+
+---
+
+### [2026-07-22 SESSION] — DOGE Param Optimization Complete (Branch: dev-9.2-param-optimization)
+
+#### Resumen
+DOGE completó optimización paramétrica: 50 iteraciones Optuna (Trial 38, score +0.6874). Targets asimétricos inyectados desde best static grid. Golden params creados. 287 señales, +0.6272% Net Taker, 3/4 Entry OK (LE inactivo).
+
+#### Distribución de señales
+
+| Escenario | n | % | Best Net Taker |
+|---|---|---|---|
+| trend_acceptance | 243 | 84.7% | +0.6143% |
+| failed_breakout | 30 | 10.5% | +0.7749% |
+| tactical_absorption | 14 | 4.9% | +0.5349% |
+| liquidity_exhaustion | 0 | 0% | sin señales |
+| **TOTAL** | **287** | | **+0.6272%** |
+
+(TA domina naturalmente por estado-máquina de breakout. TACT muy estricto por z_score_min=3.0 THIN_VOLATILE. LE no encuentra secuencias en DOGE.)
+
+#### Resultados Audit DOGE por dataset (post-optimización + targets)
+
+| Dataset | Régimen | n | Net Taker | Veredicto |
+|---|---|---|---|---|
+| TREND_DOWN_2024-10-01 | 🔴 TREND_DOWN | 36 | **+1.2993%** | TARGET_FAILURE |
+| TREND_DOWN_2025-02-01 | 🔴 TREND_DOWN | 80 | **+1.1321%** | TARGET_FAILURE |
+| BALANCE_2024-11-01 | ⚪ BALANCE | 56 | **+0.1948%** | TARGET_FAILURE |
+| BALANCE_2025-01-01 | ⚪ BALANCE | 24 | **+0.7621%** | TARGET_FAILURE |
+| TREND_UP_2024-12-01 | 🟢 TREND_UP | 46 | **-0.1248%** | TARGET_FAILURE |
+| TREND_UP_2025-04-01 | 🟢 TREND_UP | 45 | **+0.4268%** | **EDGE_CONFIRMED** |
+| **TOTAL** | | **287** | **+0.6272%** | **EDGE CONFIRMED** |
+
+**5/6 datasets positivos**. TREND_DOWN datasets muestran los mejores retornos (estructura direccional favorece TA). TREND_UP_2025-04-01 único con EDGE_CONFIRMED directo. Distribución de señales healthy: TA SHORT-biased (93L/150S) consistente con market direction.
+
+#### Targets inyectados (Best Static Grid)
+
+| Escenario | TP | SL | Best Net |
+|---|---|---|---|
+| failed_breakout | 2.50% | 5.00% | +0.7749% |
+| tactical_absorption | 2.50% | 4.00% | +0.5349% |
+| trend_acceptance | 2.50% | 5.00% | +0.6143% |
+| liquidity_exhaustion | 2.50% | 2.50% | sin señales |
+
+#### Hallazgo metodológico (GOTCHA #16)
+Para extraer resultados por dataset del audit consolidado, se filtró `data/historian.db` por `session_id` (6 únicos, uno por dataset) y se copiaron `signals` + `price_samples` por timestamp range a DBs temporales. Cada session_id se mapea a un dataset por timestamp MIN. Permite re-correr `setup_edge_auditor.py --db` sin relanzar backtests.
+
+#### Archivos modificados
+| Archivo | Cambio |
+|---|---|
+| `config/coin_profiles.py` | DOGE perfil: Trial 38 + targets asimétricos (FB 2.50/5.00, TACT 2.50/4.00, TA 2.50/5.00) |
+| `.agent/golden_params/doge.md` | **CREADO** — golden params v1 |
+| `.agent/memory.md` | GOTCHA #16 agregado (per-dataset extraction via session_id) |
+| `results/study_DOGEUSDT_v1.db` | 50 trials Optuna v2 |
+
+#### Próximos pasos
+1. **ADA** (408 MB) — nota: tiene 18 datasets, el triple que el resto

@@ -18,7 +18,7 @@ Two modes of operation:
     - Use: Final validation before live deployment
 
 WORKFLOW:
-  1. Optimize params → cluster_optimizer.py
+  1. Optimize params → param_optimizer.py
   2. Audit edge      → backtest_runner.py --mode audit --symbol LTCUSDT
   3. Validate trade  → backtest_runner.py --mode trade --symbol LTCUSDT
   4. Certify         → Merge to main + tag release
@@ -36,15 +36,14 @@ USAGE EXAMPLES:
   # Trade mode - validates specific dataset
   python scripts/backtest_runner.py --mode trade --dataset data/datasets/.../LTC_TREND_UP_2024-03.db
 
-  # Cluster-wide audit (all symbols in MID_LIQUID cluster)
-  python scripts/backtest_runner.py --protocol cluster_mid_liquid
+  # Audit all datasets for a symbol
+  python scripts/backtest_runner.py --protocol single-coin-audit --symbol LTCUSDT
 
 ===============================================================================
 """
 
 import argparse
 import glob
-import json
 import os
 import signal
 import subprocess
@@ -191,16 +190,6 @@ def pick_recent_dataset(symbol, filter_pattern=None):
     return datasets[0]
 
 
-def get_cluster_members(cluster_name):
-    path = os.path.join(_BASE, "config", "clusters_fixed.json")
-    with open(path) as f:
-        data = json.load(f)
-    for key, val in data["clusters"].items():
-        if key.lower() == cluster_name.lower():
-            return val.get("members", [])
-    return []
-
-
 def clean_temp_data():
     _p("🧹 Cleaning historian databases...")
     for f in glob.glob("data/historian_*.db"):
@@ -296,21 +285,7 @@ def build_tasks(mode, protocol_name, symbol, filter_pattern, dataset=None):
         # AUDIT MODE: Parallel execution across multiple datasets
         # Purpose: Statistical edge validation
         # ═══════════════════════════════════════════════════════════════
-        if protocol_name.startswith("cluster_"):
-            cluster_key = protocol_name[len("cluster_") :]
-            members = get_cluster_members(cluster_key)
-            for sym in members:
-                datasets = get_datasets_for_symbol(sym, filter_pattern)
-                for db_file in datasets:
-                    tasks.append(
-                        {
-                            "task_id": db_file.replace(".db", ""),
-                            "db_path": os.path.join(DB_DIR, db_file),
-                            "symbol": format_ccxt_symbol(sym),
-                            "run_type": "audit",
-                        }
-                    )
-        elif protocol_name == "single-coin-audit":
+        if protocol_name == "single-coin-audit":
             if not symbol:
                 symbol = "LTCUSDT"
             datasets = get_datasets_for_symbol(symbol, filter_pattern)
@@ -501,9 +476,6 @@ MODES OF OPERATION
       # Audit with year filter
       python scripts/backtest_runner.py --mode audit --symbol LTCUSDT --filter 2024
 
-      # Audit entire cluster (all symbols)
-      python scripts/backtest_runner.py --mode audit --protocol cluster_mid_liquid
-
       # Audit monthly datasets (point to monthly dir)
       python scripts/backtest_runner.py --mode audit --symbol LTCUSDT --dataset-dir data/datasets/monthly_backtest_ready
 
@@ -523,7 +495,7 @@ RECOMMENDED WORKFLOW
 ═══════════════════════════════════════════════════════════════════════════
 
 1. Optimize parameters:
-   python scripts/cluster_optimizer.py --cluster LTC_NOISY_UNCERTAIN_1 --iterations 50
+   python scripts/param_optimizer.py --symbol LTCUSDT --iterations 50
 
 2. Audit edge (statistical validation):
    python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
@@ -552,7 +524,7 @@ RECOMMENDED WORKFLOW
     parser.add_argument(
         "--protocol",
         default=None,
-        help="Protocol to run: 'single-coin-audit' (default), 'cluster_<name>', or 'trade-mode' (auto-detected in trade mode)",
+        help="Protocol to run: 'single-coin-audit' (default) or 'trade-mode' (auto-detected in trade mode)",
     )
     parser.add_argument(
         "--symbol",
