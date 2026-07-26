@@ -3515,3 +3515,5 @@ Para extraer resultados por dataset del audit consolidado, se filtró `data/hist
 
 #### Próximos pasos
 1. **ADA** (408 MB) — nota: tiene 18 datasets, el triple que el resto
+
+- 2026-07-26 | fase 1 | **NON-REGRESSION TEST COMPLETADO**: Ejecutados secuencialmente los 9 activos (ARB, XRP, BNB, APT, DOGE, NEAR, OP, ADA, LINK) usando 'scripts/run_non_regression.sh' para evitar OOM. **Éxito rotundo (0 regresiones)**. Todos los perfiles mantuvieron edge direccional y validaron los golden params en conjunto. Net Taker > +0.26% en todos (ARB +1.04%, XRP +0.96%). Se procede al merge en main y tag v9.2.0-phase1-ready. Siguiente: Paso 1.2 (Stress Test simultáneo).

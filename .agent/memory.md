@@ -129,19 +129,11 @@ Crystal Reforge ✅ | Cluster Optimizer ✅ | VA_GATE ✅ | Signal Validation �
 3. ~~**SOL Param Optimization**~~ ✅ **COMPLETADO**: Optuna reveló entradas estadísticamente perfectas (MFE/MAE > 4). Audit identificó el TARGET_FAILURE y se inyectaron targets asimétricos extremos (TP 5.0%, SL 0.5-1.0%) logrando +0.54% a +1.13% Net Taker.
 4. ~~**SOL Validación OOS Mensual**~~ ✅ **COMPLETADO**: Audit OOS ejecutado sobre 3 meses (Mar-May 2026, ~12 GB). Rendimiento espectacular: **+2.1474% Net Taker** consolidado, todos los escenarios positivos. Los targets asimétricos generalizan a la perfección.
 5. ~~**Fix ProfileManager Symbol Lookup**~~ ✅ **COMPLETADO**: Se solucionó el bug de 0 señales. El motor inyectaba el nombre CCXT `LTC/USDT:USDT` pero el diccionario usaba `LTCUSDT`, causando una excepción silenciada en cada tick.
-6. **Optimización Paramétrica a Otras Monedas (Ordenado por Peso / Velocidad)** 🚀 **PRÓXIMO**:
-   Para minimizar el tiempo de iteración en Optuna, avanzaremos desde los datasets más livianos hasta los más pesados institucionales. **Regla estricta:** Haremos la optimización de **una en una**, respetando estrictamente el orden de esta lista.
-   - [x] 1. **ARB** (107 MB) - *Completado* ✅
-   - [x] 2. **NEAR** (118 MB) - *Completado* ✅
-   - [x] 3. **OP** (145 MB) - *Completado* ✅
-    - [x] 4. **APT** (195 MB) - *Completado* ✅
-     - [x] 5. **LINK** (247 MB) - *Completado* ✅
-     - [x] 6. **DOGE** (922 MB) - *Completado* ✅
-     - [x] 7. **ADA** (408 MB) - *Completado* ✅
-    - [x] 8. **BNB** (599 MB) - *Completado* ✅
-    - [x] 9. **XRP** (832 MB) - *Completado* ✅
-    - [x] 10. **BTC** (1436 MB) - *Pausado (OOM/Thrashing). Diferido para Fase 3.* ⏳
-    - [x] 11. **ETH** (2259 MB) - *Placeholder Creado. Diferido para Fase 3.* ⏳
+6. ~~**Fase 0: Parametrización Rápida (11 activos)**~~ ✅ **COMPLETADO**: Optimizados 9 activos. BTC y ETH diferidos a Fase 3 por estrangulamiento de memoria.
+7. ~~**Fase 1 (Paso 1.1): Non-Regression Test**~~ ✅ **COMPLETADO**: Ejecutados los 9 activos secuencialmente. 100% de éxito, sin regresiones. Edge validado en todos.
+8. **Fase 1 (Paso 1.2): Stress Test Multi-Moneda Simultáneo** 🚀 **PRÓXIMO**:
+   - Conectar el bot en modo Paper Trading / Simulador a las 9 monedas a la vez.
+   - Evaluar si el sistema soporta el throughput de WebSocket sin colapsar (OOM o desconexión).
 
 
 - **Architecture**: OrderFlowEngine (centralized CVD/absorption) + 4 AMT scenarios + per-cluster params + SetupEngineV4 + **TA Regime Filter** + **SBR**.
