@@ -615,17 +615,15 @@ class OrderExecutor:
 
             self.logger.info(f"🛡️ Tier 1 (Aggressive Limit): {symbol} @ {limit_price}")
             return await self.execute_limit_order(
-                {
-                    "symbol": symbol,
-                    "side": side,
-                    "amount": amount,
-                    "price": limit_price,
-                    "params": {
-                        "reduceOnly": True,
-                        "client_order_id": client_id,
-                        "exit_reason": f"{reason}_TIER1",
-                    },
-                }
+                symbol=symbol,
+                side=side,
+                amount=amount,
+                price=limit_price,
+                params={
+                    "reduceOnly": True,
+                    "client_order_id": client_id,
+                    "exit_reason": f"{reason}_TIER1",
+                },
             )
         except Exception as tier1_e:
             self.logger.error(f"❌ Tier 1 Failed: {tier1_e}")

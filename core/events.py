@@ -132,6 +132,7 @@ class OrderUpdateEvent(Event):
     filled: float
     remaining: float
     price: float
+    average: float
     side: str
     client_order_id: Optional[str] = None
 

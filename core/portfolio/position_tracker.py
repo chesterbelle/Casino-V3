@@ -787,9 +787,53 @@ class PositionTracker(TraceBulletMixin):
                     )
 
                     for pos in matching_positions:
-                        # Calculated Estimated PnL (Worst Case: Liquidation)
-                        # If we are long, exit price is roughly liquidation level.
-                        exit_price = pos.liquidation_level or pos.entry_price  # Fallback
+                        # Determine exit price and reason from available levels
+                        exit_price = 0.0
+                        exit_reason = "EXTERNAL_CLOSE"
+                        if (
+                            pos.liquidation_level
+                            and pos.liquidation_level > 0
+                            and pos.liquidation_level != pos.entry_price
+                        ):
+                            exit_price = pos.liquidation_level
+                            exit_reason = "LIQUIDATION"
+                        elif pos.tp_level and pos.tp_level > 0:
+                            likely_tp = (pos.side == "LONG" and pos.tp_level > pos.entry_price) or (
+                                pos.side == "SHORT" and pos.tp_level < pos.entry_price
+                            )
+                            if likely_tp:
+                                exit_price = pos.tp_level
+                                exit_reason = "TP (ACCOUNT_UPDATE)"
+                            else:
+                                exit_price = pos.sl_level or pos.entry_price
+                                exit_reason = "SL (ACCOUNT_UPDATE)"
+                        elif pos.sl_level and pos.sl_level > 0:
+                            exit_price = pos.sl_level
+                            exit_reason = "SL (ACCOUNT_UPDATE)"
+                        else:
+                            exit_price = pos.entry_price
+
+                        # Phase 78.3: Prefer real market price over level guessing.
+                        # When the sheriff runs, the position is already closed on the
+                        # exchange; the most accurate exit price is the current market
+                        # price (or cached price) of the symbol.
+                        try:
+                            market_price = await self.adapter.get_current_price(symbol)
+                            if market_price and market_price > 0:
+                                exit_price = float(market_price)
+                                # Refine reason with the observed market price vs entry
+                                if pos.side == "LONG":
+                                    if pos.tp_level and exit_price >= pos.tp_level:
+                                        exit_reason = "TP (ACCOUNT_UPDATE)"
+                                    elif pos.sl_level and exit_price <= pos.sl_level:
+                                        exit_reason = "SL (ACCOUNT_UPDATE)"
+                                else:
+                                    if pos.tp_level and exit_price <= pos.tp_level:
+                                        exit_reason = "TP (ACCOUNT_UPDATE)"
+                                    elif pos.sl_level and exit_price >= pos.sl_level:
+                                        exit_reason = "SL (ACCOUNT_UPDATE)"
+                        except Exception as e:
+                            self.logger.warning(f"⚠️ Sheriff: Could not fetch market price for {symbol}: {e}")
 
                         # Calculate leakage-plugging PnL
                         # PnL = (Exit - Entry) * Notional / Entry
@@ -805,7 +849,7 @@ class PositionTracker(TraceBulletMixin):
                         await self.confirm_close(
                             trade_id=pos.trade_id,
                             exit_price=exit_price,
-                            exit_reason="LIQUIDATION",
+                            exit_reason=exit_reason,
                             pnl=pnl,
                             fee=0.0,
                         )

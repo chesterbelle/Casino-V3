@@ -197,6 +197,7 @@ class Croupier(TimeIterator):
             "filled": event.filled,
             "remaining": event.remaining,
             "price": event.price,
+            "average": event.average,
             "side": event.side,
         }
 
@@ -208,8 +209,8 @@ class Croupier(TimeIterator):
 
     async def _on_account_update_event(self, event):
         """Reactive handler for ACCOUNT_UPDATE events."""
-        # Route to BalanceManager
         self.balance_manager.handle_account_update(event.data)
+        await self.position_tracker.handle_account_update(event.data)
 
     @property
     def is_settled(self) -> bool:

@@ -282,6 +282,7 @@ class ExchangeAdapter(NetworkIterator):
             filled=float(data.get("filled", 0)),
             remaining=float(data.get("remaining", 0)),
             price=float(data.get("price", 0)),
+            average=float(data.get("average", 0)),
             side=data.get("side"),
             client_order_id=data.get("client_order_id"),
         )

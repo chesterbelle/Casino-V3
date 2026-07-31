@@ -35,8 +35,9 @@
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
-*   **Current Branch**: `dev-9.3-cleanup-and-stress` (rama de cleanup + validate + stress)
-*   **Stable Branch**: `main` (versión certificada **v9.0.0-sbr-ta-regime-filter**)
+*   **Current Branch**: `main` (certificada como **v9.2.0-phase1-ready**)
+*   **Dev Branch**: `dev-9.3-cleanup-and-stress` (rama de trabajo activa)
+*   **Stable Branch**: `main` (versión certificada **v9.2.0-phase1-ready**)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized + Regime Filter + SBR).
 *   **Datasets**: **84 certificados** (2/2/2 × 14) en `data/datasets/daily_backtest_ready/`. +9 mensuales: 6 LTC (Ene–Jun 2026) + 3 SOL (Mar–May 2026) en `data/datasets/monthly_backtest_ready/`.
@@ -107,6 +108,7 @@
 *   **Guardianes**: L2 ratio y spread thresholds por perfil
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
+*   **Decisión arquitectónica (2026-07-29)**: Se identificó condición de carrera en Croupier — `asyncio.gather` en engine dispatch ejecuta `position_tracker` y `oco_manager` concurrentemente en ORDER_UPDATE, y `balance_manager` con `position_tracker` en ACCOUNT_UPDATE sin orden garantizado. Se agregó al roadmap como **Fase 1.4 — Internal Event Bus Refactor** (pre-requisito para Paper Trading). Pendiente de implementar post-24h.
 *   **Slim Exit Engine (v11.0 Pasivo)**: Compresión lineal de brackets de intercambio (modify_tp/modify_sl) al superar el max_hold (21600s), eliminación absoluta de salidas activas de mercado (cero llamadas a `close_position()`) para erradicar el slippage. Throttling inteligente de variaciones menores (<0.01% delta).
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets
@@ -156,7 +158,7 @@ Los protocolos ejecutables viven en `.agent/workflows/`. Cada uno es un paso a p
 | Workflow | Slash Command | Propósito |
 |----------|---------------|-----------|
 | `validate-all.md` | `/validate-all` | Validación progresiva por capas (math → integración → orquestación → estrés) |
-| `stress-test.md` | `/stress-test` | Chaos Test (mecánico) + Endurance Test (resistencia real 24-48h) |
+| `stress-test.md` | `/stress-test` | Chaos Test (mecánico) + Endurance Test (Mini 4h → Full 24h → Multi 48h) |
 | `sync-docs.md` | `/sync-docs` | Sincronización de la tríada documental al final de sesión |
 
 El roadmap referencia estos workflows en sus pasos. **Los comandos específicos viven en los workflows, no en el roadmap**, para evitar desincronización.

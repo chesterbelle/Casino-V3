@@ -401,7 +401,6 @@ async def main():
     player = AdaptivePlayer(
         engine,
         croupier,
-        fixed_pct=args.bet_size,
         context_registry=context_registry,
     )
 
@@ -548,7 +547,27 @@ async def main():
 
     if not active_symbols:
         logger.error("❌ No symbols passed Flytest! Shutting down.")
-        return
+        # Phase 999: The early return below skips the main finally block, whose
+        # os._exit(0) is the only thing that kills the non-daemon ExecutionProcess.
+        # Without it, multiprocessing._exit_function blocks forever joining that
+        # process (observed: main stuck in poll(), children orphaned, no cleanup).
+        # Terminate children explicitly, then hard-exit like the normal path.
+        try:
+            if connector:
+                target = getattr(connector, "_connector", connector)
+                for p in list(getattr(target, "_shards_processes", [])):
+                    if p and p.is_alive():
+                        p.terminate()
+                up = getattr(target, "_user_ingestion_process", None)
+                if up and up.is_alive():
+                    up.terminate()
+            if exec_process and exec_process.is_alive():
+                exec_process.terminate()
+            if "sensor_manager" in locals() and sensor_manager:
+                sensor_manager.stop()
+        except Exception as e:
+            logger.warning(f"⚠️ Flytest cleanup error: {e}")
+        os._exit(1)
 
     # Limit symbols if requested and in MULTI mode
     if args.symbol.upper() == "MULTI" and args.max_symbols:
@@ -971,7 +990,6 @@ async def main():
                 symbols=[args.symbol] if args.symbol and args.symbol != "MULTI" else None,
                 close_positions=should_close,
                 reason=exit_reason_str,
-                watchdog=cleanup_watchdog,
             )
             sweep_report = await sweep_task
         except Exception as e:

@@ -65,7 +65,7 @@ async def cleanup_all(exchange="binance", mode="demo", symbol="LTCUSDT"):
         except Exception as e:
             print(f"⚠️ Error fetching positions: {e}")
 
-        await connector.disconnect()
+        await connector.close()
         print("✅ Cleanup complete!")
 
 

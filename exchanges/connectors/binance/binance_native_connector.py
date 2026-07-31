@@ -1586,7 +1586,11 @@ class BinanceNativeConnector(BaseConnector):
 
     async def cancel_order(self, order_id: str, symbol: str, timeout: Optional[float] = None) -> None:
         """Cancel an order (regular or algo)."""
-        if order_id and order_id.startswith("ghost_"):
+        if not order_id:
+            self.logger.warning(f"⚠️ cancel_order called with empty order_id for {symbol}. Skipping.")
+            return
+
+        if order_id.startswith("ghost_"):
             return  # Ghost orders are synthetic, nothing to cancel
 
         native_symbol = self._normalize_symbol(symbol)
@@ -1738,6 +1742,10 @@ class BinanceNativeConnector(BaseConnector):
 
     async def _cancel_algo_order(self, algo_id: str, symbol: str, timeout: Optional[float] = None) -> None:
         """Cancel an algo/conditional order."""
+        if not algo_id:
+            self.logger.warning(f"⚠️ _cancel_algo_order called with empty algo_id for {symbol}. Skipping.")
+            return
+
         native_symbol = self._normalize_symbol(symbol)
         params = {"symbol": native_symbol}
 
@@ -1835,10 +1843,36 @@ class BinanceNativeConnector(BaseConnector):
                     task.cancel()
             self._shards_tasks = []
 
+            # Phase 91.4: Stop stale subscription workers BEFORE respawning shards.
+            # Each restart previously created a new subscription worker without
+            # cancelling the old ones, accumulating duplicate SUBSCRIBE commands
+            # and un-bounded queue consumers in the event loop.
+            if self._subscription_worker_task and not self._subscription_worker_task.done():
+                self._subscription_worker_task.cancel()
+                try:
+                    await self._subscription_worker_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            self._subscription_worker_task = None
+
             for process in self._shards_processes:
                 if process.is_alive():
                     process.terminate()
             self._shards_processes = []
+
+            # Phase 91.5: Recreate queues on every restart.
+            # Reusing multiprocessing.Queue instances across worker generations is
+            # unsafe: a worker killed mid-write leaves a truncated frame in the pipe,
+            # permanently desynchronizing the reader (0 messages flow afterwards).
+            for q in self._shards_out_queues + self._shards_in_queues:
+                try:
+                    q.cancel_join_thread()
+                except Exception:
+                    pass
+            self._shards_out_queues = [multiprocessing.Queue(maxsize=50000) for _ in range(self._num_shards)]
+            self._shards_in_queues = [multiprocessing.Queue() for _ in range(self._num_shards)]
+            self._ingestion_queue = self._shards_out_queues[0]
+            self._command_queue = self._shards_in_queues[0]
 
             self.logger.info(f"🔌 Launching {self._num_shards} Ingestion Shards...")
 
@@ -2151,10 +2185,15 @@ class BinanceNativeConnector(BaseConnector):
                 for shard_idx, streams in shard_buckets.items():
                     cmd = {"action": "SUBSCRIBE", "payload": streams}
                     try:
-                        self._shards_in_queues[shard_idx].put(cmd)
+                        # Phase 91.7: put_nowait — a blocking multiprocessing put()
+                        # can freeze the event loop if the shard pipe is full.
+                        # On Full, re-enqueue the streams so the next batch retries.
+                        self._shards_in_queues[shard_idx].put_nowait(cmd)
                         self.logger.debug(f"📡 Shard-{shard_idx}: Batch subscribed {len(streams)} streams")
                     except Exception as e:
                         self.logger.error(f"❌ Shard-{shard_idx}: Failed to send subscribe command: {e}")
+                        for s in streams:
+                            await self._subscription_queue.put(s)
 
                 # Mark tasks as done
                 for _ in streams_to_sub:
@@ -2531,6 +2570,31 @@ class BinanceNativeConnector(BaseConnector):
             user_closed = self._user_data_ws is None and self._api_key is not None
 
         if market_stale or market_closed:
+            # Phase 91.6: Backoff + escalation on repeated restart failures.
+            # Previously each health check (every ~10s) spawned a full shard restart
+            # indefinitely (2834 restarts in a degraded run), even when the workers
+            # could not deliver data. Now: exponential backoff, then degraded mode.
+            self._consecutive_restart_failures += 1
+            now = time.time()
+
+            if self._consecutive_restart_failures > 1:
+                backoff = min(300.0, 10.0 * (2 ** (self._consecutive_restart_failures - 1)))
+                elapsed_since_attempt = now - getattr(self, "_last_market_restart_ts", 0.0)
+                if elapsed_since_attempt < backoff:
+                    self.logger.warning(
+                        f"⏳ Market stream degraded: {self._consecutive_restart_failures} consecutive failures. "
+                        f"Skipping restart (backoff {backoff:.0f}s, elapsed {elapsed_since_attempt:.0f}s)"
+                    )
+                    return
+
+            if self._consecutive_restart_failures >= self._max_simple_restarts:
+                self.logger.critical(
+                    f"🛑 Market stream DEGRADED MODE: {self._consecutive_restart_failures} consecutive restart "
+                    f"failures. Data starvation for >{(self._last_market_message_time and now - self._last_market_message_time):.0f}s. "
+                    f"Continuing with backoff. Positions still protected by user-data stream + drift auditor."
+                )
+
+            self._last_market_restart_ts = now
             self.logger.warning(
                 f"⚠️ Market Stream Health Fail | Stale: {market_stale}, Closed: {market_closed} (Shards: {len(self._shards_processes)}). Restarting stream..."
             )
@@ -2544,6 +2608,8 @@ class BinanceNativeConnector(BaseConnector):
                 await self._start_market_data_stream()
             except Exception as e:
                 self.logger.error(f"❌ Market stream restart failed: {e}")
+        else:
+            self._consecutive_restart_failures = 0
 
         if user_closed:
             self.logger.warning(f"⚠️ User Stream Health Fail | Closed: {user_closed}. Restarting stream only...")

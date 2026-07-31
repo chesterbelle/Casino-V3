@@ -54,16 +54,34 @@ El script imprime su propio `CHAOS TEST SUMMARY`. Verificar:
 ## FASE B: Endurance Test (Estratégico — Resistencia Real)
 
 ### Objetivo
-Correr el bot real (`main.py`) durante un periodo prolongado (24-48h) para detectar fugas de memoria (memory leaks), degradación de rendimiento, o errores intermitentes que solo se manifiestan a largo plazo.
+Correr el bot real (`main.py`) durante un periodo prolongado para detectar fugas de memoria (memory leaks), degradación de rendimiento, o errores intermitentes.
+
+La Fase B se divide en dos sub-fases:
+- **B.1 Mini-Endurance (4h)**: Detección temprana de fugas groseras o crashes sin esperar 24h.
+- **B.2 Full Endurance (24h) / B.3 Multi (48h)**: Validación definitiva de estabilidad a largo plazo.
 
 **Nota:** Con los filtros estrictos de la v9.2.0 (VA_GATE, TrendAcceptance, Z-Scores), el bot ejecuta muy pocos trades por sesión. El objetivo aquí NO es volumen de trades, sino estabilidad de proceso.
 
-### Paso B.1: Limpiar Estado
+### Paso B.1: Mini-Endurance (4 horas, Single Coin)
 ```bash
 .venv/bin/python utils/reset_data.py
 ```
+```bash
+.venv/bin/python main.py \
+  --run-type trade \
+  --mode demo \
+  --exchange binance \
+  --symbol LTCUSDT \
+  --close-on-exit \
+  2>&1 | tee logs/mini_endurance_$(date +%Y%m%d_%H%M%S).log
+```
+*Corre 4 horas. Monitorear RAM con `htop`. Si hay fugas groseras o crashes, se manifiestan aquí.*
 
-### Paso B.2: Ejecutar Endurance Test (Single Coin, 24h)
+### Paso B.2: Full Endurance (24 horas, Single Coin)
+*Ejecutar solo si B.1 pasa.*
+```bash
+.venv/bin/python utils/reset_data.py
+```
 ```bash
 .venv/bin/python main.py \
   --run-type trade \
@@ -76,6 +94,10 @@ Correr el bot real (`main.py`) durante un periodo prolongado (24-48h) para detec
 *Dejar correr mínimo 24 horas. Monitorear RAM con `htop` periódicamente.*
 
 ### Paso B.3 (Opcional): Endurance Multi-Coin (48h)
+*Ejecutar solo si B.2 pasa.*
+```bash
+.venv/bin/python utils/reset_data.py
+```
 ```bash
 .venv/bin/python main.py \
   --run-type trade \
@@ -92,14 +114,18 @@ Correr el bot real (`main.py`) durante un periodo prolongado (24-48h) para detec
 ```
 
 ### Criterios de Éxito (Endurance)
+
+**Mini-Endurance (B.1)**:
 - [ ] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
-- [ ] **Proceso no crasheó** durante las 24h+
+- [ ] **Proceso no crasheó** durante las 4h
 - [ ] **RAM estable** (No creció >50% respecto al inicio)
 - [ ] **Event Integrity = 100%** (0 logs de `WS Event UNMATCHED`)
-- [ ] **API Stability = 100%** (0 logs de error `(-4120)`)
 - [ ] **Airlock Latency = 100%** (0 warnings de `🐢 High Airlock Latency`)
 - [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
 - [ ] Los trades ejecutados (si los hay) cerraron limpiamente
+
+**Full Endurance (B.2/B.3)** — mismos criterios + :
+- [ ] **API Stability = 100%** (0 logs de error `(-4120)`) — solo exigible en 24h+
 
 ---
 
@@ -124,6 +150,9 @@ Al finalizar cualquiera de las fases, el bot imprime:
 - [ ] **Healing Efficiency > 90%** (`Healed / (Healed + Force-Closed)`)
 - [ ] **Orphan Hygiene < 2%** (`Orphans Killed / Total Trades`)
 - [ ] **False Positive Orphans = 0** (`Orphans Saved` count should align with high-load bursts, but 0 young orphans should be killed)
+
+## Pre-requisito para Phase 2
+Antes de pasar a Paper Trading (Phase 2 del roadmap), ejecutar el **Internal Event Bus Refactor** (Fase 1.4) para eliminar condiciones de carrera en el ruteo interno del Croupier. Ver `docs/ROADMAP_PRODUCCION.md#14-internal-event-bus-refactor-pre-fase-2`.
 
 ## Si Falla
 1. Revisar logs buscando `ERROR|Exception`

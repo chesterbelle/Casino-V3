@@ -267,7 +267,7 @@ python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 
 **Resumen de fases**:
 - **Fase A (Chaos Test)**: Inyección de órdenes sintéticas a 9 monedas durante 10 min para saturar WebSockets/Croupier/OCOManager. Valida Error Recovery = $0.00 y 0 eventos UNMATCHED.
-- **Fase B (Endurance Test)**: Bot real (`main.py`) corriendo 24-48h para detectar fugas de RAM y errores intermitentes.
+- **Fase B (Endurance Test)**: Bot real (`main.py`) en dos sub-fases: Mini-Endurance (4h, detección temprana) → Full Endurance (24h, validación definitiva). Opcional Multi-Coin (48h).
 
 **Criterio de paso**:
 - Fase A: Error Trades = 0, Integrity = PASS, Total Ops > 30
@@ -275,7 +275,41 @@ python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 
 **Tiempo estimado**: 1-3 días
 
-### 1.4 Análisis de Drawdown y Riesgo
+### 1.4 Internal Event Bus Refactor (Pre-Fase 2)
+
+**Objetivo**: Eliminar condiciones de carrera en el ruteo interno de eventos del Croupier antes de exponer el sistema a paper trading multi-coin.
+
+**Problema detectado**: El `Engine.dispatch()` ejecuta subscribers con `asyncio.gather` (concurrente). En `_on_order_update_event`, `position_tracker` y `oco_manager` corren en paralelo — OCOManager puede leer estado stale del tracker. En `_on_account_update_event`, `balance_manager` y `position_tracker` también se ejecutan sin orden garantizado. Además, 3 callbacks directos (`on_close_callback`, `add_close_listener`, `add_state_listener`) bypassan el bus por completo.
+
+**Procedimiento**:
+1. Crear un bus de eventos interno en Croupier (`_local_bus`) con **procesamiento secuencial FIFO** por event type
+2. Migrar las 4 llamadas inline en `_on_order_update_event` y `_on_account_update_event` a `dispatch_local(event)`
+3. Migrar los 3 callbacks directos (`on_close_callback`, `add_close_listener`, `add_state_listener`) al bus interno
+
+```python
+# Antes (inline, sin orden):
+async def _on_order_update_event(self, event):
+    data = self._build_order_data(event)
+    await asyncio.gather(
+        self.position_tracker.handle_order_update(data),
+        self.oco_manager.on_order_update(data),
+    )
+
+# Después (secuencial, ordenado):
+async def _on_order_update_event(self, event):
+    data = self._build_order_data(event)
+    await self._local_bus.dispatch("order_update", data)
+    # Cada componente procesa en orden de registro
+```
+
+**Criterio de paso**:
+- Zero condiciones de carrera en stress test multi-coin (Phase B.3)
+- Los 3 callbacks directos migrados al bus
+- Zero cambios en la API pública de los componentes (solo Croupier internamente)
+
+**Tiempo estimado**: 1 día
+
+### 1.5 Análisis de Drawdown y Riesgo
 
 **Objetivo**: Entender el riesgo máximo del sistema antes de exponer capital.
 
@@ -698,7 +732,7 @@ EMERGENCY_STOP_LOSS = 30  # USD
 | Fase | Duración | Objetivo | Criterio de Paso |
 |------|----------|----------|------------------|
 | **Fase 0** | 1 día | Análisis estado actual | Edge conocido en 9+ activos |
-| **Fase 1** | 1-2 semanas | Validación sistema | Non-regression + stress tests aprobados |
+| **Fase 1** | 1-2 semanas | Validación sistema | Non-regression + stress tests + event bus aprobados |
 | **Fase 2** | 2 semanas | Paper trading inicial (sin BTC/ETH) | Net PnL > 0%, zero crashes |
 | **Fase 3** | 1 semana | Optimizar BTC/ETH | Edge > +0.15% (si aplica) |
 | **Fase 4** | 2 semanas | Paper trading extendido (con BTC/ETH si aplica) | Sistema estable, edge mantenido |

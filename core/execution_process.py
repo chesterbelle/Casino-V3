@@ -347,9 +347,18 @@ class ExecutionProcess(multiprocessing.Process):
         "positionSide",
         "reduceOnly",
         "newClientOrderId",
+        "orderId",
+        "origClientOrderId",
         "newOrderRespType",
         "recvWindow",
         "timestamp",
+        "algoType",
+        "triggerPrice",
+        "profitPrice",
+        "lossPrice",
+        "lossLimitPrice",
+        "clientAlgoId",
+        "algoId",
     ]
 
     def _sign_payload(self, payload: Dict) -> str:
