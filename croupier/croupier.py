@@ -130,6 +130,10 @@ class Croupier(TimeIterator):
         # Phase 4: ReconciliationWorker IPC Queue (set externally by main.py)
         self._recon_queue = None
 
+        # Phase 1.4: Actor Model - Strict Execution Queue
+        self._execution_queue = asyncio.Queue()
+        self._queue_task = None
+
         # Track pending closures to prevent premature shutdown before PnL is recorded
         self._pending_closures: set = set()
 
@@ -183,6 +187,9 @@ class Croupier(TimeIterator):
         self.engine.subscribe(EventType.ORDER_UPDATE, self._on_order_update_event)
         self.engine.subscribe(EventType.ACCOUNT_UPDATE, self._on_account_update_event)
 
+        # 3. Start Execution Queue Consumer (Actor Model)
+        self._queue_task = asyncio.create_task(self._process_execution_queue())
+
         self.logger.info("🚀 Croupier: Reactive Event-Driven Reactor OPEN")
 
     async def _on_order_update_event(self, event):
@@ -200,17 +207,35 @@ class Croupier(TimeIterator):
             "average": event.average,
             "side": event.side,
         }
-
-        # Route to PositionTracker (Atomic state management)
-        await self.position_tracker.handle_order_update(data)
-
-        # Route to OCOManager (Entry fill detection)
-        await self.oco_manager.on_order_update(data)
+        # Enqueue instead of executing concurrently
+        self._execution_queue.put_nowait(("ORDER_UPDATE", data))
 
     async def _on_account_update_event(self, event):
         """Reactive handler for ACCOUNT_UPDATE events."""
-        self.balance_manager.handle_account_update(event.data)
-        await self.position_tracker.handle_account_update(event.data)
+        # Enqueue instead of executing concurrently
+        self._execution_queue.put_nowait(("ACCOUNT_UPDATE", event.data))
+
+    async def _process_execution_queue(self):
+        """Actor Model: Process execution events sequentially to avoid race conditions."""
+        self.logger.info("🛡️ Croupier Actor Model: Execution Queue active.")
+        while True:
+            try:
+                event_type, event_data = await self._execution_queue.get()
+
+                if event_type == "ORDER_UPDATE":
+                    # Route to PositionTracker (Atomic state management)
+                    await self.position_tracker.handle_order_update(event_data)
+                    # Route to OCOManager (Entry fill detection)
+                    await self.oco_manager.on_order_update(event_data)
+                elif event_type == "ACCOUNT_UPDATE":
+                    self.balance_manager.handle_account_update(event_data)
+                    await self.position_tracker.handle_account_update(event_data)
+
+                self._execution_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ Error in Croupier execution queue: {e}", exc_info=True)
 
     @property
     def is_settled(self) -> bool:
@@ -968,6 +993,10 @@ class Croupier(TimeIterator):
     async def stop(self) -> None:
         """Stop components."""
         self.logger.info("🛑 Croupier Reactor Stopped")
+
+        # Phase 1.4: Stop Execution Queue
+        if self._queue_task and not self._queue_task.done():
+            self._queue_task.cancel()
 
         # Phase 102: Industrial Resilience - Stop Drift Auditor
         await self.drift_auditor.stop()

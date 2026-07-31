@@ -26,6 +26,9 @@
 ### 🐛 Bug 7 (MEDIUM) ✅ — Shutdown zombie (flytest fallido) en main.py:548-550
 - **Fix:** Reemplazado `return` por terminate explícito de workers/exec/sensor + `os._exit(1)` (mismo patrón del finally)
 
+### 🐛 Bug 8 (GRAVE) ✅ — Condición de carrera (Event Bus)
+- **Fix:** `croupier/croupier.py` — Implementado Actor Model con `asyncio.Queue` interna para procesar `ORDER_UPDATE` y `ACCOUNT_UPDATE` estrictamente secuenciales.
+
 ## Runs
 
 | Run | PID | Inicio | Log | Resultado |
