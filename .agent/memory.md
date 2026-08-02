@@ -144,6 +144,20 @@
 >
 > **Por favor, lee ese documento para saber en qué fase estamos y qué sigue.**
 
+### 📍 Ruta Actual (Estado Vivo — 2026-08-02)
+| Fase | Paso | Estado |
+|------|------|--------|
+| 1.1 | Non-Regression Test (9 activos) | ✅ Completado (0 regresiones) |
+| 1.2 | Internal Event Bus Refactor | ✅ Completado |
+| 1.3 | `/validate-all` (8/8 tests) | ✅ Completado |
+| 1.4A | Chaos Test (10min, 9 monedas) | ✅ Completado — Error Trades=0, Integrity=PASS, 634 ops |
+| **1.4B** | **Mini-Endurance (4h, LTCUSDT)** | **✅ COMPLETADO — 7h reales, Error Recovery=$0, 0 crashes, VA_GATE OK** |
+| 1.4B.2 | Full Endurance (24h) | 🔄 Pendiente |
+| 1.4B.3 | Multi-Coin Endurance (48h) | 🔄 Pendiente |
+| 1.5 | Análisis Drawdown/Riesgo | 🔄 Pendiente |
+
+**Próximo paso**: Fase 1.4B.2 — Full Endurance (24h) en LTCUSDT
+
 ## 🏗️ Metodología de Ingeniería Confiable (Fase Producción)
 
 ### Plan Maestro (¿Qué hacer?)

@@ -300,8 +300,11 @@ async def _on_order_update_event(self, event):
 > [`.agent/workflows/stress-test.md`](file:///home/chesterbelle/Casino-V3/.agent/workflows/stress-test.md)
 
 **Resumen de fases**:
-- **Fase A (Chaos Test)**: Inyección de órdenes sintéticas a 9 monedas durante 10 min para saturar WebSockets/Croupier/OCOManager. Valida Error Recovery = $0.00 y 0 eventos UNMATCHED.
+- **Fase A (Chaos Test)**: Inyección de órdenes sintéticas a 9 monedas durante 10 min para saturar WebSockets/Croupier/OCOManager. Valida Error Recovery = $0.00 y 0 eventos UNMATCHED. ✅ **COMPLETADO 2026-08-02** (Error Trades=0, Integrity=PASS, 634 ops)
 - **Fase B (Endurance Test)**: Bot real (`main.py`) en dos sub-fases: Mini-Endurance (4h, detección temprana) → Full Endurance (24h, validación definitiva). Opcional Multi-Coin (48h).
+  - **B.1 Mini-Endurance (4h)**: ✅ **COMPLETADO 2026-08-02** — Duración real 7h (excede requisito). LTCUSDT. Error Recovery=$0.00, 0 crashes, RAM estable, Event Integrity 100%, Airlock Latency 100%, VA_GATE funcionando (11 bloqueos THIN WALL). Trade LONG cerrado limpio.
+  - **B.2 Full Endurance (24h)**: 🔄 Pendiente
+  - **B.3 Multi-Coin (48h)**: 🔄 Pendiente
 
 **Criterio de paso**:
 - Fase A: Error Trades = 0, Integrity = PASS, Total Ops > 30
