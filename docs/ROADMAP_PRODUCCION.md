@@ -235,47 +235,7 @@ python scripts/backtest_runner.py --mode audit --symbol LTCUSDT
 
 **Tiempo estimado**: 2-3 días de ejecución + análisis
 
-### 1.2 Validación de Infraestructura Completa (`/validate-all`)
-
-**Objetivo**: Certificar que cada componente aislado funciona correctamente antes de someterlos a presión conjunta.
-
-**Procedimiento**: Ejecutar el workflow `/validate-all` completo (Capas 0 a 6).
-
-> 👉 El protocolo detallado, comandos exactos y criterios de éxito viven en:
-> [`.agent/workflows/validate-all.md`](file:///home/chesterbelle/Casino-V3/.agent/workflows/validate-all.md)
-
-**Resumen de capas**:
-- **Capa 0**: Math atómica (Footprint, Absorption, ExitEngine, SignalArbitrator, Fees)
-- **Capa 1**: Integridad de datos + integración de salidas
-- **Capa 2**: Pipeline de señales (TradeProposal) + pipeline de ejecución (VirtualExchange)
-- **Capa 3**: Orquestación (Orchestrator protocols)
-- **Capa 4**: Stress & Chaos (multi_symbol_chaos_tester)
-- **Capa 6**: Cluster Optimizer (validate-only)
-
-**Criterio de paso**: Todas las capas pasan sin errores.
-
-**Tiempo estimado**: 1-2 días
-
-### 1.3 Stress Test Multi-Coin (`/stress-test`)
-
-**Objetivo**: Verificar que el sistema aguanta carga real sostenida sin degradación, fugas de memoria ni errores de ejecución.
-
-**Procedimiento**: Ejecutar el workflow `/stress-test` (Fase A: Chaos + Fase B: Endurance).
-
-> 👉 El protocolo detallado, comandos exactos y criterios de éxito viven en:
-> [`.agent/workflows/stress-test.md`](file:///home/chesterbelle/Casino-V3/.agent/workflows/stress-test.md)
-
-**Resumen de fases**:
-- **Fase A (Chaos Test)**: Inyección de órdenes sintéticas a 9 monedas durante 10 min para saturar WebSockets/Croupier/OCOManager. Valida Error Recovery = $0.00 y 0 eventos UNMATCHED.
-- **Fase B (Endurance Test)**: Bot real (`main.py`) en dos sub-fases: Mini-Endurance (4h, detección temprana) → Full Endurance (24h, validación definitiva). Opcional Multi-Coin (48h).
-
-**Criterio de paso**:
-- Fase A: Error Trades = 0, Integrity = PASS, Total Ops > 30
-- Fase B: 0 crashes, RAM estable, trades limpios
-
-**Tiempo estimado**: 1-3 días
-
-### 1.4 Internal Event Bus Refactor (Pre-Fase 2)
+### 1.2 Internal Event Bus Refactor (Pre-Fase 2)
 
 **Objetivo**: Eliminar condiciones de carrera en el ruteo interno de eventos del Croupier antes de exponer el sistema a paper trading multi-coin.
 
@@ -308,6 +268,46 @@ async def _on_order_update_event(self, event):
 - Zero cambios en la API pública de los componentes (solo Croupier internamente)
 
 **Tiempo estimado**: 1 día
+
+### 1.3 Validación de Infraestructura Completa (`/validate-all`)
+
+**Objetivo**: Certificar que cada componente aislado funciona correctamente antes de someterlos a presión conjunta.
+
+**Procedimiento**: Ejecutar el workflow `/validate-all` completo (Capas 0 a 6).
+
+> 👉 El protocolo detallado, comandos exactos y criterios de éxito viven en:
+> [`.agent/workflows/validate-all.md`](file:///home/chesterbelle/Casino-V3/.agent/workflows/validate-all.md)
+
+**Resumen de capas**:
+- **Capa 0**: Math atómica (Footprint, Absorption, ExitEngine, SignalArbitrator, Fees)
+- **Capa 1**: Integridad de datos + integración de salidas
+- **Capa 2**: Pipeline de señales (TradeProposal) + pipeline de ejecución (VirtualExchange)
+- **Capa 3**: Orquestación (Orchestrator protocols)
+- **Capa 4**: Stress & Chaos (multi_symbol_chaos_tester)
+- **Capa 6**: Cluster Optimizer (validate-only)
+
+**Criterio de paso**: Todas las capas pasan sin errores.
+
+**Tiempo estimado**: 1-2 días
+
+### 1.4 Stress Test Multi-Coin (`/stress-test`)
+
+**Objetivo**: Verificar que el sistema aguanta carga real sostenida sin degradación, fugas de memoria ni errores de ejecución.
+
+**Procedimiento**: Ejecutar el workflow `/stress-test` (Fase A: Chaos + Fase B: Endurance).
+
+> 👉 El protocolo detallado, comandos exactos y criterios de éxito viven en:
+> [`.agent/workflows/stress-test.md`](file:///home/chesterbelle/Casino-V3/.agent/workflows/stress-test.md)
+
+**Resumen de fases**:
+- **Fase A (Chaos Test)**: Inyección de órdenes sintéticas a 9 monedas durante 10 min para saturar WebSockets/Croupier/OCOManager. Valida Error Recovery = $0.00 y 0 eventos UNMATCHED.
+- **Fase B (Endurance Test)**: Bot real (`main.py`) en dos sub-fases: Mini-Endurance (4h, detección temprana) → Full Endurance (24h, validación definitiva). Opcional Multi-Coin (48h).
+
+**Criterio de paso**:
+- Fase A: Error Trades = 0, Integrity = PASS, Total Ops > 30
+- Fase B: 0 crashes, RAM estable, trades limpios
+
+**Tiempo estimado**: 1-3 días
 
 ### 1.5 Análisis de Drawdown y Riesgo
 

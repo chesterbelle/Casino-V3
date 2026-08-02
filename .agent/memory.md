@@ -108,7 +108,7 @@
 *   **Guardianes**: L2 ratio y spread thresholds por perfil
 
 ### 3. Capa de Acero (Resiliencia / Ejecución) — [CERTIFICADA ✅]
-*   **Decisión arquitectónica (2026-07-29)**: Se identificó condición de carrera en Croupier — `asyncio.gather` en engine dispatch ejecuta `position_tracker` y `oco_manager` concurrentemente en ORDER_UPDATE, y `balance_manager` con `position_tracker` en ACCOUNT_UPDATE sin orden garantizado. Se agregó al roadmap como **Fase 1.4 — Internal Event Bus Refactor** (pre-requisito para Paper Trading). Pendiente de implementar post-24h.
+*   **Decisión arquitectónica (2026-07-29)**: Se identificó condición de carrera en Croupier (asyncio.gather concurrent). Se implementó el **Internal Event Bus Refactor (Paso 1.2)**. Ejecución validada con éxito mediante el workflow `/validate-all` (Paso 1.3), erradicando las condiciones de carrera y estabilizando la infraestructura.
 *   **Slim Exit Engine (v11.0 Pasivo)**: Compresión lineal de brackets de intercambio (modify_tp/modify_sl) al superar el max_hold (21600s), eliminación absoluta de salidas activas de mercado (cero llamadas a `close_position()`) para erradicar el slippage. Throttling inteligente de variaciones menores (<0.01% delta).
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets

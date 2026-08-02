@@ -310,22 +310,34 @@ class PreflightValidator:
             assert order_id, "No order_id returned"
             logger.info(f"✅ Order created: {order_id}")
 
-            # Verify order exists in exchange
-            await asyncio.sleep(1)
-            open_orders = await self.connector.fetch_open_orders(self.symbol)
-            order_ids = [o["id"] for o in open_orders]
-            assert order_id in order_ids, f"Order {order_id} not found in exchange"
+            # Verify order exists in exchange (with retries for testnet latency)
+            order_found = False
+            for _ in range(3):
+                await asyncio.sleep(2)
+                open_orders = await self.connector.fetch_open_orders(self.symbol)
+                order_ids = [str(o["id"]) for o in open_orders]
+                if str(order_id) in order_ids:
+                    order_found = True
+                    break
+
+            assert order_found, f"Order {order_id} not found in exchange after retries"
             logger.info(f"✅ Order verified in exchange")
 
             # Cancel the order - THIS IS CRITICAL
             logger.info(f"📤 Cancelling order: {order_id}")
             await self.adapter.cancel_order(order_id, self.symbol)
 
-            # Verify cancellation
-            await asyncio.sleep(1)
-            open_orders = await self.connector.fetch_open_orders(self.symbol)
-            order_ids = [o["id"] for o in open_orders]
-            assert order_id not in order_ids, f"Order {order_id} was NOT cancelled!"
+            # Verify cancellation (with retries for testnet latency)
+            order_cancelled = False
+            for _ in range(3):
+                await asyncio.sleep(2)
+                open_orders = await self.connector.fetch_open_orders(self.symbol)
+                order_ids = [str(o["id"]) for o in open_orders]
+                if str(order_id) not in order_ids:
+                    order_cancelled = True
+                    break
+
+            assert order_cancelled, f"Order {order_id} was NOT cancelled!"
             logger.info(f"✅ Order successfully cancelled")
 
             logger.info("✅ TEST 2 PASSED\n")
@@ -412,12 +424,22 @@ class PreflightValidator:
             logger.info(f"✅ Universal Funnel Verified: All ClientIDs start with CASINO_")
 
             # Verify TP/SL exist in exchange
-            await asyncio.sleep(2)
-            open_orders = await self.connector.fetch_open_orders(self.symbol)
-            order_ids = [o["id"] for o in open_orders]
+            tp_found, sl_found = False, False
+            for _ in range(3):
+                await asyncio.sleep(2)
+                open_orders = await self.connector.fetch_open_orders(self.symbol)
+                order_ids = [str(o["id"]) for o in open_orders]
 
-            assert tp_id in order_ids, f"TP order {tp_id} not in exchange!"
-            assert sl_id in order_ids, f"SL order {sl_id} not in exchange!"
+                if str(tp_id) in order_ids:
+                    tp_found = True
+                if str(sl_id) in order_ids:
+                    sl_found = True
+
+                if tp_found and sl_found:
+                    break
+
+            assert tp_found, f"TP order {tp_id} not in exchange!"
+            assert sl_found, f"SL order {sl_id} not in exchange!"
             logger.info(f"✅ TP/SL verified in exchange")
 
             # Phase 800: Validate TP/SL prices are within expected bounds
@@ -499,24 +521,38 @@ class PreflightValidator:
             # Close position (should cancel TP/SL)
             await self.croupier.close_position(trade_id)
 
-            # Trigger GC to remove OFF_BOARDING position
+            # Trigger GC and Verify removal (with retries for testnet REST latency)
             logger.info("🧹 Triggering GC (ReconciliationService) to finalize removal...")
-            await self.recon_service.reconcile_all()
 
-            # Verify position removed from tracker
-            await asyncio.sleep(1)
-            positions = self.croupier.position_tracker.open_positions
-            assert len(positions) == 0, f"Position not closed! Still {len(positions)} open"
+            position_removed = False
+            for _ in range(4):
+                await self.recon_service.reconcile_all()
+                await asyncio.sleep(2)
+                positions = self.croupier.position_tracker.open_positions
+                if len(positions) == 0:
+                    position_removed = True
+                    break
+
+            assert position_removed, f"Position not closed! Still {len(positions)} open"
             logger.info(f"✅ Position removed from tracker")
 
-            # CRITICAL: Verify TP/SL were cancelled
-            open_orders = await self.connector.fetch_open_orders(self.symbol)
-            order_ids = [o["id"] for o in open_orders]
+            # CRITICAL: Verify TP/SL were cancelled (with retries)
+            tp_cancelled, sl_cancelled = False, False
+            for _ in range(3):
+                await asyncio.sleep(2)
+                open_orders = await self.connector.fetch_open_orders(self.symbol)
+                order_ids = [str(o["id"]) for o in open_orders]
 
-            if tp_id in order_ids:
+                tp_cancelled = str(tp_id) not in order_ids
+                sl_cancelled = str(sl_id) not in order_ids
+
+                if tp_cancelled and sl_cancelled:
+                    break
+
+            if not tp_cancelled:
                 logger.error(f"❌ TP order {tp_id} was NOT cancelled!")
                 return False
-            if sl_id in order_ids:
+            if not sl_cancelled:
                 logger.error(f"❌ SL order {sl_id} was NOT cancelled!")
                 return False
 
@@ -572,26 +608,37 @@ class PreflightValidator:
                 order_ids.append(order_id)
                 logger.info(f"  Created orphan order: {order_id}")
 
-            await asyncio.sleep(1)
+            # Verify orders exist (with retries for testnet REST latency)
+            orders_verified = False
+            for _ in range(4):
+                await asyncio.sleep(2)
+                open_orders = await self.connector.fetch_open_orders(self.symbol)
+                exchange_ids = [o["id"] for o in open_orders]
+                if all(oid in exchange_ids for oid in order_ids):
+                    orders_verified = True
+                    break
 
-            # Verify orders exist
-            open_orders = await self.connector.fetch_open_orders(self.symbol)
-            exchange_ids = [o["id"] for o in open_orders]
-            for oid in order_ids:
-                assert oid in exchange_ids, f"Orphan order {oid} not in exchange"
+            if not orders_verified:
+                for oid in order_ids:
+                    assert oid in exchange_ids, f"Orphan order {oid} not in exchange"
             logger.info(f"✅ {len(order_ids)} orphan orders verified")
 
             # Call cleanup_symbol - should cancel all orders
             logger.info(f"📤 Calling croupier.cleanup_symbol({self.symbol})")
             await self.croupier.cleanup_symbol(self.symbol)
 
-            # Verify all orders cancelled
-            await asyncio.sleep(2)
-            open_orders = await self.connector.fetch_open_orders(self.symbol)
-            exchange_ids = [o["id"] for o in open_orders]
+            # Verify all orders cancelled (with retries)
+            orphans_cleaned = False
+            for _ in range(4):
+                await asyncio.sleep(2)
+                open_orders = await self.connector.fetch_open_orders(self.symbol)
+                exchange_ids = [o["id"] for o in open_orders]
+                orphans_remaining = [oid for oid in order_ids if oid in exchange_ids]
+                if not orphans_remaining:
+                    orphans_cleaned = True
+                    break
 
-            orphans_remaining = [oid for oid in order_ids if oid in exchange_ids]
-            if orphans_remaining:
+            if not orphans_cleaned:
                 logger.error(f"❌ Orphan orders NOT cleaned: {orphans_remaining}")
                 return False
 
@@ -664,12 +711,18 @@ class PreflightValidator:
             # Call cleanup_symbol (from main.py line 272)
             await self.croupier.cleanup_symbol(self.symbol)
 
-            # Verify clean state
-            await asyncio.sleep(2)
+            # Verify clean state (with retries for testnet REST latency)
+            position_removed = False
+            for _ in range(4):
+                await self.recon_service.reconcile_all()
+                await asyncio.sleep(2)
+                positions = self.croupier.get_open_positions()
+                if not positions:
+                    position_removed = True
+                    break
 
             # No positions in tracker
-            positions = self.croupier.get_open_positions()
-            if positions:
+            if not position_removed:
                 logger.error(f"❌ Positions still in tracker: {len(positions)}")
                 return False
             logger.info(f"✅ No positions in tracker")

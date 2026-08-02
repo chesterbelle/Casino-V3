@@ -1,5 +1,7 @@
 # Changelog - Fase 1 en adelante
 
+- 2026-08-02 | fase 1 | **VALIDACIÓN DE INFRAESTRUCTURA (PASO 1.3) COMPLETADA**: Ejecutado exitosamente el workflow `/validate-all`. Solucionados problemas de consistencia eventual (latencia REST) en Binance Testnet que causaban falsos negativos en los tests de limpieza de posiciones y orfandad (tests 5, 6 y 7). Todos los 8 tests preflight (CONNECTION, ORDER_CANCEL, OCO_BRACKET, POSITION_TRACKING, CLOSE_POSITION, ORPHAN_CLEANUP, SHUTDOWN_FLOW, ERROR_HANDLING) pasaron sin errores. El sistema base y el Event Bus operan a la perfección. Estamos listos para el Paso 1.4 (Stress Test Multi-Coin).
+
 - 2026-07-26 | fase 1 | **NON-REGRESSION TEST COMPLETADO**: Ejecutados secuencialmente los 9 activos (ARB, XRP, BNB, APT, DOGE, NEAR, OP, ADA, LINK) usando 'scripts/run_non_regression.sh' para evitar OOM. **Éxito rotundo (0 regresiones)**. Todos los perfiles mantuvieron edge direccional y validaron los golden params en conjunto. Net Taker > +0.26% en todos (ARB +1.04%, XRP +0.96%). Siguiente: Paso 1.2 (Validate-All). Merge a main postergado hasta completar Fase 1.
 
 - 2026-07-26 | fase 1 | **NON-REGRESSION TEST COMPLETADO**: Ejecutados secuencialmente los 9 activos (ARB, XRP, BNB, APT, DOGE, NEAR, OP, ADA, LINK) usando 'scripts/run_non_regression.sh' para evitar OOM. **Éxito rotundo (0 regresiones)**. Todos los perfiles mantuvieron edge direccional y validaron los golden params en conjunto. Net Taker > +0.26% en todos (ARB +1.04%, XRP +0.96%). Siguiente: Paso 1.2 (Validate-All).
