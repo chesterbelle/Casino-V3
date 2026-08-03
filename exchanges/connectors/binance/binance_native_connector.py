@@ -2667,6 +2667,10 @@ class BinanceNativeConnector(BaseConnector):
 
     def denormalize_symbol(self, symbol: str) -> str:
         """Convert exchange symbol to standard format (e.g., 'BTCUSDT' -> 'BTC/USDT:USDT')."""
+        # Idempotency guard: if already in bot format, return as-is (prevents double denormalization
+        # like 'LTC/USDT:/USDT:USDT' when fed a previously-denormalized symbol)
+        if "/" in symbol:
+            return symbol
         if symbol.endswith("USDT"):
             return f"{symbol[:-4]}/USDT:USDT"
         return f"{symbol}/USDT:USDT"

@@ -116,6 +116,10 @@ def denormalize_symbol(binance_symbol: str) -> str:
         >>> denormalize_symbol("LTCUSDT")
         'LTC/USD:USD'
     """
+    # Already in bot format (idempotency guard: prevents double denormalization)
+    if "/" in binance_symbol:
+        return binance_symbol
+
     # Remove USDT suffix
     if binance_symbol.endswith("USDT"):
         base = binance_symbol[:-4]

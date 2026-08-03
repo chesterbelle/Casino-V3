@@ -59,6 +59,12 @@ class ReconciliationService:
         # Retry config for reconciliation operations
         self.reconcile_retry_config = RetryConfig(max_retries=3, backoff_base=1.0, backoff_factor=2.0, jitter=True)
 
+        # Cooldown map: symbol -> timestamp of last failed force-close.
+        # Prevents infinite retry loops (spam) when a close persistently fails
+        # (e.g. malformed symbol or position stuck on exchange).
+        self.close_failure_cooldown_secs = 300
+        self._close_failure_cooldowns: Dict[str, float] = {}
+
     async def reconcile_from_cache(
         self, exchange_positions: List[Dict], open_orders: List[Dict]
     ) -> List[Dict[str, Any]]:
@@ -1051,6 +1057,16 @@ class ReconciliationService:
                 self.logger.error("❌ Cannot close position: No symbol provided")
                 return
 
+            # Cooldown: skip if this symbol failed to close recently (avoids 1/min retry spam loops)
+            now = time.time()
+            last_failure = self._close_failure_cooldowns.get(target_symbol, 0.0)
+            if now - last_failure < self.close_failure_cooldown_secs:
+                self.logger.info(
+                    f"⏭️ Skipping close for {target_symbol}: in cooldown "
+                    f"({self.close_failure_cooldown_secs}s) after previous failure"
+                )
+                return
+
             size = abs(float(position_dict.get("contracts", 0) or position_dict.get("size", 0) or 0))
             if size > 0:
                 side_raw = position_dict.get("side", "").lower()
@@ -1104,3 +1120,6 @@ class ReconciliationService:
 
         except Exception as e:
             self.logger.error(f"Failed to close position: {e}")
+            # Record cooldown for this symbol so we don't hammer the exchange on every cycle
+            if target_symbol:
+                self._close_failure_cooldowns[target_symbol] = time.time()
