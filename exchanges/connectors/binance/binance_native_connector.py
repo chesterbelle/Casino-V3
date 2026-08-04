@@ -1515,6 +1515,22 @@ class BinanceNativeConnector(BaseConnector):
                         "POST", "/fapi/v1/order", args, signed=True, endpoint_type="orders", timeout=timeout
                     )
                     return self._normalize_order(response)
+
+            if "-4120" in error_msg and order_type.upper() in ALGO_ORDER_TYPES:
+                self.logger.warning(
+                    f"🔄 Main API rejected {order_type.upper()} order (-4120). Retrying via Algo API for {symbol}."
+                )
+                pos_size = await self._get_position_size_for_algo_fallback(symbol, side)
+                if pos_size > 0:
+                    args.pop("closePosition", None)
+                    args["reduceOnly"] = "true"
+                    args["quantity"] = self.amount_to_precision(symbol, pos_size)
+                    result = await self._create_algo_order(args, timeout=timeout)
+                    return result
+                self.logger.error(
+                    f"❌ Could not determine position size for -4120 fallback on {symbol}. Raising original error."
+                )
+
             raise
 
     async def create_batch_orders(self, orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1545,6 +1561,17 @@ class BinanceNativeConnector(BaseConnector):
             signed=True,
             endpoint_type="order",
         )
+
+    async def _get_position_size_for_algo_fallback(self, symbol: str, side: str) -> float:
+        """Get position size for -4120 Algo API retry. Returns 0 if position not found."""
+        try:
+            positions = await self.fetch_positions(symbol)
+            for p in positions:
+                if abs(float(p.get("contracts", 0))) > 1e-8:
+                    return abs(float(p["contracts"]))
+        except Exception as e:
+            self.logger.warning(f"⚠️ Failed to fetch position size for -4120 fallback on {symbol}: {e}")
+        return 0.0
 
     async def _wait_for_position_sync(self, symbol: str, timeout: float = 5.0) -> bool:
         """Poll the position endpoint until a position appears (Internal Sync)."""
