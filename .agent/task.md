@@ -50,3 +50,21 @@
   - 19 errores `-2011` (cancelaciones inofensivas)
   - VERDICT: **PASS (Stable & Efficient)**
 - **Zombies/Task Stalls**: 0 reportados antes de morir. Todo el fix de los bugs 1-7 parece haber funcionado perfecto.
+
+## Run 7 — FULL ENDURANCE 24H (Fase 1.4B.2)
+- **PID**: 50304 | Inicio: 2026-08-02 10:07 | Log: `logs/endurance_24h_20260802_100711.log`
+- **Comando**: `main.py --run-type trade --mode demo --exchange binance --symbol LTCUSDT --close-on-exit --timeout 1440`
+- **Notas de arranque**: Primer intento falló Flytest (Stream Liveness 10s, fallo transitorio conocido) → reintento OK (1/1 qualified). Airlock timeouts (by design). "Failed to close position" del ReconciliationService al arranque (cosmético, 1 símbolo procesado).
+- **Estado**: 🟡 INTERRUMPIDO — PC se reinició a las 17:41 (7h34m de 24h). Auditoría: VERDICT PASS (0 ghost, 0 unmatched) pero 445 errores -1007 → Root cause único: posición fantasma en exchange (SHORT 1.344 LTC de sesión previa) + doble denormalización de símbolo → `LTC/USDT:/USDT:USDT` inválido → force_close fallaba con TimeoutError cada minuto (bucle de 451 reintentos) → 60s bloqueados → 4 TASK STALL + 4 stream restarts + 2 OCO_ABORT. **Fixes commiteados en `45f47b7`**: (A) denormalize_symbol idempotente (connector + constants), (B) cooldown 300s en _close_position_dict. Pre-existing failures en test_symbol_neutrality (3, no causados por el fix, verificados contra HEAD~1).
+
+## Run 8 — FULL ENDURANCE 24H (Fase 1.4B.2, post-fixes)
+- **PID**: 10991 | Inicio: 2026-08-03 07:23 | Log: `logs/endurance_24h_20260803_072330.log`
+- **Comando**: `main.py --run-type trade --mode demo --exchange binance --symbol LTCUSDT --close-on-exit --timeout 1440`
+- **Validación de fixes al arranque**: posición fantasma cerrada en PRIMER intento (1s) con símbolo correcto. 0 "Failed to close", 0 -1007, 0 TASK STALL, sync "0 positions".
+- **Estado**: 🟡 INTERRUMPIDO a las 16:11 — terminado por el usuario (kill manual). Contaminado por la posición fantasma heredada (LIQUIDATION trades del cierre forzado) → no válido como prueba desde cero.
+
+## Run 9 — FULL ENDURANCE 24H (Fase 1.4B.2, exchange verificado en cero)
+- **PID**: 7011 | Inicio: 2026-08-03 20:58 | Log: `logs/endurance_24h_20260803_205852.log`
+- **Pre-flight**: exchange verificado 0 posiciones / 0 órdenes antes de lanzar (Paso B.0).
+- **Estado**: 🟡 PARADO por decisión del usuario (sesión de discusión). Nota: 29 errores -4120 al arrancar ("Order type not supported for this endpoint. use algo order api") — pendiente de investigar. Abrió 1 trade de estrategia (1 posición + 2 órdenes bracket).
+- **Decisión de sesión (2026-08-03)**: el Paso B.0 (pre-flight exchange) se mantiene en `stress-test.md` como metodología obligatoria de las pruebas. NO se toca `main.py` (reconcile/adopt es resiliencia intencional).
