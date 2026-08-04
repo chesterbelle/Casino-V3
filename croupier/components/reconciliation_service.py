@@ -624,12 +624,23 @@ class ReconciliationService:
             if sl_level == 0:
                 sl_level = float(sl_order["info"].get("stopPrice", 0)) if "info" in sl_order else 0
 
+            # Phase 800: OpenPosition requires `timestamp` (float seconds) for Grace Period logic.
+            # Derive from exchange entry_timestamp (ms) or fallback to now.
+            raw_ts_ms = ex_pos.get("timestamp", 0) or 0
+            try:
+                entry_ts_float = float(raw_ts_ms) / 1000.0 if float(raw_ts_ms) > 1e9 else float(raw_ts_ms)
+            except (TypeError, ValueError):
+                entry_ts_float = time.time()
+            if entry_ts_float <= 0:
+                entry_ts_float = time.time()
+
             position = OpenPosition(
                 trade_id=trade_id,
                 symbol=symbol,
                 side=side,
                 entry_price=entry_price,
-                entry_timestamp=str(ex_pos.get("timestamp", time.time())),
+                entry_timestamp=str(raw_ts_ms or time.time()),
+                timestamp=entry_ts_float,  # Phase 800: required float field for Grace Period logic
                 margin_used=float(
                     ex_pos.get("initialMargin", 0) or (size * entry_price / float(ex_pos.get("leverage", 1)))
                 ),

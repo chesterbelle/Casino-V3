@@ -1559,6 +1559,10 @@ class OCOManager:
         stored_tp_price = position.order.get("tp_price")
         stored_sl_price = position.order.get("sl_price")
 
+        # Initialize to None — only set in the legacy % path. Used in log messages below.
+        original_tp_pct = None
+        original_sl_pct = None
+
         if stored_tp_price and stored_sl_price:
             # Use absolute prices directly (just apply tick-size precision)
             tp_price = float(self.adapter.price_to_precision(symbol, stored_tp_price))
@@ -1611,7 +1615,7 @@ class OCOManager:
 
             # --- RESTORE TP ---
             if not position.exchange_tp_id:
-                self.logger.info(f"🚑 Restoring TP @ {tp_price} (Intent: {original_tp_pct})")
+                self.logger.info(f"🚑 Restoring TP @ {tp_price} (Intent: {original_tp_pct or 'abs'})")
                 # Create TP with anti-hang timeout
                 symbol_clean = symbol.upper().replace("/", "").replace(":", "")
                 tp_client_id = f"CASINO_TP_{symbol_clean}_{uuid.uuid4().hex[:12]}"
@@ -1632,7 +1636,7 @@ class OCOManager:
 
             # --- RESTORE SL ---
             if not position.exchange_sl_id:
-                self.logger.info(f"🚑 Restoring SL @ {sl_price} (Intent: {original_sl_pct})")
+                self.logger.info(f"🚑 Restoring SL @ {sl_price} (Intent: {original_sl_pct or 'abs'})")
                 # Create SL with anti-hang timeout
                 symbol_clean = symbol.upper().replace("/", "").replace(":", "")
                 sl_client_id = f"CASINO_SL_{symbol_clean}_{uuid.uuid4().hex[:12]}"
