@@ -90,9 +90,11 @@ asyncio.run(main())
 ### Objetivo
 Correr el bot real (`main.py`) durante un periodo prolongado para detectar fugas de memoria (memory leaks), degradación de rendimiento, o errores intermitentes.
 
-La Fase B se divide en dos sub-fases:
+La Fase B se divide en tres sub-fases:
 - **B.1 Mini-Endurance (4h)**: Detección temprana de fugas groseras o crashes sin esperar 24h.
-- **B.2 Full Endurance (24h) / B.3 Multi (48h)**: Validación definitiva de estabilidad a largo plazo.
+- **B.2 Debug-Gate (12h × 2)**: Gate de depuración iterativo. Se corre en loops de 12h; si aparece error se repara y se vuelve a correr. Se exige **2 runs consecutivos limpios** antes de proceder. Esto permite iterar 2× más rápido que con 24h.
+- **B.3 Full Endurance (24h)**: Certificación formal. Solo se ejecuta tras 2× 12h limpios. Valida cobertura completa de sesiones (Asia + Europa + US) y eventos de baja frecuencia.
+- **B.4 Multi-Coin (48h)** *(opcional)*: Validación definitiva multi-activo.
 
 **Nota:** Con los filtros estrictos de la v9.2.0 (VA_GATE, TrendAcceptance, Z-Scores), el bot ejecuta muy pocos trades por sesión. El objetivo aquí NO es volumen de trades, sino estabilidad de proceso.
 
@@ -111,8 +113,25 @@ La Fase B se divide en dos sub-fases:
 ```
 *Corre 4 horas. Monitorear RAM con `htop`. Si hay fugas groseras o crashes, se manifiestan aquí.*
 
-### Paso B.2: Full Endurance (24 horas, Single Coin)
-*Ejecutar solo si B.1 pasa.*
+### Paso B.2: Debug-Gate 12h (Single Coin — repetir hasta 2× limpios)
+*Ejecutar solo si B.1 pasa. Repetir este paso hasta tener 2 runs consecutivos sin errores.*
+```bash
+.venv/bin/python utils/reset_data.py
+```
+```bash
+.venv/bin/python main.py \
+  --run-type trade \
+  --mode demo \
+  --exchange binance \
+  --symbol LTCUSDT \
+  --close-on-exit \
+  2>&1 | tee logs/debug_gate_12h_$(date +%Y%m%d_%H%M%S).log
+```
+*Dejar correr mínimo 12 horas. Si aparece un error → fix → volver al Pre-Flight B.0 y repetir.*
+*Gate de paso: 2 runs consecutivos con Error Recovery = $0.00.*
+
+### Paso B.3: Full Endurance (24 horas, Single Coin — Certificación Formal)
+*Ejecutar solo si B.2 tiene 2 runs limpios consecutivos.*
 ```bash
 .venv/bin/python utils/reset_data.py
 ```
@@ -127,8 +146,8 @@ La Fase B se divide en dos sub-fases:
 ```
 *Dejar correr mínimo 24 horas. Monitorear RAM con `htop` periódicamente.*
 
-### Paso B.3 (Opcional): Endurance Multi-Coin (48h)
-*Ejecutar solo si B.2 pasa.*
+### Paso B.4 (Opcional): Endurance Multi-Coin (48h)
+*Ejecutar solo si B.3 pasa.*
 ```bash
 .venv/bin/python utils/reset_data.py
 ```
@@ -142,7 +161,7 @@ La Fase B se divide en dos sub-fases:
   2>&1 | tee logs/endurance_multi_$(date +%Y%m%d_%H%M%S).log
 ```
 
-### Paso B.4: Auditoría Post-Endurance
+### Paso B.5: Auditoría Post-Endurance
 ```bash
 .venv/bin/python utils/audit_logs.py logs/endurance_test_$(ls -t logs/endurance_* | head -1 | xargs basename)
 ```
@@ -158,7 +177,11 @@ La Fase B se divide en dos sub-fases:
 - [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
 - [ ] Los trades ejecutados (si los hay) cerraron limpiamente
 
-**Full Endurance (B.2/B.3)** — mismos criterios + :
+**Debug-Gate 12h (B.2)** — mismos criterios que B.1 + :
+- [ ] **2 runs consecutivos** con todos los criterios en verde
+- [ ] Cada error encontrado tiene su fix documentado antes de re-correr
+
+**Full Endurance 24h (B.3)** — mismos criterios + :
 - [ ] **API Stability = 100%** (0 logs de error `(-4120)`) — solo exigible en 24h+
 
 ---

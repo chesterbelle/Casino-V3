@@ -152,19 +152,26 @@
 >
 > **Por favor, lee ese documento para saber en qué fase estamos y qué sigue.**
 
-### 📍 Ruta Actual (Estado Vivo — 2026-08-02)
+### 📍 Ruta Actual (Estado Vivo — 2026-08-03)
 | Fase | Paso | Estado |
 |------|------|--------|
 | 1.1 | Non-Regression Test (9 activos) | ✅ Completado (0 regresiones) |
 | 1.2 | Internal Event Bus Refactor | ✅ Completado |
 | 1.3 | `/validate-all` (8/8 tests) | ✅ Completado |
 | 1.4A | Chaos Test (10min, 9 monedas) | ✅ Completado — Error Trades=0, Integrity=PASS, 634 ops |
-| **1.4B** | **Mini-Endurance (4h, LTCUSDT)** | **✅ COMPLETADO — 7h reales, Error Recovery=$0, 0 crashes, VA_GATE OK** |
-| 1.4B.2 | Full Endurance (24h) | 🔄 Pendiente |
-| 1.4B.3 | Multi-Coin Endurance (48h) | 🔄 Pendiente |
+| **1.4B.1** | **Mini-Endurance (4h, LTCUSDT)** | **✅ COMPLETADO — 7h reales, Error Recovery=$0, 0 crashes, VA_GATE OK** |
+| **1.4B.2a** | **Debug-Gate 12h (LTCUSDT) — 1er run** | **🔄 Pendiente ← PRÓXIMO** |
+| 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run consecutivo | 🔄 Pendiente |
+| 1.4B.3 | Full Endurance 24h (Certificación formal) | 🔄 Pendiente (solo tras 2× 12h limpios) |
+| 1.4B.4 | Multi-Coin Endurance (48h) | 🔄 Pendiente |
 | 1.5 | Análisis Drawdown/Riesgo | 🔄 Pendiente |
 
-**Próximo paso**: Fase 1.4B.2 — Full Endurance (24h) en LTCUSDT
+**Próximo paso**: Fase 1.4B.2a — Debug-Gate 12h en LTCUSDT
+
+> **🔁 METODOLOGÍA DEBUG-GATE (decisión 2026-08-03):** La Full Endurance se divide en dos gates para iterar más rápido:
+> 1. **Gate de Depuración (12h):** Corre 12h. Si aparece error → fix → repetir. Objetivo: 2 runs consecutivos limpios.
+> 2. **Gate de Certificación (24h):** Solo cuando los 2× 12h estén limpios. Este es el criterio formal de certificación del roadmap.
+> Esto evita esperar 24h para descubrir errores que se manifiestan en las primeras horas.
 
 ## 🏗️ Metodología de Ingeniería Confiable (Fase Producción)
 

@@ -301,16 +301,20 @@ async def _on_order_update_event(self, event):
 
 **Resumen de fases**:
 - **Fase A (Chaos Test)**: Inyección de órdenes sintéticas a 9 monedas durante 10 min para saturar WebSockets/Croupier/OCOManager. Valida Error Recovery = $0.00 y 0 eventos UNMATCHED. ✅ **COMPLETADO 2026-08-02** (Error Trades=0, Integrity=PASS, 634 ops)
-- **Fase B (Endurance Test)**: Bot real (`main.py`) en dos sub-fases: Mini-Endurance (4h, detección temprana) → Full Endurance (24h, validación definitiva). Opcional Multi-Coin (48h).
+- **Fase B (Endurance Test)**: Bot real (`main.py`) en tres sub-fases progresivas:
   - **B.1 Mini-Endurance (4h)**: ✅ **COMPLETADO 2026-08-02** — Duración real 7h (excede requisito). LTCUSDT. Error Recovery=$0.00, 0 crashes, RAM estable, Event Integrity 100%, Airlock Latency 100%, VA_GATE funcionando (11 bloqueos THIN WALL). Trade LONG cerrado limpio.
-  - **B.2 Full Endurance (24h)**: 🔄 Pendiente
-  - **B.3 Multi-Coin (48h)**: 🔄 Pendiente
+  - **B.2 Debug-Gate (12h × 2)**: 🔄 Pendiente. Gate de depuración iterativo. Se corre en loops de 12h hasta obtener **2 runs consecutivos limpios**. Permite iterar 2× más rápido que con 24h. Cada error → fix → re-correr desde Pre-Flight B.0.
+  - **B.3 Full Endurance (24h)**: 🔄 Pendiente. **Certificación formal** — solo ejecutar tras 2× 12h limpios. Valida cobertura completa de sesiones (Asia + Europa + US) y eventos de baja frecuencia.
+  - **B.4 Multi-Coin (48h)** *(opcional)*: 🔄 Pendiente.
+
+> **🔁 Razón del Debug-Gate (decisión 2026-08-03):** La lesión del run anterior (posición fantasma → 445 errores -1007) mostró que los errores críticos emergen en las primeras horas, no al final. Esperar 24h para descubrirlos es ineficiente. El gate de 12h detecta los mismos errores en la mitad del tiempo, y el requisito de 2 runs consecutivos garantiza robustez antes de la certificación formal de 24h.
 
 **Criterio de paso**:
 - Fase A: Error Trades = 0, Integrity = PASS, Total Ops > 30
-- Fase B: 0 crashes, RAM estable, trades limpios
+- Fase B.2: 2 runs consecutivos de 12h con Error Recovery = $0.00 y 0 crashes
+- Fase B.3: 1 run de 24h con Error Recovery = $0.00, 0 crashes, API Stability = 100%
 
-**Tiempo estimado**: 1-3 días
+**Tiempo estimado**: 2-4 días (variable según número de errores encontrados)
 
 ### 1.5 Análisis de Drawdown y Riesgo
 
