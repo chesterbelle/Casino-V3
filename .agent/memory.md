@@ -30,6 +30,14 @@
 >     2. Mapear timestamps a datasets: cada dataset (`DOGEUSDT_TREND_UP_2025-04-01.db`) tiene señales cuyo `MIN(timestamp)` cae en el día del dataset.
 >     3. Extraer por session: crear DB temporal filtrando `signals WHERE session_id='...'` + `price_samples` por rango de timestamp, y correr `setup_edge_auditor.py --db <filtered.db>`.
 >     Esto evita re-correr backtests. Los `session_id` están en formato `sess_SYMBOL_hash` y se mapean por fecha al dataset correspondiente.
+> 17. **REGLA DE ORO (PRE-FLIGHT EXCHANGE ANTES DE CADA RUN):** NUNCA lanzar un run de endurance/paper/demo sin antes verificar que el exchange arranca en CERO posiciones y CERO órdenes. `reset_data.py` solo limpia estado LOCAL — NO toca el exchange. Si queda residuo de una corrida anterior (posición fantasma u órdenes huérfanas), el bot lo reconciliará/adoptará al arrancar (diseño intencional para resiliencia ante crashes) y CONTAMINA los datos de la prueba. Secuencia obligatoria (documentada en `stress-test.md` Paso B.0):
+>     ```bash
+>     .venv/bin/python utils/emergency_cleanup.py   # limpia exchange a cero
+>     # + verificación: 0 posiciones y 0 órdenes (assert en el comando del workflow)
+>     .venv/bin/python utils/reset_data.py          # limpia estado local
+>     ```
+>     Lección 2026-08-03: una posición fantasma del run anterior (PC reiniciado) generó 451 cierres fallidos (~8h de run contaminado con 445 errores -1007, 4 TASK STALL, 2 OCO_ABORT). Fix de símbolo + cooldown no evitan el residuo: la VERIFICACIÓN pre-flight es el único guard.
+> 18. **NO MODIFICAR main.py CON HYGIENE CHECK:** El reconcile/adopt de posiciones existentes al arranque es diseño INTENCIONAL (resiliencia: si el bot crashea o falla la luz, al reiniciar adopta lo que hay en el exchange). NO añadir limpieza automática al arranque del bot. La limpieza pre-run es responsabilidad del operador/agente (Regla 17).
 
 
 ## 🚀 Project Overview

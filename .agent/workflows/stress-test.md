@@ -53,6 +53,40 @@ El script imprime su propio `CHAOS TEST SUMMARY`. Verificar:
 
 ## FASE B: Endurance Test (Estratégico — Resistencia Real)
 
+### Paso B.0: Pre-Flight de Exchange (OBLIGATORIO — antes de CADA corrida)
+
+**⚠️ Un run de endurance solo es válido si el exchange arranca en cero.** El bot
+reconcilia/adopta posiciones existentes al arrancar (diseño intencional para resiliencia
+ante crashes), pero eso CONTAMINA los datos de la prueba si quedó residuo de una corrida
+anterior (posición fantasma, órdenes huérfanas). `reset_data.py` solo limpia estado LOCAL.
+
+```bash
+# 1. Limpiar exchange a cero (órdenes + posiciones de TODOS los símbolos)
+.venv/bin/python utils/emergency_cleanup.py
+
+# 2. VERIFICAR 0 posiciones y 0 órdenes (criterio de paso)
+.venv/bin/python -c "
+import asyncio, sys, os
+sys.path.insert(0, '.')
+from dotenv import load_dotenv; load_dotenv()
+from exchanges.connectors.binance.binance_native_connector import BinanceNativeConnector
+async def main():
+    conn = BinanceNativeConnector(api_key=os.getenv('BINANCE_TESTNET_API_KEY'),
+        secret=os.getenv('BINANCE_TESTNET_SECRET'), mode='demo')
+    await conn.connect()
+    pos = [p for p in await conn.fetch_positions() if abs(p['contracts']) > 0]
+    orders = await conn.fetch_open_orders(None)
+    print('POSICIONES:', len(pos), '| ORDENES:', len(orders))
+    assert len(pos) == 0 and len(orders) == 0, 'EXCHANGE NO ESTA EN CERO — ABORTAR'
+    await conn.close()
+asyncio.run(main())
+"
+# 3. Limpiar estado local
+.venv/bin/python utils/reset_data.py
+```
+
+**CRITERIO**: Si el paso 2 falla (residuo en exchange), NO lanzar `main.py` — investigar antes.
+
 ### Objetivo
 Correr el bot real (`main.py`) durante un periodo prolongado para detectar fugas de memoria (memory leaks), degradación de rendimiento, o errores intermitentes.
 
