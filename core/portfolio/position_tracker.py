@@ -787,53 +787,60 @@ class PositionTracker(TraceBulletMixin):
                     )
 
                     for pos in matching_positions:
-                        # Determine exit price and reason from available levels
-                        exit_price = 0.0
+                        # ISSUE-001 Fix: Determine exit price and reason with correct priority.
+                        # Priority: market_price comparison (highest) > static level guess > LIQUIDATION (last resort).
+                        # Previously liquidation_level had highest priority → all Sheriff trades mislabeled.
+                        exit_price = pos.entry_price or 0.0
                         exit_reason = "EXTERNAL_CLOSE"
-                        if (
-                            pos.liquidation_level
-                            and pos.liquidation_level > 0
-                            and pos.liquidation_level != pos.entry_price
-                        ):
-                            exit_price = pos.liquidation_level
-                            exit_reason = "LIQUIDATION"
-                        elif pos.tp_level and pos.tp_level > 0:
-                            likely_tp = (pos.side == "LONG" and pos.tp_level > pos.entry_price) or (
-                                pos.side == "SHORT" and pos.tp_level < pos.entry_price
-                            )
-                            if likely_tp:
-                                exit_price = pos.tp_level
-                                exit_reason = "TP (ACCOUNT_UPDATE)"
-                            else:
-                                exit_price = pos.sl_level or pos.entry_price
-                                exit_reason = "SL (ACCOUNT_UPDATE)"
-                        elif pos.sl_level and pos.sl_level > 0:
-                            exit_price = pos.sl_level
-                            exit_reason = "SL (ACCOUNT_UPDATE)"
-                        else:
-                            exit_price = pos.entry_price
 
-                        # Phase 78.3: Prefer real market price over level guessing.
-                        # When the sheriff runs, the position is already closed on the
-                        # exchange; the most accurate exit price is the current market
-                        # price (or cached price) of the symbol.
+                        # Phase 78.3: Use real market price as primary source (most accurate).
+                        # Apply 1% tolerance band so near-misses on TP/SL are still classified correctly.
                         try:
                             market_price = await self.adapter.get_current_price(symbol)
                             if market_price and market_price > 0:
                                 exit_price = float(market_price)
-                                # Refine reason with the observed market price vs entry
+                                tol = 0.01  # 1% tolerance band for price slippage/timing lag
                                 if pos.side == "LONG":
-                                    if pos.tp_level and exit_price >= pos.tp_level:
+                                    if pos.tp_level and exit_price >= pos.tp_level * (1 - tol):
                                         exit_reason = "TP (ACCOUNT_UPDATE)"
-                                    elif pos.sl_level and exit_price <= pos.sl_level:
+                                    elif pos.sl_level and exit_price <= pos.sl_level * (1 + tol):
                                         exit_reason = "SL (ACCOUNT_UPDATE)"
-                                else:
-                                    if pos.tp_level and exit_price <= pos.tp_level:
+                                    elif (
+                                        pos.liquidation_level
+                                        and pos.liquidation_level > 0
+                                        and exit_price <= pos.liquidation_level * (1 + tol)
+                                    ):
+                                        exit_reason = "LIQUIDATION"
+                                else:  # SHORT
+                                    if pos.tp_level and exit_price <= pos.tp_level * (1 + tol):
                                         exit_reason = "TP (ACCOUNT_UPDATE)"
-                                    elif pos.sl_level and exit_price >= pos.sl_level:
+                                    elif pos.sl_level and exit_price >= pos.sl_level * (1 - tol):
                                         exit_reason = "SL (ACCOUNT_UPDATE)"
+                                    elif (
+                                        pos.liquidation_level
+                                        and pos.liquidation_level > 0
+                                        and exit_price >= pos.liquidation_level * (1 - tol)
+                                    ):
+                                        exit_reason = "LIQUIDATION"
                         except Exception as e:
                             self.logger.warning(f"⚠️ Sheriff: Could not fetch market price for {symbol}: {e}")
+                            # Static fallback: use stored levels (TP/SL first, LIQUIDATION last)
+                            if pos.tp_level and pos.tp_level > 0:
+                                likely_tp = (pos.side == "LONG" and pos.tp_level > pos.entry_price) or (
+                                    pos.side == "SHORT" and pos.tp_level < pos.entry_price
+                                )
+                                if likely_tp:
+                                    exit_price = pos.tp_level
+                                    exit_reason = "TP (ACCOUNT_UPDATE)"
+                                else:
+                                    exit_price = pos.sl_level or pos.entry_price
+                                    exit_reason = "SL (ACCOUNT_UPDATE)"
+                            elif pos.sl_level and pos.sl_level > 0:
+                                exit_price = pos.sl_level
+                                exit_reason = "SL (ACCOUNT_UPDATE)"
+                            elif pos.liquidation_level and pos.liquidation_level > 0:
+                                exit_price = pos.liquidation_level
+                                exit_reason = "LIQUIDATION"
 
                         # Calculate leakage-plugging PnL
                         # PnL = (Exit - Entry) * Notional / Entry
@@ -854,6 +861,14 @@ class PositionTracker(TraceBulletMixin):
                             fee=0.0,
                         )
                         logger.info(f"⚰️ Buried Ghost Position {pos.trade_id} (PnL: {pnl:.4f})")
+
+                        # ISSUE-002 Fix: Trigger deferred fee enrichment for Sheriff-closed trades.
+                        # _deferred_fee_enrichment was defined in Croupier but never called for this path.
+                        if self.adapter and hasattr(self, "_croupier") and self._croupier:
+                            enrichment_task = asyncio.create_task(
+                                self._croupier._deferred_fee_enrichment(pos.trade_id, symbol, delay_sec=3.0)
+                            )
+                            enrichment_task.add_done_callback(lambda t: None)  # Prevent GC
 
     async def _handle_tp_filled(self, position: "OpenPosition", event: Dict[str, Any]):
         """Handle TP fill event - close position and cancel SL."""

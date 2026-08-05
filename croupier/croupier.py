@@ -167,6 +167,11 @@ class Croupier(TimeIterator):
 
         # Phase 249.1: Trigger initial solvency check (Startup Sanity)
 
+        # ISSUE-002 Fix: Back-reference so PositionTracker's Sheriff can call
+        # _deferred_fee_enrichment without a circular import.
+        # PositionTracker checks `hasattr(self, "_croupier")` before using it.
+        self.position_tracker._croupier = self
+
     async def start(self):
         """Start Croupier and subscribe to Engine events (Phase 2)."""
         # Phase 102: Industrial Resilience - Start Drift Auditor
