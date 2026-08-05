@@ -528,6 +528,10 @@ async def main():
         if args.max_symbols:
             targets = targets[: args.max_symbols]
             logger.info(f"📉 Limiting Flytest to Top {args.max_symbols} Symbols")
+    elif "," in args.symbol:
+        # Multi-symbol explicit list
+        targets = [s.strip() for s in args.symbol.split(",") if s.strip()]
+        logger.info(f"🎯 Explicit multi-symbol mode: Running pipeline for {targets}")
     else:
         # Single mode: Validate the single symbol using the same robust pipeline
         targets = [args.symbol]

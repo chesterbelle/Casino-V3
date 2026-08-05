@@ -93,8 +93,9 @@ Correr el bot real (`main.py`) durante un periodo prolongado para detectar fugas
 La Fase B se divide en tres sub-fases:
 - **B.1 Mini-Endurance (4h)**: Detección temprana de fugas groseras o crashes sin esperar 24h.
 - **B.2 Debug-Gate (12h × 2)**: Gate de depuración iterativo. Se corre en loops de 12h; si aparece error se repara y se vuelve a correr. Se exige **2 runs consecutivos limpios** antes de proceder. Esto permite iterar 2× más rápido que con 24h.
-- **B.3 Full Endurance (24h)**: Certificación formal. Solo se ejecuta tras 2× 12h limpios. Valida cobertura completa de sesiones (Asia + Europa + US) y eventos de baja frecuencia.
-- **B.4 Multi-Coin (48h)** *(opcional)*: Validación definitiva multi-activo.
+- **B.3 Debug-Gate Multi-Coin (12h)**: Gate de depuración para concurrencia. 3 símbolos (LTC, SOL, AVAX) para estresar race conditions.
+- **B.4 Full Endurance (24h)**: Certificación formal. Valida cobertura completa de sesiones (Asia + Europa + US) y eventos de baja frecuencia.
+- **B.5 Multi-Coin (48h)** *(opcional)*: Validación definitiva multi-activo.
 
 **Nota:** Con los filtros estrictos de la v9.2.0 (VA_GATE, TrendAcceptance, Z-Scores), el bot ejecuta muy pocos trades por sesión. El objetivo aquí NO es volumen de trades, sino estabilidad de proceso.
 
@@ -130,7 +131,7 @@ La Fase B se divide en tres sub-fases:
 *Dejar correr mínimo 12 horas. Si aparece un error → fix → volver al Pre-Flight B.0 y repetir.*
 *Gate de paso: 2 runs consecutivos con Error Recovery = $0.00.*
 
-### Paso B.3: Full Endurance (24 horas, Single Coin — Certificación Formal)
+### Paso B.3: Debug-Gate Multi-Coin 12h (LTC, SOL, AVAX)
 *Ejecutar solo si B.2 tiene 2 runs limpios consecutivos.*
 ```bash
 .venv/bin/python utils/reset_data.py
@@ -140,14 +141,30 @@ La Fase B se divide en tres sub-fases:
   --run-type trade \
   --mode demo \
   --exchange binance \
-  --symbol LTCUSDT \
+  --symbol LTCUSDT,SOLUSDT,AVAXUSDT \
+  --close-on-exit \
+  2>&1 | tee logs/debug_gate_multi_12h_$(date +%Y%m%d_%H%M%S).log
+```
+*Dejar correr mínimo 12 horas. Revisa PnL y errores cruzados.*
+
+### Paso B.4: Full Endurance (24 horas, Single Coin o Multi — Certificación Formal)
+*Ejecutar solo si B.3 termina limpio.*
+```bash
+.venv/bin/python utils/reset_data.py
+```
+```bash
+.venv/bin/python main.py \
+  --run-type trade \
+  --mode demo \
+  --exchange binance \
+  --symbol LTCUSDT,SOLUSDT,AVAXUSDT \
   --close-on-exit \
   2>&1 | tee logs/endurance_test_$(date +%Y%m%d_%H%M%S).log
 ```
 *Dejar correr mínimo 24 horas. Monitorear RAM con `htop` periódicamente.*
 
-### Paso B.4 (Opcional): Endurance Multi-Coin (48h)
-*Ejecutar solo si B.3 pasa.*
+### Paso B.5 (Opcional): Endurance Multi-Coin (48h)
+*Ejecutar solo si B.4 pasa.*
 ```bash
 .venv/bin/python utils/reset_data.py
 ```
