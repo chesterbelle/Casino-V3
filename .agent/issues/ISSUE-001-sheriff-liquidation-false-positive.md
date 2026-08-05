@@ -101,5 +101,5 @@ except Exception as e:
 
 ## Estado
 
-- [ ] Fix implementado
+- [x] Fix implementado — commit `4be1102`
 - [ ] Verificado en DG-3 o B.3
