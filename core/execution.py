@@ -36,8 +36,13 @@ class OrderManager:
         # This is CRITICAL for OCO callback to work if there are existing positions
         try:
             symbol = self.croupier.exchange_adapter.symbol
-            if symbol == "MULTI":
-                logger.info("ℹ️ OrderManager: Skipping auto-reconciliation in MULTI mode (handled by main)")
+            # Phase 250: Detect comma-joined multi-coin mode (e.g. "LTCUSDT,SOLUSDT,AVAXUSDT")
+            # and skip auto-reconciliation — main.py handles the full multi-symbol startup flow.
+            if symbol == "MULTI" or (isinstance(symbol, str) and "," in symbol):
+                logger.info(
+                    f"ℹ️ OrderManager: Skipping auto-reconciliation in multi-coin mode "
+                    f"(symbol={symbol!r}, handled by main)"
+                )
             else:
                 logger.info(f"🔄 Startup Reconciliation for {symbol}...")
                 await self.croupier.reconcile_positions(symbol)
