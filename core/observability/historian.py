@@ -3,6 +3,7 @@ import logging
 import multiprocessing as mp
 import os
 import sqlite3
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
@@ -361,6 +362,40 @@ class TradeHistorian:
         except sqlite3.OperationalError:
             pass
 
+        # Phase 250: Two-Layer Orphan Recovery
+        # Pending entries created when OCO_Manager hits a timeout/exception during
+        # market order placement. The exchange may or may not have actually filled
+        # the order — ReconciliationService queries the exchange to determine the
+        # real state and either force-closes (RECOVERED) or discards (NOT_FILLED).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pending_orphan_check (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT UNIQUE NOT NULL,
+                client_order_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                amount REAL NOT NULL,
+                expected_entry_price REAL NOT NULL,
+                attempted_at REAL NOT NULL,
+                resolved_at REAL,
+                outcome TEXT,
+                recovered_amount REAL,
+                recovered_entry_price REAL,
+                recovered_exit_price REAL,
+                notes TEXT
+            )
+            """
+        )
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pending_orphan_unresolved "
+                "ON pending_orphan_check(resolved_at) WHERE resolved_at IS NULL"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pending_orphan_symbol " "ON pending_orphan_check(symbol)")
+        except sqlite3.OperationalError:
+            pass
+
         conn.commit()
 
     @contextmanager
@@ -557,6 +592,151 @@ class TradeHistorian:
                 conn.commit()
         except Exception as e:
             logger.error(f"❌ Historian: Error in sync execute: {e}")
+
+    # =========================================================================
+    # Phase 250: Two-Layer Orphan Recovery — pending_orphan_check helpers
+    # =========================================================================
+
+    def register_pending_orphan(
+        self,
+        trade_id: str,
+        client_order_id: str,
+        symbol: str,
+        side: str,
+        amount: float,
+        expected_entry_price: float,
+        attempted_at: Optional[float] = None,
+        notes: Optional[str] = None,
+    ) -> bool:
+        """
+        Register a pending orphan check: OCO_Manager hit a timeout/exception
+        during order placement and cannot confirm whether the exchange actually
+        filled the order. ReconciliationService will resolve this entry by
+        querying the exchange.
+
+        Idempotent: re-registering the same trade_id is a no-op (UPDATE on conflict).
+        Returns True on success, False on DB error.
+        """
+        try:
+            attempted_at = attempted_at or time.time()
+            with self._get_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO pending_orphan_check
+                        (trade_id, client_order_id, symbol, side, amount,
+                         expected_entry_price, attempted_at, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(trade_id) DO UPDATE SET
+                        attempted_at = excluded.attempted_at,
+                        notes = excluded.notes
+                    """,
+                    (
+                        str(trade_id),
+                        str(client_order_id),
+                        str(symbol),
+                        str(side),
+                        float(amount),
+                        float(expected_entry_price),
+                        float(attempted_at),
+                        notes,
+                    ),
+                )
+                conn.commit()
+            logger.info(f"📝 Pending orphan check registered: {trade_id} ({symbol} {side} {amount})")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to register pending orphan for {trade_id}: {e}")
+            return False
+
+    def fetch_pending_orphans(self, older_than_seconds: float = 5.0, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Fetch unresolved orphan-check entries that have aged past the grace period.
+        The grace period allows late WS fill events to settle naturally before
+        ReconciliationService queries the exchange.
+
+        Returns list of dicts with all columns. Empty list on error.
+        """
+        try:
+            cutoff = time.time() - older_than_seconds
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT trade_id, client_order_id, symbol, side, amount,
+                           expected_entry_price, attempted_at, resolved_at,
+                           outcome, recovered_amount, recovered_entry_price,
+                           recovered_exit_price, notes
+                    FROM pending_orphan_check
+                    WHERE resolved_at IS NULL AND attempted_at <= ?
+                    ORDER BY attempted_at ASC
+                    LIMIT ?
+                    """,
+                    (cutoff, int(limit)),
+                )
+                rows = cursor.fetchall()
+            cols = [
+                "trade_id",
+                "client_order_id",
+                "symbol",
+                "side",
+                "amount",
+                "expected_entry_price",
+                "attempted_at",
+                "resolved_at",
+                "outcome",
+                "recovered_amount",
+                "recovered_entry_price",
+                "recovered_exit_price",
+                "notes",
+            ]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch pending orphans: {e}")
+            return []
+
+    def resolve_pending_orphan(
+        self,
+        trade_id: str,
+        outcome: str,
+        recovered_amount: Optional[float] = None,
+        recovered_entry_price: Optional[float] = None,
+        recovered_exit_price: Optional[float] = None,
+        notes: Optional[str] = None,
+    ) -> bool:
+        """
+        Mark a pending orphan check as resolved.
+        outcome: 'FILLED' (order was actually filled; we recovered via force-close)
+                 'NOT_FILLED' (order never reached/filled exchange; safe to discard)
+        Idempotent. Returns True on success.
+        """
+        try:
+            with self._get_conn() as conn:
+                conn.execute(
+                    """
+                    UPDATE pending_orphan_check
+                    SET resolved_at = ?,
+                        outcome = ?,
+                        recovered_amount = ?,
+                        recovered_entry_price = ?,
+                        recovered_exit_price = ?,
+                        notes = COALESCE(?, notes)
+                    WHERE trade_id = ?
+                    """,
+                    (
+                        time.time(),
+                        outcome,
+                        recovered_amount,
+                        recovered_entry_price,
+                        recovered_exit_price,
+                        notes,
+                        str(trade_id),
+                    ),
+                )
+                conn.commit()
+            logger.info(f"✅ Pending orphan resolved: {trade_id} → {outcome}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to resolve pending orphan {trade_id}: {e}")
+            return False
 
     def reconcile_ledger(
         self,
@@ -772,6 +952,8 @@ class TradeHistorian:
         "SL (Recon)",  # Recovered by Auditor
         "TP (ACCOUNT_UPDATE)",
         "SL (ACCOUNT_UPDATE)",
+        "ORPHAN_RECOVERY",  # Phase 250: Force-close after detected orphan
+        "NOT_FILLED",  # Phase 250: Order confirmed never reached exchange
         "DRAIN_PANIC",  # Scheduled Exit
         "DRAIN_AGGRESSIVE",  # Scheduled Exit
         "DRAIN_OPTIMISTIC_ESCALATION",
@@ -830,16 +1012,16 @@ class TradeHistorian:
 
                     -- Phase 61: Intelligent PnL Attribution
                     -- Strategy PnL = Clean + Healed
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl,
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') OR healed=1) THEN 1 ELSE 0 END) as strategy_count,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'ORPHAN_RECOVERY', 'NOT_FILLED', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl,
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'ORPHAN_RECOVERY', 'NOT_FILLED', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') OR healed=1) THEN 1 ELSE 0 END) as strategy_count,
 
                     -- Resilience PnL (Subset of Strategy) = Healed Trades
                     SUM(CASE WHEN healed=1 THEN net_pnl ELSE 0 END) as healed_pnl,
                     SUM(CASE WHEN healed=1 THEN 1 ELSE 0 END) as healed_count,
 
                     -- Error/Leakage PnL = True Errors (Ghosts, Force Closes, Audits)
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') AND healed=0)) THEN net_pnl ELSE 0 END) as error_pnl,
-                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'ORPHAN_RECOVERY', 'NOT_FILLED', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') AND healed=0)) THEN net_pnl ELSE 0 END) as error_pnl,
+                    SUM(CASE WHEN ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'ORPHAN_RECOVERY', 'NOT_FILLED', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') AND healed=0)) THEN 1 ELSE 0 END) as error_count,
 
                     -- Phase 10: Signal-to-Wire (Decision Birth to Wire)
                     -- We use T1 (Decision) instead of T0 (Sensor) for HFT audit
@@ -919,7 +1101,7 @@ class TradeHistorian:
                     SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
                     SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses,
                     AVG(bars_held) as avg_duration,
-                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl
+                    SUM(CASE WHEN (exit_reason IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'ORPHAN_RECOVERY', 'NOT_FILLED', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') OR healed=1) THEN net_pnl ELSE 0 END) as strategy_pnl
                 FROM trades
             """
             if session_id:
@@ -948,7 +1130,7 @@ class TradeHistorian:
             query = """
                 SELECT exit_reason, COUNT(*) as count
                 FROM trades
-                WHERE ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') AND healed=0))
+                WHERE ((exit_reason NOT IN ('TP', 'SL', 'MANUAL', 'TIMEOUT', 'TIME_EXIT', 'TP_SL_HIT', 'TP (Recon)', 'SL (Recon)', 'TP (ACCOUNT_UPDATE)', 'SL (ACCOUNT_UPDATE)', 'ORPHAN_RECOVERY', 'NOT_FILLED', 'DRAIN_PANIC', 'DRAIN_AGGRESSIVE', 'DRAIN_OPTIMISTIC_ESCALATION', 'DRAIN_DEFENSIVE_ESCALATION', 'DRAIN_AGGRESSIVE_ESCALATION', 'DRAIN_PANIC_ESCALATION', 'AUDIT_GHOST_REMOVAL', 'AUDIT_RECON_FORCE', 'LIQUIDATION', 'SHADOW_SL', 'BREAKEVEN', 'TRAILING_STOP', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'ADJUSTMENT') AND healed=0))
             """
             if session_id:
                 query += " AND session_id = ?"

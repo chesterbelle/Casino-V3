@@ -314,17 +314,45 @@ class OCOManager:
                 }
 
             # Cleanup on failure
+            # Phase 250: Two-Layer Orphan Recovery
+            # Previously: force-closed in tracker (OCO_ABORT) — but the market
+            # order MAY have actually filled on the exchange during the timeout,
+            # leaving an orphan. Now we mark as PENDING_VERIFICATION and let
+            # ReconciliationService query the exchange to determine reality.
             self.logger.error(f"❌ OCO bracket creation failed: {e!r}")
             if "main_order" in locals() and main_order:
-                await self._cleanup_partial_oco(main_order, None, None)
+                try:
+                    await self._cleanup_partial_oco(main_order, None, None)
+                except Exception as cleanup_err:
+                    self.logger.warning(f"⚠️ Cleanup after OCO failure raised: {cleanup_err!r}")
             if position:
-                await self.tracker.confirm_close(
-                    trade_id=position.trade_id,
-                    exit_price=position.entry_price,
-                    exit_reason="OCO_ABORT",
-                    pnl=0.0,
-                    fee=0.01,
-                )
+                # Step 1: Mark tracker position as pending verification.
+                # Idempotent — if WS already advanced status (e.g. to OPEN), this is no-op.
+                self.tracker.mark_position_pending_verification(position.trade_id)
+
+                # Step 2: Register pending orphan check in historian so
+                # ReconciliationService can resolve it in the next cycle.
+                try:
+                    from core.observability.historian import historian
+
+                    historian.register_pending_orphan(
+                        trade_id=position.trade_id,
+                        client_order_id=client_order_id,
+                        symbol=position.symbol,
+                        side=position.side,
+                        amount=position.amount or order.get("amount", 0),
+                        expected_entry_price=position.entry_price or order.get("price", 0) or 0.0,
+                        attempted_at=time.time(),
+                        notes=f"OCO_ABORT: {type(e).__name__}: {str(e)[:200]}",
+                    )
+                except Exception as hist_err:
+                    self.logger.warning(f"⚠️ Failed to register pending orphan: {hist_err!r}")
+
+                # Step 3: Apply symbol cooldown to prevent HFT retry storms
+                try:
+                    self.tracker.add_aborted_cooldown(position.symbol)
+                except Exception:
+                    pass
             raise e
 
         finally:

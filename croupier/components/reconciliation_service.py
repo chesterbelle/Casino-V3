@@ -126,6 +126,16 @@ class ReconciliationService:
 
             self.logger.info(f"[SYNC] ✅ Cached reconciliation complete. {len(reports)} symbols processed.")
 
+            # Phase 250: Resolve any pending orphan checks from previous OCO timeouts.
+            # Runs after main reconciliation to avoid stealing REST budget during
+            # the per-symbol phase. Errors here don't affect main reconciliation.
+            try:
+                orphan_reports = await self.check_pending_orphans()
+                if orphan_reports:
+                    self.logger.info(f"[SYNC] 🩹 Resolved {len(orphan_reports)} pending orphans during cached cycle")
+            except Exception as orphan_err:
+                self.logger.warning(f"⚠️ check_pending_orphans failed (cached cycle): {orphan_err}")
+
         except Exception as e:
             self.logger.error(f"❌ Cached reconciliation failed: {e}", exc_info=True)
 
@@ -274,6 +284,14 @@ class ReconciliationService:
 
             self.logger.info(f"[SYNC] ✅ Global reconciliation complete. {len(reports)} symbols processed.")
 
+            # Phase 250: Resolve any pending orphan checks from previous OCO timeouts.
+            try:
+                orphan_reports = await self.check_pending_orphans()
+                if orphan_reports:
+                    self.logger.info(f"[SYNC] 🩹 Resolved {len(orphan_reports)} pending orphans during global cycle")
+            except Exception as orphan_err:
+                self.logger.warning(f"⚠️ check_pending_orphans failed (global cycle): {orphan_err}")
+
         except Exception as e:
             self.logger.error(f"❌ Global reconciliation failed: {e}", exc_info=True)
 
@@ -391,7 +409,7 @@ class ReconciliationService:
 
             # Integrity check
             status = getattr(pos, "status", "OPEN")
-            if status in ["PENDING", "CLOSING", "MODIFYING", "OFF_BOARDING", "SYMLINK"]:
+            if status in ["PENDING", "PENDING_VERIFICATION", "CLOSING", "MODIFYING", "OFF_BOARDING", "SYMLINK"]:
                 continue
 
             # Phase 51: Naked Protection Grace Period
@@ -1058,6 +1076,182 @@ class ReconciliationService:
                     self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
 
         return cancelled_count
+
+    # =========================================================================
+    # Phase 250: Two-Layer Orphan Recovery
+    # =========================================================================
+
+    async def check_pending_orphans(self) -> List[Dict[str, Any]]:
+        """
+        Resolve pending orphan-check entries created when OCO_Manager hit a
+        timeout/exception during order placement.
+
+        For each unresolved entry older than the grace period:
+          - Query exchange: is there a position matching (symbol, side)?
+            - YES → force-close on exchange, mark tracker ORPHAN_RECOVERY (healed)
+            - NO  → mark tracker NOT_FILLED, finalize removal
+
+        Idempotent: resolved entries are skipped on subsequent calls.
+        Returns a list of resolution reports (for diagnostics + metrics).
+        """
+        from core.observability.historian import historian
+
+        reports = []
+
+        # Fetch entries older than 5s — gives WS fills a chance to settle first
+        pending = historian.fetch_pending_orphans(older_than_seconds=5.0, limit=50)
+        if not pending:
+            return reports
+
+        # Group by symbol to minimize REST calls
+        from collections import defaultdict
+
+        by_symbol = defaultdict(list)
+        for entry in pending:
+            by_symbol[entry["symbol"]].append(entry)
+
+        for symbol, entries in by_symbol.items():
+            try:
+                # 1. Fetch current exchange positions for this symbol
+                exchange_positions = await self._fetch_exchange_positions(symbol)
+                if exchange_positions is None:
+                    self.logger.warning(f"⚠️ Orphan check skipped for {symbol}: fetch_positions failed")
+                    continue
+
+                # Build index of (side, amount) → exchange_position
+                ex_index: Dict[tuple, Dict] = {}
+                for ex_pos in exchange_positions:
+                    ex_size = abs(
+                        float(ex_pos.get("contracts", 0) or ex_pos.get("size", 0) or ex_pos.get("amount", 0) or 0)
+                    )
+                    if ex_size < 0.005:
+                        continue  # dust
+                    ex_side = ex_pos.get("side", "").lower()
+                    ex_index[(ex_side, ex_size)] = ex_pos
+
+                # 2. Iterate pending entries for this symbol
+                for entry in entries:
+                    trade_id = entry["trade_id"]
+                    side = entry["side"].lower()
+                    expected_amount = float(entry["amount"])
+
+                    # Try to find matching exchange position by side + amount
+                    # (Amount may be slightly off due to fee deduction or precision)
+                    matched = None
+                    for (ex_side, ex_amount), ex_pos in ex_index.items():
+                        if ex_side != side:
+                            continue
+                        # Allow 1% tolerance on amount (fee/precision diff)
+                        if abs(ex_amount - expected_amount) / max(expected_amount, 1e-9) < 0.01:
+                            matched = ex_pos
+                            break
+
+                    if matched:
+                        # ── CASE C: Order WAS actually filled → orphan recovered ──
+                        recovered_entry = float(matched.get("entryPrice", 0) or entry.get("expected_entry_price", 0))
+                        recovered_amount = abs(
+                            float(matched.get("contracts", 0) or matched.get("size", 0) or expected_amount)
+                        )
+                        self.logger.warning(
+                            f"🚨 ORPHAN DETECTED: {trade_id} on {symbol} — "
+                            f"force-closing {recovered_amount} @ entry {recovered_entry}"
+                        )
+
+                        # Force-close on exchange (reduceOnly market)
+                        try:
+                            close_side = "sell" if side == "long" else "buy"
+                            await self.adapter.create_market_order(
+                                symbol=symbol,
+                                side=close_side,
+                                amount=recovered_amount,
+                                params={"reduceOnly": True},
+                            )
+                            self.logger.info(
+                                f"✅ Orphan force-close submitted: {trade_id} " f"({recovered_amount} {symbol})"
+                            )
+                        except Exception as close_err:
+                            self.logger.error(f"❌ Orphan force-close failed for {trade_id}: {close_err}")
+                            # Don't resolve — retry next cycle
+                            continue
+
+                        # Mark tracker as ORPHAN_RECOVERY (healed)
+                        try:
+                            self.tracker.remove_pending_verification(
+                                trade_id=trade_id,
+                                exit_reason="ORPHAN_RECOVERY",
+                                recovered_amount=recovered_amount,
+                                recovered_entry_price=recovered_entry,
+                                recovered_exit_price=0.0,  # updated by WS event
+                            )
+                        except Exception as tracker_err:
+                            self.logger.warning(f"⚠️ remove_pending_verification failed for {trade_id}: {tracker_err}")
+
+                        historian.resolve_pending_orphan(
+                            trade_id=trade_id,
+                            outcome="FILLED",
+                            recovered_amount=recovered_amount,
+                            recovered_entry_price=recovered_entry,
+                            notes="Force-closed via check_pending_orphans",
+                        )
+                        reports.append(
+                            {
+                                "trade_id": trade_id,
+                                "symbol": symbol,
+                                "outcome": "RECOVERED",
+                                "amount": recovered_amount,
+                                "entry_price": recovered_entry,
+                            }
+                        )
+
+                    else:
+                        # ── CASE A/B: Order never filled (or pending, not yet filled) ──
+                        # Safe to discard. The cooldown on the symbol prevents
+                        # immediate re-entry; reconciliation will see no
+                        # exchange position next cycle if the order is still
+                        # pending and times out at Binance level.
+                        self.logger.info(
+                            f"✅ Orphan resolved as NOT_FILLED: {trade_id} ({symbol} {side}) — "
+                            f"no matching position on exchange"
+                        )
+                        try:
+                            self.tracker.remove_pending_verification(
+                                trade_id=trade_id,
+                                exit_reason="NOT_FILLED",
+                            )
+                        except Exception as tracker_err:
+                            self.logger.warning(
+                                f"⚠️ remove_pending_verification (NOT_FILLED) " f"failed for {trade_id}: {tracker_err}"
+                            )
+
+                        historian.resolve_pending_orphan(
+                            trade_id=trade_id,
+                            outcome="NOT_FILLED",
+                            notes="No matching exchange position found",
+                        )
+                        reports.append(
+                            {
+                                "trade_id": trade_id,
+                                "symbol": symbol,
+                                "outcome": "NOT_FILLED",
+                            }
+                        )
+
+            except Exception as e:
+                self.logger.error(
+                    f"❌ check_pending_orphans failed for {symbol}: {e}",
+                    exc_info=True,
+                )
+                continue
+
+        if reports:
+            recovered = sum(1 for r in reports if r["outcome"] == "RECOVERED")
+            not_filled = sum(1 for r in reports if r["outcome"] == "NOT_FILLED")
+            self.logger.info(
+                f"🩹 Orphan check cycle: {len(reports)} entries resolved "
+                f"({recovered} recovered, {not_filled} not_filled)"
+            )
+
+        return reports
 
     async def _close_position_dict(self, position_dict: Dict, symbol: Optional[str] = None) -> None:
         """Force close an exchange position (dict format)."""

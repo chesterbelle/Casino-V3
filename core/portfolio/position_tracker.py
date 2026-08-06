@@ -1480,6 +1480,143 @@ class PositionTracker(TraceBulletMixin):
 
         return result
 
+    # =========================================================================
+    # Phase 250: Two-Layer Orphan Recovery
+    # =========================================================================
+
+    def mark_position_pending_verification(self, trade_id: str) -> bool:
+        """
+        Mark a position as PENDING_VERIFICATION after OCO_Manager hits a
+        timeout/exception during market order placement. The position is
+        NOT removed from the tracker; instead, its status is set to
+        PENDING_VERIFICATION so ReconciliationService can query the exchange
+        and determine the actual state.
+
+        The position is invisible to naked-protection logic (PENDING-like),
+        but capital stays free (register_inflight_position does NOT block
+        capital, only add_position does).
+
+        Returns True if marked, False if position not found or already in a
+        terminal state.
+        """
+        position = self.get_position(trade_id)
+        if not position:
+            logger.warning(f"⚠️ mark_position_pending_verification: position {trade_id} not found")
+            return False
+
+        # Idempotency: if already pending verification, no-op
+        if getattr(position, "status", None) == "PENDING_VERIFICATION":
+            logger.debug(f"⏭️ Position {trade_id} already PENDING_VERIFICATION")
+            return True
+
+        # If position was already filled (status OPEN) before the timeout
+        # arrived (race), we must NOT revert it. WS event path will handle close.
+        current_status = getattr(position, "status", None)
+        if current_status in ("OPEN", "OFF_BOARDING", "CLOSING"):
+            logger.info(
+                f"ℹ️ Position {trade_id} already in status {current_status} — "
+                "skip pending verification (WS will handle)"
+            )
+            return False
+
+        position.status = "PENDING_VERIFICATION"
+        # Note: OpenPosition uses slots=True, so we cannot setattr extra fields.
+        # The status itself is the marker; reconciliation identifies pending
+        # verifications via status == "PENDING_VERIFICATION" or via the
+        # pending_orphan_check table.
+        logger.warning(
+            f"🔍 Position {trade_id} ({position.symbol} {position.side}) "
+            f"marked PENDING_VERIFICATION — awaiting exchange confirmation"
+        )
+        return True
+
+    def find_pending_verification_positions(self) -> List:
+        """
+        Return all positions currently in PENDING_VERIFICATION status.
+        Used by ReconciliationService to iterate orphan checks.
+        """
+        return [p for p in self.open_positions if getattr(p, "status", None) == "PENDING_VERIFICATION"]
+
+    def remove_pending_verification(
+        self,
+        trade_id: str,
+        exit_reason: str,
+        recovered_amount: Optional[float] = None,
+        recovered_entry_price: Optional[float] = None,
+        recovered_exit_price: Optional[float] = None,
+    ) -> bool:
+        """
+        Called by ReconciliationService after resolving a pending orphan check.
+
+        exit_reason:
+          - 'ORPHAN_RECOVERY': Position was actually on exchange — force-close
+            recorded as ORPHAN_RECOVERY (healed=True so it doesn't pollute
+            error leakage metrics).
+          - 'NOT_FILLED': Position was never on exchange — safe to remove
+            (recorded as NOT_FILLED).
+
+        Schedules the actual close/removal via asyncio task. Caller should be
+        in async context.
+        """
+        position = self.get_position(trade_id)
+        if not position:
+            return False
+
+        if exit_reason == "ORPHAN_RECOVERY":
+            entry_price = recovered_entry_price or position.entry_price or 0.0
+            actual_amount = recovered_amount or position.amount or 0.0
+            exit_price = recovered_exit_price or entry_price
+            pnl = 0.0  # By design: orphan closes immediately, no edge gained
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            async def _do_recovery():
+                await self.confirm_close(
+                    trade_id=trade_id,
+                    exit_price=exit_price,
+                    exit_reason="ORPHAN_RECOVERY",
+                    pnl=pnl,
+                    fee=0.0,
+                    healed=True,
+                )
+
+            if loop is not None:
+                asyncio.create_task(_do_recovery())
+            else:
+                # No loop (e.g. unit test). Skip async; caller will resolve.
+                logger.warning(
+                    f"⚠️ remove_pending_verification({trade_id}): no event loop, "
+                    f"ORPHAN_RECOVERY will not be confirm_close'd in this call"
+                )
+            logger.info(
+                f"🩹 Orphan recovered: {trade_id} → ORPHAN_RECOVERY " f"(amount={actual_amount}, entry={entry_price})"
+            )
+            return True
+
+        if exit_reason == "NOT_FILLED":
+            logger.info(
+                f"🧹 Orphan resolved as NOT_FILLED: {trade_id} " f"(order never reached exchange; safe to discard)"
+            )
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop is not None:
+                asyncio.create_task(self.finalize_removal(trade_id))
+            else:
+                # No loop (e.g. unit test). Skip async; caller will resolve.
+                logger.warning(
+                    f"⚠️ remove_pending_verification({trade_id}): no event loop, "
+                    f"NOT_FILLED finalize_removal will not run in this call"
+                )
+            return True
+
+        logger.error(f"❌ Unknown exit_reason {exit_reason} for {trade_id}")
+        return False
+
     def get_stats(self) -> Dict[str, Any]:
         """Retorna estadísticas del tracker."""
         return {
