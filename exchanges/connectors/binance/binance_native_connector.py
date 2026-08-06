@@ -37,7 +37,7 @@ import os
 import time
 import uuid
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlencode
 
 import aiohttp
@@ -1310,24 +1310,48 @@ class BinanceNativeConnector(BaseConnector):
     # ORDERS - Regular
     # =========================================================
 
-    async def fetch_open_orders(self, symbol: str = None, timeout: Optional[float] = None) -> List[Dict[str, Any]]:
-        """Fetch ALL open orders (regular + algo). Propagates errors on failure."""
+    async def fetch_open_orders(
+        self, symbol: Union[str, List[str], None] = None, timeout: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch open orders (regular + algo). Propagates errors on failure.
+
+        Phase 250: Accepts a list of symbols (or None for legacy single-symbol callers).
+        Binance Testnet requires per-symbol queries (/fapi/v1/openOrders rejects -1121
+        when no symbol is provided). When called with a list or None with no caller
+        hint, callers should pass an explicit list. We iterate per-symbol when a list
+        is provided.
+        """
         all_orders = []
 
-        # 1. Regular orders
-        params = {}
-        if symbol:
-            params["symbol"] = self._normalize_symbol(symbol)
+        # Resolve target symbols
+        if symbol is None:
+            # Phase 250: None alone is unsafe on Testnet — return empty list
+            # (callers should pass an explicit list). Legacy callers that passed None
+            # will get an empty list, which is what Binance would return anyway.
+            return all_orders
+        elif isinstance(symbol, list):
+            if not symbol:
+                return all_orders
+            target_symbols = [self._normalize_symbol(s) for s in symbol]
+        else:
+            target_symbols = [self._normalize_symbol(symbol)]
 
-        # self.logger.debug(f"🔍 Fetching regular orders with params: {params}")
-        orders = await self._request(
-            "GET", "/fapi/v1/openOrders", params, signed=True, endpoint_type="orders", timeout=timeout
-        )
-        all_orders.extend([self._normalize_order(o) for o in orders])
-
-        # 2. Algo/Conditional orders
-        algo_orders = await self._fetch_open_algo_orders(symbol, timeout=timeout)
-        all_orders.extend(algo_orders)
+        for sym in target_symbols:
+            params = {"symbol": sym}
+            try:
+                # Regular orders
+                orders = await self._request(
+                    "GET", "/fapi/v1/openOrders", params, signed=True, endpoint_type="orders", timeout=timeout
+                )
+                all_orders.extend([self._normalize_order(o) for o in orders])
+                # Algo/conditional orders
+                algo_orders = await self._fetch_open_algo_orders(sym, timeout=timeout)
+                all_orders.extend(algo_orders)
+            except Exception as e:
+                # Propagate individual symbol errors to caller (do NOT swallow)
+                self.logger.error(f"❌ fetch_open_orders failed for {sym}: {e!r}")
+                raise
 
         return all_orders
 
@@ -1685,13 +1709,13 @@ class BinanceNativeConnector(BaseConnector):
     # =========================================================
 
     async def _fetch_open_algo_orders(
-        self, symbol: str = None, timeout: Optional[float] = None
+        self, symbol: Union[str, None] = None, timeout: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """Fetch open algo/conditional orders. Propagates errors."""
-        params = {}
-        if symbol:
-            params["symbol"] = self._normalize_symbol(symbol)
-
+        # Phase 250: When symbol is None, return empty (Testnet requires explicit symbol)
+        if symbol is None:
+            return []
+        params = {"symbol": self._normalize_symbol(symbol)}
         # FIX: Force max limit to avoid visibility loss (default is often 20 or 100)
         params["limit"] = 1000
 

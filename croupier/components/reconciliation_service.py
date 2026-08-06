@@ -157,9 +157,29 @@ class ReconciliationService:
                 self.logger.error("❌ Aborting global reconciliation due to fetch error")
                 return []
 
-            open_orders = await self.adapter.fetch_open_orders([])
+            # Phase 250: Compute the symbol set to query open orders for.
+            # Binance Testnet requires explicit symbol per call (/fapi/v1/openOrders
+            # returns -1121 Invalid symbol when no symbol is provided). We must
+            # collect candidates from local tracker + exchange positions.
+            local_symbols_set = {normalize_symbol(p.symbol) for p in self.tracker.open_positions}
+            exchange_symbols_set = {
+                normalize_symbol(p["symbol"]) for p in exchange_positions if abs(float(p.get("contracts", 0))) > 1e-8
+            }
+            order_query_symbols = sorted(local_symbols_set | exchange_symbols_set)
+
+            open_orders = await self.error_handler.execute_with_breaker(
+                "reconciliation_fetch",
+                self.adapter.fetch_open_orders,
+                order_query_symbols,
+                retry_config=self.reconcile_retry_config,
+            )
+            if open_orders is None:
+                self.logger.error("❌ Aborting global reconciliation due to orders fetch error")
+                return []
+
             self.logger.info(
-                f"[SYNC] 🔍 Global sync sees {len(exchange_positions)} positions and {len(open_orders)} orders"
+                f"[SYNC] 🔍 Global sync sees {len(exchange_positions)} positions and "
+                f"{len(open_orders)} orders (across {len(order_query_symbols)} symbols)"
             )
 
             # Phase 16: Active Verification (Anti-Glitch Safety Valve)
@@ -204,9 +224,20 @@ class ReconciliationService:
                     )
                     return []
 
-            # Fetch ALL open orders once
+            # Phase 250: Re-fetch open orders after glitch check (positions set may have changed)
+            order_query_symbols = sorted(
+                {normalize_symbol(p.symbol) for p in self.tracker.open_positions}
+                | {
+                    normalize_symbol(p["symbol"])
+                    for p in exchange_positions
+                    if abs(float(p.get("contracts", 0))) > 1e-8
+                }
+            )
             open_orders = await self.error_handler.execute_with_breaker(
-                "reconciliation_fetch", self.adapter.fetch_open_orders, None, retry_config=self.reconcile_retry_config
+                "reconciliation_fetch",
+                self.adapter.fetch_open_orders,
+                order_query_symbols,
+                retry_config=self.reconcile_retry_config,
             )
             if open_orders is None:
                 self.logger.error("❌ Aborting global reconciliation due to orders fetch error")

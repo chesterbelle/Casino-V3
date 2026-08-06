@@ -50,13 +50,32 @@ class ReconciliationWorker(mp.Process):
 
         logger.info("✅ ReconciliationWorker started")
 
+        # Phase 250: Track symbols we've seen to also fetch orders for symbols
+        # that recently closed positions (residual SL/TP orders still pending).
+        known_symbols: set = set()
+
         while not self._stop_event.is_set():
             try:
                 start_time = time.time()
 
-                # We request all symbols because this runs out-of-band and doesn't affect HFT flow
+                # Fetch positions first (no symbol required by Binance)
                 exchange_positions = await connector.fetch_positions(symbol=None)
-                open_orders = await connector.fetch_open_orders(symbol=None)
+
+                # Build the symbol set: positions + previously seen symbols
+                pos_symbols = {
+                    p.get("symbol")
+                    for p in (exchange_positions or [])
+                    if abs(float(p.get("contracts", 0) or p.get("size", 0) or 0)) > 1e-8
+                }
+                query_symbols = sorted(known_symbols | pos_symbols)
+                known_symbols |= pos_symbols
+                # Cap the symbol list to avoid runaway memory (sliding window)
+                if len(known_symbols) > 50:
+                    known_symbols = set(list(known_symbols)[-50:])
+
+                # Phase 250: Binance Testnet requires explicit symbol per call.
+                # Pass the list of candidate symbols derived from positions.
+                open_orders = await connector.fetch_open_orders(query_symbols) if query_symbols else []
 
                 # Construct data payload
                 payload = {
