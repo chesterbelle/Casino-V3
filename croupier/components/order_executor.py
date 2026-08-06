@@ -792,7 +792,12 @@ class OrderExecutor:
 
                 # Fetch all state
                 all_exchange_positions = await self.adapter.fetch_positions()
-                all_exchange_orders = await self.adapter.fetch_open_orders(None)
+                if symbols:
+                    all_exchange_orders = []
+                    for sym in symbols:
+                        all_exchange_orders.extend(await self.adapter.fetch_open_orders(sym))
+                else:
+                    all_exchange_orders = await self.adapter.fetch_open_orders(None)
 
                 # Filter and Map
                 symbol_map = {}

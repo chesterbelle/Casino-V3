@@ -11,7 +11,13 @@
 - [ ] `emergency_cleanup.py` ejecutado
 - [ ] Verificación: 0 posiciones / 0 órdenes en exchange (assert pass)
 - [ ] `reset_data.py` ejecutado
-- [ ] Branch activo: `dev-9.3-cleanup-and-stress`
+- [x] Branch activo: `dev-9.3-cleanup-and-stress`
+- [x] Ejecutar Paso 1.4B.2a (DG-1: 12h LTCUSDT)
+- [x] Analizar post-mortem DG-1 (encontrar bugs)
+- [x] Ejecutar Paso 1.4B.2b (DG-2: 12h LTCUSDT)
+- [x] Fix ISSUE-001 y ISSUE-002 (Sheriff)
+- [/] Ejecutar Paso 1.4B.3 (DG-3: 12h Multi-Coin LTC, SOL, AVAX)
+- [ ] Ejecutar Paso 1.4B.4 (24h Full Endurance)
 
 ---
 
@@ -31,7 +37,7 @@
 | Run | Duración objetivo | Inicio | Log | Resultado |
 |-----|-------------------|--------|-----|-----------|
 | **DG-1** | **12h** | **2026-08-03 23:18** | `logs/debug_gate_12h_20260803_231802.log` | 🟡 10h52min — PC reiniciado. 7h limpias, bugs emergieron a las 07:00 |
-| DG-2 | 12h | — | — | 🔄 Pendiente (fixes commiteados en `2a34cf6`) |
+| **DG-2** | **12h** | **2026-08-04 12:25** | `logs/debug_gate_12h_20260804_122518_DG2.log` | 🟢 En curso |
 
 
 > Una vez DG-2 limpio → revisar si se necesita DG-3 o pasar a **B.3 Full Endurance (24h)**.
