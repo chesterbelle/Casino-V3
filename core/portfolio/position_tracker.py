@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -287,6 +288,7 @@ class PositionTracker(TraceBulletMixin):
         # Callback for immediate state persistence
         self.state_change_callback: Optional[Callable[[], Awaitable[None]]] = None
         self._background_tasks = set()  # Prevent GC of fire-and-forget tasks
+        self._capital_lock = threading.Lock()  # Atomic updates for blocked_capital (sync context)
         self.total_trades_opened = 0
         self.total_trades_closed = 0
         self.total_wins = 0  # Track wins
@@ -776,10 +778,8 @@ class PositionTracker(TraceBulletMixin):
                 # Sheriff Logic: Do we have an open position for this symbol?
                 # We normalize BOTH symbols to ensure "ZILUSDT" matches "ZIL/USDT".
 
-                # Check all active positions for this symbol
-                matching_positions = [
-                    p for p in self.open_positions if normalize_symbol(p.symbol) == normalize_symbol(symbol)
-                ]
+                # Check all active positions for this symbol - O(1) via _symbol_map
+                matching_positions = self._symbol_map.get(normalize_symbol(symbol), [])
 
                 if matching_positions:
                     logger.warning(
@@ -1145,7 +1145,11 @@ class PositionTracker(TraceBulletMixin):
                 self.register_alias(contrib_id, position, symbol=symbol)
             # ----------------------------------------------
 
-            self.blocked_capital += margin_used
+            # Populate _global_alias_map for O(1) fallback lookup
+            self._global_alias_map[position.trade_id] = position
+
+            with self._capital_lock:
+                self.blocked_capital += margin_used
             self.total_trades_opened += 1
             logger.debug(f"COUNTER_DEBUG: Incrementing total_opened to {self.total_trades_opened} via open_position")
 
@@ -1406,7 +1410,8 @@ class PositionTracker(TraceBulletMixin):
             self._unregister_all_aliases(position)
 
             # Liberar capital bloqueado
-            self.blocked_capital -= position.margin_used
+            with self._capital_lock:
+                self.blocked_capital -= position.margin_used
             self.total_trades_closed += 1
         else:
             # Partial Exit Logic: Update but keep active
@@ -1718,7 +1723,8 @@ class PositionTracker(TraceBulletMixin):
             }
 
             closed_results.append(result)
-            self.blocked_capital -= position.margin_used
+            with self._capital_lock:
+                self.blocked_capital -= position.margin_used
             self.total_trades_closed += 1
 
             logger.info(f"P&L: {pnl_value:+.2f} ({pnl_pct:.2%}) | Bars: {position.bars_held}")
@@ -1984,6 +1990,7 @@ class PositionTracker(TraceBulletMixin):
         self.open_positions.clear()
         self._alias_map.clear()
         self._symbol_map.clear()
+        self._global_alias_map.clear()
 
         # Reset counters
         self.total_trades_opened = 0
@@ -2041,7 +2048,8 @@ class PositionTracker(TraceBulletMixin):
             return
 
         self.open_positions.append(position)
-        self.blocked_capital += position.margin_used
+        with self._capital_lock:
+            self.blocked_capital += position.margin_used
 
         # Phase 46.1: Ensure O(1) Symbol Map is updated for adopted positions
         sym_norm = position.symbol
