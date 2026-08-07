@@ -65,6 +65,10 @@ graph TD
 | **ProfileManager** | `decision/engine/profile_manager.py` | 1-120 | Resuelve perfil de cada símbolo (cluster) y devuelve parámetros. |
 | **CoinProfiles** | `config/coin_profiles.py` | 1-500 | **Aquí están los parámetros de cada cluster.** |
 | **SignalArbitratorValidator** | `utils/validators/signal_arbitrator_validator.py` | 1-143 | Valida VA_GATE regime gating: TRENDING bloquea mean-reversion, RANGE permite trend-following, conflictos resueltos deterministicamente. |
+| **OCOManager (PENDING_VERIFICATION)** | `croupier/components/oco_manager.py` | 294-330 | **Phase 250:** En el except path, marca position como PENDING_VERIFICATION + registra pending entry en `pending_orphan_check` table. NO fuerza close. |
+| **PositionTracker (orphan helpers)** | `core/portfolio/position_tracker.py` | 1490-1620 | **Phase 250:** `mark_position_pending_verification()`, `find_pending_verification_positions()`, `remove_pending_verification()`. |
+| **ReconciliationService (check_pending_orphans)** | `croupier/components/reconciliation_service.py` | 1063-1230 | **Phase 250:** Fase que corre al final de cada ciclo. Grace 5s → query exchange por (symbol, side, amount) → force-close (ORPHAN_RECOVERY) o finalize (NOT_FILLED). |
+| **Historian (pending_orphan_check)** | `core/observability/historian.py` | 365-410, 660-740 | Tabla SQLite `pending_orphan_check` + helpers `register_pending_orphan`, `fetch_pending_orphans`, `resolve_pending_orphan`. |
 
 ---
 
@@ -173,6 +177,14 @@ graph TD
 
 ## 📝 Historial de Cambios de Arquitectura
 
+- **2026-08-07 (Phase 250 — Two-Layer Orphan Recovery):**
+  - **Decisión arquitectónica** tras DG-3 (6 OCO_ABORTs dejaron 6 orphans reales en exchange).
+  - **Separation of concerns:** OCO Manager maneja órdenes (Layer 1), ReconciliationService es la fuente de verdad del exchange (Layer 2).
+  - Layer 1 (`oco_manager.py`): En except path, marca position como `PENDING_VERIFICATION` + registra pending entry en tabla `pending_orphan_check`. NO fuerza close (asumiría incorrectamente estado del exchange).
+  - Layer 2 (`reconciliation_service.py:check_pending_orphans()`): Cada ciclo de reconciliación, con grace period de 5s, consulta exchange por (symbol, side, amount). Si hay posición → force-close + `ORPHAN_RECOVERY` (healed=True, no contamina error leakage). Si no → `NOT_FILLED` + finalize_removal.
+  - Tabla nueva: `pending_orphan_check` en historian DB (id, trade_id, client_order_id, symbol, side, amount, expected_entry_price, attempted_at, resolved_at, outcome, recovered_amount, recovered_entry_price, recovered_exit_price).
+  - Métricas: `ORPHAN_RECOVERY` y `NOT_FILLED` añadidos a `CLEAN_EXIT_REASONS` — son legítimos, no errores.
+  - Validado en DG-3R: Orphan Hygiene 100% (vs 0% DG-3), 0 OCO_ABORTs.
 - **2026-06-27 (Refactor Profundo):**
   - Renombrado: `PressureEngine` → `OrderFlowEngine`.
   - Eliminado: Código legacy (`concentration_min`, `noise_max`, `absorption_score`).

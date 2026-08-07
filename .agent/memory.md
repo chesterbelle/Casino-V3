@@ -38,17 +38,20 @@
 >     ```
 >     Lección 2026-08-03: una posición fantasma del run anterior (PC reiniciado) generó 451 cierres fallidos (~8h de run contaminado con 445 errores -1007, 4 TASK STALL, 2 OCO_ABORT). Fix de símbolo + cooldown no evitan el residuo: la VERIFICACIÓN pre-flight es el único guard.
 > 18. **NO MODIFICAR main.py CON HYGIENE CHECK:** El reconcile/adopt de posiciones existentes al arranque es diseño INTENCIONAL (resiliencia: si el bot crashea o falla la luz, al reiniciar adopta lo que hay en el exchange). NO añadir limpieza automática al arranque del bot. La limpieza pre-run es responsabilidad del operador/agente (Regla 17).
+> 19. **ARQUITECTURA (TWO-LAYER ORPHAN RECOVERY — Phase 250):** Cuando el OCO Manager tiene un timeout/exception durante el placement de una market order, NO debe asumir el estado del exchange (3 realidades posibles: orden nunca llegó, orden pendiente, orden llenada). El patrón correcto es: **Layer 1 (OCO Manager)** marca `PENDING_VERIFICATION` en tracker + registra entry en tabla `pending_orphan_check`. **Layer 2 (ReconciliationService)** tiene una fase `check_pending_orphans()` con grace period de 5s que consulta el exchange y resuelve: si hay posición → force-close + `ORPHAN_RECOVERY` (healed=True, no contamina error leakage); si no hay → `NOT_FILLED` + `finalize_removal`. Separation of concerns: OCO Manager maneja órdenes, ReconciliationService es la fuente de verdad del exchange.
+> 20. **GOTCHA (MULTI-COIN COMMA-JOINED SYMBOL):** `--symbol LTCUSDT,SOLUSDT,AVAXUSDT` se parsea en `main.py` como lista de targets, pero `ExchangeAdapter.symbol` se queda con el string crudo `"LTCUSDT,SOLUSDT,AVAXUSDT"`. Lugares que usan `self.symbol` como fallback (sin argumento explícito) intentarán tratar el string completo como UN solo símbolo → `-1121 Invalid symbol` de Binance. **Solución**: TODA llamada a métodos de connector/adapter en código multi-coin debe pasar una lista explícita, NUNCA `None`. Detección: `if symbol == "MULTI" or (isinstance(symbol, str) and "," in symbol): skip / use list`.
+> 21. **GOTCHA (--timeout GRACEFUL SHUTDOWN):** Para runs largos (endurance tests) usar `--timeout N` (en MINUTOS) como argumento de `main.py` — implementa drain phase + `SIGNAL_STOP` graceful. NO usar `timeout` shell command (corta abruptamente, deja WAL/SHM huérfanos). Comando correcto: `nohup .venv/bin/python main.py --symbol LTCUSDT,SOLUSDT,AVAXUSDT --mode demo --close-on-exit --timeout 720 > /tmp/run.log 2>&1 &`. El timeout es interno de main.py, el shell solo provee background.
 
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
-*   **Current Branch**: `main` (certificada como **v9.2.0-phase1-ready**)
-*   **Dev Branch**: `dev-9.3-cleanup-and-stress` (rama de trabajo activa)
-*   **Stable Branch**: `main` (versión certificada **v9.2.0-phase1-ready**)
+*   **Current Branch**: `dev-9.3-cleanup-and-stress` (rama de trabajo activa — DG-3R completado)
+*   **Stable Branch**: `main` (certificada como **v9.2.0-phase1-ready**)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized + Regime Filter + SBR).
 *   **Datasets**: **84 certificados** (2/2/2 × 14) en `data/datasets/daily_backtest_ready/`. +9 mensuales: 6 LTC (Ene–Jun 2026) + 3 SOL (Mar–May 2026) en `data/datasets/monthly_backtest_ready/`.
+*   **Two-Layer Orphan Recovery (Phase 250)**: Certificada 2026-08-07 tras DG-3R.
 
 
 ## 🏛️ Git Flow Metodología (3 Branches)
@@ -120,6 +123,7 @@
 *   **Slim Exit Engine (v11.0 Pasivo)**: Compresión lineal de brackets de intercambio (modify_tp/modify_sl) al superar el max_hold (21600s), eliminación absoluta de salidas activas de mercado (cero llamadas a `close_position()`) para erradicar el slippage. Throttling inteligente de variaciones menores (<0.01% delta).
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets
+*   **Two-Layer Orphan Recovery (Phase 250 — 2026-08-07)**: Decisión arquitectónica tras DG-3 (6 OCO_ABORTs dejaron 6 orphans). Layer 1 (OCO Manager) marca `PENDING_VERIFICATION` + registra pending entry en `pending_orphan_check` table. Layer 2 (ReconciliationService) corre `check_pending_orphans()` cada ciclo con 5s grace period → consulta exchange → `ORPHAN_RECOVERY` (force-close + healed=True) o `NOT_FILLED` (finalize_removal). Separation of concerns: OCO Manager NO asume estado del exchange. Validado en DG-3R Multi-Coin 12h: Orphan Hygiene 100% (vs 0% en DG-3), 0 OCO_ABORTs.
 
 ### 4. Capa de Escudo (Risk / Regime) — [CERTIFICADA 🟢]
 *   **VA_GATE Regime Filter**: Rolling window 8h evalúa estructura de volumen actual; bloquea mean-reversion en tendencia (integrity ~0.001), permite en rango (integrity > 0.15).
@@ -152,21 +156,24 @@
 >
 > **Por favor, lee ese documento para saber en qué fase estamos y qué sigue.**
 
-### 📍 Ruta Actual (Estado Vivo — 2026-08-03)
+### 📍 Ruta Actual (Estado Vivo — 2026-08-07)
 | Fase | Paso | Estado |
 |------|------|--------|
 | 1.1 | Non-Regression Test (9 activos) | ✅ Completado (0 regresiones) |
 | 1.2 | Internal Event Bus Refactor | ✅ Completado |
 | 1.3 | `/validate-all` (8/8 tests) | ✅ Completado |
 | 1.4A | Chaos Test (10min, 9 monedas) | ✅ Completado — Error Trades=0, Integrity=PASS, 634 ops |
-| **1.4B.1** | **Mini-Endurance (4h, LTCUSDT)** | **✅ COMPLETADO — 7h reales, Error Recovery=$0, 0 crashes, VA_GATE OK** |
-| **1.4B.2a** | **Debug-Gate 12h (LTCUSDT) — 1er run** | **🔄 Pendiente ← PRÓXIMO** |
-| 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run consecutivo | 🔄 Pendiente |
-| 1.4B.3 | Full Endurance 24h (Certificación formal) | 🔄 Pendiente (solo tras 2× 12h limpios) |
-| 1.4B.4 | Multi-Coin Endurance (48h) | 🔄 Pendiente |
+| 1.4B.1 | Mini-Endurance (4h, LTCUSDT) | ✅ Completado — 7h reales, Error Recovery=$0 |
+| 1.4B.2a | Debug-Gate 12h (LTCUSDT) — 1er run | ✅ Completado — bugs A+B fix (`2a34cf6`), -4120 fix (`ec07d2a`) |
+| 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | ✅ Completado — Sheriff fixes (`4be1102`) |
+| **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **✅ COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
+| **1.4B.4** | **Full Endurance 24h (Certificación formal)** | **🔄 Pendiente ← PRÓXIMO** |
+| 1.4B.5 | Multi-Coin Endurance (48h) | 🔄 Pendiente |
 | 1.5 | Análisis Drawdown/Riesgo | 🔄 Pendiente |
 
-**Próximo paso**: Fase 1.4B.2a — Debug-Gate 12h en LTCUSDT
+**Próximo paso**: Fase 1.4B.4 — Full Endurance 24h (Certificación formal).
+
+> **📌 NOTA SOBRE DG-3R (2026-08-07):** Run técnicamente PASS pero con muestra estadística insuficiente (3 trades, 0W/3L). Considerar repetir DG-3 Multi-Coin antes de Full Endurance 24h si se busca validación de edge (no solo de estabilidad). La arquitectura Two-Layer Orphan Recovery está certificada: código NO se disparó en el run (no hubo timeouts), pero está listo. Métrica clave: 722 ciclos de reconciliación sin un solo fallo.
 
 > **🔁 METODOLOGÍA DEBUG-GATE (decisión 2026-08-03):** La Full Endurance se divide en dos gates para iterar más rápido:
 > 1. **Gate de Depuración (12h):** Corre 12h. Si aparece error → fix → repetir. Objetivo: 2 runs consecutivos limpios.
