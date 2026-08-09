@@ -17,7 +17,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.error_handling import RetryConfig, get_error_handler
-from core.exceptions import ExchangeError
+from core.exceptions import ExchangeError, ValidationError
 
 from .depth_profiler import DepthProfiler
 from .sniper_engine import SniperEngine
@@ -179,6 +179,46 @@ class OrderExecutor:
                     self.logger.info(
                         f"🛡️ SAFE MODE FAIL-SOFT: Allowing entry for {order['symbol']} " f"(Exposure: {open_count} < 3)"
                     )
+
+        # =========================================================
+        # PRE-ENTRY NOTIONAL VALIDATION (Phase 250+)
+        # Prevent opening positions too small to place protective TP/SL brackets.
+        # If notional < min_notional, the bracket fallback (closePosition=True)
+        # fails with Binance -4120 "order type not supported for this endpoint",
+        # leaving the position unprotected.
+        # =========================================================
+        params = order.get("params", {})
+        is_reduce_only = params.get("reduceOnly", False)
+        is_close_position = (
+            str(params.get("closePosition", "")).lower() == "true" or params.get("closePosition") is True
+        )
+        if not is_reduce_only and not is_close_position:
+            # Only validate for entries (not reduceOnly closes or closePosition orders)
+            try:
+                current_price = await self.adapter.get_current_price(order["symbol"])
+                min_notional = self.adapter.get_min_notional(order["symbol"])
+                projected_notional = order["amount"] * current_price
+                if projected_notional < min_notional:
+                    self.logger.error(
+                        f"❌ PRE-ENTRY REJECTED: {order['symbol']} notional ${projected_notional:.2f} "
+                        f"< exchange minimum ${min_notional:.2f} (qty={order['amount']} @ ${current_price:.4f}). "
+                        f"Position would be unprotected (brackets fail with -4120)."
+                    )
+                    raise ValidationError(
+                        f"Entry rejected: notional ${projected_notional:.2f} < min ${min_notional:.2f} "
+                        f"for {order['symbol']}. Increase size or leverage to reach min notional."
+                    )
+                self.logger.debug(
+                    f"✅ Pre-entry notional check passed: {order['symbol']} "
+                    f"${projected_notional:.2f} >= ${min_notional:.2f}"
+                )
+            except ValidationError:
+                raise
+            except Exception as e:
+                self.logger.warning(
+                    f"⚠️ Pre-entry notional check skipped for {order['symbol']} ({e}). "
+                    f"Proceeding with entry (brackets may fail if notional too small)."
+                )
 
         # Phase 102/230/241: Execution Quality Analysis (STRIPPED for Footprint Scalping)
         # Depth profiling is removed from the hot path to eliminate latency.
