@@ -124,6 +124,7 @@
 *   **Audit Mode**: In-trade lock bypass + no execution
 *   **Proximity Analysis**: Muestra qué tan cerca están los targets
 *   **Two-Layer Orphan Recovery (Phase 250 — 2026-08-07)**: Decisión arquitectónica tras DG-3 (6 OCO_ABORTs dejaron 6 orphans). Layer 1 (OCO Manager) marca `PENDING_VERIFICATION` + registra pending entry en `pending_orphan_check` table. Layer 2 (ReconciliationService) corre `check_pending_orphans()` cada ciclo con 5s grace period → consulta exchange → `ORPHAN_RECOVERY` (force-close + healed=True) o `NOT_FILLED` (finalize_removal). Separation of concerns: OCO Manager NO asume estado del exchange. Validado en DG-3R Multi-Coin 12h: Orphan Hygiene 100% (vs 0% en DG-3), 0 OCO_ABORTs.
+*   **Pre-Entry Notional Validation (Phase 251 — 2026-08-08)**: Fix para defecto -4120 detectado en run v2. Trade 4178299900 (SOL LONG) abrió con notional $15 < min $20; fallback `closePosition=True` falló con `-4120 "order type not supported for this endpoint"`, dejando posición SIN BRACKETS 20 min. **Solución**: En `OrderExecutor.execute_market_order()` — `projected_notional = amount * current_price` vs `adapter.get_min_notional()`, rechaza con `ValidationError` si insuficiente. Skips `reduceOnly`/`closePosition`. Fallback graceful si adapter falla. Commit `29d987e`, 17 tests pasan.
 
 ### 4. Capa de Escudo (Risk / Regime) — [CERTIFICADA 🟢]
 *   **VA_GATE Regime Filter**: Rolling window 8h evalúa estructura de volumen actual; bloquea mean-reversion en tendencia (integrity ~0.001), permite en rango (integrity > 0.15).
@@ -156,7 +157,7 @@
 >
 > **Por favor, lee ese documento para saber en qué fase estamos y qué sigue.**
 
-### 📍 Ruta Actual (Estado Vivo — 2026-08-07)
+### 📍 Ruta Actual (Estado Vivo — 2026-08-08)
 | Fase | Paso | Estado |
 |------|------|--------|
 | 1.1 | Non-Regression Test (9 activos) | ✅ Completado (0 regresiones) |
@@ -167,13 +168,15 @@
 | 1.4B.2a | Debug-Gate 12h (LTCUSDT) — 1er run | ✅ Completado — bugs A+B fix (`2a34cf6`), -4120 fix (`ec07d2a`) |
 | 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | ✅ Completado — Sheriff fixes (`4be1102`) |
 | **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **✅ COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
-| **1.4B.4** | **Full Endurance 24h (Certificación formal)** | **🔄 Pendiente ← PRÓXIMO** |
+| **1.4B.4** | **Full Endurance 24h (Certificación formal)** | **🔄 EN CURSO — Run v2 (PID 15063) activo desde 13:13, ~10h elapsed** |
 | 1.4B.5 | Multi-Coin Endurance (48h) | 🔄 Pendiente |
 | 1.5 | Análisis Drawdown/Riesgo | 🔄 Pendiente |
 
-**Próximo paso**: Fase 1.4B.4 — Full Endurance 24h (Certificación formal).
+**Próximo paso**: Completar Run v2 24h → métricas certificadas → merge a `main` + tag `v9.3.0-multi-coin-certified`.
 
 > **📌 NOTA SOBRE DG-3R (2026-08-07):** Run técnicamente PASS pero con muestra estadística insuficiente (3 trades, 0W/3L). Considerar repetir DG-3 Multi-Coin antes de Full Endurance 24h si se busca validación de edge (no solo de estabilidad). La arquitectura Two-Layer Orphan Recovery está certificada: código NO se disparó en el run (no hubo timeouts), pero está listo. Métrica clave: 722 ciclos de reconciliación sin un solo fallo.
+
+> **🛡️ FIX APLICADO (2026-08-08 — Commit `29d987e`):** Pre-Entry Notional Validation previene -4120 bracket failures. Trade 4178299900 quedó sin brackets 20 min por notional $15 < min $20. Ahora se rechaza en entry.
 
 > **🔁 METODOLOGÍA DEBUG-GATE (decisión 2026-08-03):** La Full Endurance se divide en dos gates para iterar más rápido:
 > 1. **Gate de Depuración (12h):** Corre 12h. Si aparece error → fix → repetir. Objetivo: 2 runs consecutivos limpios.
