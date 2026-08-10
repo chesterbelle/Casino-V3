@@ -200,6 +200,7 @@ La Fase B se divide en tres sub-fases:
 
 **Full Endurance 24h (B.3)** — mismos criterios + :
 - [ ] **API Stability = 100%** (0 logs de error `(-4120)`) — solo exigible en 24h+
+- [ ] **Trade Flow Observability = 100%** (Verificar en `trade_lifecycle_events` que los trades tienen trazabilidad completa: CREATED, FILLED, RECON_*, CLOSED)
 
 ---
 
