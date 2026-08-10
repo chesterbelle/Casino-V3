@@ -182,6 +182,9 @@ La Fase B se divide en tres sub-fases:
 ```bash
 .venv/bin/python utils/audit_logs.py logs/endurance_test_$(ls -t logs/endurance_* | head -1 | xargs basename)
 ```
+```bash
+.venv/bin/python utils/audit_trade_flow.py --db data/historian.db
+```
 
 ### Criterios de Éxito (Endurance)
 
