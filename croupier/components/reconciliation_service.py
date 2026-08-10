@@ -73,6 +73,9 @@ class ReconciliationService:
         Zero REST calls on the main event loop — all data arrives via IPC Queue.
         """
         self.logger.info("[SYNC] 🔄 Starting CACHED reconciliation (Phase 4 Worker)")
+        historian.record_lifecycle_event(
+            trade_id="RECON_WORKER", lifecycle_step="RECON_WAKEUP", details="Starting CACHED reconciliation"
+        )
         reports = []
 
         try:
@@ -147,6 +150,9 @@ class ReconciliationService:
         Fetches all positions and all orders once from the exchange.
         """
         self.logger.info("[SYNC] 🔄 Starting global reconciliation for all symbols")
+        historian.record_lifecycle_event(
+            trade_id="RECON_GLOBAL", lifecycle_step="RECON_WAKEUP", details="Starting global reconciliation"
+        )
         reports = []
 
         try:
@@ -529,6 +535,11 @@ class ReconciliationService:
                     if await self.tracker.lock_for_closure(pos.trade_id):
                         try:
                             self.logger.warning(f"⛔ Closing NAKED position {pos.trade_id} on exchange for safety.")
+                            historian.record_lifecycle_event(
+                                trade_id=pos.trade_id,
+                                lifecycle_step="RECON_FORCE_CLOSE",
+                                details="Closing NAKED position on exchange for safety.",
+                            )
                             # Phase 72: Mark OFF_BOARDING to prevent double-accounting (RECON_FORCE + GHOST_REMOVAL)
                             pos.status = "OFF_BOARDING"
                             await self._close_position_dict(matched_ex_pos)
@@ -555,6 +566,11 @@ class ReconciliationService:
                     report["positions_fixed"] += 1
                 else:
                     self.logger.warning(f"⛔ Position unhealthy for {symbol}. Closing for safety.")
+                    historian.record_lifecycle_event(
+                        trade_id=f"UNKNOWN_{symbol}",
+                        lifecycle_step="RECON_FORCE_CLOSE",
+                        details="Position unhealthy. Closing for safety.",
+                    )
                     await self._close_position_dict(ex_pos)
                     report["positions_closed"] += 1
 

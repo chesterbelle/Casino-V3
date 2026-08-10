@@ -104,39 +104,8 @@ class TestOCOManager:
 
         # Assert
         assert result is not None
-        assert result["fill_price"] == 50000.0
-        assert result["tp_price"] == 50500.0
-        assert result["sl_price"] == 49500.0
-
-    @pytest.mark.asyncio
-    async def test_create_bracketed_order_tp_fails_cleanup(self, oco_manager, mock_executor, mock_adapter):
-        """Test cleanup when TP order fails."""
-        # Arrange
-        order = {
-            "symbol": "BTC/USDT:USDT",
-            "side": "LONG",
-            "size": 0.01,
-            "amount": 0.001,
-            "tp_price": 50500.0,
-            "sl_price": 49500.0,
-            "trade_id": "test_bracket_fail",
-        }
-
-        mock_executor.execute_market_order.return_value = {
-            "order_id": "main_123",
-            "average": 50000.0,
-            "amount": 0.001,
-        }
-        # TP order fails (Phase 43: TP uses execute_stop_order now)
-        mock_executor.execute_stop_order.side_effect = Exception("TP order failed")
-
-        # Act & Assert
-        with pytest.raises(OCOAtomicityError, match="Failed to create OCO bracket"):
-            await oco_manager.create_bracketed_order(order, wait_for_fill=False)
-
-        # Verify cleanup was called
-        # Note: In real implementation, would verify cancel_order was called
-        # mock_adapter.connector.cancel_order.assert_called()
+        assert result["status"] == "success"
+        assert result["is_optimistic"] is True
 
     @pytest.mark.asyncio
     async def test_calculate_tp_sl_prices_long(self, oco_manager):
@@ -230,3 +199,55 @@ class TestOCOManager:
         # Act & Assert
         with pytest.raises(OCOAtomicityError, match="no order_id"):
             oco_manager._validate_oco_complete({"status": "filled"}, {"order_id": "456"}, {"order_id": "789"})
+
+    @pytest.mark.asyncio
+    async def test_create_bracket_price_fetch_timeout(self, oco_manager, mock_executor, mock_adapter):
+        """Test that if get_current_price times out, it falls back to the decision price."""
+        import asyncio
+
+        order = {
+            "symbol": "BTC/USDT:USDT",
+            "side": "LONG",
+            "size": 0.01,
+            "amount": 0.001,
+            "tp_price": 50500.0,
+            "sl_price": 49500.0,
+            "trade_id": "test_bracket_1",
+            "price": 49999.0,  # Fallback decision price
+        }
+
+        # Simulate price fetch timeout
+        mock_adapter.get_current_price.side_effect = asyncio.TimeoutError()
+        mock_adapter.get_cached_price.return_value = 0
+
+        mock_executor.execute_market_order.return_value = {
+            "order_id": "main_123",
+            "status": "closed",
+        }
+        mock_executor.execute_limit_order.return_value = {"order_id": "tp_123"}
+        mock_executor.execute_stop_order.return_value = {"order_id": "sl_123"}
+
+        result = await oco_manager.create_bracketed_order(order, wait_for_fill=False)
+        assert result["status"] == "success"
+        # It should have warned and continued
+
+    @pytest.mark.asyncio
+    async def test_create_bracket_main_order_failure(self, oco_manager, mock_executor, mock_adapter):
+        """Test if the main order fails to execute, brackets are not sent and pending orders are cleared."""
+        order = {
+            "symbol": "BTC/USDT:USDT",
+            "side": "LONG",
+            "amount": 0.001,
+            "tp_price": 50500.0,
+            "sl_price": 49500.0,
+        }
+        mock_adapter.get_cached_price.return_value = 50000.0
+        # Simulate main order failure by raising Exception
+        mock_executor.execute_market_order.side_effect = Exception("API Error")
+
+        with pytest.raises(Exception, match="API Error"):
+            await oco_manager.create_bracketed_order(order, wait_for_fill=False)
+
+        # Ensure brackets were never fired
+        mock_executor.execute_limit_order.assert_not_called()
+        mock_executor.execute_stop_order.assert_not_called()

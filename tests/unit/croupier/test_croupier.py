@@ -21,6 +21,7 @@ class TestCroupier:
         """Create mock exchange adapter."""
         adapter = AsyncMock()
         adapter.connector = AsyncMock()
+        adapter.symbol = "BTC/USDT"
         return adapter
 
     @pytest.fixture
@@ -73,13 +74,27 @@ class TestCroupier:
 
         # Assert
         assert result == oco_result
-        croupier.oco_manager.create_bracketed_order.assert_called_once_with(order, wait_for_fill=True)
+        croupier.oco_manager.create_bracketed_order.assert_called_once_with(
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "amount": 0.001,
+                "tp_price": 50500.0,
+                "sl_price": 49500.0,
+                "margin_used": 100.0,
+                "notional": 50.0,
+                "leverage": 1,
+                "trade_id": "test_order_1",
+            },
+            wait_for_fill=False,
+            contributors=[],
+        )
 
         # Verify position was registered
         assert len(croupier.get_open_positions()) == 1
         position = croupier.get_open_positions()[0]
         assert position.trade_id == "main_123"
-        assert position.symbol == "BTC/USDT:USDT"
+        assert position.symbol == "BTCUSDT"
         assert position.entry_price == 50000.0
 
     @pytest.mark.asyncio
@@ -115,6 +130,7 @@ class TestCroupier:
             side="LONG",
             entry_price=50000.0,
             entry_timestamp="2024-01-01T00:00:00Z",
+            timestamp=123456789.0,
             margin_used=100.0,
             notional=50.0,
             leverage=1,
@@ -132,6 +148,7 @@ class TestCroupier:
             side="SHORT",
             entry_price=3000.0,
             entry_timestamp="2024-01-01T00:00:00Z",
+            timestamp=123456789.0,
             margin_used=50.0,
             notional=30.0,
             leverage=1,
@@ -149,14 +166,14 @@ class TestCroupier:
         report1 = {"symbol": "BTC/USDT:USDT", "positions_checked": 1}
         report2 = {"symbol": "ETH/USDT:USDT", "positions_checked": 1}
 
-        croupier.reconciliation.reconcile_symbol = AsyncMock(side_effect=[report1, report2])
+        croupier.reconciliation.reconcile_all = AsyncMock(return_value=[report1, report2])
 
         # Act
         results = await croupier.reconcile_positions()  # No symbol = all
 
         # Assert
         assert len(results) == 2
-        assert croupier.reconciliation.reconcile_symbol.call_count == 2
+        assert croupier.reconciliation.reconcile_all.call_count == 1
 
     def test_get_balance(self, croupier):
         """Test getting current balance."""

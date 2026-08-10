@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import config.trading
 from core.error_handling import RetryConfig, get_error_handler
+from core.observability.historian import historian
 from core.observability.watchdog import watchdog
 from core.portfolio.position_tracker import OrderState, PositionTracker
 from utils.symbol_norm import normalize_symbol
@@ -205,6 +206,12 @@ class OCOManager:
             symbol_clean = symbol.upper().replace("/", "").replace(":", "")
             client_order_id = f"CASINO_ENTRY_{symbol_clean}_{uuid.uuid4().hex[:12]}"
 
+            historian.record_lifecycle_event(
+                trade_id=client_order_id,
+                lifecycle_step="OCO_SUBMITTED",
+                details=f"Submitting bracket for {symbol} {side} | TP: {tp_est if 'tp_est' in locals() else 'unknown'} | SL: {sl_est if 'sl_est' in locals() else 'unknown'}",
+            )
+
             # Pre-register future in pending_orders (so if event arrives before new_order returns, we catch it)
             loop = asyncio.get_running_loop()
             future = loop.create_future()
@@ -320,6 +327,11 @@ class OCOManager:
             # leaving an orphan. Now we mark as PENDING_VERIFICATION and let
             # ReconciliationService query the exchange to determine reality.
             self.logger.error(f"❌ OCO bracket creation failed: {e!r}")
+            historian.record_lifecycle_event(
+                trade_id=client_order_id if "client_order_id" in locals() else "UNKNOWN_OCO",
+                lifecycle_step="OCO_FAILED",
+                details=f"Error: {str(e)[:200]}",
+            )
             if "main_order" in locals() and main_order:
                 try:
                     await self._cleanup_partial_oco(main_order, None, None)
@@ -333,8 +345,6 @@ class OCOManager:
                 # Step 2: Register pending orphan check in historian so
                 # ReconciliationService can resolve it in the next cycle.
                 try:
-                    from core.observability.historian import historian
-
                     historian.register_pending_orphan(
                         trade_id=position.trade_id,
                         client_order_id=client_order_id,
@@ -535,6 +545,11 @@ class OCOManager:
         if position.status == "PENDING":
             position.status = "OPEN"
             self.logger.info(f"[TRADE] ✅ Position Active (Parallel): {position.trade_id}")
+            historian.record_lifecycle_event(
+                trade_id=position.trade_id,
+                lifecycle_step="OCO_ACCEPTED",
+                details=f"Parallel bracket active. TP: {tp_client_id} SL: {sl_client_id}",
+            )
 
         self.tracker._trigger_state_change()
 
@@ -674,6 +689,11 @@ class OCOManager:
                 self.tracker.register_bracket_alias(sl_id, position, "SL", client_id=sl_cid)
 
             self.logger.info(f"✨ Supersonic Batch Finalized for {position.symbol} | Fill: {fill_price}")
+            historian.record_lifecycle_event(
+                trade_id=position.trade_id,
+                lifecycle_step="OCO_ACCEPTED",
+                details=f"Supersonic bracket active. Fill: {fill_price}",
+            )
 
         except Exception as e:
             self.logger.critical(f"🔥 Supersonic Finalization CRASHED: {e}")

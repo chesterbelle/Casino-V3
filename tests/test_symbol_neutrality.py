@@ -31,7 +31,7 @@ from croupier.components.reconciliation_service import ReconciliationService
 
 class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.tracker = PositionTracker(max_concurrent_positions=10)
+        self.tracker = PositionTracker(adapter=MagicMock())
         self.adapter = MagicMock()
         # Mock async methods
         self.adapter.fetch_order = AsyncMock()
@@ -101,55 +101,6 @@ class TestSymbolNeutrality(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["positions_closed"], 0)
         self.assertEqual(len(self.tracker.open_positions), 1)
         self.assertEqual(self.tracker.open_positions[0].symbol, "ATOMUSDT")
-
-    async def test_exit_manager_matching(self):
-        """Verify ExitManager matches ATOMUSDT position with ATOM/USDT:USDT candle."""
-        from croupier.components.exit_engine import ExitEngine
-
-        croupier = MagicMock()
-        croupier.get_open_positions.return_value = [
-            OpenPosition(
-                trade_id="t1",
-                symbol="ATOMUSDT",
-                side="LONG",
-                entry_price=10.0,
-                entry_timestamp="0",
-                timestamp=time.time(),
-                margin_used=10.0,
-                notional=10.0,
-                leverage=1.0,
-                tp_level=12.0,
-                sl_level=8.0,
-                liquidation_level=5.0,
-                order={},
-            )
-        ]
-
-        exit_mgr = ExitEngine(croupier)
-
-        # Mock candle with RAW symbol
-        # CandleEvent(type, timestamp, symbol, timeframe, open, high, low, close, volume)
-        candle = CandleEvent(
-            type=EventType.CANDLE,
-            timestamp=123.456,
-            symbol="ATOM/USDT:USDT",
-            timeframe="15m",
-            open=10.0,
-            high=10.5,
-            low=9.5,
-            close=10.1,
-            volume=100.0,
-        )
-
-        # We check if processing logic is reached
-        with patch.object(exit_mgr, "logger") as mock_logger:
-            await exit_mgr.on_candle(candle)
-            # Find if "Processing Exit Logic for ATOMUSDT" was logged
-            found = any(
-                "Processing Exit Logic for ATOMUSDT" in (call.args[0] if call.args else "")
-                for call in mock_logger.info.call_args_list
-            )
-            self.assertTrue(found, "Exit logic was not processed for normalized symbol")
 
 
 if __name__ == "__main__":

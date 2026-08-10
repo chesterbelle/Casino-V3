@@ -8,7 +8,7 @@ Estos tests validan que:
 4. Integración end-to-end con Kraken Demo
 """
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -180,9 +180,10 @@ class TestPositionTracker:
         assert position.sl_level == 49500.0
         assert len(tracker.open_positions) == 1
 
-    def test_confirm_close(self):
+    @pytest.mark.asyncio
+    async def test_confirm_close(self):
         """Test confirmación de cierre con datos reales."""
-        tracker = PositionTracker()
+        tracker = PositionTracker(adapter=MagicMock())
 
         # Abrir posición
         position = tracker.open_position(
@@ -201,7 +202,9 @@ class TestPositionTracker:
         )
 
         # Confirmar cierre con datos reales
-        result = tracker.confirm_close(trade_id="test_123", exit_price=51050.0, exit_reason="TP", pnl=200.0, fee=3.5)
+        result = await tracker.confirm_close(
+            trade_id="test_123", exit_price=51050.0, exit_reason="TP", pnl=200.0, fee=3.5
+        )
 
         assert result is not None
         assert result["confirmed"] == True

@@ -46,6 +46,12 @@ class MockConnector(BaseConnector):
     def denormalize_symbol(self, s):
         return s
 
+    async def fetch_order_book(self, symbol, limit=20):
+        return {"bids": [], "asks": []}
+
+    def get_load_factor(self) -> float:
+        return 0.5
+
 
 @pytest.mark.asyncio
 async def test_adapter_lifecycle():

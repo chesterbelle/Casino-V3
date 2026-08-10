@@ -21,6 +21,9 @@ async def test_reconciliation_safety_valve_abort():
 
     # 2. Mock State: Mass Detachment
     # Local has 10 positions
+    mock_pos = MagicMock()
+    mock_pos.status = "OPEN"
+    mock_tracker.open_positions = [mock_pos] * 10
     mock_tracker.get_stats.return_value = {"open_positions": 10}
 
     # Exchange returns [] (Empty) persistently
@@ -60,6 +63,9 @@ async def test_reconciliation_glitch_resolved():
     service = ReconciliationService(mock_adapter, mock_tracker, mock_oco)
 
     # 2. Mock State
+    mock_pos = MagicMock()
+    mock_pos.status = "OPEN"
+    mock_tracker.open_positions = [mock_pos] * 10
     mock_tracker.get_stats.return_value = {"open_positions": 10}
 
     # Exchange returns [] first, then [pos] on retry

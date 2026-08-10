@@ -4,6 +4,9 @@ from exchanges.adapters.exchange_state_sync import ExchangeStateSync, Position
 
 
 class FakeConnector:
+    def __init__(self):
+        self.connector = self
+
     async def fetch_positions(self, symbols=None):
         # Return a mix of dict and object representations to validate normalization
         return [

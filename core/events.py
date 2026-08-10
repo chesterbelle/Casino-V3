@@ -23,6 +23,7 @@ class EventType(Enum):
     MICROSTRUCTURE_BATCH = auto()
     TRADE_CLOSED = auto()
     DECISION_TRACE = auto()
+    TRADE_LIFECYCLE = auto()
 
 
 @dataclass
@@ -211,3 +212,16 @@ class TradeClosedEvent(Event):
 
     def __post_init__(self):
         self.type = EventType.TRADE_CLOSED
+
+
+@dataclass
+class TradeLifecycleEvent(Event):
+    """Event emitted for tracking the lifecycle transitions of a trade."""
+
+    trade_id: str
+    symbol: str
+    lifecycle_step: str
+    details: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        self.type = EventType.TRADE_LIFECYCLE

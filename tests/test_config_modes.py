@@ -42,8 +42,8 @@ def test_default_mode_is_testing(monkeypatch):
     config = _reload_config(monkeypatch)
     # Default mode changed to 'demo' in v2 config/system.py
     assert config.MODE == "demo"
-    # Default exchange changed to BYBIT in v2
-    assert config.EXCHANGE == "BYBIT"
+    # Default exchange changed to BINANCE in v2
+    assert config.EXCHANGE == "BINANCE"
 
 
 def test_mode_override_via_env(monkeypatch):
@@ -62,10 +62,10 @@ def test_live_mode_requires_confirmations(monkeypatch):
     config = _reload_config(
         monkeypatch,
         CASINO_MODE="live",
-        CASINO_EXCHANGE="KRAKEN",
+        CASINO_EXCHANGE="HYPERLIQUID",
         CASINO_LIVE_TRADING_ENABLED="true",
         CASINO_LIVE_TRADING_ENABLED_CONFIG="true",
     )
     assert config.MODE == "live"
-    assert config.EXCHANGE == "KRAKEN"
+    assert config.EXCHANGE == "HYPERLIQUID"
     assert config.LIVE_TRADING_ENABLED is True

@@ -11,21 +11,21 @@ class TestSymbolNormalization:
     """Test suite for normalize_symbol function."""
 
     def test_uppercase_conversion(self):
-        """Should convert lowercase symbols to uppercase."""
-        assert normalize_symbol("xrp/usdt") == "XRP/USDT"
-        assert normalize_symbol("btc/usdt") == "BTC/USDT"
-        assert normalize_symbol("eth/usdt") == "ETH/USDT"
+        """Should convert lowercase symbols to uppercase and remove slashes."""
+        assert normalize_symbol("xrp/usdt") == "XRPUSDT"
+        assert normalize_symbol("btc/usdt") == "BTCUSDT"
+        assert normalize_symbol("eth/usdt") == "ETHUSDT"
 
     def test_futures_suffix_removal(self):
         """Should remove :USDT futures contract suffix."""
-        assert normalize_symbol("XRP/USDT:USDT") == "XRP/USDT"
-        assert normalize_symbol("BTC/USDT:USDT") == "BTC/USDT"
-        assert normalize_symbol("eth/usdt:usdt") == "ETH/USDT"
+        assert normalize_symbol("XRP/USDT:USDT") == "XRPUSDT"
+        assert normalize_symbol("BTC/USDT:USDT") == "BTCUSDT"
+        assert normalize_symbol("eth/usdt:usdt") == "ETHUSDT"
 
     def test_already_normalized(self):
         """Should handle already-normalized symbols."""
-        assert normalize_symbol("XRP/USDT") == "XRP/USDT"
-        assert normalize_symbol("BTC/USDT") == "BTC/USDT"
+        assert normalize_symbol("XRPUSDT") == "XRPUSDT"
+        assert normalize_symbol("BTCUSDT") == "BTCUSDT"
 
     def test_empty_string(self):
         """Should return empty string for empty input."""
@@ -33,22 +33,22 @@ class TestSymbolNormalization:
 
     def test_mixed_case_with_suffix(self):
         """Should handle mixed case with suffix."""
-        assert normalize_symbol("xRp/UsDt:uSdT") == "XRP/USDT"
+        assert normalize_symbol("xRp/UsDt:uSdT") == "XRPUSDT"
 
     def test_different_quote_currencies(self):
-        """Should preserve non-USDT quote currencies."""
-        assert normalize_symbol("BTC/BUSD") == "BTC/BUSD"
-        assert normalize_symbol("ETH/BTC") == "ETH/BTC"
+        """Should preserve non-USDT quote currencies (and remove slashes)."""
+        assert normalize_symbol("BTC/BUSD") == "BTCBUSD"
+        assert normalize_symbol("ETH/BTC") == "ETHBTC"
 
     @pytest.mark.parametrize(
         "input_symbol,expected",
         [
-            ("XRP/USDT", "XRP/USDT"),
-            ("xrp/usdt", "XRP/USDT"),
-            ("XRP/USDT:USDT", "XRP/USDT"),
-            ("xrp/usdt:usdt", "XRP/USDT"),
+            ("XRP/USDT", "XRPUSDT"),
+            ("xrp/usdt", "XRPUSDT"),
+            ("XRP/USDT:USDT", "XRPUSDT"),
+            ("xrp/usdt:usdt", "XRPUSDT"),
             ("", ""),
-            ("BTC/BUSD:BUSD", "BTC/BUSD"),
+            ("BTC/BUSD:BUSD", "BTCBUSD"),
         ],
     )
     def test_parametrized_normalization(self, input_symbol, expected):

@@ -80,6 +80,15 @@ def _historian_worker(db_path: str, q: mp.Queue):
                     data,
                 )
                 conn.commit()
+            elif action == "INSERT_LIFECYCLE":
+                conn.execute(
+                    """
+                    INSERT INTO trade_lifecycle_events (trade_id, timestamp, event_type, details)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    data,
+                )
+                conn.commit()
             elif action == "INSERT_DECISION_TRACE":
                 conn.execute(
                     """
@@ -396,6 +405,23 @@ class TradeHistorian:
         except sqlite3.OperationalError:
             pass
 
+        # Phase 260: Trade Lifecycle Flow Tracker
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trade_lifecycle_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                event_type TEXT NOT NULL,
+                details TEXT
+            )
+            """
+        )
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_lifecycle_id ON trade_lifecycle_events(trade_id)")
+        except sqlite3.OperationalError:
+            pass
+
         conn.commit()
 
     @contextmanager
@@ -592,6 +618,32 @@ class TradeHistorian:
                 conn.commit()
         except Exception as e:
             logger.error(f"❌ Historian: Error in sync execute: {e}")
+
+    def record_lifecycle_event(self, trade_id: str, lifecycle_step: str, details: Optional[str] = None):
+        """
+        Records a discrete lifecycle event for a trade (Event Sourcing telemetry).
+        """
+        if not self._use_mp:
+            self._run_async(self._execute_insert_lifecycle, (str(trade_id), time.time(), lifecycle_step, details))
+            return
+
+        self._ensure_worker()
+        self._queue.put(("INSERT_LIFECYCLE", (str(trade_id), time.time(), lifecycle_step, details)))
+
+    def _execute_insert_lifecycle(self, params):
+        """Fallback sync executor for lifecycle events."""
+        try:
+            with self._get_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO trade_lifecycle_events (trade_id, timestamp, event_type, details)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    params,
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"❌ Historian: Error in sync lifecycle execute: {e}")
 
     # =========================================================================
     # Phase 250: Two-Layer Orphan Recovery — pending_orphan_check helpers

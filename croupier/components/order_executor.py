@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.error_handling import RetryConfig, get_error_handler
 from core.exceptions import ExchangeError, ValidationError
+from core.observability.historian import historian
 
 from .depth_profiler import DepthProfiler
 from .sniper_engine import SniperEngine
@@ -235,6 +236,13 @@ class OrderExecutor:
             f"[TRADE] 📤 Executing Market Order: {order['side']} {order['amount']} {symbol} | ID: {order.get('clientOrderId')}"
         )
 
+        cid = order.get("params", {}).get("clientOrderId") or order.get("clientOrderId")
+        historian.record_lifecycle_event(
+            trade_id=cid,
+            lifecycle_step="ENTRY_REQUESTED" if "ENTRY" in cid else "CLOSE_REQUESTED",
+            details=f"Executing Market {order['side']} {order['amount']} {symbol}",
+        )
+
         self.logger.debug(f"[TRACE] OrderExecutor: Starting execution with 5s timeout for {symbol}...")
 
         try:
@@ -252,6 +260,12 @@ class OrderExecutor:
             )
             result["t2_submit_ts"] = t2_ts
             self.logger.debug(f"[TRACE] OrderExecutor: Execution SUCCESS for {symbol}.")
+
+            historian.record_lifecycle_event(
+                trade_id=cid,
+                lifecycle_step="ENTRY_FILLED" if "ENTRY" in cid else "CLOSE_FILLED",
+                details=f"Status: {result.get('status')} | Price: {result.get('average') or result.get('price')}",
+            )
         except Exception as e:
             err_str = str(e).lower()
             if "-4116" in err_str or "clientorderid is duplicated" in err_str:
@@ -373,6 +387,13 @@ class OrderExecutor:
             f"[TRADE] 📤 Executing Limit Order: {side} {amount} {symbol} @ {price} | ID: {order.get('clientOrderId')}"
         )
 
+        cid = order.get("params", {}).get("clientOrderId") or order.get("clientOrderId")
+        historian.record_lifecycle_event(
+            trade_id=cid,
+            lifecycle_step="LIMIT_REQUESTED",
+            details=f"Executing Limit {side} {amount} {symbol} @ {price}",
+        )
+
         try:
             result = await asyncio.wait_for(
                 self.error_handler.execute_with_breaker(
@@ -383,6 +404,9 @@ class OrderExecutor:
 
             # Phase 31: Legacy OrderTracker removed
             self._log_execution(result, "Limit")
+            historian.record_lifecycle_event(
+                trade_id=cid, lifecycle_step="LIMIT_ACCEPTED", details=f"Status: {result.get('status')}"
+            )
             return result
         except Exception as e:
             err_str = str(e).lower()
@@ -450,6 +474,13 @@ class OrderExecutor:
             f"[OCO] 📤 Executing Stop Order: {side} {amount} {symbol} @ stop {stop_price} | ID: {order.get('clientOrderId')}"
         )
 
+        cid = order.get("params", {}).get("clientOrderId") or order.get("clientOrderId")
+        historian.record_lifecycle_event(
+            trade_id=cid,
+            lifecycle_step="STOP_REQUESTED",
+            details=f"Executing Stop {side} {amount} {symbol} @ {stop_price}",
+        )
+
         try:
             result = await asyncio.wait_for(
                 self.error_handler.execute_with_breaker(
@@ -472,6 +503,9 @@ class OrderExecutor:
                 raise e
 
         self.logger.info(f"[OCO] ✅ Stop Order Executed: {result.get('order_id')}")
+        historian.record_lifecycle_event(
+            trade_id=cid, lifecycle_step="STOP_ACCEPTED", details=f"Status: {result.get('status')}"
+        )
 
         return result
 

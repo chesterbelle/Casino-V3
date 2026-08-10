@@ -317,8 +317,39 @@ class BinanceNativeConnector(BaseConnector):
         return self._rate_limiter.get_load_factor()
 
     def normalize_symbol(self, symbol: str) -> str:
-        """Normalize symbol to exchange format."""
+        """Alias for _normalize_symbol for public access."""
         return self._normalize_symbol(symbol)
+
+    def normalize_trade(self, raw_trade: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize a trade from the exchange to a standard format.
+        Detects if a trade is a position close with realized PnL.
+        """
+        info = raw_trade.get("info", {})
+        realized_pnl_str = info.get("realizedPnl", "0")
+        try:
+            realized_pnl = float(realized_pnl_str)
+        except ValueError:
+            realized_pnl = 0.0
+
+        is_close = realized_pnl != 0.0
+        close_reason = None
+        if is_close:
+            # Basic heuristic for close_reason
+            trade_type = info.get("type", "").upper()
+            if "TAKE_PROFIT" in trade_type or trade_type == "LIMIT":
+                close_reason = "TP"
+            elif "STOP" in trade_type:
+                close_reason = "SL"
+            else:
+                close_reason = "MANUAL"
+
+        return {
+            **raw_trade,
+            "is_close": is_close,
+            "realized_pnl": realized_pnl,
+            "close_reason": close_reason,
+        }
 
     # =========================================================
     # HTTP CLIENT - Core Native Implementation
