@@ -4,9 +4,9 @@ Reads historian.db to determine Execution Hygiene based on Event Sourcing.
 """
 
 import argparse
+import os
 import sqlite3
 import sys
-import os
 from collections import defaultdict
 
 
@@ -23,14 +23,21 @@ def audit_trade_flow(db_path: str):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Fetch all trades
-        cursor.execute("SELECT DISTINCT trade_id FROM trades")
-        all_trades = [row["trade_id"] for row in cursor.fetchall()]
-
         # Fetch all events
-        cursor.execute("SELECT trade_id, timestamp, event_type, details FROM trade_lifecycle_events ORDER BY timestamp ASC")
+        cursor.execute(
+            "SELECT trade_id, timestamp, event_type, details FROM trade_lifecycle_events ORDER BY timestamp ASC"
+        )
         events = cursor.fetchall()
+
+        # Unique trade IDs from events (filtering out system events like RECON_WORKER)
+        all_trades = list(set([row["trade_id"] for row in events if row["trade_id"].startswith("CASINO_ENTRY")]))
+
+        # Cross check with trades table just for total count reference
+        cursor.execute("SELECT COUNT(DISTINCT trade_id) FROM trades")
+        db_trades_count = cursor.fetchone()[0]
+
         conn.close()
+        print(f"ℹ️  Reference: {db_trades_count} trade_ids en tabla trades")
     except Exception as e:
         print(f"❌ Database error: {e}")
         return False
@@ -43,7 +50,7 @@ def audit_trade_flow(db_path: str):
     healed = 0
     force_closed = 0
     unknown = 0
-    
+
     force_closed_ids = []
 
     for trade_id in all_trades:
@@ -51,7 +58,7 @@ def audit_trade_flow(db_path: str):
         if not flow:
             unknown += 1
             continue
-            
+
         if "RECON_FORCE_CLOSE" in flow:
             force_closed += 1
             force_closed_ids.append(trade_id)
@@ -62,23 +69,23 @@ def audit_trade_flow(db_path: str):
             clean += 1
 
     total = len(all_trades)
-    
+
     if total == 0:
         print("⚠️ No trades found in database.")
         return True
-        
+
     print(f"📊 TRADE FLOW HYGIENE AUDIT")
     print(f"Total Trades Evaluados: {total}")
     print("-" * 50)
     print(f"🟢 Clean Executions:   {clean:4d}  ({(clean/total)*100:.1f}%)")
     print(f"🟡 Recon Healed:       {healed:4d}  ({(healed/total)*100:.1f}%)")
     print(f"🔴 Force Closed (Poor Execution): {force_closed:4d}  ({(force_closed/total)*100:.1f}%)")
-    
+
     if unknown > 0:
         print(f"⚪ Unknown (Legacy/No events): {unknown:4d}  ({(unknown/total)*100:.1f}%)")
-        
+
     print("=" * 50)
-    
+
     if force_closed > 0:
         print("❌ VERDICT: FAIL")
         print("   ↳ Se detectaron trades con ejecución pobre (Force Closed):")
