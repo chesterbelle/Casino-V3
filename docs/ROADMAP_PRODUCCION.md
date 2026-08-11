@@ -309,8 +309,9 @@ async def _on_order_update_event(self, event):
 | **1.4B.2a** | **Debug-Gate 12h (LTCUSDT) — 1er run** | **✅ Completado** |
 | **1.4B.2b** | **Debug-Gate 12h (LTCUSDT) — 2do run consecutivo** | **✅ Completado** |
 | **1.4B.3** | **Debug-Gate Multi-Coin 12h (3 activos)** | **✅ COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, Two-Layer design certificado** |
-| **1.4B.4** | **Full Endurance 24h (Certificación formal)** | **🔄 EN CURSO — Run v2 (PID 15063) activo desde 2026-08-07 13:13, ~10h elapsed** |
-| **1.4B.5** | **Multi-Coin Endurance (48h)** | **🔄 Pendiente** |
+| **1.4B.4.a** | **Chaos Test (Trade Flow Validation)** | **🔄 Pendiente — Inyección bruta de 200 órdenes** |
+| **1.4B.4.b** | **Mini-Endurance (4h)** | **🔄 Pendiente — Validación sin OOM** |
+| **1.4B.5** | **Full Endurance 24h (Re-try)** | **🔄 Pendiente — Abortado tempralmente por Event Sourcing (Trade Flow Tracker)** |
 
 > **🔁 Razón del Debug-Gate (decisión 2026-08-03):** La lesión del run anterior (posición fantasma → 445 errores -1007) mostró que los errores críticos emergen en las primeras horas, no al final. Esperar 24h para descubrirlos es ineficiente. El gate de 12h detecta los mismos errores en la mitad del tiempo, y el requisito de 2 runs consecutivos garantiza robustez antes de la certificación formal de 24h.
 

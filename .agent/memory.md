@@ -40,7 +40,7 @@
 > 18. **NO MODIFICAR main.py CON HYGIENE CHECK:** El reconcile/adopt de posiciones existentes al arranque es diseño INTENCIONAL (resiliencia: si el bot crashea o falla la luz, al reiniciar adopta lo que hay en el exchange). NO añadir limpieza automática al arranque del bot. La limpieza pre-run es responsabilidad del operador/agente (Regla 17).
 > 19. **ARQUITECTURA (TWO-LAYER ORPHAN RECOVERY — Phase 250):** Cuando el OCO Manager tiene un timeout/exception durante el placement de una market order, NO debe asumir el estado del exchange (3 realidades posibles: orden nunca llegó, orden pendiente, orden llenada). El patrón correcto es: **Layer 1 (OCO Manager)** marca `PENDING_VERIFICATION` en tracker + registra entry en tabla `pending_orphan_check`. **Layer 2 (ReconciliationService)** tiene una fase `check_pending_orphans()` con grace period de 5s que consulta el exchange y resuelve: si hay posición → force-close + `ORPHAN_RECOVERY` (healed=True, no contamina error leakage); si no hay → `NOT_FILLED` + `finalize_removal`. Separation of concerns: OCO Manager maneja órdenes, ReconciliationService es la fuente de verdad del exchange.
 > 20. **GOTCHA (MULTI-COIN COMMA-JOINED SYMBOL):** `--symbol LTCUSDT,SOLUSDT,AVAXUSDT` se parsea en `main.py` como lista de targets, pero `ExchangeAdapter.symbol` se queda con el string crudo `"LTCUSDT,SOLUSDT,AVAXUSDT"`. Lugares que usan `self.symbol` como fallback (sin argumento explícito) intentarán tratar el string completo como UN solo símbolo → `-1121 Invalid symbol` de Binance. **Solución**: TODA llamada a métodos de connector/adapter en código multi-coin debe pasar una lista explícita, NUNCA `None`. Detección: `if symbol == "MULTI" or (isinstance(symbol, str) and "," in symbol): skip / use list`.
-> 21. **GOTCHA (--timeout GRACEFUL SHUTDOWN):** Para runs largos (endurance tests) usar `--timeout N` (en MINUTOS) como argumento de `main.py` — implementa drain phase + `SIGNAL_STOP` graceful. NO usar `timeout` shell command (corta abruptamente, deja WAL/SHM huérfanos). Comando correcto: `nohup .venv/bin/python main.py --symbol LTCUSDT,SOLUSDT,AVAXUSDT --mode demo --close-on-exit --timeout 720 > /tmp/run.log 2>&1 &`. El timeout es interno de main.py, el shell solo provee background.
+> 21. **GOTCHA (--timeout GRACEFUL SHUTDOWN):** Para runs largos (endurance tests) usar `--timeout N` (en MINUTOS) como argumento de `main.py` — implementa drain phase + `SIGNAL_STOP` graceful. NO usar `timeout` shell command (corta abruptamente, deja WAL/SHM huérfanos). Comando correcto: `nohup .venv/bin/python main.py --symbol LTCUSDT,SOLUSDT,AVAXUSDT --mode demo --close-on-exit --timeout 720 > /tmp/run.log 2>&1 &`. El timeout es interno de main.py, el shell solo provee background. *(Nota para el IA Agent: NO usar `nohup &` dentro de `run_command` si el turno va a terminar de inmediato, ya que el garbage collector matará el shell hijo y sus orphans; en su lugar usar `WaitMsBeforeAsync` largo para que se registre como Task persistente).*
 
 
 ## 🚀 Project Overview
@@ -168,9 +168,9 @@
 | 1.4B.2a | Debug-Gate 12h (LTCUSDT) — 1er run | ✅ Completado — bugs A+B fix (`2a34cf6`), -4120 fix (`ec07d2a`) |
 | 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | ✅ Completado — Sheriff fixes (`4be1102`) |
 | **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **✅ COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
-| **1.4B.4** | **Full Endurance 24h (Certificación formal)** | **🔄 EN CURSO — Run v2 (PID 15063) activo desde 13:13, ~10h elapsed** |
-| 1.4B.5 | Multi-Coin Endurance (48h) | 🔄 Pendiente |
-| 1.5 | Análisis Drawdown/Riesgo | 🔄 Pendiente |
+| **1.4B.4.a** | **Chaos Test (Trade Flow Validation)** | **✅ COMPLETADO — 634 Ops, 0 Error Trades, 100% Hygiene** |
+| **1.4B.4.b** | **Mini-Endurance (4h)** | **✅ COMPLETADO — 240.6m, 0 Crashes, 100% Hygiene** |
+| **1.4B.5** | **Full Endurance 24h (Re-try)** | **🔄 Pendiente — Siguiente paso activo (con --timeout 1440)** |
 
 **Próximo paso**: Completar Run v2 24h → métricas certificadas → merge a `main` + tag `v9.3.0-multi-coin-certified`.
 
