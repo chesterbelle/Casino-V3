@@ -991,7 +991,19 @@ async def main():
                 f"🧹 Emergency Sweep: {'Closing Positions' if should_close else 'Cancelling Orders'} (Reason: {exit_reason_str})"
             )
             sweep_task = croupier.emergency_sweep(
-                symbols=[args.symbol] if args.symbol and args.symbol != "MULTI" else None,
+                # Phase 261: Split comma-joined `--symbol` into a list of real
+                # symbols. Previously the raw string ("LTCUSDT,SOLUSDT,AVAXUSDT")
+                # was wrapped as a 1-element list and passed to fetch_open_orders,
+                # which then returned -1121 (Invalid symbol) per GOTCHA #20.
+                symbols=(
+                    None
+                    if not args.symbol or args.symbol.upper() == "MULTI"
+                    else (
+                        [s.strip() for s in args.symbol.split(",") if s.strip()]
+                        if "," in args.symbol
+                        else [args.symbol]
+                    )
+                ),
                 close_positions=should_close,
                 reason=exit_reason_str,
             )

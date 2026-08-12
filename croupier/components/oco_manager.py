@@ -1155,23 +1155,27 @@ class OCOManager:
 
         use_close_position = notional < min_notional
         if use_close_position:
-            self.logger.warning(f"⚠️ Notional ${notional:.2f} < min ${min_notional}. Using closePosition for TP.")
+            # Hallazgo #8: closePosition=True is REJECTED for conditional orders on
+            # the Main API (-4120) and unsupported on Algo API. Small notionals use
+            # the same reduceOnly + real quantity path (proven below/at min notional
+            # on Algo API, e.g. SOL $14.47 fill in Full Endurance v2).
+            self.logger.warning(f"⚠️ Notional ${notional:.2f} < min ${min_notional}. Small bracket (reduceOnly).")
 
         async def _smart_execute_tp():
             nonlocal amount
             try:
                 if use_close_position:
-                    # Use TAKE_PROFIT_MARKET with closePosition=True for small notionals
+                    # Same execution as normal brackets: real quantity + reduceOnly.
                     # Phase 43: Use execute_stop_order (generalized) instead of execute_order
                     # This allows passing order_type="TAKE_PROFIT_MARKET"
                     return await self.executor.execute_stop_order(
                         symbol=symbol,
                         side=tp_side,
-                        amount=0,  # Ignored with closePosition
+                        amount=amount,
                         stop_price=tp_price,
                         order_type="TAKE_PROFIT_MARKET",
                         params={
-                            "closePosition": True,
+                            "reduceOnly": True,
                             "workingType": "MARK_PRICE",
                             "client_order_id": client_order_id,
                             "clientOrderId": client_order_id,
@@ -1307,7 +1311,10 @@ class OCOManager:
 
         use_close_position = notional < min_notional
         if use_close_position:
-            self.logger.warning(f"⚠️ Notional ${notional:.2f} < min ${min_notional}. Using closePosition for SL.")
+            # Hallazgo #8: closePosition=True is REJECTED for conditional orders on
+            # the Main API (-4120) and unsupported on Algo API. Small notionals use
+            # the same reduceOnly + real quantity path.
+            self.logger.warning(f"⚠️ Notional ${notional:.2f} < min ${min_notional}. Small bracket (reduceOnly).")
 
         async def _smart_execute_sl():
             nonlocal amount
@@ -1317,9 +1324,9 @@ class OCOManager:
                     result = await self.executor.execute_stop_order(
                         symbol=symbol,
                         side=sl_side,
-                        amount=0,  # Ignored with closePosition
+                        amount=amount,
                         stop_price=sl_price,
-                        params={"closePosition": True, "client_order_id": client_order_id},
+                        params={"reduceOnly": True, "client_order_id": client_order_id},
                     )
                 else:
                     result = await self.executor.execute_stop_order(

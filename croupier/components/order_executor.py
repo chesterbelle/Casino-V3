@@ -17,7 +17,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.error_handling import RetryConfig, get_error_handler
-from core.exceptions import ExchangeError, ValidationError
+from core.exceptions import ExchangeError, PositionAlreadyClosedError, ValidationError
 from core.observability.historian import historian
 
 from .depth_profiler import DepthProfiler
@@ -266,6 +266,32 @@ class OrderExecutor:
                 lifecycle_step="ENTRY_FILLED" if "ENTRY" in cid else "CLOSE_FILLED",
                 details=f"Status: {result.get('status')} | Price: {result.get('average') or result.get('price')}",
             )
+        except PositionAlreadyClosedError as e:
+            # Phase 261: ReduceOnly close rejected because position already closed
+            # (typically by bracket TP/SL fill race). Goal of the close is already
+            # achieved on exchange — return synthetic success to stop fallback loops.
+            cid = order.get("params", {}).get("clientOrderId") or order.get("clientOrderId")
+            is_close = bool((order.get("params") or {}).get("reduceOnly", False)) or "FC" in (cid or "")
+            if is_close:
+                self.logger.info(
+                    f"✅ Close already satisfied (position gone): {cid} for {symbol} "
+                    f"(reduceOnly rejected). Returning synthetic success — no fallback needed."
+                )
+                historian.record_lifecycle_event(
+                    trade_id=cid,
+                    lifecycle_step="CLOSE_FILLED",
+                    details="already_closed: position rejected reduceOnly (-2022)",
+                )
+                return {
+                    "order_id": cid,
+                    "status": "closed",
+                    "average": None,
+                    "price": None,
+                    "fee": {"cost": 0.0, "currency": "USDT"},
+                    "already_closed": True,
+                    "symbol": symbol,
+                }
+            raise e
         except Exception as e:
             err_str = str(e).lower()
             if "-4116" in err_str or "clientorderid is duplicated" in err_str:
@@ -676,7 +702,12 @@ class OrderExecutor:
             )
 
     async def _execute_tiered_fallback(self, symbol: str, side: str, amount: float, client_id: str, reason: str):
-        """Tiered limit fallbacks for when market orders are blocked."""
+        """Tiered limit fallbacks for when market orders are blocked.
+
+        Phase 261: Adds T2 safe-limit fallback (mirror of `_execute_smart_close_fallback`)
+        to handle `-4024` price-protection rejections and avoid drain PANIC retry loops.
+        """
+        # Phase 261: If the position is already closed, the close goal is met.
         try:
             # Get current price
             ticker = await self.adapter.fetch_ticker(symbol)
@@ -699,7 +730,58 @@ class OrderExecutor:
                     "exit_reason": f"{reason}_TIER1",
                 },
             )
+        except PositionAlreadyClosedError:
+            self.logger.info(f"✅ Tier 1: position already closed for {symbol}. Returning synthetic success.")
+            return {
+                "order_id": client_id,
+                "status": "closed",
+                "average": None,
+                "price": None,
+                "fee": {"cost": 0.0, "currency": "USDT"},
+                "already_closed": True,
+                "symbol": symbol,
+            }
         except Exception as tier1_e:
+            err_str = str(tier1_e).lower()
+            # Phase 261: On price-band rejection (-4024 PERCENT_PRICE / -4016),
+            # retry once with a tight 1% safe-limit before giving up.
+            if "-4016" in err_str or "-4024" in err_str or "limit price" in err_str:
+                self.logger.warning(f"⚠️ Tier 1 blocked by price band ({tier1_e}). Initiating T2 Safe Limit...")
+                try:
+                    buffer = 0.01
+                    # Re-fetch current price to avoid stale mark
+                    current_price = await self.adapter.get_current_price(symbol)
+                    limit_price = (
+                        current_price * (1 + buffer) if side.upper() == "BUY" else current_price * (1 - buffer)
+                    )
+                    limit_price = float(self.adapter.price_to_precision(symbol, limit_price))
+
+                    import uuid
+
+                    t2_client_id = f"CASINO_FC2_{uuid.uuid4().hex[:12]}"
+                    self.logger.info(f"🛡️ Tier 2 (Safe Limit): {symbol} @ {limit_price}")
+                    return await self.execute_limit_order(
+                        symbol=symbol,
+                        side=side,
+                        amount=amount,
+                        price=limit_price,
+                        params={
+                            "reduceOnly": True,
+                            "client_order_id": t2_client_id,
+                            "exit_reason": f"{reason}_TIER2",
+                        },
+                    )
+                except PositionAlreadyClosedError:
+                    self.logger.info(f"✅ Tier 2: position already closed for {symbol}. Returning synthetic success.")
+                    return {
+                        "order_id": client_id,
+                        "status": "closed",
+                        "average": None,
+                        "price": None,
+                        "fee": {"cost": 0.0, "currency": "USDT"},
+                        "already_closed": True,
+                        "symbol": symbol,
+                    }
             self.logger.error(f"❌ Tier 1 Failed: {tier1_e}")
             raise tier1_e
 

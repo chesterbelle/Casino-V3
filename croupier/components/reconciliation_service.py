@@ -1113,11 +1113,19 @@ class ReconciliationService:
                         retry_config=self.reconcile_retry_config,
                     )
                     self.logger.info(f"🧹 [Fallback] Cancelled orphaned order: {order_id}")
+                    resilience_orphan_cancels_total.labels(symbol=symbol, reason=cancel_reason).inc()
                     cancelled_count += 1
             except Exception as e:
                 # Idempotency: If order doesn't exist (-2011), consider it cancelled
                 if "-2011" in str(e) or "Unknown order" in str(e):
                     self.logger.info(f"🧹 Orphan order {order_id} already gone (treated as success)")
+                    # Phase 261: An order already cancelled on the exchange is by
+                    # definition a leftover OCO leg (Binance auto-cancels the bracket
+                    # counterpart when a SL/TP fills). The cached view may still
+                    # show the position briefly (reconciliation lag ~1min), which
+                    # previously misclassified these cancels as `true_orphan` and
+                    # inflated Orphan Hygiene. Count them as `oco_residual`.
+                    resilience_orphan_cancels_total.labels(symbol=symbol, reason="oco_residual").inc()
                     cancelled_count += 1
                 else:
                     self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")

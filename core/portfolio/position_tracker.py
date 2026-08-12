@@ -713,9 +713,35 @@ class PositionTracker(TraceBulletMixin):
 
         if match_type == "TP_FILLED":
             logger.info(f"🎯 TP FILLED detected for {position.trade_id} via unified routing")
+            # Phase 261: Emit lifecycle events for the bracket trigger fill
+            # and the resulting entry close, completing the observability chain
+            # (OCO_SUBMITTED → ENTRY_FILLED → STOP_REQUESTED/ACCEPTED → STOP_FILLED → CLOSED).
+            if position.tp_order and getattr(position.tp_order, "client_order_id", None):
+                historian.record_lifecycle_event(
+                    trade_id=position.tp_order.client_order_id,
+                    lifecycle_step="STOP_FILLED",
+                    details=f"TP fill via unified routing for {position.symbol}",
+                )
+            historian.record_lifecycle_event(
+                trade_id=position.trade_id,
+                lifecycle_step="CLOSED",
+                details=f"Closed by TP fill ({position.symbol})",
+            )
             await self._handle_tp_filled(position, event)
         elif match_type == "SL_FILLED":
             logger.info(f"🛑 SL FILLED detected for {position.trade_id} via unified routing")
+            # Phase 261: Mirror lifecycle event emission for SL fills (see TP branch above).
+            if position.sl_order and getattr(position.sl_order, "client_order_id", None):
+                historian.record_lifecycle_event(
+                    trade_id=position.sl_order.client_order_id,
+                    lifecycle_step="STOP_FILLED",
+                    details=f"SL fill via unified routing for {position.symbol}",
+                )
+            historian.record_lifecycle_event(
+                trade_id=position.trade_id,
+                lifecycle_step="CLOSED",
+                details=f"Closed by SL fill ({position.symbol})",
+            )
             await self._handle_sl_filled(position, event)
         elif match_type == "MAIN_FILLED":
             # Phase 50: In-Flight Promotion (PENDING -> OPEN)

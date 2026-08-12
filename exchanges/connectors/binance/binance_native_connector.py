@@ -1443,48 +1443,65 @@ class BinanceNativeConnector(BaseConnector):
         elif params.get("newClientOrderId"):
             args["newClientOrderId"] = params["newClientOrderId"]
 
-        # Handle reduceOnly
-        is_reduce_only = params.get("reduceOnly") or params.get("closePosition")
+        # Handle reduceOnly / closePosition flags
+        wants_close_position = params.get("closePosition") is True or str(params.get("closePosition")).lower() == "true"
+        is_reduce_only = params.get("reduceOnly") or wants_close_position
         if params.get("reduceOnly"):
             args["reduceOnly"] = "true"
-        if params.get("closePosition"):
+        if wants_close_position:
             args["closePosition"] = "true"
-            # CRITICAL (Phase 248):
-            # 1. Main API (/fapi/v1/order) supports closePosition and DOES NOT want quantity for TP/SL MARKET.
-            # 2. Algo API (/fapi/v1/algo/...) DOES NOT support closePosition and ALWAYS wants quantity > 0.
-            # Therefore, if closePosition=True, we MUST use Main API if quantity is 0 (dust cleanup).
-            if order_type.upper() in ["STOP_MARKET", "TAKE_PROFIT_MARKET"]:
-                # If amount is effectively 0, we MUST pop it for the Main API
-                if float(args.get("quantity", 0)) == 0:
-                    args.pop("quantity", None)
-
+            # Quantity must be absent for Main API closePosition orders (dust cleanup)
+            args.pop("quantity", None)
             args.pop("reduceOnly", None)
 
         # Route to Algo API for conditional orders (Mandatory since Dec 2024 update)
-        # EXCEPTION: closePosition=True is only supported by the Main API (/fapi/v1/order)
-        # However, many conditional orders FAIL on Main API with -4120.
         ALGO_ORDER_TYPES = {"STOP_MARKET", "STOP", "TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TRAILING_STOP_MARKET", "OCO"}
 
-        # Phase 102 Fix: If it's an Algo order, PREFER Algo API even if closePosition was requested.
-        # We convert closePosition -> reduceOnly because Algo API requires quantity.
-        # Phase 248 Revision 1: Improved Routing
-        use_algo_api = order_type.upper() in ALGO_ORDER_TYPES
+        # =========================================================
+        # PHASE 248 REVISION 2 (Hallazgo #8): Routing Design Fix
+        # Empirical truth from Full Endurance v2 (2026-08-12):
+        #   - Main API /fapi/v1/order REJECTS conditional orders with closePosition
+        #     (-4120: "order type not supported for this endpoint...").
+        #   - Algo API accepts reduceOnly + real quantity, even below min notional.
+        # Design rule:
+        #   - Conditional orders (TP/SL/OCO family) -> ALWAYS Algo API.
+        #   - closePosition=True -> ONLY valid for plain MARKET/LIMIT (dust cleanup)
+        #     on Main API. For conditional orders it is converted to
+        #     reduceOnly=True + real quantity (resolved via position size if needed).
+        # =========================================================
+        order_kind = order_type.upper()
+        is_conditional = order_kind in ALGO_ORDER_TYPES
         force_main_api = False
 
-        if params.get("closePosition") or str(params.get("closePosition")).lower() == "true":
-            # closePosition=True is ONLY supported on Main API
-            # If we have it, we MUST force Main API, or the Algo conversion will fail on zero quantity.
-            force_main_api = True
-            use_algo_api = False
-        elif use_algo_api:
-            # Regular Algo order with quantity
-            pass
+        if is_conditional and wants_close_position:
+            # Convert closePosition -> reduceOnly + quantity for Algo API.
+            args.pop("closePosition", None)
+            args["reduceOnly"] = "true"
+            if float(args.get("quantity", 0)) == 0:
+                try:
+                    pos_size = await self._get_position_size_for_algo_fallback(symbol, side)
+                except Exception as size_err:
+                    pos_size = 0.0
+                    self.logger.warning(f"⚠️ Could not resolve position size for closePosition conversion: {size_err}")
+                if pos_size > 0:
+                    args["quantity"] = self.amount_to_precision(symbol, pos_size)
+                else:
+                    # Position not resolvable: last-resort Main API attempt. The -4120
+                    # safety net below will re-resolve after a position sync.
+                    self.logger.warning(
+                        f"⚠️ closePosition conditional with unresolvable size ({symbol}). "
+                        "Attempting Main API as last resort."
+                    )
+                    force_main_api = True
+                    args["closePosition"] = "true"
+                    args.pop("reduceOnly", None)
+                    args.pop("quantity", None)
 
         # Ensure stopPrice is added for ALL conditional orders, regardless of API used
         if params.get("stopPrice"):
             args["stopPrice"] = params["stopPrice"]
 
-        if order_type.upper() in ALGO_ORDER_TYPES and not force_main_api:
+        if is_conditional and not force_main_api:
             try:
                 # Phase 85: Latency Telemetry for Algo Orders
                 t2_submit_ts = time.time()
