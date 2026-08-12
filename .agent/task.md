@@ -99,5 +99,6 @@
 - [ ] Full Exit: tracker vacío tras `--close-on-exit`
 
 ## Run v3 (tras pre-flight)
-- [ ] Relanzado: PID ____ | log `/tmp/endurance_24h_v3.log` | timeout 1440
-- [ ] Arranque limpio verificado
+- [x] Relanzado: PID 22755 | log `/tmp/endurance_24h_v3.log` | timeout 1440 (ETA 2026-08-13 15:04)
+- [x] Arranque limpio verificado: 0 errores, timer OK, balance sesión 2919.65 USDT
+- [x] **Primer bracket small-notional (Hallazgo #8) colocado SIN -4120**: SOL SHORT (0.1924, notional $14.47/$14.73) → TP 1000000165123563 + SL 1000000165123564 en 1 intento, 0 ERRORs, 0 retries — fix Phase 248 R2 validado en producción
