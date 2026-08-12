@@ -102,3 +102,9 @@
 - [x] Relanzado: PID 22755 | log `/tmp/endurance_24h_v3.log` | timeout 1440 (ETA 2026-08-13 15:04)
 - [x] Arranque limpio verificado: 0 errores, timer OK, balance sesión 2919.65 USDT
 - [x] **Primer bracket small-notional (Hallazgo #8) colocado SIN -4120**: SOL SHORT (0.1924, notional $14.47/$14.73) → TP 1000000165123563 + SL 1000000165123564 en 1 intento, 0 ERRORs, 0 retries — fix Phase 248 R2 validado en producción
+
+## Evento de red del usuario (18:12-18:18) — resiliencia validada
+- **Causa: apagón DNS local confirmado por el usuario** (no del bot) — "Timeout while contacting DNS servers" en todos los workers
+- Respuesta del diseño: Market Stream Health → restart backoff → **DEGRADED MODE** ("Positions still protected by user-data stream + drift auditor") · 6 TASK STALLs engine_dispatch (consecuencia del bloqueo DNS) · 45 PONG timeouts
+- **Auto-recuperación total**: 0 stalls post-18:18, candles reanudadas 18:21, Drift $0.0000 continuo (Exchange=Local), 0 fills/posiciones perdidas, brackets de exchange protegieron todo el tiempo
+- **Conclusión**: incidente ambiental = VALIDACIÓN de resiliencia (no un bug). Sin impacto PnL. Se documenta como hallazgo positivo para la certificación
