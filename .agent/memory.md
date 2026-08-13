@@ -41,6 +41,9 @@
 > 19. **ARQUITECTURA (TWO-LAYER ORPHAN RECOVERY — Phase 250):** Cuando el OCO Manager tiene un timeout/exception durante el placement de una market order, NO debe asumir el estado del exchange (3 realidades posibles: orden nunca llegó, orden pendiente, orden llenada). El patrón correcto es: **Layer 1 (OCO Manager)** marca `PENDING_VERIFICATION` en tracker + registra entry en tabla `pending_orphan_check`. **Layer 2 (ReconciliationService)** tiene una fase `check_pending_orphans()` con grace period de 5s que consulta el exchange y resuelve: si hay posición → force-close + `ORPHAN_RECOVERY` (healed=True, no contamina error leakage); si no hay → `NOT_FILLED` + `finalize_removal`. Separation of concerns: OCO Manager maneja órdenes, ReconciliationService es la fuente de verdad del exchange.
 > 20. **GOTCHA (MULTI-COIN COMMA-JOINED SYMBOL):** `--symbol LTCUSDT,SOLUSDT,AVAXUSDT` se parsea en `main.py` como lista de targets, pero `ExchangeAdapter.symbol` se queda con el string crudo `"LTCUSDT,SOLUSDT,AVAXUSDT"`. Lugares que usan `self.symbol` como fallback (sin argumento explícito) intentarán tratar el string completo como UN solo símbolo → `-1121 Invalid symbol` de Binance. **Solución**: TODA llamada a métodos de connector/adapter en código multi-coin debe pasar una lista explícita, NUNCA `None`. Detección: `if symbol == "MULTI" or (isinstance(symbol, str) and "," in symbol): skip / use list`.
 > 21. **GOTCHA (--timeout GRACEFUL SHUTDOWN):** Para runs largos (endurance tests) usar `--timeout N` (en MINUTOS) como argumento de `main.py` — implementa drain phase + `SIGNAL_STOP` graceful. NO usar `timeout` shell command (corta abruptamente, deja WAL/SHM huérfanos). Comando correcto: `nohup .venv/bin/python main.py --symbol LTCUSDT,SOLUSDT,AVAXUSDT --mode demo --close-on-exit --timeout 720 > /tmp/run.log 2>&1 &`. El timeout es interno de main.py, el shell solo provee background. *(Nota para el IA Agent: NO usar `nohup &` dentro de `run_command` si el turno va a terminar de inmediato, ya que el garbage collector matará el shell hijo y sus orphans; en su lugar usar `WaitMsBeforeAsync` largo para que se registre como Task persistente).*
+> 22. **REGLA DE ORO (IDENTIDAD ÚNICA DE ÓRDENES — Phase 262, 2026-08-13):** El `client_order_id` es UNA SOLA cadena inmutable desde su generación hasta el cierre. NUNCA regenerarlo en capas intermedias. El caller que decide el id (OCOManager, OrderExecutor) lo pasa vía `params` y la capa de ejecución (`resilient_connector.create_order`) DEBE heredarlo tal cual; si no viene, se genera UNA vez y se inyecta en params (`client_order_id` + `clientOrderId`) para que el id trackeado == id enviado. Consecuencia del bug: doble identidad en run v3 → `-4116 ClientOrderId duplicated` + recovery con `-2013` imposible (buscaba el id equivocado). Referencia industria: Hummingbot genera 1 solo id al crear `InFlightOrder` y lo usa immutable en todo.
+> 23. **REGLA DE ORO (QUERY-BEFORE-RESEND — Airlock, Phase 262, 2026-08-13):** El Airlock usa `asyncio.wait(future, timeout=...)` — NUNCA `asyncio.wait_for`, que CANCELA el future al expirar y destruye la respuesta tardía del worker (causa raíz del retry ciego → -4116). Tras timeout en order-writes (POST/PUT/DELETE a /order o /algoOrder), hay un grace period de 1.5s que honra la respuesta tardía del worker: si llega respuesta → usarla (o elevar `AirlockWorkerError`, nunca resilver localmente); solo si NO responde → fallback local legado. Referencia industria: Nautilus `OrderStateReport` consulta el venue antes de decidir, nunca resubmit ciego. Complemento: `fetch_order` con -2013 hace open-order scan matcheando por clientOrderId/info.clientOrderId/info.clientAlgoId/info.newClientOrderId antes de rendirse.
+> 24. **GOTCHA (SMART HEALING AMOUNT):** `restore_bracket` debe resolver el tamaño de la posición ANTES de restaurar legs: `amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)`. Bug #11 (run v3): referenciar `amount` sin definirlo → `NameError` → Smart Healing falla → safety close de posición VÁLIDA con EXTERNAL_CLOSE (contamina Error Leakage).
 
 
 ## 🚀 Project Overview
@@ -157,7 +160,7 @@
 >
 > **Por favor, lee ese documento para saber en qué fase estamos y qué sigue.**
 
-### 📍 Ruta Actual (Estado Vivo — 2026-08-08)
+### 📍 Ruta Actual (Estado Vivo — 2026-08-13)
 | Fase | Paso | Estado |
 |------|------|--------|
 | 1.1 | Non-Regression Test (9 activos) | ✅ Completado (0 regresiones) |
@@ -170,9 +173,11 @@
 | **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **✅ COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
 | **1.4B.4.a** | **Chaos Test (Trade Flow Validation)** | **✅ COMPLETADO — 634 Ops, 0 Error Trades, 100% Hygiene** |
 | **1.4B.4.b** | **Mini-Endurance (4h)** | **✅ COMPLETADO — 240.6m, 0 Crashes, 100% Hygiene** |
-| **1.4B.5** | **Full Endurance 24h (Re-try)** | **🔄 Pendiente — Siguiente paso activo (con --timeout 1440)** |
+| **1.4B.5** | **Full Endurance 24h (Re-try)** | **🔄 Pendiente — hallazgos #8/#10/#11 fixeados (`4d556eb`), esperando gate de re-run 12h** |
 
-**Próximo paso**: Completar Run v2 24h → métricas certificadas → merge a `main` + tag `v9.3.0-multi-coin-certified`.
+**Próximo paso**: Re-run 12h gate con los fixes del hallazgo #10 (`4d556eb`) → si 2 runs limpios → Full Endurance 24h → merge a `main` + tag `v9.3.0-multi-coin-certified` (solo certifica el usuario).
+
+> **🔬 HALLAZGO #10 (2026-08-13 — resuelto en `4d556eb`):** Cadena causal v3: Airlock timeout 0.5s + `asyncio.wait_for` que cancelaba el future → retry ciego → -4116; identidad dual (resilient_connector regeneraba client_order_id) → -2013 en recovery; NameError `amount` en Smart Healing → safety close de posición válida; cascada contable derivada (EXTERNAL_CLOSE, orphans, leakage). Veredicto: diseño, no rediseño. 3 fixes + 10 tests + suite 113/113 sin warnings.
 
 > **📌 NOTA SOBRE DG-3R (2026-08-07):** Run técnicamente PASS pero con muestra estadística insuficiente (3 trades, 0W/3L). Considerar repetir DG-3 Multi-Coin antes de Full Endurance 24h si se busca validación de edge (no solo de estabilidad). La arquitectura Two-Layer Orphan Recovery está certificada: código NO se disparó en el run (no hubo timeouts), pero está listo. Métrica clave: 722 ciclos de reconciliación sin un solo fallo.
 
