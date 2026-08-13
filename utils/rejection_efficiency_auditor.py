@@ -53,15 +53,13 @@ def analyze_rejections(db_path="data/historian.db", window_ticks=900):
             continue
 
         timestamp = float(trace["timestamp"])
-        symbol = trace["symbol"]
+        symbol = trace["symbol"]  # noqa: F841 (reserved for symbol-scoped analysis)
         entry_price = float(trace["price"])
         gate_name = trace["gate"]
         reason = trace["reason"]
 
         # Get forward trajectory (window_ticks samples)
-        trajectory = (
-            prices_df[prices_df["timestamp"] >= timestamp].head(window_ticks)["price"].tolist()
-        )
+        trajectory = prices_df[prices_df["timestamp"] >= timestamp].head(window_ticks)["price"].tolist()
 
         if not trajectory:
             continue
@@ -91,11 +89,7 @@ def analyze_rejections(db_path="data/historian.db", window_ticks=900):
                 "mfe": mfe,
                 "mae": mae,
                 "outcome": outcome,
-                "z_score": (
-                    float(reason.split("at ")[1].split("Z")[0])
-                    if "at " in reason and "Z" in reason
-                    else 0
-                ),
+                "z_score": (float(reason.split("at ")[1].split("Z")[0]) if "at " in reason and "Z" in reason else 0),
             }
         )
 
@@ -125,9 +119,7 @@ def analyze_rejections(db_path="data/historian.db", window_ticks=900):
 
     print("\n[Z-SCORE DETAILED PNL ANALYSIS]")
     if "z_score" in results_df.columns:
-        results_df["z_bin"] = pd.cut(
-            results_df["z_score"].abs(), bins=[0, 1.0, 1.2, 1.5, 1.8, 2.1, 5.0]
-        )
+        results_df["z_bin"] = pd.cut(results_df["z_score"].abs(), bins=[0, 1.0, 1.2, 1.5, 1.8, 2.1, 5.0])
 
         def calc_pnl(x):
             w = len(x[x == "WINNER"])

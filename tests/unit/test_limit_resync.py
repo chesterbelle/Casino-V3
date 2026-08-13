@@ -16,6 +16,7 @@ async def test_auto_resync_on_1021_error():
     connector = BinanceNativeConnector(mode="demo", enable_websocket=False)
     # _http_session must be MagicMock because .get() is not awaitable itself, it returns a context manager
     connector._http_session = MagicMock()
+    connector._http_session.closed = False  # Phase 37 guard: avoid lazy re-init replacing the mock
     connector._http_session.close = AsyncMock()  # close() is awaited
     connector._base_url = "https://testnet.binancefuture.com"
     connector._time_offset = 0
@@ -30,12 +31,14 @@ async def test_auto_resync_on_1021_error():
     # Mock response object
     mock_fail_resp = AsyncMock()
     mock_fail_resp.status = 400
+    mock_fail_resp.headers = MagicMock()  # sync header mock: _handle_response calls .get() without await
     mock_fail_resp.text.return_value = (
         '{"code": -1021, "msg": "Timestamp for this request is outside of the recvWindow."}'
     )
 
     mock_success_resp = AsyncMock()
     mock_success_resp.status = 200
+    mock_success_resp.headers = MagicMock()  # sync header mock: _handle_response calls .get() without await
     mock_success_resp.text.return_value = '{"status": "FILLED"}'
 
     # Setup session.get to return fail then success
@@ -43,7 +46,7 @@ async def test_auto_resync_on_1021_error():
     # We need to mock the context manager return
 
     mock_get_ctx = MagicMock()
-    mock_get_ctx.__aenter__.side_effect = [mock_fail_resp, mock_success_resp]
+    mock_get_ctx.__aenter__ = AsyncMock(side_effect=[mock_fail_resp, mock_success_resp])
     connector._http_session.get.return_value = mock_get_ctx
 
     # 3. Execute

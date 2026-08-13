@@ -34,6 +34,6 @@ Con la implementación de **Targets Asimétricos (Alta ganancia, bajo riesgo)** 
 | `tactical_absorption` | 142 | 66.9% | 2.000% | 2.000% | **+0.6256%** | ✅ **EDGE OOS CONFIRMADO** |
 | `liquidity_exhaustion` | 4 | 50.0% | 5.000% | 5.000% | **+2.6508%** | ✅ **EDGE OOS CONFIRMADO** |
 
-> **💡 Conclusión Científica**: 
-> La generalización sobre la muestra ciega ha sido espectacular. La hipótesis inicial sobre la naturaleza inercial de Solana (SOL) era correcta: Los filtros de entrada base son excelentes (MFE/MAE estructurales muy altos), y lo único que faltaba para liberar su rentabilidad era darle suficiente espacio al Take Profit (+5.0%) manteniendo el riesgo muy contenido en las reversiones rápidas. 
+> **💡 Conclusión Científica**:
+> La generalización sobre la muestra ciega ha sido espectacular. La hipótesis inicial sobre la naturaleza inercial de Solana (SOL) era correcta: Los filtros de entrada base son excelentes (MFE/MAE estructurales muy altos), y lo único que faltaba para liberar su rentabilidad era darle suficiente espacio al Take Profit (+5.0%) manteniendo el riesgo muy contenido en las reversiones rápidas.
 > El perfil `SOL_INERTIAL_TRENDING` está formalmente certificado para producción.

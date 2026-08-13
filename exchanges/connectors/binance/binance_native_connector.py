@@ -56,6 +56,16 @@ from exchanges.ingestion.binance_worker import BinanceWorker
 from exchanges.rate_limiter import BinanceRateLimiter
 
 
+class AirlockWorkerError(Exception):
+    """The Airlock worker reported a definitive late result (Hallazgo #10).
+
+    Raised when the execution worker responds AFTER the RPC timeout but within
+    the grace window. The caller must NOT fall back to local re-execution: the
+    order may already exist on the exchange (would cause -4116 duplicated
+    ClientOrderId / orphan brackets). The original cause is chained.
+    """
+
+
 class BinanceNativeConnector(BaseConnector):
     """
     Native connector for Binance Futures using pure asyncio.
@@ -88,6 +98,14 @@ class BinanceNativeConnector(BaseConnector):
         self._exec_res_queue: Optional[multiprocessing.Queue] = None
         self._exec_futures: Dict[str, asyncio.Future] = {}
         self._exec_poll_task: Optional[asyncio.Task] = None
+
+        # Phase 262 (Hallazgo #10): Airlock grace period for order writes.
+        # When the Airlock RPC times out, the worker may have ALREADY created
+        # the order (response in transit). Blindly re-sending duplicates the
+        # order on Binance (-4116 "ClientOrderId is duplicated") and leaves
+        # orphan/ghost brackets. We wait up to this window for the late
+        # response BEFORE falling back to local execution.
+        self._airlock_grace_timeout: float = 1.5
 
         # Phase 24: Global Circuit Breaker name for REST Market Data (Pressure Relief)
         self._market_data_breaker_name = "rest_market_data"
@@ -472,20 +490,49 @@ class BinanceNativeConnector(BaseConnector):
                     raise e
 
                 # Await result (RPC style) or timeout
-                return await asyncio.wait_for(future, timeout=timeout or 0.5)
+                # NOTE: use asyncio.wait (NOT wait_for) — wait_for CANCELS the
+                # future on timeout, destroying the late worker response that
+                # Phase 262 relies on (Hallazgo #10).
+                done, _ = await asyncio.wait({future}, timeout=timeout or 0.5)
+                if future in done:
+                    # Worker answered within the RPC window (success or error).
+                    return future.result()
 
-            except (asyncio.TimeoutError, multiprocessing.queues.Full, BrokenPipeError, ConnectionResetError) as e:
-                # If timeout or channel error, fallback to local execution
-                if isinstance(e, asyncio.TimeoutError):
-                    # Remove future
-                    self._exec_futures.pop(request_id, None)
+                # Timed out: the worker may have ALREADY processed the order
+                # (response in transit). Re-sending now would hit -4116
+                # (duplicated ClientOrderId). Keep the future alive and wait
+                # briefly for the late response; only fall back to local
+                # execution if the worker truly never answers.
+                is_order_write = method in ("POST", "PUT", "DELETE") and ("/order" in url or "/algoOrder" in url)
+                if is_order_write:
                     self.logger.warning(
-                        f"⏩ Airlock Request {request_id} Timed Out (0.5s). Retrying locally for Zero-Latency."
+                        f"⏩ Airlock Request {request_id} Timed Out (0.5s). "
+                        f"Awaiting grace response ({self._airlock_grace_timeout:.1f}s)..."
                     )
-                else:
-                    self.logger.warning(f"⚠️ Airlock Channel Error ({type(e).__name__}). Fallback to local execution.")
+                    done, _ = await asyncio.wait({future}, timeout=self._airlock_grace_timeout)
+                    if future in done:
+                        # Worker reported a REAL result (success or error)
+                        # during the grace window — trust it, do NOT resend.
+                        self.logger.warning(f"✅ Airlock grace response received for {request_id}.")
+                        self._exec_futures.pop(request_id, None)
+                        try:
+                            return future.result()
+                        except Exception as worker_err:
+                            # Error is authoritative too: propagate chained,
+                            # bypassing the "fall back to local" handler below.
+                            raise AirlockWorkerError(f"{worker_err}") from worker_err
+                # Truly lost: pop future and fall back to local execution
+                self._exec_futures.pop(request_id, None)
+                self.logger.warning(
+                    f"⏩ Airlock Request {request_id} Timed Out (0.5s). Retrying locally for Zero-Latency."
+                )
 
+            except AirlockWorkerError:
+                # Authoritative late worker error: propagate, no local resend.
+                raise
             except Exception as e:
+                # Dispatch/channel failure or in-window worker error:
+                # keep legacy behaviour (local fallback retry).
                 self.logger.error(f"⚠️ Airlock Routing Failed: {e}. Fallback to local.")
                 if "request_id" in locals():
                     self._exec_futures.pop(request_id, None)
@@ -1404,7 +1451,33 @@ class BinanceNativeConnector(BaseConnector):
             error_msg = str(e)
             if "-2013" in error_msg:
                 self.logger.info(f"🔍 Order {order_id} not found in regular orders. Attempting Algo fetch...")
-                return await self._fetch_algo_order(order_id, symbol)
+                try:
+                    return await self._fetch_algo_order(order_id, symbol)
+                except Exception as algo_err:
+                    # Phase 262 (Hallazgo #10): Last-resort open-order scan.
+                    # The id may be registered under a different field on the
+                    # exchange (clientAlgoId vs clientOrderId mismatch), so a
+                    # lookup by id alone can miss an order that actually
+                    # exists. Scan open orders (regular + algo) for the symbol
+                    # and match by client id before declaring it lost.
+                    if "-2013" not in str(algo_err):
+                        raise algo_err
+                    self.logger.info(f"🔍 Order {order_id} not found by Algo fetch. Scanning open orders...")
+                    open_orders = await self.fetch_open_orders(symbol)
+                    for o in open_orders:
+                        info = o.get("info", {}) if isinstance(o.get("info"), dict) else {}
+                        candidates = (
+                            o.get("clientOrderId", ""),
+                            info.get("clientOrderId", ""),
+                            info.get("clientAlgoId", ""),
+                            info.get("newClientOrderId", ""),
+                        )
+                        if order_id in candidates:
+                            self.logger.info(f"✅ Recovered {order_id} via open-order scan: {o.get('id')}")
+                            return o
+                    # Truly lost: raise the original -2013 (fetch failure is
+                    # already reported to the caller for healing/safety-close).
+                    raise e
             raise
 
     async def create_order(

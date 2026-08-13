@@ -5,6 +5,7 @@ Tests the OCO bracket order creation with atomicity guarantees,
 fill confirmation, and cleanup on failure.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -44,6 +45,8 @@ class TestOCOManager:
         """Create mock exchange adapter."""
         adapter = AsyncMock()
         adapter.connector = AsyncMock()
+        # get_tick_size is sync in this path (line 480): avoid un-awaited AsyncMock child
+        adapter.connector.get_tick_size = Mock(return_value=None)
         # price_to_precision is sync, not async
         adapter.price_to_precision = Mock(side_effect=lambda s, p: str(round(float(p), 2)))
         # get_cached_price is sync, returns float or None
@@ -107,6 +110,11 @@ class TestOCOManager:
         assert result["status"] == "success"
         assert result["is_optimistic"] is True
 
+        # Drain the background bracket task so no coroutine is cancelled on loop teardown
+        for task in asyncio.all_tasks():
+            if task is not asyncio.current_task():
+                await task
+
     @pytest.mark.asyncio
     async def test_calculate_tp_sl_prices_long(self, oco_manager):
         """Test TP/SL calculation for LONG positions (legacy decimal path)."""
@@ -145,6 +153,7 @@ class TestOCOManager:
         # Arrange
         order_id = "test_123"
         mock_adapter.connector.fetch_order.return_value = {"status": "pending"}
+        mock_adapter.fetch_order.return_value = {"status": "pending"}  # REST fallback path uses adapter.fetch_order
 
         # Act & Assert
         with pytest.raises(TimeoutError, match="not filled within"):
@@ -219,6 +228,7 @@ class TestOCOManager:
         # Simulate price fetch timeout
         mock_adapter.get_current_price.side_effect = asyncio.TimeoutError()
         mock_adapter.get_cached_price.return_value = 0
+        mock_adapter.fetch_order.return_value = {"status": "pending"}  # REST fallback path remains pending
 
         mock_executor.execute_market_order.return_value = {
             "order_id": "main_123",

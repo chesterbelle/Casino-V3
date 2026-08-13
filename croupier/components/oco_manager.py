@@ -1614,6 +1614,15 @@ class OCOManager:
         stored_tp_price = position.order.get("tp_price")
         stored_sl_price = position.order.get("sl_price")
 
+        # Phase 262 (Hallazgo #10): Resolve position quantity for healing.
+        # restore_bracket referenced `amount` without defining it, crashing
+        # Smart Healing with NameError and forcing a safety close of a valid
+        # position (observed in Full Endurance v3 run, AVAX 514254145).
+        amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)
+        if not amount or amount <= 0:
+            self.logger.warning(f"🚑 Cannot heal {trade_id}: Unresolvable position size (amount={amount}).")
+            return False
+
         # Initialize to None — only set in the legacy % path. Used in log messages below.
         original_tp_pct = None
         original_sl_pct = None

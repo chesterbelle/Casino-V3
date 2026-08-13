@@ -366,8 +366,23 @@ class ResilientConnector(BaseConnector):
         # (adapters/scripts) pass varying keys; be permissive here and map
         # to the canonical parameters expected by the underlying connector.
 
-        # 1. Generar client_order_id único
-        client_order_id = self._generate_client_order_id()
+        # Phase 262 (Hallazgo #10): Single client_order_id namespace.
+        # OCOManager/OrderExecutor already generate a semantic id
+        # (CASINO_TP_*, CASINO_FC_*, ...) and pass it via params. Overwriting
+        # it here created a DUAL identity: the tracked id differed from the
+        # id actually sent to Binance, so -4116 recovery looked up the wrong
+        # id and failed with -2013 (leaving orphan brackets). Inherit the
+        # caller's id; only generate locally if none was provided.
+        caller_cid = (params or {}).get("client_order_id") or (params or {}).get("clientOrderId")
+        if caller_cid:
+            client_order_id = caller_cid
+        else:
+            # 1. Generar client_order_id único
+            client_order_id = self._generate_client_order_id()
+            # Unify: ensure the id we track is the one the connector sends.
+            params = dict(params or {})
+            params["client_order_id"] = client_order_id
+            params["clientOrderId"] = client_order_id
 
         # Allow callers to pass `size` instead of `amount`
         if amount is None and isinstance(kwargs.get("size"), (int, float)):
