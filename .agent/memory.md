@@ -46,6 +46,8 @@
 > 24. **GOTCHA (SMART HEALING AMOUNT):** `restore_bracket` debe resolver el tamaño de la posición ANTES de restaurar legs: `amount = position.order.get("amount") or (abs(position.notional) / position.entry_price)`. Bug #11 (run v3): referenciar `amount` sin definirlo → `NameError` → Smart Healing falla → safety close de posición VÁLIDA con EXTERNAL_CLOSE (contamina Error Leakage).
 
 
+> 25. **GOTCHA (CHAOS MODE FAULT INJECTION):** Para validar Two-Layer Orphan Recovery sin esperar 12h en Endurance, usar `CHAOS_MODE=1` en `multi_symbol_chaos_tester.py`. Inyecta fallos reales de Binance (-1007, 502, ECONNRESET, timeouts 0.5s) en el boundary del connector (`_execute_raw_request`). TP/SL agresivos (0.4%) fuerzan fills reales. Variables: `CHAOS_FAIL_RATE`, `CHAOS_LATENCY_MS`, `CHAOS_TIMEOUT_RATE`. Valida: PENDING_VERIFICATION → pending_orphan_check → NOT_FILLED/ORPHAN_RECOVERY en 10 min vs 12h.
+
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
@@ -160,22 +162,22 @@
 >
 > **Por favor, lee ese documento para saber en qué fase estamos y qué sigue.**
 
-### 📍 Ruta Actual (Estado Vivo — 2026-08-13)
+### ��� Ruta Actual (Estado Vivo — 2026-08-14)
 | Fase | Paso | Estado |
 |------|------|--------|
-| 1.1 | Non-Regression Test (9 activos) | ✅ Completado (0 regresiones) |
-| 1.2 | Internal Event Bus Refactor | ✅ Completado |
-| 1.3 | `/validate-all` (8/8 tests) | ✅ Completado |
-| 1.4A | Chaos Test (10min, 9 monedas) | ✅ Completado — Error Trades=0, Integrity=PASS, 634 ops |
-| 1.4B.1 | Mini-Endurance (4h, LTCUSDT) | ✅ Completado — 7h reales, Error Recovery=$0 |
-| 1.4B.2a | Debug-Gate 12h (LTCUSDT) — 1er run | ✅ Completado — bugs A+B fix (`2a34cf6`), -4120 fix (`ec07d2a`) |
-| 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | ✅ Completado — Sheriff fixes (`4be1102`) |
-| **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **✅ COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
-| **1.4B.4.a** | **Chaos Test (Trade Flow Validation)** | **✅ COMPLETADO — 634 Ops, 0 Error Trades, 100% Hygiene** |
-| **1.4B.4.b** | **Mini-Endurance (4h)** | **✅ COMPLETADO — 240.6m, 0 Crashes, 100% Hygiene** |
-| **1.4B.5** | **Full Endurance 24h (Re-try)** | **🔄 Pendiente — hallazgos #8/#10/#11 fixeados (`4d556eb`), esperando gate de re-run 12h** |
+| 1.1 | Non-Regression Test (9 activos) | �� Completado (0 regresiones) |
+| 1.2 | Internal Event Bus Refactor | �� Completado |
+| 1.3 | `/validate-all` (8/8 tests) | �� Completado |
+| 1.4A | Chaos Test (10min, 9 monedas) | �� Completado — Error Trades=0, Integrity=PASS, 634 ops |
+| 1.4B.1 | Mini-Endurance (4h, LTCUSDT) | �� Completado — 7h reales, Error Recovery=$0 |
+| 1.4B.2a | Debug-Gate 12h (LTCUSDT) — 1er run | �� Completado — bugs A+B fix (`2a34cf6`), -4120 fix (`ec07d2a`) |
+| 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | �� Completado — Sheriff fixes (`4be1102`) |
+| **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **��� COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
+| **1.4B.4.a** | **Chaos Test (Trade Flow Validation) — FAULT INJECTION** | **��� COMPLETADO — 60 ops con fills reales, Error Trades=0, Two-Layer Recovery 100%** |
+| **1.4B.4.b** | **Mini-Endurance (4h)** | **���� Próximo — Sin CHAOS_MODE, validar estabilidad 4h** |
+| **1.4B.5** | **Full Endurance 24h (Re-try)** | **���� Pendiente — tras 1.4B.4.b limpio** |
 
-**Próximo paso**: Re-run 12h gate con los fixes del hallazgo #10 (`4d556eb`) → si 2 runs limpios → Full Endurance 24h → merge a `main` + tag `v9.3.0-multi-coin-certified` (solo certifica el usuario).
+**Próximo paso**: Mini-Endurance 4h (1.4B.4.b) sin fault injection → si limpio → Full Endurance 24h → merge a `main` + tag `v9.3.0-multi-coin-certified` (solo certifica el usuario).
 
 > **🔬 HALLAZGO #10 (2026-08-13 — resuelto en `4d556eb`):** Cadena causal v3: Airlock timeout 0.5s + `asyncio.wait_for` que cancelaba el future → retry ciego → -4116; identidad dual (resilient_connector regeneraba client_order_id) → -2013 en recovery; NameError `amount` en Smart Healing → safety close de posición válida; cascada contable derivada (EXTERNAL_CLOSE, orphans, leakage). Veredicto: diseño, no rediseño. 3 fixes + 10 tests + suite 113/113 sin warnings.
 

@@ -309,7 +309,7 @@ async def _on_order_update_event(self, event):
 | **1.4B.2a** | **Debug-Gate 12h (LTCUSDT) — 1er run** | **✅ Completado** |
 | **1.4B.2b** | **Debug-Gate 12h (LTCUSDT) — 2do run consecutivo** | **✅ Completado** |
 | **1.4B.3** | **Debug-Gate Multi-Coin 12h (3 activos)** | **✅ COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, Two-Layer design certificado** |
-| **1.4B.4.a** | **Chaos Test (Trade Flow Validation)** | **🔄 Pendiente — Inyección bruta de 200 órdenes** |
+| **1.4B.4.a** | **Chaos Test (Trade Flow Validation) — FAULT INJECTION** | **��� COMPLETADO 2026-08-14 — 60 ops con fills, Error Trades=0, Two-Layer Recovery 100%** |
 | **1.4B.4.b** | **Mini-Endurance (4h)** | **🔄 Pendiente — Validación sin OOM** |
 | **1.4B.5** | **Full Endurance 24h (Re-try)** | **🔄 Pendiente — Abortado tempralmente por Event Sourcing (Trade Flow Tracker)** |
 
