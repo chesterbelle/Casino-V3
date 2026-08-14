@@ -1618,34 +1618,23 @@ class PositionTracker(TraceBulletMixin):
             else:
                 # No loop (e.g. unit test). Skip async; caller will resolve.
                 logger.warning(
-                    f"⚠️ remove_pending_verification({trade_id}): no event loop, "
+                    f"������ remove_pending_verification({trade_id}): no event loop, "
                     f"ORPHAN_RECOVERY will not be confirm_close'd in this call"
                 )
             logger.info(
-                f"🩹 Orphan recovered: {trade_id} → ORPHAN_RECOVERY " f"(amount={actual_amount}, entry={entry_price})"
+                f"���� Orphan recovered: {trade_id} → ORPHAN_RECOVERY " f"(amount={actual_amount}, entry={entry_price})"
             )
             return True
 
-        if exit_reason == "NOT_FILLED":
             logger.info(
-                f"🧹 Orphan resolved as NOT_FILLED: {trade_id} " f"(order never reached exchange; safe to discard)"
+                f"���� Orphan resolved as NOT_FILLED: {trade_id} " f"(order never reached exchange; safe to discard)"
             )
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop is not None:
-                asyncio.create_task(self.finalize_removal(trade_id))
-            else:
-                # No loop (e.g. unit test). Skip async; caller will resolve.
-                logger.warning(
-                    f"⚠️ remove_pending_verification({trade_id}): no event loop, "
-                    f"NOT_FILLED finalize_removal will not run in this call"
-                )
+            # finalize_removal is purely in-memory list manipulation - no I/O.
+            # Call synchronously to guarantee completion (fixes fire-and-forget race).
+            self.finalize_removal(trade_id)
             return True
 
-        logger.error(f"❌ Unknown exit_reason {exit_reason} for {trade_id}")
+        logger.error(f"��� Unknown exit_reason {exit_reason} for {trade_id}")
         return False
 
     def get_stats(self) -> Dict[str, Any]:
@@ -1791,7 +1780,7 @@ class PositionTracker(TraceBulletMixin):
         if getattr(found_pos, "_closure_recorded", False) or getattr(found_pos, "status", "") == "OFF_BOARDING":
             logger.info(f"⏭️ Skipping Ghost Audit for {trade_id} (Already Handled). Proceeding to cleanup.")
             self._unregister_all_aliases(found_pos)
-            await self.finalize_removal(trade_id)
+            self.finalize_removal(trade_id)
             return True
 
         # 1. GHOST AUDIT
@@ -1888,8 +1877,8 @@ class PositionTracker(TraceBulletMixin):
 
         return True
 
-    async def finalize_removal(self, trade_id: str) -> bool:
-        """Actual list removal called by GC."""
+    def finalize_removal(self, trade_id: str) -> bool:
+        """Actual list removal called by GC. Synchronous - no I/O."""
         found_pos = None
         for pos in self.open_positions:
             if pos.trade_id == trade_id:
@@ -1906,7 +1895,7 @@ class PositionTracker(TraceBulletMixin):
         # Update global alias map
         self._global_alias_map.pop(found_pos.trade_id, None)
 
-        logger.info(f"🧹 GC: Terminated OFF_BOARDING position {trade_id}")
+        logger.info(f"���� GC: Terminated OFF_BOARDING position {trade_id}")
         self._trigger_state_change()
         return True
 

@@ -381,7 +381,7 @@ class ReconciliationService:
                 if not self._exists_in_exchange(pos, exchange_positions):
                     # Confirmed gone from exchange -> Cleanup
                     self.logger.info(f"🧹 GC: Finalizing removal of {pos.status} position {pos.trade_id}")
-                    await self.tracker.finalize_removal(pos.trade_id)
+                    self.tracker.finalize_removal(pos.trade_id)
                     continue
                 else:
                     # Still closing on exchange -> Wait, do nothing (Respect State)

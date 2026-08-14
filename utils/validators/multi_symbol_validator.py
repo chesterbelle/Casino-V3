@@ -82,13 +82,13 @@ class MultiSymbolValidator:
         if not api_key or not secret:
             raise ValueError(f"Missing API keys for mode {mode}")
 
-        # Setup connector (matches main.py)
-        self.connector = BinanceNativeConnector(
-            api_key=api_key,
-            secret=secret,
-            mode=mode,
-            enable_websocket=True,
-        )
+        # Setup connector (matches main.py) — usa Chaos wrapper si CHAOS_MODE=1
+        if os.getenv("CHAOS_MODE", "0") == "1":
+            from utils.validators.chaos_connector import ChaosBinanceConnector
+
+            self.connector = ChaosBinanceConnector(api_key=api_key, secret=secret, mode=mode, enable_websocket=True)
+        else:
+            self.connector = BinanceNativeConnector(api_key=api_key, secret=secret, mode=mode, enable_websocket=True)
 
         self.multi_adapter = None
         self.croupier = None

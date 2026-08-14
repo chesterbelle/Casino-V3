@@ -1805,23 +1805,40 @@ class BinanceNativeConnector(BaseConnector):
             algo_orders = await self._fetch_open_algo_orders(symbol, timeout=timeout)
             if algo_orders:
                 self.logger.info(
-                    f"🧹 Found {len(algo_orders)} algo orders to cancel for {symbol}. Cancelling in parallel..."
+                    f"🧹 Found {len(algo_orders)} algo orders to cancel for {symbol}. Cancelling with retry..."
                 )
 
-                async def _safe_cancel(order_id):
-                    try:
-                        await self._cancel_algo_order(order_id, symbol, timeout=timeout)
-                    except Exception as inner_e:
-                        self.logger.error(f"❌ Failed to cancel algo order {order_id} for {symbol}: {inner_e}")
+                async def _cancel_with_retry(order_id: str, max_retries: int = 3) -> bool:
+                    """Cancel algo order with exponential backoff retry."""
+                    for attempt in range(max_retries):
+                        try:
+                            await self._cancel_algo_order(order_id, symbol, timeout=timeout)
+                            return True
+                        except Exception as inner_e:
+                            if attempt == max_retries - 1:
+                                self.logger.error(
+                                    f"❌ Failed to cancel algo order {order_id} for {symbol} after {max_retries} attempts: {inner_e}"
+                                )
+                                return False
+                            # Exponential backoff: 0.5s, 1s, 2s
+                            wait_time = 0.5 * (2**attempt)
+                            self.logger.warning(
+                                f"⏳ Cancel algo order {order_id} failed (attempt {attempt+1}/{max_retries}): {inner_e}. Retrying in {wait_time}s..."
+                            )
+                            await asyncio.sleep(wait_time)
+                    return False
 
                 tasks = []
                 for order in algo_orders:
                     order_id = order.get("id")
                     if order_id:
-                        tasks.append(_safe_cancel(order_id))
+                        tasks.append(_cancel_with_retry(order_id))
 
                 if tasks:
-                    await asyncio.gather(*tasks)
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    failed = sum(1 for r in results if r is False or isinstance(r, Exception))
+                    if failed:
+                        self.logger.warning(f"🧹 {failed}/{len(tasks)} algo orders failed to cancel for {symbol}")
         except Exception as e:
             self.logger.error(f"❌ Failed to sweep algo orders for {symbol}: {e}")
 

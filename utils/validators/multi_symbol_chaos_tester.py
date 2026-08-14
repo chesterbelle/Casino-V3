@@ -65,14 +65,24 @@ class MultiSymbolChaosTester(MultiSymbolValidator):
                 trade_id = f"chaos_{symbol}_{uuid.uuid4().hex[:6]}"
                 side = random.choice(["LONG", "SHORT"])
 
-                # Phase 800: Compute absolute TP/SL prices from market price
-                # Do NOT pre-round — oco_manager.price_to_precision handles tick-size
-                if side == "LONG":
-                    tp_price = price * 1.05  # +5% above
-                    sl_price = price * 0.95  # -5% below
+                # Phase 800: TP/SL agresivos para FORZAR fills reales en Chaos Mode
+                # Usa % fijo pequeño (0.3-0.5%) en vez de spread/tick_size (evita problemas de redondeo)
+                # Normal mode: 5% (comportamiento original)
+                if os.getenv("CHAOS_MODE", "0") == "1":
+                    # 0.4% del precio medio = lo suficientemente cerca para llenar en 10min
+                    # lo suficientemente lejos para ser múltiplos válidos de tick_size
+                    tp_pct = 0.004
+                    sl_pct = 0.004
                 else:
-                    tp_price = price * 0.95  # +5% below (SHORT TP)
-                    sl_price = price * 1.05  # -5% above (SHORT SL)
+                    tp_pct = 0.05
+                    sl_pct = 0.05
+
+                if side == "LONG":
+                    tp_price = price * (1 + tp_pct)
+                    sl_price = price * (1 - sl_pct)
+                else:
+                    tp_price = price * (1 - tp_pct)
+                    sl_price = price * (1 + sl_pct)
 
                 order = {
                     "symbol": symbol,
