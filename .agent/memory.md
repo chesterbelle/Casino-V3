@@ -179,7 +179,7 @@
 | **1.4B.4.b** | **Mini-Endurance (4h)** | **✅ PASS 2026-08-15 — re-run con fixes Phase 268: Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +15%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 3 trades, WR 66.67%, PnL -0.2976** |
 | **1.4B.5** | **Full Endurance 24h** | **✅ PASS 2026-08-16 — Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +16%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 4 trades, WR 75%, PnL +0.7768. VPN incident auto-recuperado en ~50s. Fase 1.4B COMPLETA** |
 
-**Próximo paso**: merge a `main` + tag `v9.3.0-multi-coin-certified` — SOLO certifica el usuario (Regla 14). Los cambios Phase 268 (Hallazgo #11) están sin commitear en `dev-9.3-cleanup-and-stress`.
+**Próximo paso**: merge a `main` + tag `v9.3.0-multi-coin-certified` — SOLO certifica el usuario (Regla 14). Los cambios Phase 268 (Hallazgo #11) ya fueron commiteados en `dev-9.3-cleanup-and-stress` (commit 3a2b8d6).
 
 > **🔬 HALLAZGO #10 (2026-08-13 — resuelto en `4d556eb`):** Cadena causal v3: Airlock timeout 0.5s + `asyncio.wait_for` que cancelaba el future → retry ciego → -4116; identidad dual (resilient_connector regeneraba client_order_id) → -2013 en recovery; NameError `amount` en Smart Healing → safety close de posición válida; cascada contable derivada (EXTERNAL_CLOSE, orphans, leakage). Veredicto: diseño, no rediseño. 3 fixes + 10 tests + suite 113/113 sin warnings.
 
