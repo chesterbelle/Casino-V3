@@ -99,20 +99,24 @@ La Fase B se divide en tres sub-fases:
 
 **Nota:** Con los filtros estrictos de la v9.2.0 (VA_GATE, TrendAcceptance, Z-Scores), el bot ejecuta muy pocos trades por sesión. El objetivo aquí NO es volumen de trades, sino estabilidad de proceso.
 
-### Paso B.1: Mini-Endurance (4 horas, Single Coin)
+### Paso B.1: Mini-Endurance (4 horas, Multi-Coin)
+*Corre 4 horas. Usar `setsid` para sesión detached y `--timeout 240` (graceful shutdown interno, no `timeout` shell — ver GOTCHA 21).*
 ```bash
 .venv/bin/python utils/reset_data.py
 ```
 ```bash
-.venv/bin/python main.py \
+setsid .venv/bin/python main.py \
   --run-type trade \
   --mode demo \
   --exchange binance \
-  --symbol LTCUSDT \
+  --symbol LTCUSDT,SOLUSDT,AVAXUSDT \
   --close-on-exit \
+  --timeout 240 \
   2>&1 | tee logs/mini_endurance_$(date +%Y%m%d_%H%M%S).log
 ```
-*Corre 4 horas. Monitorear RAM con `htop`. Si hay fugas groseras o crashes, se manifiestan aquí.*
+*Monitorear RAM con `htop`. Si hay fugas groseras o crashes, se manifiestan aquí.*
+
+> **⏱️ GOTCHA B.1 (2026-08-14)**: El run NUNCA es válido si aparece un `EXTERNAL_CLOSE` (Error Recovery ≠ $0). Antes de dar el run por bueno, correr SIEMPRE `audit_trade_flow.py` (Paso B.5). Un run de 4h con `Error Recovery = -0.0419` por 1 EXTERNAL_CLOSE FALLÓ el criterio crítico aunque el proceso aguantara las 4h.
 
 ### Paso B.2: Debug-Gate 12h (Single Coin — repetir hasta 2× limpios)
 *Ejecutar solo si B.1 pasa. Repetir este paso hasta tener 2 runs consecutivos sin errores.*
@@ -178,23 +182,28 @@ La Fase B se divide en tres sub-fases:
   2>&1 | tee logs/endurance_multi_$(date +%Y%m%d_%H%M%S).log
 ```
 
-### Paso B.5: Auditoría Post-Endurance
+### Paso B.5: Auditoría Post-Endurance (OBLIGATORIO — sin excepción)
 ```bash
-.venv/bin/python utils/audit_logs.py logs/endurance_test_$(ls -t logs/endurance_* | head -1 | xargs basename)
+.venv/bin/python utils/audit_logs.py logs/mini_endurance_$(ls -t logs/mini_endurance_* | head -1 | xargs basename)
 ```
 ```bash
 .venv/bin/python utils/audit_trade_flow.py --db data/historian.db
 ```
+*El auditor auto-detecta la sesión más reciente y cruza el `exit_reason` de la tabla `trades`. **VERDICT FAIL** si hay trades con exit no limpio (ej. `EXTERNAL_CLOSE`, `SAFETY_CLOSE`, `OCO_ABORT`). Para auditar una sesión específica: `--session <session_id>`.*
+
+> **🔬 GOTCHA B.5 (2026-08-14)**: El auditor anterior solo leía `trade_lifecycle_events` y daba **falso PASS** ante `EXTERNAL_CLOSE` (el Sheriff registra directo en `trades`, sin evento de cierre). Fix: audita la tabla `trades` por `session_id` (fuente de verdad del `exit_reason`). Un run de 4h con 1 EXTERNAL_CLOSE ahora da **VERDICT FAIL** (33.3% poor execution), coherente con Error Recovery ≠ $0.
 
 ### Criterios de Éxito (Endurance)
 
 **Mini-Endurance (B.1)**:
 - [ ] **Error Recovery = $0.00 (0 error trades)** ← CRÍTICO
+- [ ] **`audit_trade_flow.py` → VERDICT PASS** (0 poor executions, exit no limpio)
 - [ ] **Proceso no crasheó** durante las 4h
 - [ ] **RAM estable** (No creció >50% respecto al inicio)
 - [ ] **Event Integrity = 100%** (0 logs de `WS Event UNMATCHED`)
 - [ ] **Airlock Latency = 100%** (0 warnings de `🐢 High Airlock Latency`)
 - [ ] **Full Exit**: Tracker vacío después de `--close-on-exit`
+- [ ] **Trade Flow Observability = 100%** (Verificar en `trade_lifecycle_events` trazabilidad completa: OCO_SUBMITTED → ENTRY_FILLED → STOP_FILLED → CLOSED)
 - [ ] Los trades ejecutados (si los hay) cerraron limpiamente
 
 **Debug-Gate 12h (B.2)** — mismos criterios que B.1 + :

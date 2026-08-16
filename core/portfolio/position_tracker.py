@@ -813,6 +813,17 @@ class PositionTracker(TraceBulletMixin):
                     )
 
                     for pos in matching_positions:
+                        # Phase 268 Fix: If the bot itself is already closing this
+                        # position (CLOSING/OFF_BOARDING), the ACCOUNT_UPDATE with
+                        # amount=0 is our OWN close confirmation, NOT an external
+                        # closure. Skipping prevents EXTERNAL_CLOSE false positives
+                        # that contaminate Error Recovery (bug: Mini-Endurance 08-14).
+                        if getattr(pos, "status", None) in ("CLOSING", "OFF_BOARDING"):
+                            logger.debug(
+                                f"🤠 Sheriff: {pos.trade_id} already {pos.status} — own close, skipping EXTERNAL_CLOSE"
+                            )
+                            continue
+
                         # ISSUE-001 Fix: Determine exit price and reason with correct priority.
                         # Priority: market_price comparison (highest) > static level guess > LIQUIDATION (last resort).
                         # Previously liquidation_level had highest priority → all Sheriff trades mislabeled.

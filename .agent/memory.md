@@ -47,6 +47,8 @@
 
 
 > 25. **GOTCHA (CHAOS MODE FAULT INJECTION):** Para validar Two-Layer Orphan Recovery sin esperar 12h en Endurance, usar `CHAOS_MODE=1` en `multi_symbol_chaos_tester.py`. Inyecta fallos reales de Binance (-1007, 502, ECONNRESET, timeouts 0.5s) en el boundary del connector (`_execute_raw_request`). TP/SL agresivos (0.4%) fuerzan fills reales. Variables: `CHAOS_FAIL_RATE`, `CHAOS_LATENCY_MS`, `CHAOS_TIMEOUT_RATE`. Valida: PENDING_VERIFICATION → pending_orphan_check → NOT_FILLED/ORPHAN_RECOVERY en 10 min vs 12h.
+> 26. **GOTCHA (LIQUIDATION SHERIFF vs PROPIO CLOSE — Phase 268, 2026-08-14):** El Liquidation Sheriff (`handle_account_update` en `position_tracker.py`) NUNCA debe clasificar como `EXTERNAL_CLOSE` un ACCOUNT_UPDATE (`pa=0`) de una posición que el PROPIO bot está cerrando (status `CLOSING`/`OFF_BOARDING`). Bug: en Mini-Endurance 4h (1.4B.4.b), el drain del propio bot (`DRAIN_PANIC` por `--timeout`) generó el ACCOUNT_UPDATE de cierre y el Sheriff lo interpretó como cierre externo → `EXTERNAL_CLOSE` → contamina Error Recovery (-0.0419). Fix: skip si `pos.status in ("CLOSING", "OFF_BOARDING")`. Los tests del Sheriff viven en `tests/unit/test_sheriff_external_close.py`.
+> 27. **GOTCHA (AUDITOR DE TRADE FLOW vs exit_reason — Phase 268, 2026-08-14):** `utils/audit_trade_flow.py` NO debe auditar solo `trade_lifecycle_events` (keyed por `client_order_id` `CASINO_ENTRY_*`) — el EXTERNAL_CLOSE del Sheriff no emite evento de cierre y daba **falso PASS**. Debe auditar la tabla `trades` (fuente de verdad del `exit_reason`) filtrando por `session_id` (auto-detecta la más reciente o `--session`). Un `exit_reason` fuera de `CLEAN_EXIT_REASONS` con `healed=0` = poor execution → VERDICT FAIL. Verificable: un run de 4h con 1 EXTERNAL_CLOSE da FAIL 33.3% poor execution.
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
@@ -174,10 +176,10 @@
 | 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | �� Completado — Sheriff fixes (`4be1102`) |
 | **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **��� COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
 | **1.4B.4.a** | **Chaos Test (Trade Flow Validation) — FAULT INJECTION** | **��� COMPLETADO — 60 ops con fills reales, Error Trades=0, Two-Layer Recovery 100%** |
-| **1.4B.4.b** | **Mini-Endurance (4h)** | **���� Próximo — Sin CHAOS_MODE, validar estabilidad 4h** |
-| **1.4B.5** | **Full Endurance 24h (Re-try)** | **���� Pendiente — tras 1.4B.4.b limpio** |
+| **1.4B.4.b** | **Mini-Endurance (4h)** | **✅ PASS 2026-08-15 — re-run con fixes Phase 268: Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +15%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 3 trades, WR 66.67%, PnL -0.2976** |
+| **1.4B.5** | **Full Endurance 24h** | **✅ PASS 2026-08-16 — Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +16%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 4 trades, WR 75%, PnL +0.7768. VPN incident auto-recuperado en ~50s. Fase 1.4B COMPLETA** |
 
-**Próximo paso**: Mini-Endurance 4h (1.4B.4.b) sin fault injection → si limpio → Full Endurance 24h → merge a `main` + tag `v9.3.0-multi-coin-certified` (solo certifica el usuario).
+**Próximo paso**: merge a `main` + tag `v9.3.0-multi-coin-certified` — SOLO certifica el usuario (Regla 14). Los cambios Phase 268 (Hallazgo #11) están sin commitear en `dev-9.3-cleanup-and-stress`.
 
 > **🔬 HALLAZGO #10 (2026-08-13 — resuelto en `4d556eb`):** Cadena causal v3: Airlock timeout 0.5s + `asyncio.wait_for` que cancelaba el future → retry ciego → -4116; identidad dual (resilient_connector regeneraba client_order_id) → -2013 en recovery; NameError `amount` en Smart Healing → safety close de posición válida; cascada contable derivada (EXTERNAL_CLOSE, orphans, leakage). Veredicto: diseño, no rediseño. 3 fixes + 10 tests + suite 113/113 sin warnings.
 
