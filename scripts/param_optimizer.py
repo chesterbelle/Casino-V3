@@ -894,7 +894,7 @@ FLUJO TÍPICO:
     if args.validate_only:
         print("\nValidate-only mode. Using current params.")
         validation = validate_cross_coin(args.symbol, {}, args.filter)
-        generate_output(args.symbol, {}, 0.0, baseline, validation, {}, [], 0.0, args.output)
+        generate_output(args.symbol, {}, 0.0, baseline, None, args.only, validation, {}, [], 0.0, args.output)
         return
 
     # ── Bayesian Optimization ──
@@ -1045,3 +1045,4 @@ if __name__ == "__main__":
         import traceback
 
         traceback.print_exc()
+        sys.exit(1)
