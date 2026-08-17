@@ -181,6 +181,8 @@
 
 **Próximo paso**: merge a `main` + tag `v9.3.0-multi-coin-certified` — SOLO certifica el usuario (Regla 14). Los cambios Phase 268 (Hallazgo #11) ya fueron commiteados en `dev-9.3-cleanup-and-stress` (commit 3a2b8d6).
 
+> **🛡️ REDUCCIÓN DE DEUDA TÉCNICA (Fase 9.4 — 2026-08-16):** Se implementó el mecanismo de snapshots asíncronos para Historian DB usando `sqlite3.backup` en el thread worker, evitando el bloqueo del event loop. Se corrigió el Graceful Shutdown (cierre de tasks/semáforos) y se homologaron los conectores (`ResilientConnector`, `MockConnector`, `VirtualExchangeConnector`) al nuevo contrato estricto de `BaseConnector`. Tests Unitarios incrementados a 152 (100% verde) cubriendo el `PortfolioGuard`.
+
 > **🔬 HALLAZGO #10 (2026-08-13 — resuelto en `4d556eb`):** Cadena causal v3: Airlock timeout 0.5s + `asyncio.wait_for` que cancelaba el future → retry ciego → -4116; identidad dual (resilient_connector regeneraba client_order_id) → -2013 en recovery; NameError `amount` en Smart Healing → safety close de posición válida; cascada contable derivada (EXTERNAL_CLOSE, orphans, leakage). Veredicto: diseño, no rediseño. 3 fixes + 10 tests + suite 113/113 sin warnings.
 
 > **📌 NOTA SOBRE DG-3R (2026-08-07):** Run técnicamente PASS pero con muestra estadística insuficiente (3 trades, 0W/3L). Considerar repetir DG-3 Multi-Coin antes de Full Endurance 24h si se busca validación de edge (no solo de estabilidad). La arquitectura Two-Layer Orphan Recovery está certificada: código NO se disparó en el run (no hubo timeouts), pero está listo. Métrica clave: 722 ciclos de reconciliación sin un solo fallo.

@@ -40,6 +40,21 @@ class MockConnector(BaseConnector):
     async def create_order(self, symbol, side, amount, price=None, order_type="market", params=None):
         return {}
 
+    async def cancel_order(self, order_id: str, symbol: str, params=None):
+        return {}
+
+    async def fetch_my_trades(self, symbol=None, since=None, limit=None):
+        return []
+
+    async def fetch_open_orders(self, symbol=None):
+        return []
+
+    async def set_leverage(self, leverage: int, symbol: str):
+        return {}
+
+    async def set_margin_mode(self, margin_mode: str, symbol: str):
+        return {}
+
     def normalize_symbol(self, s):
         return s
 

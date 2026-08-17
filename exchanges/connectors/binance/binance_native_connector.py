@@ -1209,6 +1209,21 @@ class BinanceNativeConnector(BaseConnector):
 
         return result
 
+    async def set_leverage(self, leverage: int, symbol: str) -> Dict[str, Any]:
+        params = {"symbol": self._normalize_symbol(symbol), "leverage": leverage}
+        return await self._request("POST", "/fapi/v1/leverage", params=params, signed=True, endpoint_type="account")
+
+    async def set_margin_mode(self, margin_mode: str, symbol: str) -> Dict[str, Any]:
+        params = {"symbol": self._normalize_symbol(symbol), "marginType": margin_mode.upper()}
+        try:
+            return await self._request(
+                "POST", "/fapi/v1/marginType", params=params, signed=True, endpoint_type="account"
+            )
+        except Exception as e:
+            if "-4046" in str(e):  # No need to change margin type
+                return {"msg": "No need to change margin type"}
+            raise
+
     async def fetch_positions(
         self, symbol: Optional[str] = None, timeout: Optional[float] = None
     ) -> List[Dict[str, Any]]:

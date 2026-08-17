@@ -278,6 +278,36 @@ class BaseConnector(ABC):
         pass
 
     @abstractmethod
+    async def fetch_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch open orders from the exchange.
+        """
+        pass
+
+    @abstractmethod
+    async def fetch_my_trades(
+        self, symbol: Optional[str] = None, since: Optional[int] = None, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch user's trade history.
+        """
+        pass
+
+    @abstractmethod
+    async def set_leverage(self, leverage: int, symbol: str) -> None:
+        """
+        Set leverage for a specific symbol.
+        """
+        pass
+
+    @abstractmethod
+    async def set_margin_mode(self, symbol: str, margin_type: str) -> None:
+        """
+        Set margin mode (isolated/cross) for a specific symbol.
+        """
+        pass
+
+    @abstractmethod
     async def fetch_active_symbols(self) -> List[str]:
         """
         Discover all symbols that have activity (Open Positions or Open Orders).
@@ -360,6 +390,20 @@ class BaseConnector(ABC):
                 order_type="limit"
             )
             ```
+        """
+        pass
+
+    @abstractmethod
+    async def cancel_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
+        """
+        Cancel an existing order on the exchange.
+
+        Args:
+            order_id: The ID of the order to cancel
+            symbol: Trading pair symbol (e.g., "BTC/USD")
+
+        Returns:
+            Normalized order result after cancellation
         """
         pass
 

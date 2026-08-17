@@ -794,6 +794,21 @@ async def main():
         except Exception as e:
             logger.error(f"❌ Failed to start Dashboard: {e}")
 
+    # Phase 9.4: Historian DB Snapshots
+    async def historian_snapshot_task():
+        interval_seconds = getattr(trading_config, "HISTORIAN_SNAPSHOT_INTERVAL_HOURS", 6) * 3600
+        while not stop_event.is_set():
+            try:
+                await asyncio.sleep(interval_seconds)
+                if not stop_event.is_set():
+                    historian.create_snapshot_async()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"⚠️ Historian Snapshot Task Error: {e}")
+
+    historian_snapshot_bg = asyncio.create_task(historian_snapshot_task())
+
     try:
         while engine.running and not stop_event.is_set():
             # Report main loop heartbeat
@@ -974,6 +989,9 @@ async def main():
             if reconciliation_task:
                 reconciliation_task.cancel()
 
+            if "historian_snapshot_bg" in locals():
+                historian_snapshot_bg.cancel()
+
             # Signal Croupier to stop internal background loops
             croupier.set_shutting_down(True)
 
@@ -1075,6 +1093,16 @@ async def main():
         try:
             logger.info("🔌 Disconnecting exchange connector...")
             await croupier.adapter.disconnect()
+
+            # Phase 9.4: Await and clear background tasks to prevent Semaphore Leaks
+            bg_tasks = getattr(croupier, "_background_tasks", set())
+            if bg_tasks:
+                logger.info(f"⏳ Waiting for {len(bg_tasks)} background tasks to finish...")
+                for task in list(bg_tasks):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*bg_tasks, return_exceptions=True)
+                bg_tasks.clear()
         except Exception as e:
             logger.error(f"⚠️ Error disconnecting connector: {e}")
 

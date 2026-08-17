@@ -51,13 +51,19 @@ Each layer must pass before proceeding to the next.
 ```
 *Tests*: Market/limit fees, entry/exit fee storage, Phase 1200 fix, maker vs taker rates.
 
+### Layer 0.F: Core Unit & Regression Tests
+```bash
+.venv/bin/python -m pytest tests/ -v
+```
+*Tests*: Portfolio Guard (solvency, hysteresis, error storms), Network iterators, Croupier sync, Accounting Enrichment, Clock, etc.
+
 ---
 
 ## LAYER 1: PAIRWISE INTEGRATION
 
 ### Layer 1.1: Data Integrity Check
 ```bash
-.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian_LTCUSDT.db'); print(f'Signals: {conn.execute(\"SELECT COUNT(*) FROM signals\").fetchone()[0]}, Price Samples: {conn.execute(\"SELECT COUNT(*) FROM price_samples\").fetchone()[0]}')"
+.venv/bin/python -c "import sqlite3, os; db='data/historian.db'; print('Signals: 0 (No DB)' if not os.path.exists(db) else f'Signals: {sqlite3.connect(db).execute(\"SELECT COUNT(*) FROM signals\").fetchone()[0]}' if 'signals' in [r[0] for r in sqlite3.connect(db).execute(\"SELECT name FROM sqlite_master WHERE type='table'\")] else 'Signals: 0 (Empty DB)')"
 ```
 *Note*: Validates historian database has data from previous backtest run.
 
@@ -145,7 +151,7 @@ Each layer must pass before proceeding to the next.
 
 ## PRE-MERGE CHECKLIST (Before merging to `main`)
 
-- [ ] **Layer 0**: All atomic validators pass (0.A through 0.E).
+- [ ] **Layer 0**: All atomic validators & Core Unit Tests pass (0.A through 0.F).
 - [ ] **Layer 1**: Data integrity + exit integration pass.
 - [ ] **Layer 2**: Signal pipeline validator passes.
 - [ ] **Layer 3**: Backtest runner audit passes (single-coin).
@@ -165,15 +171,16 @@ Each layer must pass before proceeding to the next.
 ## Quick Validation (Offline Only - Pre-Merge)
 For environments without exchange access, run Layers 0-3 + Layer 6 (validate-only):
 ```bash
-# Layer 0: All atomic math tests
+# Layer 0: All atomic math tests & Core unit tests
 .venv/bin/python utils/validators/absorption_footprint_validator.py
 .venv/bin/python utils/validators/absorption_guardian_validator.py
 .venv/bin/python utils/validators/exit_engine_validator.py
 .venv/bin/python utils/validators/signal_arbitrator_validator.py
 .venv/bin/python utils/validators/virtual_exchange_fee_validator.py
+.venv/bin/python -m pytest tests/
 
 # Layer 1: Data integrity + exit integration
-.venv/bin/python -c "import sqlite3; conn = sqlite3.connect('data/historian_LTCUSDT.db'); print(f'Signals: {conn.execute(\"SELECT COUNT(*) FROM signals\").fetchone()[0]}, Price Samples: {conn.execute(\"SELECT COUNT(*) FROM price_samples\").fetchone()[0]}')"
+.venv/bin/python -c "import sqlite3, os; db='data/historian.db'; print('Signals: 0 (No DB)' if not os.path.exists(db) else f'Signals: {sqlite3.connect(db).execute(\"SELECT COUNT(*) FROM signals\").fetchone()[0]}' if 'signals' in [r[0] for r in sqlite3.connect(db).execute(\"SELECT name FROM sqlite_master WHERE type='table'\")] else 'Signals: 0 (Empty DB)')"
 .venv/bin/python utils/validators/exit_engine_integration_validator.py
 
 # Layer 2: Signal pipeline

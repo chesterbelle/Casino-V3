@@ -160,6 +160,20 @@ def _historian_worker(db_path: str, q: mp.Queue):
                         ),
                     )
                 conn.commit()
+            elif action == "CREATE_SNAPSHOT":
+                target_path = data[0]
+                try:
+                    import os
+
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    with sqlite3.connect(target_path) as target_conn:
+                        # Copy in chunks of 100 pages, sleeping lightly is not needed inside the worker
+                        # as it's an offline backup process from the perspective of the main event loop,
+                        # but sqlite3 backup automatically manages locks.
+                        conn.backup(target_conn)
+                    worker_logger.info(f"📸 Snapshot created successfully at {target_path}")
+                except Exception as e:
+                    worker_logger.error(f"❌ Failed to create snapshot at {target_path}: {e}")
         except Exception as e:
             worker_logger.error(
                 f"HistorianWorker error processing {action if 'action' in locals() else 'unknown'}: {e}"
@@ -602,6 +616,26 @@ class TradeHistorian:
 
         except Exception as e:
             logger.error(f"❌ Historian: Error processing trade record: {e}")
+
+    def create_snapshot_async(self, target_dir: str = "data/snapshots"):
+        """
+        Phase 9.4: Request a hot-copy of the database without stopping the bot.
+        Handled by the HistorianWorker using sqlite3.Connection.backup().
+        """
+        if not self._use_mp:
+            logger.warning("⚠️ Historian: Snapshot requested but running in :memory: mode.")
+            return
+
+        import os
+        from datetime import datetime
+
+        os.makedirs(target_dir, exist_ok=True)
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        target_path = os.path.join(target_dir, f"historian_snapshot_{timestamp_str}.db")
+
+        self._ensure_worker()
+        self._queue.put(("CREATE_SNAPSHOT", (target_path,)))
+        logger.info(f"📸 Historian: Queued CREATE_SNAPSHOT -> {target_path}")
 
     def _execute_insert_trade(self, params):
         """Fallback sync executor for memory DBs."""

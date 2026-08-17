@@ -809,3 +809,11 @@ class ResilientConnector(BaseConnector):
     def get_load_factor(self) -> float:
         """Delegate load factor to underlying connector."""
         return self._connector.get_load_factor()
+
+    async def set_leverage(self, leverage: int, symbol: str) -> Dict[str, Any]:
+        """Delegate to underlying connector."""
+        return await self._connector.set_leverage(leverage, symbol)
+
+    async def set_margin_mode(self, margin_mode: str, symbol: str) -> Dict[str, Any]:
+        """Delegate to underlying connector."""
+        return await self._connector.set_margin_mode(margin_mode, symbol)

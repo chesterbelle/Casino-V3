@@ -993,6 +993,24 @@ class VirtualExchangeConnector(BaseConnector):
         # This method is rarely used by Croupier (it uses DataSource).
         return []
 
+    async def fetch_my_trades(
+        self, symbol: Optional[str] = None, since: Optional[int] = None, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        trades = self._trades
+        if symbol:
+            trades = [t for t in trades if t["symbol"] == symbol]
+        if since:
+            trades = [t for t in trades if t["timestamp"] >= since]
+        if limit:
+            trades = trades[-limit:]
+        return trades
+
+    async def set_leverage(self, leverage: int, symbol: str) -> Dict[str, Any]:
+        return {"symbol": symbol, "leverage": leverage, "msg": "Virtual leverage set"}
+
+    async def set_margin_mode(self, margin_mode: str, symbol: str) -> Dict[str, Any]:
+        return {"symbol": symbol, "marginType": margin_mode, "msg": "Virtual margin mode set"}
+
     def _normalize_order(self, order: Dict) -> Dict:
         """
         Normalize order to standard format (matching BinanceNativeConnector).

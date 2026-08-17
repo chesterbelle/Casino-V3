@@ -99,9 +99,9 @@ class Clock:
 
     async def _process_tick(self, timestamp: float):
         """Distribute tick to all children."""
-        # TODO: Decide if we want gather (parallel) or sequential.
-        # Hummingbot uses sequential to ensure deterministic order (Connector -> Strategy).
-        # We will use Sequential for safety in V4.0.
+        # Phase 9.4: Deterministic sequential execution confirmed (no gather).
+        # We use sequential processing to ensure deterministic order (Connector -> Strategy),
+        # which is crucial for Backtest parity and state integrity.
 
         for child in self._children:
             try:

@@ -121,7 +121,7 @@ FLYTEST_DEPTH_CHECK_PCT = 0.01
 # =====================================================
 
 # Master switch for the guard. When disabled, all checks are skipped.
-PORTFOLIO_GUARD_ENABLED = False
+PORTFOLIO_GUARD_ENABLED = True
 
 # Drawdown velocity (rolling window)
 # En scalping, los drawdowns rápidos (flash crashes) deben apagar el bot.

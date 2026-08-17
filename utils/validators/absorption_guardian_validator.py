@@ -45,7 +45,7 @@ def main():
     print("  LAYER 0.B: GUARDIAN MATH VALIDATOR (OrderFlowEngine v2)")
     print("=" * 60)
 
-    engine = CoinOrderFlowEngine(symbol="BTCUSDT_TEST")
+    engine = CoinOrderFlowEngine(symbol="LTCUSDT")
 
     # ─────────────────────────────────────────────────────────
     # TEST 1: CVD velocity z-score isolation
@@ -73,7 +73,7 @@ def main():
     # ─────────────────────────────────────────────────────────
     section("TEST 2: absorption_score_v2 — extreme ask/bid ratio")
 
-    engine2 = CoinOrderFlowEngine(symbol="BTCUSDT_TEST2")
+    engine2 = CoinOrderFlowEngine(symbol="LTCUSDT")
 
     # Phase A: warm up with VARIED concentration ratios (0.50..0.70)
     for i in range(30):
@@ -114,7 +114,7 @@ def main():
     # ─────────────────────────────────────────────────────────
     section("TEST 3: balanced footprint → low absorption_score_v2")
 
-    engine3 = CoinOrderFlowEngine(symbol="BTCUSDT_TEST3")
+    engine3 = CoinOrderFlowEngine(symbol="LTCUSDT")
 
     # Phase A: warm up with varied footprints
     for i in range(30):
@@ -151,7 +151,7 @@ def main():
     # ─────────────────────────────────────────────────────────
     section("TEST 4: tick_absorption — high CVD velocity + stagnant price")
 
-    engine4 = CoinOrderFlowEngine(symbol="BTCUSDT_TEST4")
+    engine4 = CoinOrderFlowEngine(symbol="LTCUSDT")
 
     # First, get into state where last_price is set with significant CVD velocity
     # Then update with stationary price to trigger tick_absorption
