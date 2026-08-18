@@ -163,8 +163,7 @@ def _historian_worker(db_path: str, q: mp.Queue):
             elif action == "CREATE_SNAPSHOT":
                 target_path = data[0]
                 try:
-                    import os
-
+                    # Removed local 'import os' to fix UnboundLocalError shadowing
                     os.makedirs(os.path.dirname(target_path), exist_ok=True)
                     with sqlite3.connect(target_path) as target_conn:
                         # Copy in chunks of 100 pages, sleeping lightly is not needed inside the worker

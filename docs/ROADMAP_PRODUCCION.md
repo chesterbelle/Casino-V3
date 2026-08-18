@@ -324,7 +324,23 @@ async def _on_order_update_event(self, event):
 
 **Tiempo estimado**: 2-4 días (variable según número de errores encontrados)
 
-### 1.5 Análisis de Drawdown y Riesgo
+### 1.5 Post-Endurance Raw Non-Regression Test
+
+**Objetivo**: Confirmar que los cambios arquitectónicos recientes (ej. refactor del `position_tracker` probado en el endurance de Fase 1.4) no rompieron el flujo interno del simulador base, y validar la capacidad del Optimizador para asimilar nuevas monedas tras estas modificaciones pesadas.
+
+**Procedimiento**:
+1. **Prueba de Pureza (LTCUSDT)**: Correr `backtest.py` de forma manual (SIN el orquestador `runner`) usando el dataset diario de LTCUSDT en modo `audit`.
+2. **Validación de Resultados**: Usar `utils/setup_edge_auditor.py` sobre la base de datos resultante (`historian.db`) para confirmar que las señales se registraron correctamente y el perfil perfecto de LTC sigue operando sin errores técnicos.
+3. **Prueba de Asimilación (DOTUSDT)**: Una vez confirmado que el motor base funciona, descargar el pipeline completo para una nueva moneda (DOTUSDT), consolidar los datos, y correr `scripts/cluster_optimizer.py` (Optuna) para descubrir los *golden params*. Esto certifica que el ecosistema de tooling sigue vivo para nuevos mercados.
+
+**Criterio de paso**:
+- `backtest.py` termina sin crashes.
+- `setup_edge_auditor.py` lee correctamente la base de datos y reporta señales para LTCUSDT.
+- `cluster_optimizer.py` corre iteraciones exitosas para DOTUSDT y encuentra combinaciones paramétricas válidas.
+
+**Tiempo estimado**: 1-2 días
+
+### 1.6 Análisis de Drawdown y Riesgo
 
 **Objetivo**: Entender el riesgo máximo del sistema antes de exponer capital.
 
