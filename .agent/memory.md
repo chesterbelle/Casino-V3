@@ -50,10 +50,12 @@
 > 26. **GOTCHA (LIQUIDATION SHERIFF vs PROPIO CLOSE — Phase 268, 2026-08-14):** El Liquidation Sheriff (`handle_account_update` en `position_tracker.py`) NUNCA debe clasificar como `EXTERNAL_CLOSE` un ACCOUNT_UPDATE (`pa=0`) de una posición que el PROPIO bot está cerrando (status `CLOSING`/`OFF_BOARDING`). Bug: en Mini-Endurance 4h (1.4B.4.b), el drain del propio bot (`DRAIN_PANIC` por `--timeout`) generó el ACCOUNT_UPDATE de cierre y el Sheriff lo interpretó como cierre externo → `EXTERNAL_CLOSE` → contamina Error Recovery (-0.0419). Fix: skip si `pos.status in ("CLOSING", "OFF_BOARDING")`. Los tests del Sheriff viven en `tests/unit/test_sheriff_external_close.py`.
 > 27. **GOTCHA (AUDITOR DE TRADE FLOW vs exit_reason — Phase 268, 2026-08-14):** `utils/audit_trade_flow.py` NO debe auditar solo `trade_lifecycle_events` (keyed por `client_order_id` `CASINO_ENTRY_*`) — el EXTERNAL_CLOSE del Sheriff no emite evento de cierre y daba **falso PASS**. Debe auditar la tabla `trades` (fuente de verdad del `exit_reason`) filtrando por `session_id` (auto-detecta la más reciente o `--session`). Un `exit_reason` fuera de `CLEAN_EXIT_REASONS` con `healed=0` = poor execution → VERDICT FAIL. Verificable: un run de 4h con 1 EXTERNAL_CLOSE da FAIL 33.3% poor execution.
 
+> 28. **GOTCHA (HISTORIAN WORKER `import os` SHADOWING — Phase 260, 2026-08-18):** La función `_historian_worker()` en `core/observability/historian.py` es un proceso `multiprocessing` separado. Un `import os` local dentro del branch `CREATE_SNAPSHOT` (línea ~166) hacía que Python tratara `os` como variable **local** para TODA la función. La primera referencia a `os` (línea 24, limpieza WAL/SHM) ocurría ANTES del import → `UnboundLocalError` → el worker moría silenciosamente al arrancar. Resultado: TODAS las escrituras a `historian.db` (signals, trades, price_samples, lifecycle_events) se encolaban en `mp.Queue` sin consumidor y se evaporaban al terminar el proceso. **Lección**: NUNCA usar `import` local dentro de funciones que ya tienen el módulo importado globalmente — Python marca la variable como local para todo el scope de la función, no solo desde la línea del import.
+
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
-*   **Current Branch**: `dev-9.3-cleanup-and-stress` (rama de trabajo activa — DG-3R completado)
+*   **Current Branch**: `dev-9.4-paper-trading` (rama de trabajo activa — Phase 1.5 Non-Regression completada)
 *   **Stable Branch**: `main` (certificada como **v9.2.0-phase1-ready**)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized + Regime Filter + SBR).
@@ -164,22 +166,23 @@
 >
 > **Por favor, lee ese documento para saber en qué fase estamos y qué sigue.**
 
-### ��� Ruta Actual (Estado Vivo — 2026-08-14)
+### 📍 Ruta Actual (Estado Vivo — 2026-08-18)
 | Fase | Paso | Estado |
 |------|------|--------|
-| 1.1 | Non-Regression Test (9 activos) | �� Completado (0 regresiones) |
-| 1.2 | Internal Event Bus Refactor | �� Completado |
-| 1.3 | `/validate-all` (8/8 tests) | �� Completado |
-| 1.4A | Chaos Test (10min, 9 monedas) | �� Completado — Error Trades=0, Integrity=PASS, 634 ops |
-| 1.4B.1 | Mini-Endurance (4h, LTCUSDT) | �� Completado — 7h reales, Error Recovery=$0 |
-| 1.4B.2a | Debug-Gate 12h (LTCUSDT) — 1er run | �� Completado — bugs A+B fix (`2a34cf6`), -4120 fix (`ec07d2a`) |
-| 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | �� Completado — Sheriff fixes (`4be1102`) |
-| **1.4B.3** | **Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX)** | **��� COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs, --timeout graceful** |
-| **1.4B.4.a** | **Chaos Test (Trade Flow Validation) — FAULT INJECTION** | **��� COMPLETADO — 60 ops con fills reales, Error Trades=0, Two-Layer Recovery 100%** |
-| **1.4B.4.b** | **Mini-Endurance (4h)** | **✅ PASS 2026-08-15 — re-run con fixes Phase 268: Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +15%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 3 trades, WR 66.67%, PnL -0.2976** |
-| **1.4B.5** | **Full Endurance 24h** | **✅ PASS 2026-08-16 — Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +16%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 4 trades, WR 75%, PnL +0.7768. VPN incident auto-recuperado en ~50s. Fase 1.4B COMPLETA** |
+| 1.1 | Non-Regression Test (9 activos) | 🟢 Completado (0 regresiones) |
+| 1.2 | Internal Event Bus Refactor | 🟢 Completado |
+| 1.3 | `/validate-all` (8/8 tests) | 🟢 Completado |
+| 1.4A | Chaos Test (10min, 9 monedas) | 🟢 Completado — Error Trades=0, Integrity=PASS, 634 ops |
+| 1.4B.1 | Mini-Endurance (4h, LTCUSDT) | 🟢 Completado — 7h reales, Error Recovery=$0 |
+| 1.4B.2a | Debug-Gate 12h (LTCUSDT) — 1er run | 🟢 Completado — bugs A+B fix (`2a34cf6`), -4120 fix (`ec07d2a`) |
+| 1.4B.2b | Debug-Gate 12h (LTCUSDT) — 2do run | 🟢 Completado — Sheriff fixes (`4be1102`) |
+| 1.4B.3 | Debug-Gate Multi-Coin 12h (LTC+SOL+AVAX) | 🟢 COMPLETADO — DG-3R 720.6m, Orphan Hygiene 100%, 0 OCO_ABORTs |
+| 1.4B.4.a | Chaos Test (Trade Flow Validation) — FAULT INJECTION | 🟢 COMPLETADO — 60 ops, Error Trades=0, Two-Layer Recovery 100% |
+| 1.4B.4.b | Mini-Endurance (4h) | ✅ PASS 2026-08-15 — Error Recovery $0.00, 0 EXTERNAL_CLOSE |
+| 1.4B.5 | Full Endurance 24h | ✅ PASS 2026-08-16 — Error Recovery $0.00, WR 75%, PnL +0.7768 |
+| **1.5** | **Post-Endurance Raw Non-Regression Test** | **✅ PASS 2026-08-18 — Bug historian worker (import os shadowing) parchado. LTC audit: 52 señales, TA +0.4517%.** |
 
-**Próximo paso**: merge a `main` + tag `v9.3.0-multi-coin-certified` — SOLO certifica el usuario (Regla 14). Los cambios Phase 268 (Hallazgo #11) ya fueron commiteados en `dev-9.3-cleanup-and-stress` (commit 3a2b8d6).
+**Próximo paso**: merge a `main` + tag `v9.3.0-multi-coin-certified` — SOLO certifica el usuario (Regla 14). Historian fix + Phase 1.5 commiteados en `dev-9.4-paper-trading` (commit `b0c17cc`).
 
 > **🛡️ REDUCCIÓN DE DEUDA TÉCNICA (Fase 9.4 — 2026-08-16):** Se implementó el mecanismo de snapshots asíncronos para Historian DB usando `sqlite3.backup` en el thread worker, evitando el bloqueo del event loop. Se corrigió el Graceful Shutdown (cierre de tasks/semáforos) y se homologaron los conectores (`ResilientConnector`, `MockConnector`, `VirtualExchangeConnector`) al nuevo contrato estricto de `BaseConnector`. Tests Unitarios incrementados a 152 (100% verde) cubriendo el `PortfolioGuard`.
 
