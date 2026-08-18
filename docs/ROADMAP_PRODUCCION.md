@@ -370,6 +370,23 @@ async def _on_order_update_event(self, event):
 
 **Tiempo estimado**: 1 día de análisis
 
+### 1.7 Paper Trading Readiness Audit
+
+**Objetivo**: Auditoría sistemática del sistema para identificar features faltantes, gaps operacionales y mejoras necesarias antes de iniciar Paper Trading real. Evitar descubrir carencias a mitad de un run.
+
+**Procedimiento**:
+1. **Gap Analysis de Infraestructura**: Revisar si `main.py` soporta todos los flags necesarios para paper trading prolongado (multi-día). Verificar: auto-restart, health checks, logging rotativo, alertas.
+2. **Gap Analysis de Monitoreo**: ¿Existe dashboard en tiempo real? ¿Se pueden extraer métricas de performance (PnL acumulado, drawdown, win rate) sin parar el bot? ¿Hay alertas automáticas ante anomalías?
+3. **Gap Analysis de Risk Management**: ¿Está implementado el max daily drawdown circuit breaker? ¿El portfolio guard limita posiciones simultáneas? ¿Hay kill switch manual?
+4. **Gap Analysis de Datos**: ¿Se persisten todos los trades con suficiente detalle para auditoría posterior? ¿El historian.db se respalda periódicamente? ¿Hay rotación de logs?
+5. **Priorización**: Clasificar cada gap como BLOCKER (impide paper trading), SHOULD-HAVE (mejora significativa) o NICE-TO-HAVE (puede esperar).
+
+**Criterio de paso**:
+- 0 BLOCKERs abiertos
+- Lista priorizada de SHOULD-HAVEs con plan de implementación
+
+**Tiempo estimado**: 1-2 días (análisis + implementación de blockers)
+
 ---
 
 ## 🧪 Fase 2: Paper Trading Inicial (Semanas 2-3)
