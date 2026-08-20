@@ -108,8 +108,8 @@ def parse_args():
     parser.add_argument(
         "--bet-size",
         type=float,
-        default=0.01,
-        help="Fixed bet size as fraction of equity (default: 0.01 = 1%%)",
+        default=0.03,
+        help="Fixed bet size as fraction of equity (default: 0.03 = 3%%)",
     )
 
     parser.add_argument(

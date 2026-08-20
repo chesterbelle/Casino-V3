@@ -62,7 +62,7 @@ class GuardConfig:
     # Solvency
     solvency_multiplier: float = 1.25  # equity * bet >= min_notional * multiplier
     min_notional: float = 20.0  # Default Binance Futures
-    bet_size: float = 0.01  # Default 1%
+    bet_size: float = 0.03  # Default 3% based on Phase 1.6 drawdown analysis
 
     # Sizing violations
     caution_sizing_violations: int = 3  # → CAUTION after N violations
