@@ -312,6 +312,9 @@ async def _on_order_update_event(self, event):
 | **1.4B.4.a** | **Chaos Test (Trade Flow Validation) — FAULT INJECTION** | **��� COMPLETADO 2026-08-14 — 60 ops con fills, Error Trades=0, Two-Layer Recovery 100%** |
 | **1.4B.4.b** | **Mini-Endurance (4h)** | **✅ PASS 2026-08-15 — re-run con fixes Phase 268: Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +15%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 3 trades, WR 66.67%, PnL -0.2976** |
 | **1.4B.5** | **Full Endurance 24h (Re-try)** | **✅ PASS 2026-08-16 — Error Recovery $0.00, 0 EXTERNAL_CLOSE, 0 crashes, RAM +16%, Event Integrity 100%, Airlock 0.00ms, Full Exit limpio. 4 trades, WR 75%, PnL +0.7768. Fase 1.4B COMPLETA** |
+| **1.5** | **Post-Endurance Raw Non-Regression Test** | **✅ PASS 2026-08-18 — Bug historian worker parchado. LTC audit: 52 señales, TA +0.4517%.** |
+| **1.6** | **Mass Backtest & Drawdown Analysis** | **✅ PASS — Max Drawdown validado en 0.24% a 1% riesgo. Sizing Mode: FIXED_RISK.** |
+| **1.7** | **Paper Trading Readiness Audit** | **🔄 IN PROGRESS — Pilar 1 (Discord) implementado. Pendiente Pilares 2, 3 y 4.** |
 
 > **🔁 Razón del Debug-Gate (decisión 2026-08-03):** La lesión del run anterior (posición fantasma → 445 errores -1007) mostró que los errores críticos emergen en las primeras horas, no al final. Esperar 24h para descubrirlos es ineficiente. El gate de 12h detecta los mismos errores en la mitad del tiempo, y el requisito de 2 runs consecutivos garantiza robustez antes de la certificación formal de 24h.
 

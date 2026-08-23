@@ -180,9 +180,11 @@
 | 1.4B.4.a | Chaos Test (Trade Flow Validation) — FAULT INJECTION | 🟢 COMPLETADO — 60 ops, Error Trades=0, Two-Layer Recovery 100% |
 | 1.4B.4.b | Mini-Endurance (4h) | ✅ PASS 2026-08-15 — Error Recovery $0.00, 0 EXTERNAL_CLOSE |
 | 1.4B.5 | Full Endurance 24h | ✅ PASS 2026-08-16 — Error Recovery $0.00, WR 75%, PnL +0.7768 |
-| **1.5** | **Post-Endurance Raw Non-Regression Test** | **✅ PASS 2026-08-18 — Bug historian worker (import os shadowing) parchado. LTC audit: 52 señales, TA +0.4517%.** |
+| 1.5 | Post-Endurance Raw Non-Regression Test | ✅ PASS 2026-08-18 — Bug historian worker parchado. LTC audit: 52 señales, TA +0.4517%. |
+| **1.6** | **Mass Backtest & Drawdown Analysis** | **✅ PASS — Max Drawdown validado en 0.24% a 1% riesgo. Sizing Mode: FIXED_RISK.** |
+| **1.7** | **Paper Trading Readiness Audit** | **🔄 IN PROGRESS — Pilar 1 (Discord) implementado. Pendiente Pilares 2, 3 y 4.** |
 
-**Próximo paso**: merge a `main` + tag `v9.3.0-multi-coin-certified` — SOLO certifica el usuario (Regla 14). Historian fix + Phase 1.5 commiteados en `dev-9.4-paper-trading` (commit `b0c17cc`).
+**Próximo paso**: Ejecutar corrida corta de Paper Trading para validar Pilar 1 (Discord Notifier) y continuar con Pilar 2 (Resiliencia de Red).
 
 > **🛡️ REDUCCIÓN DE DEUDA TÉCNICA (Fase 9.4 — 2026-08-16):** Se implementó el mecanismo de snapshots asíncronos para Historian DB usando `sqlite3.backup` en el thread worker, evitando el bloqueo del event loop. Se corrigió el Graceful Shutdown (cierre de tasks/semáforos) y se homologaron los conectores (`ResilientConnector`, `MockConnector`, `VirtualExchangeConnector`) al nuevo contrato estricto de `BaseConnector`. Tests Unitarios incrementados a 152 (100% verde) cubriendo el `PortfolioGuard`.
 

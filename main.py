@@ -143,6 +143,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--discord",
+        action="store_true",
+        help="Enable Discord Webhook notifications for trades and errors",
+    )
+
+    parser.add_argument(
         "--run-type",
         type=str,
         required=True,
@@ -248,8 +254,10 @@ async def main():
         logger.warning("🔍 AUDIT MODE ENABLED: Signals will be recorded. Proactive exits DISABLED.")
 
     # 0. Start Metrics Server & Discord Notifier
-    logger.info("📊 Starting metrics server and notifiers...")
-    await discord_notifier.start()
+    logger.info("📊 Starting metrics server...")
+    if args.discord:
+        logger.info("💬 Discord Notifier habilitado.")
+        await discord_notifier.start()
     try:
         await error_handler.execute(
             start_metrics_server, port=8000, retry_config=startup_retry, context="metrics_server"
