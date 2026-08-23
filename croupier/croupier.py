@@ -21,10 +21,9 @@ from config import trading as trading_config
 from core.error_handling import get_error_handler
 from core.interfaces import TimeIterator
 from core.observability.decision_auditor import DecisionAuditor
+from core.observability.discord_notifier import discord_notifier
 from core.observability.historian import historian
 from core.observability.watchdog import watchdog
-
-# Phase 31: OrderTracker removed - PositionTracker is now the single source of truth
 from core.portfolio.balance_manager import BalanceManager
 from core.portfolio.portfolio_guard import GuardConfig, GuardState, PortfolioGuard
 from core.portfolio.position_tracker import OpenPosition, PositionTracker
@@ -613,6 +612,14 @@ class Croupier(TimeIterator):
         # Phase 84: Mark closure as settled (PnL recorded)
         self._pending_closures.discard(trade_id)
 
+        # Notify via Discord
+        pnl = result.get("net_pnl", 0.0)
+        reason = result.get("exit_reason", "unknown")
+        symbol = result.get("symbol", "UNKNOWN")
+        import asyncio
+
+        asyncio.create_task(discord_notifier.notify_trade_closed(symbol, pnl, reason))
+
         # Phase 103: Forensic Traceability
         trace_id = result.get("trace_id")
         if trace_id:
@@ -938,6 +945,15 @@ class Croupier(TimeIterator):
 
             # Trigger state save (non-blocking)
             self.position_tracker._trigger_state_change()
+
+            # Notify via Discord
+            import asyncio
+
+            # Approximate risk percentage if bet_size is not directly on order
+            risk = self.portfolio_guard.config.bet_size * 100 if self.portfolio_guard else 0.0
+            asyncio.create_task(
+                discord_notifier.notify_trade_opened(position.symbol, position.side, position.entry_price, risk)
+            )
 
         except Exception as e:
             self.logger.error(f"⚠️ Critical failure during position accounting: {e}")

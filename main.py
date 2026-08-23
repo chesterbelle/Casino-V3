@@ -54,6 +54,7 @@ from core.observability import (
     stop_metrics_server,
     update_balance,
 )
+from core.observability.discord_notifier import discord_notifier
 from core.observability.historian import historian
 from core.observability.loop_monitor import LoopMonitor
 from core.observability.metrics import (
@@ -246,8 +247,9 @@ async def main():
         trading_config.AUDIT_MODE = True
         logger.warning("🔍 AUDIT MODE ENABLED: Signals will be recorded. Proactive exits DISABLED.")
 
-    # 0. Start Metrics Server
-    logger.info("📊 Starting metrics server...")
+    # 0. Start Metrics Server & Discord Notifier
+    logger.info("📊 Starting metrics server and notifiers...")
+    await discord_notifier.start()
     try:
         await error_handler.execute(
             start_metrics_server, port=8000, retry_config=startup_retry, context="metrics_server"
@@ -1315,6 +1317,9 @@ async def main():
                 sensor_manager.stop()
             if "candle_maker" in locals():
                 candle_maker.stop()
+
+            # Stop discord notifier
+            await discord_notifier.close()
         except Exception as e:
             logger.error(f"❌ Error stopping clock/croupier: {e}")
 
