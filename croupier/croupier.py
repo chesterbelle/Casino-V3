@@ -613,12 +613,14 @@ class Croupier(TimeIterator):
         self._pending_closures.discard(trade_id)
 
         # Notify via Discord
-        pnl = result.get("net_pnl", 0.0)
+        pnl = result.get("pnl", 0.0) - result.get("fee", 0.0)
         reason = result.get("exit_reason", "unknown")
         symbol = result.get("symbol", "UNKNOWN")
         import asyncio
 
-        asyncio.create_task(discord_notifier.notify_trade_closed(symbol, pnl, reason))
+        discord_task = asyncio.create_task(discord_notifier.notify_trade_closed(symbol, pnl, reason))
+        self._background_tasks.add(discord_task)
+        discord_task.add_done_callback(self._background_tasks.discard)
 
         # Phase 103: Forensic Traceability
         trace_id = result.get("trace_id")
@@ -951,9 +953,11 @@ class Croupier(TimeIterator):
 
             # Approximate risk percentage if bet_size is not directly on order
             risk = self.portfolio_guard.config.bet_size * 100 if self.portfolio_guard else 0.0
-            asyncio.create_task(
+            discord_task = asyncio.create_task(
                 discord_notifier.notify_trade_opened(position.symbol, position.side, position.entry_price, risk)
             )
+            self._background_tasks.add(discord_task)
+            discord_task.add_done_callback(self._background_tasks.discard)
 
         except Exception as e:
             self.logger.error(f"⚠️ Critical failure during position accounting: {e}")
