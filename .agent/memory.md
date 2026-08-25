@@ -182,9 +182,9 @@
 | 1.4B.5 | Full Endurance 24h | ✅ PASS 2026-08-16 — Error Recovery $0.00, WR 75%, PnL +0.7768 |
 | 1.5 | Post-Endurance Raw Non-Regression Test | ✅ PASS 2026-08-18 — Bug historian worker parchado. LTC audit: 52 señales, TA +0.4517%. |
 | **1.6** | **Mass Backtest & Drawdown Analysis** | **✅ PASS — Max Drawdown validado en 0.24% a 1% riesgo. Sizing Mode: FIXED_RISK.** |
-| **1.7** | **Paper Trading Readiness Audit** | **🔄 IN PROGRESS — Pilar 1 (Discord) implementado. Pendiente Pilares 2, 3 y 4.** |
+| **1.7** | **Paper Trading Readiness Audit** | **🔄 IN PROGRESS — Pilar 1 (Discord) y Pilar 2 (Estabilidad 12h) completados ✅. Pendientes Pilares 3 y 4.** |
 
-**Próximo paso**: Ejecutar corrida corta de Paper Trading para validar Pilar 1 (Discord Notifier) y continuar con Pilar 2 (Resiliencia de Red).
+**Próximo paso**: Ejecutar auditoría de los Pilares 3 (Risk Management) y 4 (Datos) según el Roadmap (Phase 1.7) para habilitar el Paper Trading real.
 
 > **🛡️ REDUCCIÓN DE DEUDA TÉCNICA (Fase 9.4 — 2026-08-16):** Se implementó el mecanismo de snapshots asíncronos para Historian DB usando `sqlite3.backup` en el thread worker, evitando el bloqueo del event loop. Se corrigió el Graceful Shutdown (cierre de tasks/semáforos) y se homologaron los conectores (`ResilientConnector`, `MockConnector`, `VirtualExchangeConnector`) al nuevo contrato estricto de `BaseConnector`. Tests Unitarios incrementados a 152 (100% verde) cubriendo el `PortfolioGuard`.
 

@@ -44,7 +44,9 @@ class DiscordNotifier:
         if not self.webhook_url or not self._session:
             return
 
-        payload = {"content": content}
+        payload = {}
+        if content:
+            payload["content"] = content
         if embeds:
             payload["embeds"] = embeds
 

@@ -510,7 +510,27 @@ class Croupier(TimeIterator):
 
         # Use safe get for fill_price as optimistic OCOs won't have it yet
         entry_p = result.get("fill_price") or getattr(position, "entry_price", 0)
-        self.logger.info(f"✅ Position opened: {position.trade_id} | Entry: {entry_p:.2f}")
+
+        if not entry_p or entry_p <= 0:
+            p_amount = getattr(position, "amount", 0)
+            p_notional = getattr(position, "notional", 0)
+            if p_amount and p_notional:
+                entry_p = abs(p_notional) / p_amount
+            else:
+                entry_p = order.get("limit_price") or order.get("price") or 0.0
+
+        self.logger.info(f"✅ Position opened: {position.trade_id} | Entry: {entry_p:.4f}")
+
+        # Notify via Discord
+        import asyncio
+
+        pg = getattr(self, "portfolio_guard", None)
+        risk_pct = pg.config.bet_size * 100 if pg and hasattr(pg, "config") else 0.0
+        discord_task = asyncio.create_task(
+            discord_notifier.notify_trade_opened(position.symbol, position.side, entry_p, risk_pct)
+        )
+        self._background_tasks.add(discord_task)
+        discord_task.add_done_callback(self._background_tasks.discard)
 
         return result
 
