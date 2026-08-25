@@ -548,65 +548,6 @@ COIN_PROFILES = {
             "trend_acceptance": {"tp_pct": 0.015, "sl_pct": 0.015},
         },
     },
-    "BNBUSDT": {
-        "description": "BNB \u2014 fast-track from LTC (MID_LIQUID)",
-        "guardians": {
-            "l2_ratio_min": 0.5,
-            "l2_ratio_min_trend_acceptance": 1.2000000000000002,
-            "l2_ratio_min_trend_down": 2.2,
-            "spread_max_ratio": 2.5,
-        },
-        "optimization_status": {
-            "date": "2026-07-17",
-            "is_certified": True,
-            "method": "optuna",
-            "notes": "Cloned from LTC for fast-track edge audit.",
-        },
-        "pressure_thresholds": {"z_block": 2.8},
-        "quality_scorer": {
-            "grade_thresholds": {"B": 0.4},
-            "weights": {"liquidity": 0.1, "regime": 0.3, "spread": 0.05, "structure": 0.15},
-        },
-        "scenarios": {
-            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
-        },
-        "sensors": {
-            "absorption_detector": {
-                "book_bucket_pct": 0.002,
-                "cooldown": 30.0,
-                "displacement_z_max": 1.7,
-                "level_tolerance_pct": 0.0033,
-                "stagnation_floor_pct": 0.0009,
-                "volatility_z_max": 2.6,
-                "z_score_min": 2.2,
-            },
-            "failed_breakout": {
-                "cooldown": 30.0,
-                "divergence_z": 0.8,
-                "max_break_age": 150.0,
-                "min_break_distance_pct": 0.0022,
-            },
-            "liquidity_exhaustion": {
-                "declining_threshold": 0.5,
-                "level_tolerance_pct": 0.0009,
-                "min_bounce_pct": 0.0007000000000000001,
-                "min_tests": 2,
-                "test_memory_seconds": 220.0,
-            },
-            "trend_acceptance": {
-                "cooldown": 240.0,
-                "max_pullback_penetration_pct": 0.003,
-                "min_candles_outside": 7,
-                "pullback_tolerance_pct": 0.0012000000000000001,
-            },
-        },
-        "targets": {
-            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.025},
-            "liquidity_exhaustion": {"tp_pct": 0.02, "sl_pct": 0.003},
-            "tactical_absorption": {"tp_pct": 0.019, "sl_pct": 0.002},
-            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.025},
-        },
-    },
     "XRPUSDT": {
         "description": "XRP \u2014 fast-track from ADA (MEGA_LIQUID)",
         "optimization_status": {
@@ -776,6 +717,124 @@ COIN_PROFILES = {
             "liquidity_exhaustion": {"tp_pct": 0.005, "sl_pct": 0.008},
             "tactical_absorption": {"tp_pct": 0.012, "sl_pct": 0.012},
             "trend_acceptance": {"tp_pct": 0.015, "sl_pct": 0.015},
+        },
+    },
+    "BNBUSDT": {
+        "description": "BNB \u2014 FB+LE+TAV+TA edge confirmed \u2705. LE CVD flip fix, TP1.0/SL2.0.",
+        "guardians": {
+            "l2_ratio_min": 0.5,
+            "l2_ratio_min_trend_acceptance": 1.2000000000000002,
+            "l2_ratio_min_trend_down": 2.2,
+            "spread_max_ratio": 2.5,
+        },
+        "optimization_status": {
+            "date": "2026-07-17",
+            "is_certified": True,
+            "method": "optuna",
+            "notes": "Par\u00e1metros expl\u00edcitos (overrides) tras refactorizaci\u00f3n.",
+        },
+        "pressure_thresholds": {"z_block": 2.8},
+        "quality_scorer": {
+            "grade_thresholds": {"B": 0.4},
+            "weights": {"liquidity": 0.1, "regime": 0.3, "spread": 0.05, "structure": 0.15},
+        },
+        "scenarios": {
+            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
+        },
+        "sensors": {
+            "absorption_detector": {
+                "book_bucket_pct": 0.002,
+                "cooldown": 30.0,
+                "displacement_z_max": 1.7,
+                "level_tolerance_pct": 0.0033,
+                "stagnation_floor_pct": 0.0009,
+                "volatility_z_max": 2.6,
+                "z_score_min": 2.2,
+            },
+            "failed_breakout": {
+                "cooldown": 30.0,
+                "divergence_z": 0.8,
+                "max_break_age": 150.0,
+                "min_break_distance_pct": 0.0022,
+            },
+            "liquidity_exhaustion": {
+                "declining_threshold": 0.5,
+                "level_tolerance_pct": 0.0009,
+                "min_bounce_pct": 0.0007000000000000001,
+                "min_tests": 2,
+                "test_memory_seconds": 220.0,
+            },
+            "trend_acceptance": {
+                "cooldown": 240.0,
+                "max_pullback_penetration_pct": 0.003,
+                "min_candles_outside": 7,
+                "pullback_tolerance_pct": 0.0012000000000000001,
+            },
+        },
+        "targets": {
+            "failed_breakout": {"sl_pct": 0.008, "tp_pct": 0.005},
+            "liquidity_exhaustion": {"sl_pct": 0.003, "tp_pct": 0.012},
+            "tactical_absorption": {"sl_pct": 0.003, "tp_pct": 0.012},
+            "trend_acceptance": {"sl_pct": 0.009, "tp_pct": 0.009},
+        },
+    },
+    "DOTUSDT": {
+        "description": "DOT \u2014 FB+LE+TAV+TA edge confirmed \u2705. LE CVD flip fix, TP1.0/SL2.0.",
+        "guardians": {
+            "l2_ratio_min": 0.5,
+            "l2_ratio_min_trend_acceptance": 1.2000000000000002,
+            "l2_ratio_min_trend_down": 2.2,
+            "spread_max_ratio": 2.5,
+        },
+        "optimization_status": {
+            "date": "2026-07-17",
+            "is_certified": True,
+            "method": "optuna",
+            "notes": "Par\u00e1metros expl\u00edcitos (overrides) tras refactorizaci\u00f3n.",
+        },
+        "pressure_thresholds": {"z_block": 2.8},
+        "quality_scorer": {
+            "grade_thresholds": {"B": 0.4},
+            "weights": {"liquidity": 0.1, "regime": 0.3, "spread": 0.05, "structure": 0.15},
+        },
+        "scenarios": {
+            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
+        },
+        "sensors": {
+            "absorption_detector": {
+                "book_bucket_pct": 0.002,
+                "cooldown": 30.0,
+                "displacement_z_max": 1.7,
+                "level_tolerance_pct": 0.0033,
+                "stagnation_floor_pct": 0.0009,
+                "volatility_z_max": 2.6,
+                "z_score_min": 2.2,
+            },
+            "failed_breakout": {
+                "cooldown": 30.0,
+                "divergence_z": 0.8,
+                "max_break_age": 150.0,
+                "min_break_distance_pct": 0.0022,
+            },
+            "liquidity_exhaustion": {
+                "declining_threshold": 0.5,
+                "level_tolerance_pct": 0.0009,
+                "min_bounce_pct": 0.0007000000000000001,
+                "min_tests": 2,
+                "test_memory_seconds": 220.0,
+            },
+            "trend_acceptance": {
+                "cooldown": 240.0,
+                "max_pullback_penetration_pct": 0.003,
+                "min_candles_outside": 7,
+                "pullback_tolerance_pct": 0.0012000000000000001,
+            },
+        },
+        "targets": {
+            "failed_breakout": {"sl_pct": 0.008, "tp_pct": 0.005},
+            "liquidity_exhaustion": {"sl_pct": 0.003, "tp_pct": 0.012},
+            "tactical_absorption": {"sl_pct": 0.003, "tp_pct": 0.012},
+            "trend_acceptance": {"sl_pct": 0.009, "tp_pct": 0.009},
         },
     },
 }
