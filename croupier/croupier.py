@@ -475,6 +475,17 @@ class Croupier(TimeIterator):
             self.logger.warning(f"🛡️ Signal Cooldown Active for {symbol}: Rejecting execution.")
             return {"status": "error", "message": "Signal cooldown active"}
 
+        # Phase 1.7 Pilar 3: Portfolio Position Limits
+        max_positions = self.portfolio_guard.config.max_open_positions
+        if max_positions > 0:
+            active_positions = len(self.position_tracker.get_active_positions())
+            if active_positions >= max_positions:
+                self.logger.warning(
+                    f"🛡️ PORTFOLIO GUARD: Rejecting {symbol} entry. "
+                    f"Max concurrent positions reached ({active_positions}/{max_positions})."
+                )
+                return {"status": "error", "message": "Max portfolio positions reached"}
+
         # 1. Execute OCO bracket order
         self.logger.info(f"📥 Execute order request: {order['side']} {order['symbol']}")
 
@@ -1052,6 +1063,10 @@ class Croupier(TimeIterator):
         Unifies all periodic activities.
         """
         # Phase 31: OrderTracker removed - PositionTracker handles order state
+
+        # Phase 1.7 Pilar 3: Kill Switch Polling
+        if getattr(self, "portfolio_guard", None):
+            self.portfolio_guard.check_kill_switch()
 
         # 2. Periodic Balance Sync (Every 5 mins) - Offset by 30s to avoid candle boundary
         if int(timestamp) % 300 == 30:

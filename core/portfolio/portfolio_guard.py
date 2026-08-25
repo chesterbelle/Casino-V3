@@ -22,7 +22,9 @@ Author: Casino V3 Team
 Phase: 249
 """
 
+import datetime
 import logging
+import os
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -54,6 +56,13 @@ class GuardConfig:
 
     # Loss streak
     max_consecutive_losses: int = 7  # → CRITICAL (raised for backtest stability)
+
+    # Daily Drawdown Circuit Breaker
+    max_daily_drawdown_pct: float = 0.20  # 20% max daily loss -> TERMINAL
+    daily_reset_hour_utc: int = 0  # Hour of day (0-23) to reset daily metrics
+
+    # Position limits
+    max_open_positions: int = 0  # 0 = unlimited
 
     # Error rate
     max_errors_in_window: int = 50  # Increased for backtest stability (Phase 310)
@@ -136,6 +145,11 @@ class PortfolioGuard:
         self._peak_in_window: float = 0.0
         self._peak_timestamp: float = 0.0
 
+        # Phase 1.7 Pilar 3: Daily tracking
+        self._daily_start_equity: float = 0.0
+        self._current_day_utc: int = -1
+        self._kill_switch_activated: bool = False
+
         # State change listeners: callback(old_state, new_state, reason)
         self._state_listeners: List[Callable[[GuardState, GuardState, str], None]] = []
 
@@ -173,6 +187,19 @@ class PortfolioGuard:
     # EVENT RECEIVERS (called by existing components)
     # =========================================================
 
+    def check_kill_switch(self) -> None:
+        """
+        Check for emergency_stop.flag file and transition to TERMINAL if found.
+        Should be called continuously in the main trading loop.
+        """
+        if self._kill_switch_activated:
+            return
+
+        if os.path.exists("emergency_stop.flag"):
+            self._kill_switch_activated = True
+            logger.critical("🚨 GUARD: emergency_stop.flag detected!")
+            self._transition_to(GuardState.TERMINAL, "Manual Kill Switch Activated (emergency_stop.flag)", time.time())
+
     def on_balance_update(self, equity: float, timestamp: Optional[float] = None) -> None:
         """
         Called by BalanceManager on every real-time balance update.
@@ -187,6 +214,17 @@ class PortfolioGuard:
         # Track peak
         if equity > self._session_peak_equity:
             self._session_peak_equity = equity
+
+        # Daily tracking reset
+        dt_now = datetime.datetime.fromtimestamp(now, tz=datetime.timezone.utc)
+        if self._current_day_utc != dt_now.day:
+            if dt_now.hour >= self.config.daily_reset_hour_utc or self._current_day_utc == -1:
+                self._current_day_utc = dt_now.day
+                self._daily_start_equity = equity
+                logger.info(f"🔄 GUARD: Daily equity tracking reset. Start Equity: ${equity:.2f}")
+
+        if self._daily_start_equity == 0.0:
+            self._daily_start_equity = equity
 
         # v8.3: Incremental peak update — O(1) instead of O(n) scan in common case
         if equity > self._peak_in_window:
@@ -343,6 +381,17 @@ class PortfolioGuard:
             return (None, "")
 
         current_equity = self._balance_history[-1].equity
+
+        # Daily Drawdown Check (Phase 1.7 Pilar 3)
+        if self._daily_start_equity > 0:
+            daily_drawdown_pct = (self._daily_start_equity - current_equity) / self._daily_start_equity
+            if daily_drawdown_pct >= self.config.max_daily_drawdown_pct:
+                return (
+                    GuardState.TERMINAL,
+                    f"Daily Drawdown {daily_drawdown_pct:.1%} breached max {self.config.max_daily_drawdown_pct:.1%} "
+                    f"(start ${self._daily_start_equity:.2f} → ${current_equity:.2f})",
+                )
+
         drawdown_pct = (peak_in_window - current_equity) / peak_in_window
 
         if drawdown_pct >= self.config.critical_drawdown_pct:

@@ -123,3 +123,38 @@ def test_hysteresis_cooldown(guard):
 
     # Now it should recover to HEALTHY
     assert guard.state == GuardState.HEALTHY
+
+
+def test_daily_drawdown(guard):
+    # Set initial balance at start of day (Using 3000.0 to pass solvency check)
+    # The first balance update sets _daily_start_equity
+    guard.on_balance_update(3000.0)
+    assert guard._daily_start_equity == 3000.0
+    assert guard.state == GuardState.HEALTHY
+
+    # Drop by 15% (Max daily drawdown config default is 20%, but in tests it's 20% by default? Wait, I didn't add it to base_config fixture! Let's check config.)
+    # Since base_config fixture doesn't explicitly set max_daily_drawdown_pct, it uses default 0.20
+    guard.on_balance_update(2500.0)  # 16.6% drop
+    # Since 16.6% > 10% (critical_drawdown_pct), it should hit CRITICAL due to velocity.
+    assert guard.state == GuardState.CRITICAL
+
+    # Drop by 21% (Max daily drawdown is 20%)
+    guard.on_balance_update(2300.0)  # 3000 -> 2300 is a 23.3% drop
+    assert guard.state == GuardState.TERMINAL
+
+
+def test_kill_switch(guard, monkeypatch):
+    import os
+
+    # Mock os.path.exists to simulate emergency_stop.flag
+    def mock_exists(path):
+        if path == "emergency_stop.flag":
+            return True
+        return False
+
+    monkeypatch.setattr(os.path, "exists", mock_exists)
+
+    assert guard.state == GuardState.HEALTHY
+    guard.check_kill_switch()
+    assert guard.state == GuardState.TERMINAL
+    assert guard._kill_switch_activated == True
