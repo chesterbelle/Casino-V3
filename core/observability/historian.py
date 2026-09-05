@@ -47,8 +47,8 @@ def _historian_worker(db_path: str, q: mp.Queue):
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price, t0_market_ingress_ts, t1_pattern_signal_ts, t2_order_dispatch_ts, t3_exchange_ack_ts, latency_t0_t1_ms, latency_t1_t2_ms, latency_t2_t3_ms, latency_t3_t4_ms, latency_total_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     data,
                 )
@@ -342,6 +342,24 @@ class TradeHistorian:
         except sqlite3.OperationalError:
             pass  # Already exists
 
+        # Phase 5000: 5-Point Micro-Telemetry Schema Evolution ($T_0 ... T_4$)
+        telemetry_cols = [
+            ("t0_market_ingress_ts", "REAL"),
+            ("t1_pattern_signal_ts", "REAL"),
+            ("t2_order_dispatch_ts", "REAL"),
+            ("t3_exchange_ack_ts", "REAL"),
+            ("latency_t0_t1_ms", "REAL"),
+            ("latency_t1_t2_ms", "REAL"),
+            ("latency_t2_t3_ms", "REAL"),
+            ("latency_t3_t4_ms", "REAL"),
+            ("latency_total_ms", "REAL"),
+        ]
+        for col_name, col_type in telemetry_cols:
+            try:
+                conn.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+
         # Phase 650: Setup Type Attribution
         try:
             conn.execute("ALTER TABLE trades ADD COLUMN setup_type TEXT DEFAULT 'unknown'")
@@ -577,6 +595,18 @@ class TradeHistorian:
             # Honor injected timestamp if provided (avoids 'Wall Clock' drift in parity checks)
             timestamp = trade_data.get("timestamp") or datetime.now().isoformat()
 
+            t0 = float(trade_data.get("t0_market_ingress_ts") or trade_data.get("t0_signal_ts") or 0.0)
+            t1 = float(trade_data.get("t1_pattern_signal_ts") or trade_data.get("t1_decision_ts") or 0.0)
+            t2 = float(trade_data.get("t2_order_dispatch_ts") or trade_data.get("t2_submit_ts") or 0.0)
+            t3 = float(trade_data.get("t3_exchange_ack_ts") or trade_data.get("t3_ack_ts") or 0.0)
+            t4 = float(trade_data.get("t4_order_fill_ts") or trade_data.get("t4_fill_ts") or 0.0)
+
+            dt_01 = round((t1 - t0) * 1000.0, 2) if (t0 > 0 and t1 > 0 and t1 >= t0) else None
+            dt_12 = round((t2 - t1) * 1000.0, 2) if (t1 > 0 and t2 > 0 and t2 >= t1) else None
+            dt_23 = round((t3 - t2) * 1000.0, 2) if (t2 > 0 and t3 > 0 and t3 >= t2) else None
+            dt_34 = round((t4 - t3) * 1000.0, 2) if (t3 > 0 and t4 > 0 and t4 >= t3) else None
+            dt_total = round((t4 - t0) * 1000.0, 2) if (t0 > 0 and t4 > 0 and t4 >= t0) else None
+
             params = (
                 trade_id,
                 trade_data.get("parent_trade_id"),
@@ -594,15 +624,24 @@ class TradeHistorian:
                 trade_data.get("bars_held", 0),
                 session_id,
                 healed,
-                float(trade_data.get("t0_signal_ts") or 0.0),
-                float(trade_data.get("t1_decision_ts") or 0.0),
-                float(trade_data.get("t2_submit_ts") or 0.0),
-                float(trade_data.get("t4_fill_ts") or 0.0),
+                t0,
+                t1,
+                t2,
+                t4,
                 trade_data.get("slippage_pct"),
                 trade_data.get("lifecycle_phase", "ACTIVE"),
                 trade_data.get("setup_type", "unknown"),
                 trade_data.get("level_ref", "unknown"),
                 trade_data.get("level_price", 0.0),
+                t0 if t0 > 0 else None,
+                t1 if t1 > 0 else None,
+                t2 if t2 > 0 else None,
+                t3 if t3 > 0 else None,
+                dt_01,
+                dt_12,
+                dt_23,
+                dt_34,
+                dt_total,
             )
 
             if self._use_mp:
@@ -643,8 +682,8 @@ class TradeHistorian:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO trades
-                    (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (trade_id, parent_trade_id, symbol, side, entry_price, exit_price, qty, fee, funding, gross_pnl, net_pnl, exit_reason, timestamp, bars_held, session_id, healed, t0_signal_ts, t1_decision_ts, t2_submit_ts, t4_fill_ts, slippage_pct, lifecycle_phase, setup_type, level_ref, level_price, t0_market_ingress_ts, t1_pattern_signal_ts, t2_order_dispatch_ts, t3_exchange_ack_ts, latency_t0_t1_ms, latency_t1_t2_ms, latency_t2_t3_ms, latency_t3_t4_ms, latency_total_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     params,
                 )

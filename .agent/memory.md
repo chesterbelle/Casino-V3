@@ -51,16 +51,19 @@
 > 27. **GOTCHA (AUDITOR DE TRADE FLOW vs exit_reason — Phase 268, 2026-08-14):** `utils/audit_trade_flow.py` NO debe auditar solo `trade_lifecycle_events` (keyed por `client_order_id` `CASINO_ENTRY_*`) — el EXTERNAL_CLOSE del Sheriff no emite evento de cierre y daba **falso PASS**. Debe auditar la tabla `trades` (fuente de verdad del `exit_reason`) filtrando por `session_id` (auto-detecta la más reciente o `--session`). Un `exit_reason` fuera de `CLEAN_EXIT_REASONS` con `healed=0` = poor execution → VERDICT FAIL. Verificable: un run de 4h con 1 EXTERNAL_CLOSE da FAIL 33.3% poor execution.
 
 > 28. **GOTCHA (HISTORIAN WORKER `import os` SHADOWING — Phase 260, 2026-08-18):** La función `_historian_worker()` en `core/observability/historian.py` es un proceso `multiprocessing` separado. Un `import os` local dentro del branch `CREATE_SNAPSHOT` (línea ~166) hacía que Python tratara `os` como variable **local** para TODA la función. La primera referencia a `os` (línea 24, limpieza WAL/SHM) ocurría ANTES del import → `UnboundLocalError` → el worker moría silenciosamente al arrancar. Resultado: TODAS las escrituras a `historian.db` (signals, trades, price_samples, lifecycle_events) se encolaban en `mp.Queue` sin consumidor y se evaporaban al terminar el proceso. **Lección**: NUNCA usar `import` local dentro de funciones que ya tienen el módulo importado globalmente — Python marca la variable como local para todo el scope de la función, no solo desde la línea del import.
+> 29. **REGLA DE PRODUCCIÓN (PROHIBICIÓN DE SCRIPTS BASH "MÁGICOS" — 2026-08-25):** Para los despliegues en Paper Trading y Live Trading, está terminantemente prohibido el uso de scripts bash que encadenen comandos con reinicios automáticos (ej. `run_paper_trading.sh`). Estos scripts ocultan los flags explícitos inyectados al bot y corrompen el flujo, lo cual puede desencadenar incidentes sistémicos (ej. infiltración de activos prohibidos por uso ciego de `--symbol MULTI`). **Metodología Oficial**: Toda ejecución debe estar documentada mediante protocolos formales Markdown (ej. `.agent/workflows/paper-trading.md`), y los comandos deben ejecutarse manualmente y con variables explícitas por el operador.
+> 30. **SISTEMA DE MICRO-TELEMETRÍA DE 5 PUNTOS ($T_0 \dots T_4$ — Phase 5000, 2026-09-05):** Para auditar empíricamente si la latencia proviene del procesamiento interno del bot o de la red de internet, se capturan 5 marcas de tiempo: $T_0$ (Market WS Ingress), $T_1$ (Pattern Signal), $T_2$ (Order REST Dispatch), $T_3$ (Binance HTTP Ack), y $T_4$ (WS Fill Ack). Permite calcular $\Delta T_{01}$ (Inferencia), $\Delta T_{12}$ (Signal-to-Wire IPC), $\Delta T_{23}$ (RTT de Red), $\Delta T_{34}$ (Fill del Matching Engine), y $\Delta T_{\text{total}}$. Toda auditoría e historial los registra en `historian.db` y son reportados por `audit_trade_flow.py`, `latency_report.py`, `strategy_audit.py` y Session Summary.
 
 ## 🚀 Project Overview
 **Casino-V3** is an automated cryptocurrency futures trading bot for Binance Futures (Testnet/Live).
 *   **Strategy**: Total Spectrum Absorption V3 — Quality Pipeline + Exhaustion Core + Profile System + **Regime Filter**.
-*   **Current Branch**: `dev-9.4-paper-trading` (rama de trabajo activa — Phase 1.5 Non-Regression completada)
-*   **Stable Branch**: `main` (certificada como **v9.2.0-phase1-ready**)
+*   **Current Branch**: `main` (rama de trabajo limpia tras merge)
+*   **Stable Branch**: `main` (certificada como **v9.5.0-risk-management**)
 *   **Active Mode**: Multi-Coin with Profile-Based Adaptation
 *   **Active Alpha**: **AMT V10 Alpha** (Profile-Optimized + Regime Filter + SBR).
 *   **Datasets**: **84 certificados** (2/2/2 × 14) en `data/datasets/daily_backtest_ready/`. +9 mensuales: 6 LTC (Ene–Jun 2026) + 3 SOL (Mar–May 2026) en `data/datasets/monthly_backtest_ready/`.
 *   **Two-Layer Orphan Recovery (Phase 250)**: Certificada 2026-08-07 tras DG-3R.
+*   **Risk Management (Phase 1.7)**: Max Daily Drawdown, Kill Switch, y Position Limits certificados 2026-08-25.
 
 
 ## 🏛️ Git Flow Metodología (3 Branches)
@@ -139,6 +142,10 @@
 *   **VA_GATE Regime Filter**: Rolling window 8h evalúa estructura de volumen actual; bloquea mean-reversion en tendencia (integrity ~0.001), permite en rango (integrity > 0.15).
 *   **VA_GATE Selective by Setup_Type**: Gate selectivo parametrizado por perfil — bloquea mean-reversion (tactical_absorption, failed_breakout, liquidity_exhaustion) en trending, permite trend-following (trend_acceptance). Config `va_gate` en 9 perfiles, lógica `_apply_va_gate()` en SignalArbitrator.
 *   **TA Regime Filter (Interno)**: `_is_regime_favorable()` en `TrendAcceptanceDetector` — bloquea chop (vol_ratio > 1.5), permite clean trends (vol_ratio < 1.3). No bloquea POC migration ni VA expansion en trends direccionales limpios. Thresholds teóricos AMT.
+*   **Systemic Risk Protection (Phase 1.7 Pilar 3)**:
+    *   **Max Daily Drawdown Circuit Breaker**: Reseteo estricto a las 00:00 UTC. Si la caída de equity excede el umbral (ej. 20%), el bot transiciona a TERMINAL y frena todo.
+    *   **Manual Kill Switch**: Monitoreo iterativo del archivo `emergency_stop.flag` para un Drain Mode elegante y shutdown graceful (evitando kill -9).
+    *   **Portfolio Position Limit**: Variable `max_open_positions` para regular la exposición concurrente máxima a nivel bot; default a 0 (desactivado) para confiar la protección en el Drawdown Diario.
 
 ## 🏃 Workflow Estándar y Ejecución
 

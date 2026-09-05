@@ -1143,6 +1143,27 @@ class OCOManager:
         self.logger.info(f"📈 Creating TP order @ {tp_price}")
 
         # =========================================================
+        # TP PRICE VALIDATION (Prevent -2021 "Order would immediately trigger")
+        # For LONG: TP must be ABOVE current price
+        # For SHORT: TP must be BELOW current price
+        # =========================================================
+        try:
+            current_price = await self.adapter.get_current_price(symbol)
+            if (side == "LONG" and tp_price <= current_price) or (side == "SHORT" and tp_price >= current_price):
+                self.logger.warning(
+                    f"🎯 TP target already hit/passed by market! (TP: {tp_price:.6f}, Market: {current_price:.6f}). "
+                    f"Triggering immediate Market TP..."
+                )
+                return await self.executor.force_close_position(
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    exit_reason="TP_REACHED_ON_ENTRY",
+                )
+        except Exception as price_err:
+            self.logger.warning(f"⚠️ Could not validate TP price: {price_err}. Proceeding with original TP.")
+
+        # =========================================================
         # NOTIONAL PRE-CHECK
         # If notional (price × amount) < exchange minimum, Binance rejects.
         # Fallback to closePosition=True which closes full position.
@@ -1194,9 +1215,19 @@ class OCOManager:
                     )
 
             except Exception as e:
-                # Handle ReduceOnly rejection (-2022), Invalid Amount (-4118), or MinNotional (-4164)
-                # -4164 often appears if amount mismatch causes "dust" remaining or precision calculation issues
                 err_str = str(e)
+                if "-2021" in err_str or "immediately trigger" in err_str:
+                    self.logger.warning(
+                        f"🎯 TP order triggered immediately (-2021) for {symbol}. Closing at Market (TP)..."
+                    )
+                    return await self.executor.force_close_position(
+                        symbol=symbol,
+                        side=side,
+                        amount=amount,
+                        exit_reason="TP_REACHED_ON_ENTRY",
+                    )
+
+                # Handle ReduceOnly rejection (-2022), Invalid Amount (-4118), or MinNotional (-4164)
                 if "-2022" in err_str or "-4118" in err_str or "-4164" in err_str:
                     self.logger.warning(f"⚠️ Limit TP rejected ({err_str}) for {symbol}. Checking position...")
 
@@ -1280,20 +1311,26 @@ class OCOManager:
                 tick_size = connector.get_tick_size(symbol) or tick_size
 
             if side == "LONG" and sl_price >= current_price:
-                # SL is above or at current price for LONG - would trigger immediately
-                # Adjust SL to be safely below current price (minimum 1 tick gap)
-                sl_price = current_price - (tick_size * 2)
                 self.logger.warning(
-                    f"⚠️ SL price adjusted: {sl_price + tick_size * 2:.6f} -> {sl_price:.6f} "
-                    f"(was >= current {current_price:.6f}, would trigger -2021)"
+                    f"🛑 SL target already hit/passed by market! (SL: {sl_price:.6f}, Market: {current_price:.6f}). "
+                    f"Triggering immediate Market SL..."
+                )
+                return await self.executor.force_close_position(
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    exit_reason="SL_REACHED_ON_ENTRY",
                 )
             elif side == "SHORT" and sl_price <= current_price:
-                # SL is below or at current price for SHORT - would trigger immediately
-                # Adjust SL to be safely above current price (minimum 1 tick gap)
-                sl_price = current_price + (tick_size * 2)
                 self.logger.warning(
-                    f"⚠️ SL price adjusted: {sl_price - tick_size * 2:.6f} -> {sl_price:.6f} "
-                    f"(was <= current {current_price:.6f}, would trigger -2021)"
+                    f"🛑 SL target already hit/passed by market! (SL: {sl_price:.6f}, Market: {current_price:.6f}). "
+                    f"Triggering immediate Market SL..."
+                )
+                return await self.executor.force_close_position(
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    exit_reason="SL_REACHED_ON_ENTRY",
                 )
         except Exception as price_err:
             self.logger.warning(f"⚠️ Could not validate SL price: {price_err}. Proceeding with original SL.")

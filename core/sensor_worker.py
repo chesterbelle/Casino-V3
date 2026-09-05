@@ -9,6 +9,7 @@ import multiprocessing
 import os
 import queue
 import traceback
+from logging.handlers import TimedRotatingFileHandler
 from typing import Any, Dict, List, Type
 
 # v8.3: Non-blocking logging via QueueHandler + QueueListener
@@ -24,7 +25,9 @@ def _setup_async_logging(logger: logging.Logger):
         return  # Already configured
 
     os.makedirs("logs", exist_ok=True)
-    fh = logging.FileHandler("logs/sensors_worker.log", mode="a")
+    fh = TimedRotatingFileHandler(
+        "logs/sensors_worker.log", when="midnight", interval=1, backupCount=7, encoding="utf-8"
+    )
     fh.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
 
     _listener = logging.handlers.QueueListener(_log_queue, fh, respect_handler_level=True)

@@ -694,13 +694,11 @@ def main():
         else:
             print(f"{YELLOW}⚠️  DB does not exist yet — will be created fresh when the bot runs.{RESET}")
 
-        # Also truncate audit_trail.jsonl and human.log for a truly clean session
+        # Also truncate audit_trail.jsonl for a truly clean session
         audit_trail = Path("logs/audit_trail.jsonl")
-        human_log = Path("human.log")
-        for logfile in [audit_trail, human_log]:
-            if logfile.exists():
-                logfile.write_text("")
-                print(f"🗑️ Truncated {logfile}")
+        if audit_trail.exists():
+            audit_trail.write_text("")
+            print(f"🗑️ Truncated {audit_trail}")
 
         # Exit after reset — the workflow will run the bot next
         sys.exit(0)

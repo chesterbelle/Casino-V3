@@ -246,7 +246,7 @@ class OrderExecutor:
         self.logger.debug(f"[TRACE] OrderExecutor: Starting execution with 5s timeout for {symbol}...")
 
         try:
-            # Phase 85: Record T2 (Submission to Exchange)
+            # Phase 85/5000: Record T2 (Submission to Exchange) and T3 (Exchange Ack)
             t2_ts = time.time()
             result = await asyncio.wait_for(
                 self.error_handler.execute_with_breaker(
@@ -258,8 +258,14 @@ class OrderExecutor:
                 ),
                 timeout=5.0,  # Phase 56: Strict Execution Timeout
             )
+            t3_ts = time.time()
             result["t2_submit_ts"] = t2_ts
-            self.logger.debug(f"[TRACE] OrderExecutor: Execution SUCCESS for {symbol}.")
+            result["t2_order_dispatch_ts"] = t2_ts
+            result["t3_ack_ts"] = t3_ts
+            result["t3_exchange_ack_ts"] = t3_ts
+            self.logger.debug(
+                f"[TRACE] OrderExecutor: Execution SUCCESS for {symbol} | RTT T2-T3: {(t3_ts - t2_ts)*1000:.1f}ms."
+            )
 
             historian.record_lifecycle_event(
                 trade_id=cid,
@@ -645,8 +651,8 @@ class OrderExecutor:
 
         # 3. Pre-Register Alias
         if self.position_tracker and position_obj:
-            self.position_tracker.register_alias(client_id, position_obj)
-            self.logger.info(f"💾 Pre-Registered Close Alias: {client_id} -> {trade_id}")
+            self.position_tracker.register_alias(client_id, position_obj, exit_reason=exit_reason or "SMART_CLOSE")
+            self.logger.info(f"💾 Pre-Registered Close Alias: {client_id} -> {trade_id} (Reason: {exit_reason})")
 
         # 4. TIER -1: MAKER-JOIN (Optional but preferred for Slim Engine)
         if prefer_maker:
@@ -817,8 +823,12 @@ class OrderExecutor:
                 positions = self.position_tracker.get_positions_by_symbol(symbol)
                 for pos in positions:
                     if pos.status != "CLOSED":
-                        self.position_tracker.register_alias(client_id, pos)
-                        self.logger.info(f"💾 Pre-Registered Close Alias: {client_id} -> {pos.trade_id}")
+                        self.position_tracker.register_alias(
+                            client_id, pos, exit_reason=exit_reason or "MANUAL_FORCE_CLOSE"
+                        )
+                        self.logger.info(
+                            f"💾 Pre-Registered Close Alias: {client_id} -> {pos.trade_id} (Reason: {exit_reason})"
+                        )
                         break  # Only link to the first active position
 
             return await self.execute_market_order(

@@ -9,7 +9,7 @@ Version: 2.0.0
 
 import logging
 import sys
-from logging.handlers import QueueHandler, QueueListener
+from logging.handlers import QueueHandler, QueueListener, TimedRotatingFileHandler
 from queue import Queue
 
 import structlog
@@ -46,15 +46,9 @@ def configure_logging(log_level: str = "INFO", log_format: str = "console"):
     )
     console_handler.setFormatter(console_formatter)
 
-    # 2. File Handler (human.log - Sync with Console)
-    # This handler mirrors the console for remote monitoring (tail -f)
-    human_handler = logging.FileHandler("human.log", mode="w")
-    human_handler.setLevel(getattr(logging, log_level.upper()))
-    human_handler.setFormatter(console_formatter)
-
     # 3. File Handler (bot.log - AI Blackbox / Debug)
     # This handler is ALWAYS DEBUG to ensure no info is lost for AI debugging
-    file_handler = logging.FileHandler("bot.log", mode="w")
+    file_handler = TimedRotatingFileHandler("bot.log", when="midnight", interval=1, backupCount=7, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] [%(funcName)s:%(lineno)d] %(message)s")
     file_handler.setFormatter(file_formatter)
@@ -73,7 +67,7 @@ def configure_logging(log_level: str = "INFO", log_format: str = "console"):
     if _log_listener:
         _log_listener.stop()
 
-    _log_listener = QueueListener(log_queue, console_handler, human_handler, file_handler, respect_handler_level=True)
+    _log_listener = QueueListener(log_queue, console_handler, file_handler, respect_handler_level=True)
     _log_listener.start()
 
     # Suppress talkative third-party libraries globally in console (but keep in file)

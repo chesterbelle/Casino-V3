@@ -309,6 +309,7 @@ class PositionTracker(TraceBulletMixin):
         # Centralized index for O(1) lookup of any order ID (Client or Exchange) -> Position
         # Partitioned by symbol to prevent cross-symbol order hijacks/collisions.
         self._alias_map: Dict[str, Dict[str, OpenPosition]] = defaultdict(dict)
+        self._close_intents: Dict[str, str] = {}  # alias_id -> exit_reason intent
 
         # History of closed trades for detailed reporting
         self.history: List[Dict[str, Any]] = []  # Store closed trade results
@@ -351,10 +352,12 @@ class PositionTracker(TraceBulletMixin):
     # ALIAS MAP: Centralized Identity Management (Phase 44)
     # =========================================================
 
-    def register_alias(self, alias_id: str, position: OpenPosition, symbol: Optional[str] = None) -> None:
+    def register_alias(
+        self, alias_id: str, position: OpenPosition, symbol: Optional[str] = None, exit_reason: Optional[str] = None
+    ) -> None:
         """
         Maps an ID (Client or Exchange) to a Position within a specific symbol context.
-        Critical for O(1) lookups of WS events.
+        Critical for O(1) lookups of WS events. Optional exit_reason pre-registers close intent.
         """
         if not alias_id:
             return
@@ -365,6 +368,8 @@ class PositionTracker(TraceBulletMixin):
             return
 
         self._alias_map[target_symbol][str(alias_id)] = position
+        if exit_reason:
+            self._close_intents[str(alias_id)] = exit_reason
         # logger.debug(f"📇 Registered alias: {alias_id} -> {target_symbol}")
 
     def unregister_alias(self, alias_id: str, symbol: Optional[str] = None) -> None:
@@ -383,6 +388,18 @@ class PositionTracker(TraceBulletMixin):
                 if str(alias_id) in sym_bucket:
                     del sym_bucket[str(alias_id)]
             # logger.debug(f"🗑️ Unregistered alias: {alias_id}")
+
+    def _get_pending_close_intent(self, trade_id: str) -> Optional[str]:
+        """
+        Returns the explicit exit_reason if the OrderExecutor pre-registered a CASINO_FC_* alias
+        for this trade_id, or 'ORDER_EXECUTOR_CLOSE' if no explicit reason was given.
+        Returns None if no close intent was registered (true UNKNOWN_CLOSE).
+        """
+        for sym_bucket in self._alias_map.values():
+            for alias_key, pos in sym_bucket.items():
+                if alias_key.startswith("CASINO_FC_") and getattr(pos, "trade_id", None) == trade_id:
+                    return self._close_intents.get(alias_key, "ORDER_EXECUTOR_CLOSE")
+        return None
 
     def get_position_by_id(self, order_id: str, symbol: Optional[str] = None) -> Optional[OpenPosition]:
         """Look up position by any known ID (Client or Exchange) with symbol context."""
@@ -828,7 +845,15 @@ class PositionTracker(TraceBulletMixin):
                         # Priority: market_price comparison (highest) > static level guess > LIQUIDATION (last resort).
                         # Previously liquidation_level had highest priority → all Sheriff trades mislabeled.
                         exit_price = pos.entry_price or 0.0
-                        exit_reason = "EXTERNAL_CLOSE"
+
+                        # Phase: Distinguish OrderExecutor race from true unknown close.
+                        # If the OrderExecutor pre-registered a CASINO_FC_* alias for this
+                        # position, use the explicit close intent reason or ORDER_EXECUTOR_CLOSE.
+                        close_intent = self._get_pending_close_intent(pos.trade_id)
+                        if close_intent:
+                            exit_reason = close_intent
+                        else:
+                            exit_reason = "UNKNOWN_CLOSE"
 
                         # Phase 78.3: Use real market price as primary source (most accurate).
                         # Apply 1% tolerance band so near-misses on TP/SL are still classified correctly.
@@ -1399,27 +1424,26 @@ class PositionTracker(TraceBulletMixin):
             "level_price": getattr(position, "level_price", 0.0),
         }
 
-        # Phase 1350: Restore HFT Telemetry (T0-T1-T2-T4)
-        # We record telemetry in all modes (Backtest uses simulation timestamps).
-
-        # 1. Determine T1 (Decision)
-        t1 = (
-            position.t1_decision_ts
-            or position.t0_signal_ts
-            or (position.t2_submit_ts - 0.001 if position.t2_submit_ts else position.timestamp)
+        # Phase 1350/5000: 5-Point Micro-Telemetry (T0-T1-T2-T3-T4)
+        t0 = position.t0_signal_ts or (
+            position.t1_decision_ts - 0.100 if position.t1_decision_ts else position.timestamp
         )
+        t1 = position.t1_decision_ts or (position.t2_submit_ts - 0.001 if position.t2_submit_ts else t0 + 0.090)
+        t2 = position.t2_submit_ts or (t1 + 0.001)
+        t3 = getattr(position, "t3_ack_ts", None) or (t2 + 0.150)
+        t4 = position.t4_fill_ts or (t3 + 0.050)
 
-        # 2. Determine T4 (Fill)
-        t4 = position.t4_fill_ts or (
-            position.t2_submit_ts + 0.050 if position.t2_submit_ts else position.timestamp + 0.050
-        )
-
-        # 3. Populate result
         result.update(
             {
-                "t0_signal_ts": position.t0_signal_ts or (t1 - 0.100),
+                "t0_market_ingress_ts": t0,
+                "t0_signal_ts": t0,
+                "t1_pattern_signal_ts": t1,
                 "t1_decision_ts": t1,
-                "t2_submit_ts": position.t2_submit_ts or (t1 + 0.001),
+                "t2_order_dispatch_ts": t2,
+                "t2_submit_ts": t2,
+                "t3_exchange_ack_ts": t3,
+                "t3_ack_ts": t3,
+                "t4_order_fill_ts": t4,
                 "t4_fill_ts": t4,
             }
         )

@@ -4,6 +4,7 @@ import multiprocessing
 import os
 import signal
 import time
+from logging.handlers import TimedRotatingFileHandler
 from typing import Dict, List, Optional, Set
 
 import aiohttp
@@ -35,7 +36,7 @@ if not logger.handlers:
     ch.setFormatter(logging.Formatter("%(asctime)s | WORKER:%(process)d:%(name)s | %(levelname)s | %(message)s"))
     logger.addHandler(ch)
     # Dedicated debug file
-    fh = logging.FileHandler("logs/workers.log", mode="a")
+    fh = TimedRotatingFileHandler("logs/workers.log", when="midnight", interval=1, backupCount=7, encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
     logger.addHandler(fh)
 

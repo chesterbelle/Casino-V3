@@ -380,7 +380,7 @@ async def _on_order_update_event(self, event):
 **Procedimiento**:
 1. **Gap Analysis de Infraestructura**: Revisar si `main.py` soporta todos los flags necesarios para paper trading prolongado (multi-día). Verificar: auto-restart, health checks, logging rotativo, alertas.
 2. **Gap Analysis de Monitoreo**: ¿Existe dashboard en tiempo real? ¿Se pueden extraer métricas de performance (PnL acumulado, drawdown, win rate) sin parar el bot? ¿Hay alertas automáticas ante anomalías?
-3. **Gap Analysis de Risk Management**: ¿Está implementado el max daily drawdown circuit breaker? ¿El portfolio guard limita posiciones simultáneas? ¿Hay kill switch manual?
+3. **Gap Analysis de Risk Management**: ¿Está implementado el max daily drawdown circuit breaker? ¿El portfolio guard limita posiciones simultáneas? ¿Hay kill switch manual? (✅ **Completado en Fase 1.7 Pilar 3**)
 4. **Gap Analysis de Datos**: ¿Se persisten todos los trades con suficiente detalle para auditoría posterior? ¿El historian.db se respalda periódicamente? ¿Hay rotación de logs?
 5. **Priorización**: Clasificar cada gap como BLOCKER (impide paper trading), SHOULD-HAVE (mejora significativa) o NICE-TO-HAVE (puede esperar).
 
@@ -392,7 +392,58 @@ async def _on_order_update_event(self, event):
 
 ---
 
-## 🧪 Fase 2: Paper Trading Inicial (Semanas 2-3)
+## 🛠️ Fase 1.8: Preparación de Infraestructura y Observabilidad para Producción
+**Objetivo**: Implementar los bloqueantes operativos ("Should-Haves") requeridos para correr el bot 24/7 sin supervisión humana constante, blindándolo contra fallos de sistema y habilitando telemetría asíncrona.
+
+### Tareas:
+1. **Rotación de Logs Automática**:
+   - Implementar `TimedRotatingFileHandler` u homologo para `bot.log` y `human.log`.
+   - Limitar el tamaño/historial a mantener (ej. 7 días) para prevenir el agotamiento de I/O y espacio en disco.
+2. **Script Guardián de Auto-Reinicio (Watchdog OS)**:
+   - Crear un script Bash robusto (`run_paper_trading.sh`) que monitoree el proceso de Python.
+   - Si el proceso muere por OOM, actualización de OS, o crasheo interno, el script lo revive automáticamente asegurando la continuidad del negocio.
+3. **Métricas en Vivo Asíncronas (Cron Telemetry)**:
+   - Crear un script independiente (ej. `cron/daily_metrics_discord.py`) que lea `historian.db` en modo read-only.
+   - Enviar un resumen condensado a Discord (PnL, Drawdown, Trades del día, WinRate) a un intervalo fijo sin afectar la latencia del `croupier.py`.
+
+---
+
+## 💻 Fase 1.9: Local Dry Run & Hardware Profiling
+**Objetivo**: Certificar la estabilidad (cero crashes) y medir el consumo de recursos en hardware local antes de comprometer dinero en alquiler de servidores Cloud (VPS). Validar resiliencia ante cortes de energía locales. Se exige operar exclusivamente mediante el protocolo `.agent/workflows/paper-trading.md`.
+
+### Estructura de la Fase (3 Tramos):
+1. **Tramo 24h**: Prueba inicial. Verifica que el bot sobrevive al reseteo diario (Drawdown Circuit Breaker a las 00:00) y que el cronjob envía el reporte a Discord.
+2. **Tramo 48h**: Prueba de fugas de memoria (Memory Leaks). Monitorear si el consumo de RAM de los 9 activos se estabiliza o sigue creciendo infinitamente.
+3. **Tramo 72h**: Prueba final de resistencia.
+
+*Nota de Resiliencia*: Dado el entorno local (riesgo de cortes de luz), si ocurre un apagón, se evaluará la capacidad del bot de recuperar su estado limpio al reiniciar la PC, usando el "Two-Layer Orphan Recovery" certificado en la Fase 1.4.
+
+### Criterio de Éxito para pasar a Fase 2 (Nube):
+- Conocimiento exacto de los requisitos de Hardware (ej. "Consume máximo 3.5GB de RAM y 40% CPU").
+- Ejecución ininterrumpida lograda (o en caso de apagón, recuperación perfecta sin corrupción de base de datos ni posiciones huérfanas irrecuperables).
+
+---
+
+### ⚡ Fase 1.9B: Run de Profiling de Latencia de Infraestructura (12h Telemetry Audit)
+**Objetivo**: Realizar una corrida de evaluación de 12 horas utilizando la infraestructura de Micro-Telemetría de 5 Puntos ($T_0 \dots T_4$) para medir de forma aislada e inconfundible si el bot sufre de **latencia propia interna** ($\Delta T_{01}, \Delta T_{12}$) versus la **latencia externa de red/exchange** ($\Delta T_{23}, \Delta T_{34}$) antes de realizar el despliegue en la Nube (Cloud/VPS).
+
+#### Protocolo de Ejecución de Latencia:
+1. **Duración**: 12 Horas (`--timeout 720` en modo demo).
+2. **Símbolos**: Los 9 activos autorizados (`LTC, SOL, AVAX, XRP, DOGE, ADA, BNB, LINK, OP`).
+3. **Desglose de Métricas a Evaluar (5-Point Audit)**:
+   - **Latencia Interna de Inferencia ($\Delta T_{01} = T_1 - T_0$)**: Determinar si el event loop o la evaluación del `OrderFlowEngine` tarda $> 5\text{ms}$.
+   - **Latencia Interna de IPC ($\Delta T_{12} = T_2 - T_1$)**: Determinar si el empaquetado y despacho local de la orden tarda $> 2\text{ms}$.
+   - **RTT de Red REST ($\Delta T_{23} = T_3 - T_2$)**: Cuantificar el retardo físico de ida y vuelta a la API HTTP de Binance desde la conexión residencial.
+   - **Fill del Matching Engine ($\Delta T_{34} = T_4 - T_3$)**: Cuantificar el tiempo desde la recepción del Ack HTTP hasta la ejecución completa del WebSocket `ORDER_TRADE_UPDATE`.
+   - **End-to-End Latency ($\Delta T_{\text{total}} = T_4 - T_0$)**: Diagnosticar la latencia total y su correlación exacta con el slippage adverso.
+
+#### Criterio de Éxito:
+- Certificación de Eficiencia HFT Interna ($\Delta T_{01} + \Delta T_{12} < 10\text{ms}$).
+- Identificación cuantitativa exacta del porcentaje de latencia atribuible al enlace de internet vs procesamiento propio.
+
+---
+
+## 🧪 Fase 2: Paper Trading Inicial en Cloud (Semanas 2-3)
 
 ### 2.1 Configuración de Paper Trading
 
@@ -424,12 +475,14 @@ EXCLUDED = [
 
 **Parámetros de paper trading**:
 ```bash
-python main.py --run-type trade --symbol MULTI --mode demo \
+# Ejecutar siempre según `.agent/workflows/paper-trading.md`
+setsid .venv/bin/python main.py --run-type trade \
+  --symbol LTCUSDT,SOLUSDT,AVAXUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,BNBUSDT,LINKUSDT,OPUSDT \
+  --mode demo \
   --bet-size 0.01 \            # 1% de equity por posición (conservador)
-  --timeout 150 \              # 2.5 horas por sesión
+  --timeout 1440 \             # 24 horas por sesión
   --close-on-exit \            # Cerrar posiciones al terminar
-  --ui \                       # Dashboard para monitoreo
-  --max-symbols 9              # Solo los 9 activos certificados
+  2>&1 | tee logs/paper_trading_$(date +%Y%m%d_%H%M%S).log
 ```
 
 **Configuración de riesgo**:

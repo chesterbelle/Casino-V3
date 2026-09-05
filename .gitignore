@@ -44,3 +44,9 @@ tmp_l2/
 *.parquet
 .venv/
 .cache/
+
+# Scratch & Temporary
+scratch_*.py
+scratch_*.sh
+results/
+test_discord.py
