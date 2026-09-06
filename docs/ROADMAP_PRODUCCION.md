@@ -443,6 +443,34 @@ async def _on_order_update_event(self, event):
 
 ---
 
+### 🔬 Fase 1.9C: Live Signal Trajectory & MFE/MAE Audit (Auditoría de Edge en Vivo)
+**Objetivo**: Habilitar el registro asíncrono de la trayectoria del precio de mercado $P(t)$ segundo a segundo durante la ventana post-emisión de cada señal en Demo/Live. Analizar las operaciones reales con `utils/setup_edge_auditor.py` para diagnosticar cuantitativamente si las pérdidas se deben a:
+1. `ENTRY_FAILURE`: Patrón con MFE nulo / sin poder predictivo direccional.
+2. `TARGET_FAILURE`: Patrón con MFE positivo pero TP dinámico inalcanzable.
+3. `LATENCY_DECAY`: Decaimiento del retorno en los primeros $0.5 - 2.0$ segundos debido al RTT de red.
+
+#### Protocolo de Ejecución de Edge en Vivo:
+1. **Scoping**: Habilitado en modo `--mode demo` inicialmente para 1 solo activo (`LTCUSDT`) para mantener impacto nulo en recursos de hardware.
+2. **Infraestructura**: El proceso `AuditorWorker` en `core/observability/historian.py` persiste `pattern_signals` y `price_samples` en `data/historian.db`.
+3. **Auditoría Post-Run**: Análisis de trayectoria ejecutando `python utils/setup_edge_auditor.py --db data/historian.db`.
+
+#### Criterio de Éxito:
+- Determinación de la Causa Raíz Falsable (`ENTRY_FAILURE` vs `TARGET_FAILURE` vs `LATENCY_DECAY`) para las operaciones ejecutadas en vivo.
+
+---
+
+### 🎯 Fase 1.9D: Execution Parity & Live-vs-Backtest Slippage Audit (Paridad de Ejecución)
+**Objetivo**: Comparar la ejecución en vivo/demo contra la simulación de backtest determinista en los mismos instantes de tiempo para aislar el impacto del RTT de red ($327\text{ ms}$) sobre el precio de llenado (Slippage de entrada y salida).
+
+#### Protocolo de Ejecución de Paridad:
+1. **Captura de Precios**: Registrar precio en tiempo de emisión ($T_1$) vs precio de ejecución confirmada ($T_3$).
+2. **Evaluación de Slippage**: Cuantificar el desvío en BPS (puntos básicos) e identificar si existe desvío sistemático adverso (*Adverse Selection*).
+
+#### Criterio de Éxito:
+- Medición exacta en BPS del costo de slippage generado por el enlace residencial antes del despliegue en VPS Cloud (Fase 2).
+
+---
+
 ## 🧪 Fase 2: Paper Trading Inicial en Cloud (Semanas 2-3)
 
 ### 2.1 Configuración de Paper Trading

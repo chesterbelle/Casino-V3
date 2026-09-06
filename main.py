@@ -149,6 +149,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--record-trajectory",
+        action="store_true",
+        help="Graba señales y muestreo de precio P(t) en historian.db para auditoría MFE/MAE sin desactivar salidas ni trading real.",
+    )
+
+    parser.add_argument(
         "--run-type",
         type=str,
         required=True,
@@ -426,8 +432,8 @@ async def main():
     engine.subscribe(EventType.TICK, context_tick_handler)
     logger.info("🏛️ Context Registry linked to Tick Feed (Zero-Lag Mirror ACTIVE)")
 
-    # --- Phase 800: AUDIT MODE HANDLERS ---
-    if trading_config.AUDIT_MODE:
+    # --- Phase 800 / Phase 1.9C: AUDIT & LIVE TRAJECTORY RECORDING HANDLERS ---
+    if trading_config.AUDIT_MODE or getattr(args, "record_trajectory", False):
 
         async def audit_signal_handler(event: TradeProposal):
             """Records all signals even if not picked up by Player."""

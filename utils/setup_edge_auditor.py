@@ -78,10 +78,11 @@ def header(msg):
 
 
 class EdgeAuditor:
-    def __init__(self, db_path: str, by_coin=False, coin_filter=None):
+    def __init__(self, db_path: str, by_coin=False, coin_filter=None, session_filter=None):
         self.db_path = db_path
         self.by_coin = by_coin
         self.coin_filter = coin_filter
+        self.session_filter = session_filter
         if not Path(db_path).exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
         # Import SETUP_WINDOWS for use in calibration
@@ -95,6 +96,11 @@ class EdgeAuditor:
 
     def analyze(self, window_seconds=DEFAULT_WINDOW):
         signals, prices, traces = self.load_data()
+
+        if self.session_filter:
+            before = len(signals)
+            signals = signals[signals["session_id"] == self.session_filter]
+            print(f"  🔍 Filtered to session {self.session_filter}: {len(signals)}/{before} signals")
 
         if self.coin_filter:
             before = len(signals)
@@ -799,11 +805,12 @@ def main():
     )
     parser.add_argument("--window", type=int, default=14400, help="Analysis window in seconds (default: 4h)")
     parser.add_argument("--by-coin", action="store_true", help="Group results by coin within each setup")
-    parser.add_argument("--coin", type=str, default=None, help="Filter to specific coin/symbol (e.g. BTC/USDT:USDT)")
+    parser.add_argument("--coin", type=str, default=None, help="Filter to specific coin/symbol (e.g. LTCUSDT)")
+    parser.add_argument("--session", type=str, default=None, help="Filter to specific session ID")
     args = parser.parse_args()
 
     try:
-        auditor = EdgeAuditor(args.db, by_coin=args.by_coin, coin_filter=args.coin)
+        auditor = EdgeAuditor(args.db, by_coin=args.by_coin, coin_filter=args.coin, session_filter=args.session)
         auditor.analyze(window_seconds=args.window)
     except Exception as e:
         print(f"{RED}❌ Error: {e}{RESET}")
