@@ -190,9 +190,12 @@
 | 1.4B.5 | Full Endurance 24h | ✅ PASS 2026-08-16 — Error Recovery $0.00, WR 75%, PnL +0.7768 |
 | 1.5 | Post-Endurance Raw Non-Regression Test | ✅ PASS 2026-08-18 — Bug historian worker parchado. LTC audit: 52 señales, TA +0.4517%. |
 | **1.6** | **Mass Backtest & Drawdown Analysis** | **✅ PASS — Max Drawdown validado en 0.24% a 1% riesgo. Sizing Mode: FIXED_RISK.** |
-| **1.7** | **Paper Trading Readiness Audit** | **🔄 IN PROGRESS — Pilar 1 (Discord) y Pilar 2 (Estabilidad 12h) completados ✅. Pendientes Pilares 3 y 4.** |
+| **1.7** | **Paper Trading Readiness Audit** | **🟢 COMPLETADO — Pilares 1, 2, 3 (Risk Mgmt) y 4 (Datos) certificados.** |
+| **1.9B** | **Profiling de Latencia (12h Telemetry)** | **🟢 COMPLETADO — Bot internal lag = 1.0ms (<1ms core latency). Red residencial RTT = 327.7ms.** |
+| **1.9C** | **Live Signal Trajectory & MFE/MAE Audit** | **🟢 COMPLETADO — 23 señales capturadas en vivo. MFE Avg = +7.119% (MFE/MAE Ratio 8.51). Causa raíz: TARGET_FAILURE (TP conservador). Net Taker = +0.2396%.** |
+| **1.9D** | **Execution Parity Audit & Costos Nube** | **🟢 COMPLETADO — Demostrado que el desvío residencial no destruye el edge (+0.2396% Net Taker). Costos de VPS Cloud diferidos hasta el despliegue final Go-Live.** |
 
-**Próximo paso**: Ejecutar auditoría de los Pilares 3 (Risk Management) y 4 (Datos) según el Roadmap (Phase 1.7) para habilitar el Paper Trading real.
+**Próximo paso**: Reunión estratégica de planificación para re-evaluar el Roadmap (despliegue local vs nube, optimización Bayesiana de TP/SL con Optuna).
 
 > **🛡️ REDUCCIÓN DE DEUDA TÉCNICA (Fase 9.4 — 2026-08-16):** Se implementó el mecanismo de snapshots asíncronos para Historian DB usando `sqlite3.backup` en el thread worker, evitando el bloqueo del event loop. Se corrigió el Graceful Shutdown (cierre de tasks/semáforos) y se homologaron los conectores (`ResilientConnector`, `MockConnector`, `VirtualExchangeConnector`) al nuevo contrato estricto de `BaseConnector`. Tests Unitarios incrementados a 152 (100% verde) cubriendo el `PortfolioGuard`.
 

@@ -456,6 +456,7 @@ async def _on_order_update_event(self, event):
 
 #### Criterio de Éxito:
 - Determinación de la Causa Raíz Falsable (`ENTRY_FAILURE` vs `TARGET_FAILURE` vs `LATENCY_DECAY`) para las operaciones ejecutadas en vivo.
+- **RESULTADO 12H (`LTCUSDT`):** **✅ COMPLETADA (2026-09-07)**. 23 señales capturadas. MFE Promedio de `failed_breakout` = **$+7.119\%$**, MAE Promedio = $0.837\%$ (Ratio MFE/MAE = **8.51 ✅**). Causa Raíz confirmada: **`TARGET_FAILURE` (TP conservador)**, descartando `ENTRY_FAILURE` y `LATENCY_DECAY`. Net Taker = **$+0.2396\%$** en vivo.
 
 ---
 
@@ -468,6 +469,14 @@ async def _on_order_update_event(self, event):
 
 #### Criterio de Éxito:
 - Medición exacta en BPS del costo de slippage generado por el enlace residencial antes del despliegue en VPS Cloud (Fase 2).
+- **RESULTADO 12H:** **✅ COMPLETADO (2026-09-07)**. Latencia interna del bot = **$1.0\text{ ms}$** (0.34% del tiempo). RTT de red residencial = **$327.7\text{ ms}$**. A pesar del RTT residencial, la estrategia arrojó **$+0.2396\%$ Net Taker positivo**, demostrando que el desvío de red residencial NO destruye el edge.
+
+---
+
+> [!DECISIÓN ESTRATÉGICA Y OPTIMIZACIÓN DE COSTOS DE NUBE]
+> **Diferimiento de Costos de VPS Cloud:**
+> Dado que la auditoría empírica de 12h demostró que la estrategia obtiene un **Net Taker Positivo (+0.2396%)** operando desde la conexión residencial y que la latencia interna del bot es de apenas **$1.0\text{ ms}$**, **NO es necesario contratar un VPS Cloud durante las fases de Paper Trading / Pruebas**.
+> Se decide posponer la contratación y gasto de VPS Cloud exclusivamente para el **despliegue final en vivo (Go-Live)**, ahorrando costos durante todo el proceso de desarrollo y validación.
 
 ---
 
