@@ -34,7 +34,10 @@ import pandas as pd
 import pyarrow.parquet as pq
 import requests
 import zstandard as zstd
+from dotenv import load_dotenv
 from tqdm import tqdm
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("CryptoHFTDataFetcher")
@@ -287,7 +290,26 @@ class CryptoHFTDataFetcher:
         return all_files
 
 
+def set_low_priority():
+    """Set nice=10 and ionice best-effort -n6 on process to avoid freezing system UI."""
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+    try:
+        import subprocess
+
+        subprocess.run(
+            ["ionice", "-c2", "-n6", "-p", str(os.getpid())],
+            capture_output=True,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def main():
+    set_low_priority()
     parser = argparse.ArgumentParser(description="Download CryptoHFTData as Tardis-compatible CSV.gz")
     parser.add_argument("--symbol", required=True, help="Trading pair (e.g. LTCUSDT)")
     parser.add_argument("--start", help="Start date (YYYY-MM-DD)")

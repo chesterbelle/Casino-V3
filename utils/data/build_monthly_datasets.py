@@ -48,24 +48,42 @@ def run(cmd: list[str], desc: str):
         sys.exit(1)
 
 
+def set_low_priority():
+    """Set nice=10 and ionice best-effort -n6 on process to avoid freezing system UI."""
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+    try:
+        import subprocess
+
+        subprocess.run(
+            ["ionice", "-c2", "-n6", "-p", str(os.getpid())],
+            capture_output=True,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def concat_csv_gz(daily_pattern: str, monthly_file: Path):
-    """Concatenate daily CSV.gz files into one monthly file, skipping duplicate headers."""
+    """Concatenate daily CSV.gz files into one monthly file via streaming, skipping duplicate headers."""
     daily_files = sorted(RAW_DIR.glob(daily_pattern))
     if not daily_files:
         logger.error(f"No files matching {daily_pattern}")
         return False
 
-    logger.info(f"  Concatenating {len(daily_files)} files into {monthly_file.name}")
+    logger.info(f"  Concatenating {len(daily_files)} files into {monthly_file.name} (streaming)...")
     first = True
     with gzip.open(monthly_file, "wt", newline="") as out:
         for f in daily_files:
             with gzip.open(f, "rt") as fh:
-                lines = fh.readlines()
-                if first:
-                    out.writelines(lines)
+                header = next(fh, None)
+                if first and header:
+                    out.write(header)
                     first = False
-                else:
-                    out.writelines(lines[1:])  # skip header
+                for line in fh:
+                    out.write(line)
     size_mb = monthly_file.stat().st_size / 1e6
     logger.info(f"  {monthly_file.name}: {size_mb:.1f} MB")
     return True
@@ -158,12 +176,25 @@ def build_month(symbol: str, month_label: str, month_start: str, month_end: str)
 
 
 def main():
+    set_low_priority()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build monthly datasets")
+    parser.add_argument("--symbol", help="Target symbol (e.g. XRPUSDT)")
+    parser.add_argument("--month-label", help="Month label (e.g. 2026_01)")
+    parser.add_argument("--start", help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", help="End date (YYYY-MM-DD)")
+    args = parser.parse_args()
+
     load_env()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    for symbol in SYMBOLS:
-        for month_label, (start, end) in MONTHS.items():
-            build_month(symbol, month_label, start, end)
+    if args.symbol and args.month_label and args.start and args.end:
+        build_month(args.symbol, args.month_label, args.start, args.end)
+    else:
+        for symbol in SYMBOLS:
+            for month_label, (start, end) in MONTHS.items():
+                build_month(symbol, month_label, start, end)
 
     # Summary
     logger.info(f"\n{'='*60}")

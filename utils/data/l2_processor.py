@@ -20,6 +20,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger("L2Processor")
 
 
+def set_low_priority():
+    """Set nice=10 and ionice best-effort -n6 on process to avoid freezing system UI."""
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+    try:
+        import subprocess
+
+        subprocess.run(
+            ["ionice", "-c2", "-n6", "-p", str(os.getpid())],
+            capture_output=True,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 class OrderBook:
     def __init__(self):
         self.bids: Dict[float, float] = {}
@@ -132,6 +150,7 @@ def process_l2(file_path: str, symbol: str, conn: sqlite3.Connection, snapshot_i
 
 
 def main():
+    set_low_priority()
     parser = argparse.ArgumentParser(description="Process raw datasets into backtest-ready SQLite DB")
     parser.add_argument(
         "--name", required=True, help="Base name or pattern of the files in raw/ (e.g. LTCUSDT_2024_01)"

@@ -113,6 +113,10 @@
 ## 🏛️ Estado de las Capas de Certificación
 
 ### 1. Capa de Cristal (Estrategia / Alpha) — [CERTIFICADA 🟢]
+*   **Política Obligatoria de Re-Certificación (Fase 1.9E)**: TODAS las monedas del catálogo sin excepción deben ser re-certificadas mediante el pipeline de 3 estados oficiales:
+    1. **`PARAM_OPTIMIZER_DAILY`**: Optimización inicial con `param_optimizer.py` en datasets diarios.
+    2. **`OOS_MONTHLY`**: Auditoría y re-calibración de MFE/MAE en datasets mensuales Out-Of-Sample con grilla expandida (7.0% TP). (Estado actual de `LTCUSDT`).
+    3. **`LIVE_READY`**: Verificación en vivo en modo Demo con `--record-trajectory` durante una sesión de **mínimo 2 horas (120 min)** y retención de MFE confirmada en mercado real.
 *   **Architecture**: Quality Pipeline + 4 scenarios (todos en `decision/scenarios/`) + exhaustion gate + dynamic targets + profile system
 *   **Escenarios**: TacticalAbsorption (instantáneo, bypass, vive en `instant/`), FailedBreakout/LE/TrendAcceptance (confirmación, vía SignalArbitrator, viven en `confirmation/`)
 *   **OrderFlowEngine**: Calcula 18 features de order flow (CVD, z-scores, absorption). NO decide. Antes se llamaba "PressureEngine".
@@ -225,6 +229,8 @@ Los protocolos ejecutables viven en `.agent/workflows/`. Cada uno es un paso a p
 |----------|---------------|-----------|
 | `validate-all.md` | `/validate-all` | Validación progresiva por capas (math → integración → orquestación → estrés) |
 | `stress-test.md` | `/stress-test` | Chaos Test (mecánico) + Endurance Test (Mini 4h → Full 24h → Multi 48h) |
+| `paper-trading.md` | `/paper-trading` | Protocolo oficial para el despliegue del bot en Paper Trading |
+| `recertify-coin.md` | `/recertify-coin` | Protocolo oficial de re-certificación de activos (PARAM_OPTIMIZER_DAILY -> OOS_MONTHLY -> LIVE_READY) |
 | `sync-docs.md` | `/sync-docs` | Sincronización de la tríada documental al final de sesión |
 
 El roadmap referencia estos workflows en sus pasos. **Los comandos específicos viven en los workflows, no en el roadmap**, para evitar desincronización.

@@ -81,7 +81,8 @@ async def main():
     await conn.close()
 asyncio.run(main())
 "
-# 3. Limpiar estado local
+# 3. Limpiar estado local y verificar integridad de base de datos
+python3 utils/heal_historian.py --db data/historian.db --fix
 .venv/bin/python utils/reset_data.py
 ```
 

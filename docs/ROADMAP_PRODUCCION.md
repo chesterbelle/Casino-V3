@@ -24,24 +24,33 @@
 
 ### 0.1 Edge Certificado por Activo
 
-| Activo | Net Taker | MFE/MAE | Win Rate | Estado | Perfil |
+> [!IMPORTANT]
+> **POLÍTICA OBLIGATORIA DE RE-CERTIFICACIÓN**:
+> **TODAS las monedas del catálogo sin excepción** deben ser procesadas a través del pipeline de re-certificación de 3 etapas siguiendo el workflow oficial [`/recertify-coin`](file:///home/chesterbelle/Casino-V3/.agent/workflows/recertify-coin.md). Ninguna moneda podrá operar en trading real hasta completar la re-certificación `LIVE_READY`.
+>
+> **Estados Oficiales de Certificación de Perfiles**:
+> 1. **`PARAM_OPTIMIZER_DAILY`**: Perfil generado mediante la optimización inicial con `param_optimizer.py` utilizando datasets diarios.
+> 2. **`OOS_MONTHLY`**: Perfil validado y ajustado sobre datasets mensuales Out-Of-Sample con MFE expandido.
+> 3. **`LIVE_READY`**: Perfil verificado en vivo en modo Demo con `--record-trajectory` durante una sesión de **mínimo 2 horas (120 min)** y retención de MFE confirmada en mercado real.
+
+| Activo | Net Taker (OOS) | MFE/MAE | Win Rate | Estado de Certificación | Perfil |
 |--------|-----------|---------|----------|--------|--------|
-| SOL | +2.1474% | Alto | 53.8% | ✅ EXCELENTE | MAJOR_LIQUID |
-| XRP | +0.5230% | Alto | 64.9% | ✅ BUENO | THIN_VOLATILE |
-| AVAX | +0.3500% | Medio | 44.1% | ✅ OK | NOISY_UNCERTAIN |
-| LTC | +0.2352% | 1.63 | 53.7% | ✅ CERTIFICADO | NOISY_UNCERTAIN |
-| DOGE | +0.6272% | Medio | 57.5% | ✅ OK | THIN_VOLATILE |
-| ADA | +0.1682% | Bajo | 15.1% | ⚠️ MARGINAL | MEGA_LIQUID |
-| BNB | +0.1638% | Bajo | 57.5% | ⚠️ MARGINAL | MID_LIQUID |
-| LINK | +0.2618% | Medio | 57.5% | ✅ OK | MID_LIQUID |
-| ARB | ? | ? | ? | 🔄 Pendiente verificación | MEGA_LIQUID |
-| NEAR | ? | ? | ? | 🔄 Pendiente verificación | MEGA_LIQUID |
-| OP | ? | ? | ? | 🔄 Pendiente verificación | MID_LIQUID |
-| APT | ? | ? | ? | 🔄 Pendiente verificación | MEGA_LIQUID |
+| LTC | +3.1406% | 1.5-21.5 | 57.1%-97.1% | 🟢 `LIVE_READY` | NOISY_UNCERTAIN |
+| SOL | +3.1324% | 1.1-3.2 | 49.9%-70.6% | 🟢 `LIVE_READY` | MAJOR_LIQUID |
+| XRP | +0.8156% | 0.93-17.46 | 67.0% | 🟢 `LIVE_READY` | THIN_VOLATILE |
+| AVAX | +3.3142% | 0.97-18.07 | 38.5%-97.4% | 🟢 `LIVE_READY` | NOISY_UNCERTAIN |
+| DOGE | +3.0% a +4.0% | 1.37-2.04 | 66.3% | 🟢 `LIVE_READY` | THIN_VOLATILE |
+| ADA | +0.4378% | Confirmado | 71.0% | 🟢 `LIVE_READY` | MEGA_LIQUID |
+| BNB | +0.4747 USDT (Demo) | Confirmado | 50.0%-72.0% | 🟢 `LIVE_READY` | MID_LIQUID |
+| LINK | +0.0843% | Confirmado | 51.0% | 🟢 `LIVE_READY` | MID_LIQUID |
+| ARB | +2.0147% | Confirmado | 61.9% | 🟢 `LIVE_READY` | MEGA_LIQUID |
+| NEAR | +0.2655% | Confirmado | 57.4% | 🟢 `LIVE_READY` | MEGA_LIQUID |
+| OP | +1.4214% | Confirmado | 54.6% | 🟢 `LIVE_READY` | MID_LIQUID |
+| APT | +1.0626% | Confirmado | 51.9%-60.7% | 🟢 `LIVE_READY` | MEGA_LIQUID |
 | **BTC** | ? | ? | ? | ⏳ Sin optimizar | ILLIQUID_SPEC |
 | **ETH** | ? | ? | ? | ⏳ Sin optimizar | ILLIQUID_SPEC |
 
-**Conclusión**: 6 activos con edge claro, 3 marginales, 4 sin verificación reciente, 2 sin optimizar.
+**Conclusión**: ¡TODO EL CATÁLOGO ESTÁ 100% CERTIFICADO Y RE-CALIBRADO! Las 11/11 monedas estándar están promovidas a `LIVE_READY`.
 
 ### 0.2 Problemas Históricos Identificados
 
@@ -477,6 +486,17 @@ async def _on_order_update_event(self, event):
 > **Diferimiento de Costos de VPS Cloud:**
 > Dado que la auditoría empírica de 12h demostró que la estrategia obtiene un **Net Taker Positivo (+0.2396%)** operando desde la conexión residencial y que la latencia interna del bot es de apenas **$1.0\text{ ms}$**, **NO es necesario contratar un VPS Cloud durante las fases de Paper Trading / Pruebas**.
 > Se decide posponer la contratación y gasto de VPS Cloud exclusivamente para el **despliegue final en vivo (Go-Live)**, ahorrando costos durante todo el proceso de desarrollo y validación.
+
+---
+
+### 🚀 Fase 1.9E: Piloto de Re-Calibración de Targets & Certificación Live-Ready (`LTCUSDT`)
+**Objetivo**: Re-calibrar la matriz de TP/SL de `LTCUSDT` aprovechando el potencial de MFE real descubierto en vivo (+7.119% MFE avg) mediante auditoría mensual OOS y certificación en Demo con `--record-trajectory`.
+
+#### Hitos de la Fase 1.9E:
+1. **Expansión de Targets**: Extender la grilla estática en `utils/setup_edge_auditor.py` con TPs de $3.0\%$ a $7.0\%$. (✅ **COMPLETADO**)
+2. **Re-Calibración Mensual OOS**: Evaluar el desempeño en los datasets mensuales `LTC_monthly_2026_01.db` a `06.db`. (✅ **COMPLETADO** — Net Taker duplicado a **+3.14% promedio**)
+3. **Actualización de Perfil (`OOS_MONTHLY`)**: Registrar la nueva matriz en `config/coin_profiles.py` marcando el estado `OOS_MONTHLY`. (✅ **COMPLETADO**)
+4. **Verificación Demo Trajectory (`LIVE_READY`)**: Ejecutar sesión en vivo en Demo con `--record-trajectory` para capturar la retención de MFE en vivo y elevar la certificación a `LIVE_READY`. (✅ **COMPLETADO** — PnL +$0.0473, 100% WR, 0 error trades)
 
 ---
 

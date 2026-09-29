@@ -47,6 +47,17 @@ Elimina estados residuales (`state/*.json`) y el historial viejo (`historian.db`
 
 ---
 
+## 🛡️ SECUENCIA DE RECUPERACIÓN POST-APAGÓN / REINICIO (Crash Recovery)
+
+Ejecutar esta comprobación **siempre** que la computadora o el servidor hayan sufrido una caída de energía o reinicio abrupto antes de lanzar el bot:
+
+```bash
+python3 utils/heal_historian.py --db data/historian.db --fix
+```
+*(Limpia artefactos no numéricos producidos en SQLite por cierres ungraceful y valida `PRAGMA integrity_check`).*
+
+---
+
 ## 🚀 SECUENCIA DE ARRANQUE NORMAL
 
 Ejecutar este comando explícito en una sesión `setsid` o `nohup` para que el bot sobreviva al cierre de la terminal. Todos los parámetros (especialmente la lista de monedas autorizadas) se inyectan de forma explícita.

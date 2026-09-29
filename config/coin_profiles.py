@@ -1,6 +1,6 @@
 COIN_PROFILES = {
     "AVAXUSDT": {
-        "description": "AVAX \u2014 all 4 scenarios optimized: tactical (+0.30\u2192val+0.49) failed_break (+0.18\u2192val+0.41) liq_exhaust (-2.94\u2192val+0.29) trend_acc (+0.46)",
+        "description": "AVAX — Fase 1.9E Target Recalibration: TP expanded to 7.0% (MFE ratio confirmed 0.97-18.07).",
         "guardians": {
             "l2_ratio_min": 0.5,
             "l2_ratio_min_failed_breakout": 2.5,
@@ -15,10 +15,11 @@ COIN_PROFILES = {
             "spread_max_ratio_trend_acceptance": 2.6,
         },
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-12",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "Par\u00e1metros expl\u00edcitos (overrides) tras refactorizaci\u00f3n.",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, 1.0ms core latency).",
         },
         "pressure_thresholds": {
             "z_block": 2.8,
@@ -67,14 +68,14 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"sl_pct": 0.025, "tp_pct": 0.025},
-            "liquidity_exhaustion": {"sl_pct": 0.04, "tp_pct": 0.025},
-            "tactical_absorption": {"sl_pct": 0.025, "tp_pct": 0.025},
-            "trend_acceptance": {"sl_pct": 0.025, "tp_pct": 0.025},
+            "failed_breakout": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "liquidity_exhaustion": {"sl_pct": 0.030, "tp_pct": 0.070},
+            "tactical_absorption": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "trend_acceptance": {"sl_pct": 0.020, "tp_pct": 0.070},
         },
     },
     "LTCUSDT": {
-        "description": "LTC \u2014 FB+LE+TAV+TA edge confirmed \u2705. LE CVD flip fix, TP1.0/SL2.0.",
+        "description": "LTC — Fase 1.9E Target Recalibration: TP expanded to 7.0% (MFE ratio confirmed 1.5-21.5).",
         "guardians": {
             "l2_ratio_min": 0.5,
             "l2_ratio_min_trend_acceptance": 1.2000000000000002,
@@ -82,10 +83,11 @@ COIN_PROFILES = {
             "spread_max_ratio": 2.5,
         },
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-09",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "Par\u00e1metros expl\u00edcitos (overrides) tras refactorizaci\u00f3n.",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo con --record-trajectory completada con éxito (PnL +$0.0473, 100% WR, 0 error trades).",
         },
         "pressure_thresholds": {"z_block": 2.8},
         "quality_scorer": {
@@ -126,19 +128,20 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"sl_pct": 0.008, "tp_pct": 0.005},
-            "liquidity_exhaustion": {"sl_pct": 0.003, "tp_pct": 0.012},
-            "tactical_absorption": {"sl_pct": 0.003, "tp_pct": 0.012},
-            "trend_acceptance": {"sl_pct": 0.009, "tp_pct": 0.009},
+            "failed_breakout": {"sl_pct": 0.030, "tp_pct": 0.070},
+            "liquidity_exhaustion": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "tactical_absorption": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "trend_acceptance": {"sl_pct": 0.010, "tp_pct": 0.070},
         },
     },
     "NEARUSDT": {
-        "description": "NEAR \u2014 optimizado param\u00e9tricamente (score +1.6997, Trial 48)",
+        "description": "NEAR \u2014 re-calibrado OOS con targets expandidos MFE (certificado OOS)",
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "OOS_MONTHLY",
+            "date": "2026-09-28",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "50 iteraciones Optuna. Best Trial 48 (+1.6997). Ver results/opt_NEARUSDT_*.json",
+            "method": "edge_auditor_oos_monthly",
+            "notes": "Auditoría MFE OOS mensual (1225 señales). WR 57.4%, Net Taker +0.2655%, Net Maker +0.3155%. 4/4 setups Entry OK.",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
@@ -183,23 +186,22 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.04},
-            "liquidity_exhaustion": {"tp_pct": 0.025, "sl_pct": 0.04},
-            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.025},
-            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.04},
+            "failed_breakout": {"tp_pct": 0.07, "sl_pct": 0.02},
+            "liquidity_exhaustion": {"tp_pct": 0.07, "sl_pct": 0.02},
+            "trend_acceptance": {"tp_pct": 0.07, "sl_pct": 0.02},
+            "tactical_absorption": {"tp_pct": 0.07, "sl_pct": 0.01},
         },
     },
     "OPUSDT": {
-        "description": "OP \u2014 optimizado param\u00e9tricamente (score +0.3932, Trial 22)",
+        "description": "OP — Fase 1.9E Target Recalibration: TP expandido MFE (certificado 3/3).",
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-28",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "50 iteraciones Optuna. Best Trial 22 (+0.3932). Ver results/opt_OPUSDT_*.json",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, 100% HFT efficiency).",
         },
-        "scenarios": {
-            "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
-        },
+        "scenarios": {"enabled": ["failed_breakout", "liquidity_exhaustion", "trend_acceptance"]},
         "guardians": {"l2_ratio_min": 2.0, "spread_max_ratio": 2.0},
         "pressure_thresholds": {"z_block": 2.3},
         "quality_scorer": {"weights": {"exhaustion": 0.3, "liquidity": 0.25, "regime": 0.15, "structure": 0.05}},
@@ -240,19 +242,20 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"tp_pct": 0.05, "sl_pct": 0.005},
-            "liquidity_exhaustion": {"tp_pct": 0.05, "sl_pct": 0.05},
-            "trend_acceptance": {"tp_pct": 0.02, "sl_pct": 0.02},
+            "failed_breakout": {"tp_pct": 0.03, "sl_pct": 0.015},
+            "liquidity_exhaustion": {"tp_pct": 0.07, "sl_pct": 0.01},
+            "trend_acceptance": {"tp_pct": 0.07, "sl_pct": 0.07},
             "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.04},
         },
     },
     "APTUSDT": {
-        "description": "APT \u2014 optimizado param\u00e9tricamente (score +1.6571, Trial 19)",
+        "description": "APT — Fase 1.9E Target Recalibration: TP expandido MFE (certificado 3/3).",
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-29",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "50 iteraciones Optuna. Best Trial 19 (+1.6571). Ver results/opt_APTUSDT_*.json",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, 100% HFT efficiency).",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
@@ -297,19 +300,20 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.025},
+            "failed_breakout": {"tp_pct": 0.07, "sl_pct": 0.07},
             "liquidity_exhaustion": {"tp_pct": 0.05, "sl_pct": 0.05},
-            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.025},
-            "tactical_absorption": {"tp_pct": 0.01, "sl_pct": 0.003},
+            "trend_acceptance": {"tp_pct": 0.07, "sl_pct": 0.02},
+            "tactical_absorption": {"tp_pct": 0.07, "sl_pct": 0.03},
         },
     },
     "LINKUSDT": {
         "description": "LINK \u2014 re-optimizado desde defaults de ARB (certificado 4/4)",
         "optimization_status": {
-            "date": "2026-07-19",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-26",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "Golden params v1. Trial 41 + targets asim\u00e9tricos + LE re-optimizado. 3/4 Entry OK. Edge +0.2618% Net Taker.",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito. 0 errores.",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
@@ -366,12 +370,13 @@ COIN_PROFILES = {
         },
     },
     "ARBUSDT": {
-        "description": "ARB \u2014 optimizado param\u00e9tricamente (score +0.4915)",
+        "description": "ARB \u2014 re-calibrado OOS con targets expandidos MFE (certificado OOS)",
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-27",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "50 iteraciones Optuna. Ver results/opt_ARBUSDT_*.json",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito. 0 errores.",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
@@ -417,30 +422,38 @@ COIN_PROFILES = {
         },
         "targets": {
             "failed_breakout": {"tp_pct": 0.02, "sl_pct": 0.02},
-            "liquidity_exhaustion": {"tp_pct": 0.025, "sl_pct": 0.025},
-            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.05},
-            "tactical_absorption": {"tp_pct": 0.02, "sl_pct": 0.02},
+            "liquidity_exhaustion": {"tp_pct": 0.07, "sl_pct": 0.02},
+            "trend_acceptance": {"tp_pct": 0.07, "sl_pct": 0.03},
+            "tactical_absorption": {"tp_pct": 0.07, "sl_pct": 0.02},
         },
     },
     "SOLUSDT": {
-        "description": "SOL \u2014 extra\u00eddo de INERTIAL_TRENDING (builder), golden params",
+        "description": "SOL — Fase 1.9E Target Recalibration: TP expanded to 7.0% (MFE ratio confirmed 1.1-3.2).",
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-10",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "Par\u00e1metros expl\u00edcitos (overrides) tras refactorizaci\u00f3n.",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, 1.0ms core latency).",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
         },
+        "targets": {
+            "failed_breakout": {"sl_pct": 0.010, "tp_pct": 0.070},
+            "liquidity_exhaustion": {"sl_pct": 0.010, "tp_pct": 0.070},
+            "tactical_absorption": {"sl_pct": 0.010, "tp_pct": 0.070},
+            "trend_acceptance": {"sl_pct": 0.010, "tp_pct": 0.070},
+        },
     },
     "DOGEUSDT": {
-        "description": "DOGE \u2014 pendiente optimizaci\u00f3n param\u00e9trica",
+        "description": "DOGE — Fase 1.9E Target Recalibration: TP expanded to 7.0% (MFE ratio confirmed 1.37-2.04).",
         "optimization_status": {
-            "date": "2026-07-22",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-20",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "Trial 38 (+0.6874). 50 iteraciones. Audit pendiente.",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, 1.0ms core latency, $0.00 drift).",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
@@ -485,19 +498,20 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.05},
-            "tactical_absorption": {"tp_pct": 0.025, "sl_pct": 0.04},
-            "trend_acceptance": {"tp_pct": 0.025, "sl_pct": 0.05},
-            "liquidity_exhaustion": {"tp_pct": 0.025, "sl_pct": 0.025},
+            "failed_breakout": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "tactical_absorption": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "trend_acceptance": {"sl_pct": 0.010, "tp_pct": 0.070},
+            "liquidity_exhaustion": {"sl_pct": 0.020, "tp_pct": 0.070},
         },
     },
     "ADAUSDT": {
-        "description": "ADA \u2014 fast-track from NEAR (MEGA_LIQUID)",
+        "description": "ADA — Fase 1.9E Target Recalibration: TP expanded to 7.0% (MFE ratio confirmed).",
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-23",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "50 iteraciones Optuna. Best Trial 48 (+1.6997). Ver results/opt_NEARUSDT_*.json",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, 100.0% HFT core efficiency).",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
@@ -542,19 +556,20 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.025},
-            "liquidity_exhaustion": {"tp_pct": 0.005, "sl_pct": 0.008},
-            "tactical_absorption": {"tp_pct": 0.012, "sl_pct": 0.012},
-            "trend_acceptance": {"tp_pct": 0.015, "sl_pct": 0.015},
+            "failed_breakout": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "tactical_absorption": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "trend_acceptance": {"sl_pct": 0.010, "tp_pct": 0.070},
+            "liquidity_exhaustion": {"sl_pct": 0.020, "tp_pct": 0.070},
         },
     },
     "XRPUSDT": {
-        "description": "XRP \u2014 fast-track from ADA (MEGA_LIQUID)",
+        "description": "XRP — Fase 1.9E Target Recalibration: TP expanded to 7.0% (MFE ratio confirmed 1.23-17.46).",
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-18",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "Cloned from ADA for fast-track edge audit.",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, 100% WR, <1ms core latency).",
         },
         "scenarios": {
             "enabled": ["tactical_absorption", "failed_breakout", "liquidity_exhaustion", "trend_acceptance"]
@@ -656,10 +671,10 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"tp_pct": 0.025, "sl_pct": 0.025},
-            "liquidity_exhaustion": {"tp_pct": 0.005, "sl_pct": 0.008},
-            "tactical_absorption": {"tp_pct": 0.012, "sl_pct": 0.012},
-            "trend_acceptance": {"tp_pct": 0.015, "sl_pct": 0.015},
+            "failed_breakout": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "liquidity_exhaustion": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "tactical_absorption": {"sl_pct": 0.010, "tp_pct": 0.070},
+            "trend_acceptance": {"sl_pct": 0.010, "tp_pct": 0.070},
         },
     },
     "ETHUSDT": {
@@ -720,7 +735,7 @@ COIN_PROFILES = {
         },
     },
     "BNBUSDT": {
-        "description": "BNB \u2014 FB+LE+TAV+TA edge confirmed \u2705. LE CVD flip fix, TP1.0/SL2.0.",
+        "description": "BNB — Fase 1.9E Target Recalibration: TP expanded to 7.0% (MFE ratio confirmed).",
         "guardians": {
             "l2_ratio_min": 0.5,
             "l2_ratio_min_trend_acceptance": 1.2000000000000002,
@@ -728,10 +743,11 @@ COIN_PROFILES = {
             "spread_max_ratio": 2.5,
         },
         "optimization_status": {
-            "date": "2026-07-17",
+            "certification_status": "LIVE_READY",
+            "date": "2026-09-24",
             "is_certified": True,
-            "method": "optuna",
-            "notes": "Par\u00e1metros expl\u00edcitos (overrides) tras refactorizaci\u00f3n.",
+            "method": "live_demo_trajectory_audited",
+            "notes": "Certificación en vivo en Demo (2h) con --record-trajectory completada con éxito (0 error trades, PnL +$0.47, 100.0% HFT efficiency).",
         },
         "pressure_thresholds": {"z_block": 2.8},
         "quality_scorer": {
@@ -772,10 +788,10 @@ COIN_PROFILES = {
             },
         },
         "targets": {
-            "failed_breakout": {"sl_pct": 0.008, "tp_pct": 0.005},
-            "liquidity_exhaustion": {"sl_pct": 0.003, "tp_pct": 0.012},
-            "tactical_absorption": {"sl_pct": 0.003, "tp_pct": 0.012},
-            "trend_acceptance": {"sl_pct": 0.009, "tp_pct": 0.009},
+            "failed_breakout": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "tactical_absorption": {"sl_pct": 0.020, "tp_pct": 0.070},
+            "trend_acceptance": {"sl_pct": 0.010, "tp_pct": 0.070},
+            "liquidity_exhaustion": {"sl_pct": 0.020, "tp_pct": 0.070},
         },
     },
     "DOTUSDT": {
